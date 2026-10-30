@@ -108,6 +108,36 @@ export function DotPattern({
     }
   )
 
+  // dash local change: a static grid is one <pattern>, not thousands of motion circles.
+  if (!glow) {
+    return (
+      <svg
+        ref={containerRef}
+        aria-hidden="true"
+        className={cn(
+          "pointer-events-none absolute inset-0 h-full w-full text-neutral-400/80",
+          className
+        )}
+        {...props}
+      >
+        <defs>
+          <pattern
+            id={`${id}-dots`}
+            width={width}
+            height={height}
+            patternUnits="userSpaceOnUse"
+            patternContentUnits="userSpaceOnUse"
+            x={x}
+            y={y}
+          >
+            <circle cx={cx} cy={cy} r={cr} fill="currentColor" />
+          </pattern>
+        </defs>
+        <rect width="100%" height="100%" strokeWidth={0} fill={`url(#${id}-dots)`} />
+      </svg>
+    )
+  }
+
   return (
     <svg
       ref={containerRef}

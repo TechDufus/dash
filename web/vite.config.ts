@@ -9,7 +9,8 @@ export default defineConfig({
     alias: { "@": fileURLToPath(new URL("./src", import.meta.url)) },
   },
   server: {
-    proxy: { "/api": "http://127.0.0.1:8080" },
+    // DASH_API overrides the backend address when 8080 is taken (DASH_LISTEN on the Go side).
+    proxy: { "/api": process.env.DASH_API ?? "http://127.0.0.1:8080" },
   },
   // dist/.gitkeep (committed, so go:embed works before a build) comes back from public/.gitkeep.
   build: { outDir: "dist" },

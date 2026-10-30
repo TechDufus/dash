@@ -25,6 +25,10 @@ export interface AnimatedBeamProps {
   startYOffset?: number
   endXOffset?: number
   endYOffset?: number
+  /** dash local change: false renders only the static base line (reduced motion, stopped VMs). */
+  animated?: boolean
+  /** dash local change: dashed base line. */
+  dashed?: boolean
 }
 
 export const AnimatedBeam: React.FC<AnimatedBeamProps> = ({
@@ -47,6 +51,8 @@ export const AnimatedBeam: React.FC<AnimatedBeamProps> = ({
   startYOffset = 0,
   endXOffset = 0,
   endYOffset = 0,
+  animated = true,
+  dashed = false,
 }) => {
   const id = useId()
   const [pathD, setPathD] = useState("")
@@ -100,10 +106,12 @@ export const AnimatedBeam: React.FC<AnimatedBeamProps> = ({
       updatePath()
     })
 
-    // Observe the container element
+    // Observe the container element and both endpoints (cards change height with data)
     if (containerRef.current) {
       resizeObserver.observe(containerRef.current)
     }
+    if (fromRef.current) resizeObserver.observe(fromRef.current)
+    if (toRef.current) resizeObserver.observe(toRef.current)
 
     // Call the updatePath initially to set the initial path
     updatePath()
@@ -134,6 +142,7 @@ export const AnimatedBeam: React.FC<AnimatedBeamProps> = ({
         className
       )}
       viewBox={`0 0 ${svgDimensions.width} ${svgDimensions.height}`}
+      aria-hidden="true"
     >
       <path
         d={pathD}
@@ -141,49 +150,54 @@ export const AnimatedBeam: React.FC<AnimatedBeamProps> = ({
         strokeWidth={pathWidth}
         strokeOpacity={pathOpacity}
         strokeLinecap="round"
+        strokeDasharray={dashed ? "4 6" : undefined}
       />
-      <path
-        d={pathD}
-        strokeWidth={pathWidth}
-        stroke={`url(#${id})`}
-        strokeOpacity="1"
-        strokeLinecap="round"
-      />
-      <defs>
-        <motion.linearGradient
-          className="transform-gpu"
-          id={id}
-          gradientUnits={"userSpaceOnUse"}
-          initial={{
-            x1: "0%",
-            x2: "0%",
-            y1: "0%",
-            y2: "0%",
-          }}
-          animate={{
-            x1: gradientCoordinates.x1,
-            x2: gradientCoordinates.x2,
-            y1: gradientCoordinates.y1,
-            y2: gradientCoordinates.y2,
-          }}
-          transition={{
-            delay,
-            duration,
-            ease: [0.16, 1, 0.3, 1], // https://easings.net/#easeOutExpo
-            repeat,
-            repeatDelay,
-          }}
-        >
-          <stop stopColor={gradientStartColor} stopOpacity="0"></stop>
-          <stop stopColor={gradientStartColor}></stop>
-          <stop offset="32.5%" stopColor={gradientStopColor}></stop>
-          <stop
-            offset="100%"
-            stopColor={gradientStopColor}
-            stopOpacity="0"
-          ></stop>
-        </motion.linearGradient>
-      </defs>
+      {animated && (
+        <>
+          <path
+            d={pathD}
+            strokeWidth={pathWidth}
+            stroke={`url(#${id})`}
+            strokeOpacity="1"
+            strokeLinecap="round"
+          />
+          <defs>
+            <motion.linearGradient
+              className="transform-gpu"
+              id={id}
+              gradientUnits={"userSpaceOnUse"}
+              initial={{
+                x1: "0%",
+                x2: "0%",
+                y1: "0%",
+                y2: "0%",
+              }}
+              animate={{
+                x1: gradientCoordinates.x1,
+                x2: gradientCoordinates.x2,
+                y1: gradientCoordinates.y1,
+                y2: gradientCoordinates.y2,
+              }}
+              transition={{
+                delay,
+                duration,
+                ease: [0.16, 1, 0.3, 1], // https://easings.net/#easeOutExpo
+                repeat,
+                repeatDelay,
+              }}
+            >
+              <stop stopColor={gradientStartColor} stopOpacity="0"></stop>
+              <stop stopColor={gradientStartColor}></stop>
+              <stop offset="32.5%" stopColor={gradientStopColor}></stop>
+              <stop
+                offset="100%"
+                stopColor={gradientStopColor}
+                stopOpacity="0"
+              ></stop>
+            </motion.linearGradient>
+          </defs>
+        </>
+      )}
     </svg>
   )
 }
