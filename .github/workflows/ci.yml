@@ -1,0 +1,39 @@
+name: ci
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+permissions:
+  contents: read
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  check:
+    runs-on: [self-hosted, linux, x64, homelab, dash]
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: jdx/mise-action@6be3c7ed4c21d4f76b208d351d95aac273ebb76d # v5.2.4
+      - run: make check
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: check
+    runs-on: [self-hosted, linux, x64, homelab, dash]
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Build and push the image
+        run: |
+          set -euo pipefail
+          version=${GITHUB_REF_NAME#v}
+          [[ $version =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "::error::tag must be vX.Y.Z"; exit 1; }
+          image=registry.home.techdufus.com/dash/dash:$version
+          if docker buildx imagetools inspect "$image" >/dev/null 2>&1; then
+            echo "::error::$image already exists (dash-ci is create-only); tag a new version"; exit 1
+          fi
+          docker buildx build --build-arg VERSION="$version" --tag "$image" --push \
+            --metadata-file "$RUNNER_TEMP/meta.json" .
+          digest=$(jq -r '."containerimage.digest"' "$RUNNER_TEMP/meta.json")
+          echo "image: $image@$digest"
+          echo "image: \`$image@$digest\`" >> "$GITHUB_STEP_SUMMARY"
