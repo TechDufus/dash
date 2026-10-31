@@ -22,7 +22,7 @@ Non-goals for this plan:
 ## Summary of recommendations
 
 1. **Plugins are in-process Go packages, listed explicitly at compile time.** Each one sits behind a small interface (`internal/plugin`): a manifest, a config struct that generates a JSON Schema, a status, topics, actions and series. The SPA has a matching module per plugin ID, compiled into the bundle. `GET /api/plugins` tells the SPA which plugins are enabled, and the SPA never loads remote JS. Out-of-process plugins are a later adapter behind the same interface.
-2. **Config layers, from lowest to highest priority:** built-in defaults, then UI settings (`/data/settings.yaml`), then the config file (`DASH_CONFIG`), then environment variables. Any field set by the file or by env is **locked**: the UI shows it read-only, along with where it came from. The UI only fills gaps, so GitOps-managed values always win. Secret references (`env:`, `file:`, `k8s:`) are a *value form* that every layer can use, not a separate layer.
+2. **Config layers, from lowest to highest priority:** built-in defaults, then UI settings (`/data/ui-settings.yaml`), then the config file (`DASH_CONFIG`), then environment variables. Any field set by the file or by env is **locked**: the UI shows it read-only, along with where it came from, and the server rejects writes to it. The UI only fills gaps, so GitOps-managed values always win. Secret references (`env:`, `file:`, `k8s:`) are a *value form* that every layer can use, not a separate layer.
 3. **Secrets never reach the browser.** The API returns only `{set, source, updatedAt}`. Secrets entered in the UI are encrypted at rest with XChaCha20-Poly1305. A dedicated `secret.Value` type redacts itself in logs, JSON and errors.
 4. **Kubernetes becomes optional.** Today the process exits without a cluster (`cmd/dash/main.go:59-62`), and readiness is informer sync (`internal/topics/manager.go:105`). The new `kubernetes` plugin auto-detects in-cluster config or a kubeconfig and gates its informers on API discovery. With no cluster, it reports "unavailable" without crashing, and `/readyz` is unaffected. `flux`, `cnpg` and the apps discovery depend on it.
 5. **Auth becomes part of dash.** The default for open source is a built-in local admin, bootstrapped with a one-time setup token. Trusted reverse-proxy headers (today's oauth2-proxy setup, now restricted to trusted proxy CIDRs) and built-in OIDC are first-class alternatives. There are two roles, viewer and admin; settings and actions need admin. The CSRF and Origin checks stay.
@@ -358,7 +358,7 @@ export const MODULES: PluginModule[] = [proxmox, hardware, kubernetes, flux, ale
 | Source | Where | Format | Who edits | Reload |
 |---|---|---|---|---|
 | Built-in defaults | binary | Go | developers | n/a |
-| UI settings | `$DASH_DATA_DIR/settings.yaml` (default `/data/settings.yaml`) | YAML, written by dash only | admins in the UI | immediate |
+| UI settings | `$DASH_DATA_DIR/ui-settings.yaml` (default `/data/ui-settings.yaml`) | YAML, written by dash only | admins in the UI | immediate |
 | Config file | `DASH_CONFIG` (default: `/data/config.yaml` if present; the chart uses `/etc/dash/config.yaml`) | YAML | operator / GitOps | polled every 10s |
 | Environment | `DASH_*` | strings (JSON for lists) | operator | restart |
 
@@ -370,16 +370,31 @@ built-in defaults  <  UI settings (/data)  <  config file (DASH_CONFIG)  <  envi
 
 - The effective value of a field is the value from the highest layer that sets it.
 - **Locked fields.** A field set by the config file or by env is read-only in the UI. The UI shows its source (`env DASH_PLUGINS_PROXMOX_URL` or `file /etc/dash/config.yaml`). Declarative sources therefore always win, and a click in the UI can never silently diverge from git.
+- **Locks are enforced on the server.** The greyed-out field is only a hint. Any write (PUT, PATCH or DELETE, including secret Replace and Clear) to a file- or env-locked path returns `409 Conflict` with `{path, source, ref}`. The one write accepted on a locked path is "remove stored value" (below), because it deletes a shadowed UI key and cannot change the effective value. With `settings.ui: readonly` every settings write returns 409, including that one.
+- **Overlay at read time, never sync.** File and env values are merged in when the effective config is resolved, on every load and read. They are never copied into the UI store. Removing a value from the file or env immediately reveals the stored UI value, if any, or the default.
+- **The UI store is sparse.** `ui-settings.yaml` holds only keys an admin explicitly saved, never a snapshot of the effective config. Saving a form persists only changed, unlocked fields; "reset to default" deletes the key. Vaultwarden shows the failure mode: its admin page writes every option to `config.json`, which then silently shadows later env changes ([configuration overview](https://github.com/dani-garcia/vaultwarden/wiki/Configuration-overview)).
 - **Shadowed UI values.** If a UI value exists and an operator later sets the same field in the file or in env, the UI value is ignored. Settings shows "overridden by env; stored value unused", with a "remove stored value" button.
-- **Granularity.** Scalars lock per field. Lists (launcher links, machines, critical VMs) lock as a whole. `plugins.<id>.managed: true` in file or env locks the entire plugin. `settings.ui: readonly` (or `DASH_SETTINGS_UI=readonly`) is fully managed mode: the UI can view but not save. That is the recommendation for GitOps Kubernetes installs, including the homelab.
-- **Why not "UI wins":** it breaks GitOps, it makes the running state differ from the reviewed state, and it means two operators fighting over a value never find out.
-- **Secrets are a value form, not a layer.** In any layer a secret field may hold a literal (allowed in env; allowed in the file with a startup warning, since the file is often in git), a reference (`env:NAME`, `file:/path`, `k8s:ns/name#key`, see C.3), or (UI layer only) an encrypted value. The `_FILE` suffix on an env var is shorthand for a `file:` ref, following the Docker secrets convention.
+- **Path to GitOps.** Settings has an **Export as config.yaml snippet** button. It exports the admin-saved UI keys only; secrets appear as their ref, or as a placeholder for encrypted values, never as plaintext. The operator pastes the snippet into their own file. dash never writes into the operator's config file.
+- **Granularity.** Scalars lock per field. Lists (launcher links, machines, critical VMs) lock as a whole. `plugins.<id>.managed: true` in file or env locks the entire plugin. `settings.ui: readonly` (or `DASH_SETTINGS_UI=readonly`) is fully managed mode: the UI can view but not save, and the server rejects writes. That is the recommendation for GitOps Kubernetes installs, including the homelab.
+- **Why not "UI wins":** it breaks GitOps, it makes the running state differ from the reviewed state, and it means two operators fighting over a value never find out. The surveyed apps agree:
+
+  | App | Who wins | Outcome |
+  |---|---|---|
+  | Grafana provisioning | file | Provisioned objects are read-only; the server answers 403/400 to UI edits ([provisioning](https://raw.githubusercontent.com/grafana/grafana/main/docs/sources/administration/provisioning/index.md), [datasources.go](https://raw.githubusercontent.com/grafana/grafana/main/pkg/api/datasources.go)) |
+  | Immich | file | `IMMICH_CONFIG_FILE` locks the whole admin UI; updates return 400 ([config file](https://docs.immich.app/install/config-file/)) |
+  | Home Assistant core config | `configuration.yaml` | The UI section is disabled and shown read-only ([core_config.py](https://raw.githubusercontent.com/home-assistant/core/dev/homeassistant/core_config.py), [ha-config-section-general.ts](https://raw.githubusercontent.com/home-assistant/frontend/dev/src/panels/config/core/ha-config-section-general.ts)) |
+  | Vaultwarden | UI (`config.json` from the admin page) over env | The wiki warns that env changes stop working and now calls `config.json` "not recommended" ([configuration overview](https://github.com/dani-garcia/vaultwarden/wiki/Configuration-overview)) |
+  | Grafana SSO settings | UI/API-saved values over ini and env | The docs warn: "nothing in the UI or the file says so, which most often surprises people during credential rotation" ([configure-grafana](https://raw.githubusercontent.com/grafana/grafana/main/docs/sources/setup-grafana/configure-grafana/_index.md), [sso-settings API](https://raw.githubusercontent.com/grafana/grafana/main/docs/sources/developer-resources/api-reference/http-api/api-legacy/sso-settings.md)) |
+
+  dash locks per field and shows the source, which is finer than any of them (Grafana locks per object, Home Assistant per section, Immich the whole config).
+- **Secrets are a value form, not a layer.** In any layer a secret field may hold a literal (allowed in env; allowed in the file with a startup warning, since the file is often in git), a reference (`env:NAME`, `file:/path`, `k8s:ns/name#key`, see C.3), or (UI layer only) an encrypted value. `DASH_<NAME>_FILE` on an env var is shorthand for a `file:` ref, following the Docker secrets convention, and is resolved by the Go binary (B.3).
 
 ### B.3 Environment naming
 
 - Core fields: `DASH_SERVER_PUBLIC_URL`, `DASH_SERVER_LISTEN`, `DASH_AUTH_MODE`, and so on, mechanically derived from the schema path.
 - Plugin fields: `DASH_PLUGINS_<ID>_<FIELD_PATH>`. Each path segment is the JSON field name converted from camelCase to UPPER_SNAKE, and segments are joined with `_`. Example: `plugins.kubernetes.conventions.protectedLabel` becomes `DASH_PLUGINS_KUBERNETES_CONVENTIONS_PROTECTED_LABEL`, and `plugins.proxmox.tokenSecret` becomes `DASH_PLUGINS_PROXMOX_TOKEN_SECRET`. The mapping is not parsed back by guessing: dash generates the full name table from the schemas, and a unit test fails if two schema paths produce the same name. Lists and objects are JSON: `DASH_PLUGINS_HARDWARE_MACHINES='[{"name":"nas","nodeExporterNodename":"nas"}]'`.
 - An unknown `DASH_PLUGINS_*` variable is a startup error (typo protection). Other unknown `DASH_*` variables produce a warning. `DASH_API` is used by the Vite dev proxy (`web/vite.config.ts:13`) and must not trip the check.
+- `DASH_<NAME>_FILE=/path` is resolved in Go when the env layer loads, not in a shell entrypoint: the image is distroless and has no shell. Grafana does it in its `run.sh` entrypoint, so `GF_*__FILE` does not work on its distroless images ([run.sh](https://raw.githubusercontent.com/grafana/grafana/main/packaging/docker/run.sh)). Setting both `DASH_X` and `DASH_X_FILE` is a startup error naming both variables, as in Grafana's `run.sh`.
 - A generated reference table lives at `docs/configuration.md`, produced by `dash config env` (P2.2).
 
 ### B.4 Example config file
@@ -455,7 +470,7 @@ Sequencing risk: if the homelab deployment relies on today's `.svc` defaults, re
 
 | Change | Detection | Effect |
 |---|---|---|
-| UI save | API call | Validate, write `settings.yaml` atomically (temp file, fsync, rename, fsync of the directory) with a revision/ETag, then apply |
+| UI save | API call | Validate, write `ui-settings.yaml` atomically (B.7) with a revision/ETag, then apply |
 | Config file | Poll every 10s on mtime, size and SHA-256. This handles the ConfigMap symlink swap; inotify does not see it reliably | Parse and validate the whole tree. If invalid, keep the running config, log an error, and show "config file invalid: ..." in Settings; `/readyz` is unaffected |
 | `file:` secret ref | Same poll, per referenced file | Reconfigure only the plugins that use it. Kubernetes Secret volume updates propagate except with `subPath` mounts; document that |
 | `k8s:` secret ref | Informer on the named Secrets only | Reconfigure the affected plugins |
@@ -464,9 +479,9 @@ Sequencing risk: if the homelab deployment relies on today's `.svc` defaults, re
 
 **Apply** diffs the old and new resolved config for each plugin. An unchanged plugin is untouched. A changed one goes through `Stop` (cancel its context, wait up to 10s) and then `Start` with the new config. Its last published events stay in the hub until the new instance publishes, so the UI does not flicker. If the plugin is now disabled, its events are cleared (A.7).
 
-### B.7 Settings store format (decision J.3)
+### B.7 Settings store format (decision J.3, decided)
 
-| | YAML file (`settings.yaml`) + `audit.jsonl` (recommended) | SQLite (`modernc.org/sqlite`, pure Go, still CGO-free) |
+| | YAML file (`ui-settings.yaml`) + `audit.jsonl` (decided) | SQLite (`modernc.org/sqlite`, pure Go, still CGO-free) |
 |---|---|---|
 | Plain volume | yes | yes |
 | Human-readable and diffable backups | yes | no |
@@ -474,7 +489,15 @@ Sequencing risk: if the homelab deployment relies on today's `.svc` defaults, re
 | Sessions and audit queries | stateless signed cookies (E.3); JSONL with rotation | tables |
 | Footprint | `sigs.k8s.io/yaml` (already a dependency, `go.mod`) | new dependency of a few MB |
 
-Recommendation: YAML now. The store is behind a `settings.Store` interface, so SQLite can come later if multi-user accounts or audit search are needed. Without a writable data dir, the UI is read-only and shows a banner explaining why.
+**Decided (research, 2026-10-31):** no database. dash keeps one YAML store, `$DASH_DATA_DIR/ui-settings.yaml`, with atomic writes. SQLite is added only if dash needs multiple users with roles, server-side sessions or a searchable audit log. It would then use `modernc.org/sqlite` (pure Go, CGO-free; [doc.go](https://raw.githubusercontent.com/modernc-org/sqlite/master/doc.go)) in a separate `/data/dash.db`, never mixed into the YAML store. bbolt is skipped: it has no migrations or query language, `Open` blocks on the file lock unless a timeout is set, and it is single-process like SQLite, so it offers nothing over SQLite here except a smaller binary ([bbolt README](https://raw.githubusercontent.com/etcd-io/bbolt/main/README.md)). The store is behind a `settings.Store` interface. Without a writable data dir, the UI is read-only and shows a banner explaining why.
+
+The store file:
+
+- **Name.** `ui-settings.yaml`, so it is not confused with the operator's `config.yaml`. It is sparse (B.2).
+- **Schema version.** A top-level `schemaVersion` field. On load, ordered migration functions upgrade older versions before use. Home Assistant's versioned `.storage` envelope is the precedent ([storage.py](https://raw.githubusercontent.com/home-assistant/core/dev/homeassistant/helpers/storage.py)).
+- **Atomic write.** Write a temp file in the same directory, fsync the file, rename it over `ui-settings.yaml`, then fsync the directory. renameio skips the directory fsync ([tempfile.go](https://raw.githubusercontent.com/google/renameio/master/tempfile.go)), so dash does this itself.
+- **Lock.** `flock` on a separate, never-replaced `/data/.lock`, which refuses a second instance. A lock on `ui-settings.yaml` itself would follow the old inode after the rename.
+- **Backups.** Each write first rotates the last 5 copies, `ui-settings.yaml.bak.1` (newest) to `ui-settings.yaml.bak.5`.
 
 ---
 
@@ -494,7 +517,7 @@ Recommendation: YAML now. The store is behind a `settings.Store` interface, so S
 
 ### C.2 Write-only fields in the UI
 
-Secret fields render as "Set (file) · updated 2 days ago" with two buttons, **Replace** and **Clear**. The current value is never shown and never read back. `PUT /api/settings/plugins/{id}/secrets/{field}` with `{value}` replaces it; `DELETE` clears it. Both are refused with 409 if the field is locked (set by file or env). "Test connection" (`Checker`) can use a candidate value from the form without saving it.
+Secret fields render as "Set (file) · updated 2 days ago" with two buttons, **Replace** and **Clear**. The current value is never shown and never read back. `PUT /api/settings/plugins/{id}/secrets/{field}` with `{value}` replaces it; `DELETE` clears it. Both are refused server-side with `409 Conflict` and `{path, source, ref}` if the field is locked (set by file or env), or if settings are read-only (B.2). "Test connection" (`Checker`) can use a candidate value from the form without saving it.
 
 ### C.3 Secret references
 
@@ -508,10 +531,11 @@ Secret fields render as "Set (file) · updated 2 days ago" with two buttons, **R
 ### C.4 Encryption at rest (values entered in the UI)
 
 - Format: `enc:v1:<kid>:<base64(nonce24 || ciphertext || tag)>`, using XChaCha20-Poly1305 (`golang.org/x/crypto/chacha20poly1305`), a random 24-byte nonce, and the field path as AAD so a ciphertext cannot be moved to another field.
-- Key: 32 bytes from `DASH_SECRET_KEY` (base64) or `DASH_SECRET_KEY_FILE`. Otherwise dash auto-generates `$DASH_DATA_DIR/secret.key` with mode 0600 and logs a WARN: "encryption key stored next to the data it protects; set DASH_SECRET_KEY for real protection". This is stated plainly: the auto key only protects copied `settings.yaml` files and backups, not a stolen volume.
+- Key: 32 bytes from `DASH_SECRET_KEY` (base64) or `DASH_SECRET_KEY_FILE`. There is never a default or auto-generated key; Grafana's static default `secret_key` is the example to avoid ([configure-grafana](https://raw.githubusercontent.com/grafana/grafana/main/docs/sources/setup-grafana/configure-grafana/_index.md)).
+- **No key:** UI-entered secrets are disabled. Secret fields render "set via env/file only", and their write endpoints return 409 naming the missing key. The rest of dash runs, including `env:`, `file:` and `k8s:` refs.
+- **Wrong or missing key with stored secrets:** if `ui-settings.yaml` holds any `enc:v1` value that the configured key cannot decrypt, or no key is set, dash refuses to start and lists the affected field paths. It never drops, blanks or regenerates a stored value. Recovery is restoring the key, or deleting the listed entries and entering them again.
 - age (filippo.io/age) was considered. It is built for file and recipient workflows. XChaCha20-Poly1305 with a key ID is smaller and does exactly this job.
 - **Rotation:** set `DASH_SECRET_KEY` to the new key and `DASH_SECRET_KEY_PREVIOUS` to the old one. On startup dash decrypts with either, re-encrypts every value with the new key, rewrites the store atomically, and audits `secrets.rekey`. Remove the previous key afterwards.
-- No key and no writable data dir means the UI cannot store secrets: those fields render "set via env/file only".
 
 ### C.5 Rotation of referenced secrets
 
@@ -538,15 +562,18 @@ Secret fields render as "Set (file) · updated 2 days ago" with two buttons, **R
 
 ```sh
 docker volume create dash-data
+openssl rand -base64 32 > dash-secret.key        # once; keep it outside the volume and back it up
 docker run -d --name dash --restart unless-stopped \
   -p 127.0.0.1:8080:8080 \
   -v dash-data:/data \
+  -v "$PWD/dash-secret.key:/run/secrets/dash_secret_key:ro" \
+  -e DASH_SECRET_KEY_FILE=/run/secrets/dash_secret_key \
   -e DASH_SERVER_PUBLIC_URL=http://localhost:8080 \
   ghcr.io/techdufus/dash:1
 docker logs dash 2>&1 | grep -m1 'setup token'   # one-time admin setup URL (E.3)
 ```
 
-You then configure plugins in Settings. Values are stored in `/data/settings.yaml`, with secrets encrypted. For an infrastructure-as-code setup, add `-v ./config.yaml:/data/config.yaml:ro`, or set `DASH_CONFIG`. To use the `kubernetes` plugin from Docker, mount a kubeconfig: `-v ~/.kube/config:/kube/config:ro -e DASH_PLUGINS_KUBERNETES_KUBECONFIG=/kube/config`.
+You then configure plugins in Settings. Values are stored in `/data/ui-settings.yaml`, with secrets encrypted under the key. Without the key, dash runs but UI-entered secrets are disabled; once secrets are stored, losing the key stops dash from starting (C.4). For an infrastructure-as-code setup, add `-v ./config.yaml:/data/config.yaml:ro`, or set `DASH_CONFIG`. To use the `kubernetes` plugin from Docker, mount a kubeconfig: `-v ~/.kube/config:/kube/config:ro -e DASH_PLUGINS_KUBERNETES_KUBECONFIG=/kube/config`.
 
 ### D.2 Docker Compose
 
@@ -565,7 +592,8 @@ services:
       DASH_PLUGINS_PROXMOX_NODE: pve
       DASH_PLUGINS_PROXMOX_TOKEN_ID: dash@pve!dash
       DASH_PLUGINS_PROXMOX_TOKEN_SECRET_FILE: /run/secrets/proxmox_token_secret
-    secrets: [proxmox_token_secret]
+      DASH_SECRET_KEY_FILE: /run/secrets/dash_secret_key
+    secrets: [proxmox_token_secret, dash_secret_key]
     volumes: ["dash-data:/data"]
 
   # Optional example backends: docker compose --profile monitoring up
@@ -580,6 +608,8 @@ services:
 secrets:
   proxmox_token_secret:
     file: ./secrets/proxmox_token_secret   # git-ignored
+  dash_secret_key:
+    file: ./secrets/dash_secret_key        # git-ignored; openssl rand -base64 32
 volumes:
   dash-data: {}
 ```
@@ -608,10 +638,13 @@ config: {}                  # rendered into a ConfigMap mounted at /etc/dash/con
 env: []                     # extra DASH_* env
 secretEnv: []               # [{name: DASH_PLUGINS_PROXMOX_TOKEN_SECRET, secretKeyRef: {name: proxmox, key: tokenSecret}}]
 settings: { ui: readonly }  # GitOps default for the chart
+secretKey:                  # required, no default: DASH_SECRET_KEY_FILE from an existing Secret
+  existingSecret: ""
+  key: secretKey
 persistence:
-  enabled: true             # PVC for /data (settings, audit, secret.key); false => emptyDir + readonly UI
+  enabled: true             # PVC for /data (ui-settings.yaml, backups, audit); false => emptyDir + readonly UI
   size: 256Mi
-  accessModes: [ReadWriteOnce]
+  accessModes: [ReadWriteOnce]  # or [ReadWriteOncePod] where the CSI driver supports it
 rbac:
   create: true
   read: true                # ClusterRole: get/list/watch nodes, namespaces, pods, events, PVCs, workloads, jobs,
@@ -627,9 +660,11 @@ auth:
 service: { port: 8080 }
 ingress: { enabled: false }
 httpRoute: { enabled: false, parentRefs: [] }
-replicaCount: 1             # strategy Recreate when persistence uses RWO
+replicaCount: 1             # >1 only with settings.ui readonly and persistence off (template fails otherwise)
 ```
 
+- **Strategy:** the Deployment always uses `strategy: Recreate`. `ReadWriteOnce` is per node, so during a rolling update two pods on the same node can both mount the volume; `ReadWriteOncePod` limits it to one pod in the cluster ([access modes](https://kubernetes.io/docs/concepts/storage/persistent-volumes/)). The `/data/.lock` flock (B.7) is the last line of defence.
+- **Template guards:** rendering fails if `secretKey.existingSecret` is empty; if any `x-dash-secret` field in `config` is a literal instead of an `env:`, `file:` or `k8s:` ref (secrets come from `existingSecret`, `secretEnv` or refs, never plaintext in values); and if `replicaCount > 1` while `settings.ui` is not `readonly` or persistence is enabled.
 - Plain manifests: `examples/kubernetes/` is a kustomize base rendered from the chart with `helm template` and checked in CI. It is for people who do not use Helm.
 - **Kubernetes Secrets are one option, not the only one:** `secretEnv` (env from Secret), `file:` refs to mounted Secret volumes, or `k8s:` refs read through the API with `rbac.secretRefs`.
 - The homelab migrates to the chart, or keeps its manifests and adds a ConfigMap. That change lives in the private homelab repo and is listed as an external dependency in the epic.
@@ -702,7 +737,7 @@ oauth2-proxy runs as a sidecar and admits only the GitHub user `TechDufus` (`REA
 
 ### E.3 Sessions and CSRF
 
-- `local` and `oidc` use a cookie `dash_session`: an AEAD-sealed payload (user, role, expiry, session epoch) under a key derived via HKDF from the secret key (C.4). The cookie is `HttpOnly; Secure` (unless the public URL is http); `SameSite=Lax`; 12h idle and 7d absolute expiry. "Log out everywhere" bumps the epoch stored in settings. No server-side session table is needed.
+- `local` and `oidc` use a cookie `dash_session`: an AEAD-sealed payload (user, role, expiry, session epoch) under a key derived via HKDF from the secret key (C.4). Without `DASH_SECRET_KEY`, the session key is random per process, so logins do not survive a restart (D.3). The cookie is `HttpOnly; Secure` (unless the public URL is http); `SameSite=Lax`; 12h idle and 7d absolute expiry. "Log out everywhere" bumps the epoch stored in settings. No server-side session table is needed.
 - CSRF stays as it is: `X-Dash-Csrf: 1` plus `Origin == PublicOrigin()` on every non-GET request (`middleware.go:18-29`; the client already sends the header, `web/src/api/client.ts:36`). Login and setup POSTs get the same Origin check.
 - The 401 path in the SPA (`client.ts:24-32`, `stream.ts:40-47`) becomes mode-aware: `proxy` reloads, as today; `local`/`oidc` redirect to `/login?next=...`.
 
@@ -733,11 +768,13 @@ A third `operator` role (actions but not settings) is decision J.12.
 
 Settings API:
 
-- `GET /api/settings`: the effective tree with per-field `{value | secret-meta, source, locked}`.
+- `GET /api/settings`: the effective tree, resolved at read time, with per-field `{value | secret-meta, source, locked}`.
 - `GET /api/settings/schema`
-- `PUT /api/settings/plugins/{id}`: JSON merge patch with `If-Match: <revision>`; 412 on conflict.
+- `PUT /api/settings/plugins/{id}`: JSON merge patch with `If-Match: <revision>`; 412 on conflict; 409 with `{path, source, ref}` if it touches a locked path or settings are read-only (B.2).
 - `POST /api/settings/plugins/{id}/test`
 - `PUT|DELETE /api/settings/plugins/{id}/secrets/{field}`
+- `DELETE /api/settings/plugins/{id}/stored/{field}`: "remove stored value" for a shadowed field (B.2).
+- `GET /api/settings/export`: the admin-saved UI keys as a `config.yaml` snippet, secrets as refs or placeholders (B.2).
 - `GET /api/settings/audit`
 
 ### E.6 Recommendation for open source
@@ -1097,8 +1134,8 @@ Parallelism: P6.1, P6.2, P6.4, P6.5 and P6.6 do not depend on Phases 1-5 and can
 
 1. **Licence:** MIT, Apache-2.0, MPL-2.0, AGPL-3.0 or BSL/FSL (G.6). Lean: Apache-2.0.
 2. **Plugin boundary:** in-process compile-time list (recommended) vs out-of-process (HTTP/gRPC sidecar, go-plugin, WASM) (A.1). Also: when to promote `internal/plugin` to `pkg/plugin` (recommended: at 1.0).
-3. **Settings store:** YAML + JSONL (recommended) vs SQLite (B.7).
-4. **Precedence:** defaults < UI < file < env, with locked fields (recommended), vs UI-overrides-everything (B.2). Also whether the Helm chart defaults to `settings.ui: readonly` (recommended).
+3. **Settings store:** YAML + JSONL vs SQLite (B.7). **Decided (research, 2026-10-31):** no database; one YAML store (`ui-settings.yaml`) with atomic writes. SQLite (`modernc.org/sqlite`, separate `dash.db`) only if multiple users with roles, server-side sessions or a searchable audit log are needed. No bbolt.
+4. **Precedence:** defaults < UI < file < env, with locked fields (recommended), vs UI-overrides-everything (B.2). Also whether the Helm chart defaults to `settings.ui: readonly` (recommended). The research comparison in B.2 supports the recommendation.
 5. **Legacy `DASH_*` names:** a one-release alias layer with warnings, vs a direct cutover since only the homelab uses them (B.5).
 6. **Default auth mode:** `local` with bootstrap token (recommended), vs `proxy`, vs `oidc` (E.6). Also whether to offer `anonymousViewer` for wall displays.
 7. **Kubernetes packaging:** Helm chart in this repo (recommended), vs a separate charts repo, vs manifests/kustomize only (D.4). Also whether to publish the chart as OCI on GHCR.
