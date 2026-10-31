@@ -88,7 +88,7 @@ Everything below assumes the `Conventions` struct, `GET /api/config`, `DASH_LAUN
 
 - licence
 - plugin boundary
-- settings store
+- settings store (already decided in design J.3: no database, one YAML file `ui-settings.yaml`; SQLite only on the named triggers, in a separate `dash.db`; no bbolt; the ADR records it)
 - precedence and locked fields
 - legacy env aliases
 - default auth mode
@@ -142,7 +142,7 @@ Everything below assumes the `Conventions` struct, `GET /api/config`, `DASH_LAUN
 
 - Env overrides the file.
 - Names are generated from the config schema: camelCase becomes UPPER_SNAKE (design B.3).
-- `_FILE` suffix support.
+- `DASH_*_FILE` suffix support, resolved in the Go binary (the image is distroless, so there is no shell entrypoint). Setting both `DASH_X` and `DASH_X_FILE` is a startup error.
 - A legacy alias table for today's variables (design B.5), with one deprecation warning per variable. Whether the aliases ship at all is decided in P0.2.
 
 Every resolved field carries `source` (`default|ui|file|env`) and an origin (env var name or file path).
@@ -151,6 +151,7 @@ Every resolved field carries `source` (`default|ui|file|env`) and an origin (env
 - For every row of design B.5, a test sets the legacy variable and asserts the new path and value.
 - A collision test fails if two schema paths generate the same env name.
 - An unknown `DASH_PLUGINS_*` variable fails startup; other unknown `DASH_*` variables warn, except `DASH_API`.
+- Setting both `DASH_X` and `DASH_X_FILE` fails startup, naming both variables.
 - `dash config env` prints the generated name table.
 
 **Dependencies:** P1.1.
@@ -188,24 +189,29 @@ Move `ProxmoxToken` onto `secret.Value`.
 
 **Body:** XChaCha20-Poly1305 with the field path as AAD, in the format `enc:v1:<kid>:...` (design C.4).
 
-- Key sources: `DASH_SECRET_KEY`, `DASH_SECRET_KEY_FILE`, or an auto-generated `$DASH_DATA_DIR/secret.key` (0600, with a WARN).
+- Key sources: `DASH_SECRET_KEY` or `DASH_SECRET_KEY_FILE` only. There is no default or auto-generated key. Without a key, UI-entered secret fields are disabled ("set via env/file only") and the rest of dash runs, including env, file and k8s refs.
 - `DASH_SECRET_KEY_PREVIOUS` triggers a re-encrypt on startup.
 
 **Acceptance criteria**
 - Round-trip tests.
 - A ciphertext moved to another field fails to decrypt.
 - Rotation rewrites every value and audits `secrets.rekey`.
-- With no key and an unwritable data dir, storing a secret returns a clear error.
+- With no key, storing a secret returns 409 naming the missing key, and nothing else is affected.
+- A stored `enc:v1` value with a missing or wrong key fails startup, listing the field paths. The value is never dropped, blanked or regenerated.
 
 **Dependencies:** P1.4, P1.6.
 
 ### P1.6 feat(settings): data directory and atomic YAML settings store
 
-**Body:** add `DASH_DATA_DIR` (default `/data`) and `settings.Store` backed by `settings.yaml`:
+**Body:** add `DASH_DATA_DIR` (default `/data`) and `settings.Store` backed by `$DASH_DATA_DIR/ui-settings.yaml` (not the operator's `config.yaml`):
 
-- atomic write: temp file, fsync, rename, then fsync of the directory;
+- a top-level `schemaVersion`, with ordered migrations run on load;
+- atomic write: temp file in the same directory, fsync of the file, rename, then fsync of the directory;
+- the last 5 backups kept as `ui-settings.yaml.bak.1`..`.bak.5` (`.bak.1` newest), rotated on each write;
 - a revision counter used as the ETag;
-- `flock` on `.lock` to refuse a second instance;
+- `flock` on a separate, never-replaced `.lock` to refuse a second instance (a lock on the store file would follow the old inode after the rename);
+- sparse store: it holds only the keys an admin explicitly saved, never a snapshot of the effective config. A form save persists only changed, unlocked fields, and "reset to default" deletes the key;
+- read-time merge: the effective config is resolved from defaults, the UI store, the file and env on every load, and file and env values are never copied into the store;
 - read-only mode when the directory is unwritable or `settings.ui: readonly` is set.
 
 The UI layer sits below file and env (design B.2).
@@ -213,7 +219,11 @@ The UI layer sits below file and env (design B.2).
 **Acceptance criteria**
 - Concurrent writers: the second process exits with a clear message.
 - A write interrupted between the temp write and the rename leaves the old file intact (test via a fault-injected filesystem helper).
-- A read-only data dir yields `readonly=true`, and writes return 409.
+- A read-only data dir, or `settings.ui: readonly`, yields `readonly=true`, and writes return 409.
+- A file at an older `schemaVersion` is migrated on load.
+- The sixth write drops the oldest backup.
+- Saving one field writes only that key. After a UI save, a later env or file change still takes effect (no snapshot).
+- Removing a file value reveals the stored UI value on the next reload.
 
 **Dependencies:** P1.1.
 
@@ -685,7 +695,7 @@ with `apps {gateways, excludeNamespaces, annotationPrefix, ingress}`. With no `g
 - Bootstrap: a one-time setup token is logged once (1h, single use); `/setup?token=` sets the password.
 - `dash hash-password` prints a hash.
 - `/login` and `/auth/logout`.
-- AEAD session cookie keyed via HKDF from the secret key; 12h idle, 7d absolute; epoch-based "log out everywhere".
+- AEAD session cookie keyed via HKDF from the secret key; 12h idle, 7d absolute; epoch-based "log out everywhere". Without `DASH_SECRET_KEY` the session key is random per process, so logins end on restart.
 - Optional `anonymousViewer`.
 - The SPA's 401 handling becomes mode-aware (`web/src/api/client.ts:24-32`, `web/src/api/stream.ts:40-47`).
 
@@ -744,12 +754,17 @@ with `apps {gateways, excludeNamespaces, annotationPrefix, ingress}`. With no `g
 - `PUT plugins/{id}`: merge patch with `If-Match`.
 - `POST plugins/{id}/test` runs `Checker` against a candidate config.
 - `PUT|DELETE plugins/{id}/secrets/{field}`.
+- `DELETE plugins/{id}/stored/{field}`: remove a stored UI value.
+- `GET export`: a `config.yaml` snippet of the admin-saved UI keys.
 - `GET audit`.
 
 **Acceptance criteria**
-- Writing a locked field returns 409, naming its source.
+- Every write (PUT, PATCH, DELETE, secret Replace/Clear) to a file- or env-locked path returns 409 with `{path, source, ref}`, tested per verb for both file- and env-locked fields.
+- Remove-stored-value is the only write accepted on a locked path.
+- With `settings.ui: readonly`, every write returns 409.
 - A stale `If-Match` returns 412.
 - No response body ever contains a secret (canary test across all endpoints).
+- The export contains only admin-saved keys and no plaintext secret (canary test).
 - Every change is audited, with field paths only.
 
 **Dependencies:** P4.2, P1.6, P2.2.
@@ -762,12 +777,13 @@ with `apps {gateways, excludeNamespaces, annotationPrefix, ingress}`. With no `g
 - an enable toggle (disabled when locked);
 - a link to configure.
 
-The general section shows read-only server and auth info, and a banner when settings are read-only.
+The general section shows read-only server and auth info, a banner when settings are read-only, and an "Export as config.yaml snippet" button.
 
 **Acceptance criteria**
 - The list updates live from `core.plugins`.
 - Locked toggles show their source on hover.
 - Viewers cannot navigate to `/settings`.
+- The export button downloads or copies the snippet from `GET /api/settings/export`.
 
 **Dependencies:** P4.7, P2.7.
 
@@ -849,7 +865,7 @@ The general section shows read-only server and auth info, and a banner when sett
 **Body:**
 
 - `docs/deploy/docker.md`.
-- `examples/compose/compose.yaml`: dash, plus optional `monitoring` profile services Prometheus and Alertmanager, with a `secrets:` example.
+- `examples/compose/compose.yaml`: dash, plus optional `monitoring` profile services Prometheus and Alertmanager, with a `secrets:` example that includes a `dash_secret_key` secret wired to `DASH_SECRET_KEY_FILE`.
 - A CI job runs `docker compose up`, waits for healthy, logs in through the bootstrap flow, and enables Prometheus via the settings API.
 
 **Acceptance criteria**
@@ -863,12 +879,15 @@ The general section shows read-only server and auth info, and a banner when sett
 **Body:** `charts/dash` (design D.4):
 
 - the config file as a ConfigMap, `secretEnv`;
-- persistence (PVC, or emptyDir with read-only settings);
+- required `secretKey.existingSecret` (no default; `helm template` fails without it);
+- render fails if any `x-dash-secret` field in `.Values.config` is a literal instead of an `env:`/`file:`/`k8s:` ref (secrets come from `existingSecret`, `secretEnv` or refs);
+- persistence (PVC, or emptyDir with read-only settings), with `persistence.accessModes` offering `[ReadWriteOncePod]` (where the CSI driver supports it) besides the default `[ReadWriteOnce]`;
 - RBAC `read`, `actions.restart`, `actions.fluxReconcile` and `secretRefs` (`resourceNames`);
 - an optional oauth2-proxy sidecar;
 - optional Ingress or HTTPRoute;
 - an optional generic ValidatingAdmissionPolicy fencing the ServiceAccount to the enabled actions, written fresh;
-- `replicaCount: 1` with the `Recreate` strategy.
+- `strategy: Recreate` always;
+- a replica guard: render fails if `replicaCount > 1` unless `settings.ui: readonly` and `persistence.enabled: false`.
 
 Publish the chart as OCI to GHCR from the release workflow (P6.7).
 
@@ -876,6 +895,8 @@ Publish the chart as OCI to GHCR from the release workflow (P6.7).
 - `helm lint` and `helm template` succeed for the read-only, actions and sidecar value sets.
 - A kind-based CI job installs the chart and reaches ready.
 - With actions off, the RBAC has no `patch` verbs.
+- `helm template` fails without `secretKey.existingSecret`, with a literal secret in `config`, and with `replicaCount: 2` while settings are editable or persistence is on.
+- The rendered Deployment uses `Recreate`.
 
 **Dependencies:** P3.8, P3.10, P5.2.
 
