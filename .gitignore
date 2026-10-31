@@ -1,3 +1,5 @@
 web/node_modules/
 web/dist/*
 !web/dist/.gitkeep
+dev/site.env
+dev/launcher.yaml

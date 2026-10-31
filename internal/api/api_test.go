@@ -104,7 +104,7 @@ func (f fakeData) VMDetail(_ context.Context, vmid int) (model.VMDetail, error) 
 // newServer builds a Server with fakes; mod may adjust the deps before construction.
 func newServer(mod func(*Deps)) *Server {
 	d := Deps{
-		Cfg:     config.Config{PublicURL: testOrigin + "/", HostNodename: "pve-730"},
+		Cfg:     config.Config{PublicURL: testOrigin + "/", HostNodename: "pve-730", Conventions: config.Load(func(string) string { return "" }).Conventions},
 		Version: "test",
 		Hub:     hub.New(),
 		Prom:    &fakeProm{},
@@ -379,4 +379,24 @@ func TestDetailsAndLogs(t *testing.T) {
 			t.Errorf("code = %d type = %q", w.Code, w.Header().Get("Content-Type"))
 		}
 	})
+}
+
+func TestUIConfig(t *testing.T) {
+	get := func(cfg config.Config) model.UIConfig {
+		t.Helper()
+		w := req{path: "/api/config"}.do(newServer(func(d *Deps) { d.Cfg = cfg }).Handler())
+		var got model.UIConfig
+		if w.Code != 200 || json.Unmarshal(w.Body.Bytes(), &got) != nil {
+			t.Fatalf("code %d, body %q", w.Code, w.Body.String())
+		}
+		return got
+	}
+	if got := get(config.Config{PublicURL: testOrigin}); got.HostModel != "" || got.Launcher == nil || len(got.Launcher) != 0 {
+		t.Errorf("unconfigured: %+v (launcher must be an empty array)", got)
+	}
+	cfg := config.Config{PublicURL: testOrigin, HostModel: "Dell R730",
+		Launcher: []model.LauncherLink{{Name: "Proxmox", Href: "https://pve.example.com", Icon: "proxmox"}}}
+	if got := get(cfg); got.HostModel != "Dell R730" || len(got.Launcher) != 1 || got.Launcher[0].Icon != "proxmox" {
+		t.Errorf("configured: %+v", got)
+	}
 }

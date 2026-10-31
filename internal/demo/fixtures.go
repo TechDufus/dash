@@ -227,7 +227,7 @@ func (s *Source) build() world {
 		vm := model.VM{
 			VMID: v.id, Name: v.name, Status: "stopped", Health: model.HealthOK, Tags: v.tags, CPUs: v.cpus,
 			MaxMemBytes: gib(v.memGiB), Template: v.id == 9000, Lock: "",
-			Links: []model.Link{s.links.VMConsole(v.id, v.name)},
+			Links: s.links.VMConsole(v.id, v.name),
 		}
 		if v.running {
 			vm.Status = "running"

@@ -13,14 +13,13 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 
+	"github.com/TechDufus/dash/internal/config"
 	"github.com/TechDufus/dash/internal/kube"
 	"github.com/TechDufus/dash/internal/model"
 	"github.com/TechDufus/dash/internal/queries"
 )
 
 const (
-	labelProtected  = "homelab.io/protected"
-	labelTenant     = "homelab.io/tenant"
 	labelFluxName   = "kustomize.toolkit.fluxcd.io/name"
 	labelPSAEnforce = "pod-security.kubernetes.io/enforce"
 	maxEvents       = 100
@@ -89,30 +88,30 @@ type nsInfo struct {
 	privileged bool
 }
 
-func classifyNamespace(labels map[string]string) nsInfo {
+func classifyNamespace(labels map[string]string, conv config.Conventions) nsInfo {
 	info := nsInfo{
 		group:      model.GroupPlatform,
-		protected:  labels[labelProtected] == "true",
-		tenant:     labels[labelTenant],
+		protected:  labels[conv.ProtectedLabel] == "true",
+		tenant:     labels[conv.TenantLabel],
 		privileged: labels[labelPSAEnforce] == "privileged",
 	}
-	switch _, isTenant := labels[labelTenant]; {
+	switch _, isTenant := labels[conv.TenantLabel]; {
 	case isTenant:
 		info.group = model.GroupTenants
-	case strings.HasPrefix(labels[labelFluxName], "app-"):
+	case conv.AppsFluxPrefix != "" && strings.HasPrefix(labels[labelFluxName], conv.AppsFluxPrefix):
 		info.group = model.GroupApps
 	}
 	return info
 }
 
 func (m *Manager) namespaceInfos() map[string]nsInfo {
-	return namespaceInfosOf(m.d.Cluster.ListNamespaces())
+	return namespaceInfosOf(m.d.Cluster.ListNamespaces(), m.d.Cfg.Conventions)
 }
 
-func namespaceInfosOf(list []*corev1.Namespace) map[string]nsInfo {
+func namespaceInfosOf(list []*corev1.Namespace, conv config.Conventions) map[string]nsInfo {
 	out := make(map[string]nsInfo, len(list))
 	for _, ns := range list {
-		out[ns.Name] = classifyNamespace(ns.Labels)
+		out[ns.Name] = classifyNamespace(ns.Labels, conv)
 	}
 	return out
 }
@@ -186,7 +185,7 @@ func (m *Manager) buildCluster(now time.Time) model.ClusterData {
 	c := m.d.Cluster
 	res := c.Resolver()
 	nsList := c.ListNamespaces() // listed once: the classification and the namespace rows must agree
-	infos := namespaceInfosOf(nsList)
+	infos := namespaceInfosOf(nsList, m.d.Cfg.Conventions)
 
 	out := model.ClusterData{
 		Nodes: []model.Node{}, Namespaces: []model.Namespace{}, Workloads: []model.Workload{}, Pods: []model.Pod{},

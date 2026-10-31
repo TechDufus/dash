@@ -371,6 +371,7 @@ func TestTrackerKeepsFirstSeen(t *testing.T) {
 }
 
 func TestClassifyNamespace(t *testing.T) {
+	conv := config.Load(func(string) string { return "" }).Conventions
 	tests := []struct {
 		name   string
 		labels map[string]string
@@ -384,7 +385,7 @@ func TestClassifyNamespace(t *testing.T) {
 		{"unlabelled is platform", nil, nsInfo{group: model.GroupPlatform}},
 	}
 	for _, tc := range tests {
-		if got := classifyNamespace(tc.labels); got != tc.want {
+		if got := classifyNamespace(tc.labels, conv); got != tc.want {
 			t.Errorf("%s: %+v, want %+v", tc.name, got, tc.want)
 		}
 	}

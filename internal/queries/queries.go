@@ -41,12 +41,18 @@ const (
 	PVEStorageSize = `pve_disk_size_bytes{id=~"storage/.+"}`
 	PVEStorageInfo = `pve_storage_info`
 
-	NASBackupAge  = `time() - kube_cronjob_status_last_successful_time{namespace="rustfs",cronjob=~"nas-backup(-.+)?"}`
 	CNPGBackupAge = `time() - max by (namespace,cluster)(barman_cloud_cloudnative_pg_io_last_available_backup_timestamp{role="primary"})`
 
 	EtcdDB    = `max(etcd_mvcc_db_total_size_in_bytes{job="etcd"})`
 	EtcdQuota = `max(etcd_server_quota_backend_bytes{job="etcd"})`
 )
+
+// NASBackupAge is the age of the last successful run of the NAS backup CronJob(s): the CronJob
+// named cronjob, or cronjob-<anything>, in namespace ns.
+func NASBackupAge(ns, cronjob string) string {
+	return fmt.Sprintf(`time() - kube_cronjob_status_last_successful_time{namespace=%s,cronjob=~%s}`,
+		quote(ns), quote(regexp.QuoteMeta(cronjob)+"(-.+)?"))
+}
 
 // MachineUp is the up series of a non-Kubernetes machine's node-exporter.
 func MachineUp(nodename string) string {
@@ -87,14 +93,16 @@ func HostSELFree(n string) string {
 func HostPools(n string) string {
 	return fmt.Sprintf(`node_zfs_zpool_state{nodename=%s} == 1`, quote(n))
 }
-func HostScrubEnd(n string) string {
-	return fmt.Sprintf(`homelab_zfs_scrub_last_end_timestamp_seconds{nodename=%s}`, quote(n))
+
+// The ZFS scrub series come from a textfile collector; prefix is a validated metric name prefix.
+func HostScrubEnd(prefix, n string) string {
+	return fmt.Sprintf(`%s_last_end_timestamp_seconds{nodename=%s}`, prefix, quote(n))
 }
-func HostScrubErrors(n string) string {
-	return fmt.Sprintf(`homelab_zfs_scrub_last_errors{nodename=%s}`, quote(n))
+func HostScrubErrors(prefix, n string) string {
+	return fmt.Sprintf(`%s_last_errors{nodename=%s}`, prefix, quote(n))
 }
-func HostScrubRunning(n string) string {
-	return fmt.Sprintf(`homelab_zfs_scrub_in_progress{nodename=%s}`, quote(n))
+func HostScrubRunning(prefix, n string) string {
+	return fmt.Sprintf(`%s_in_progress{nodename=%s}`, prefix, quote(n))
 }
 func HostSMARTHealthy(n string) string {
 	return fmt.Sprintf(`smartmon_device_smart_healthy{nodename=%s}`, quote(n))

@@ -8,11 +8,17 @@ import (
 )
 
 func testBuilder() *Builder {
-	return New(config.Load(func(string) string { return "" }))
+	env := map[string]string{
+		"DASH_PROXMOX_URL":  "https://pve.example.com:8006",
+		"DASH_PROXMOX_NODE": "pve-1",
+		"DASH_HEADLAMP_URL": "https://headlamp.example.com",
+		"DASH_GRAFANA_URL":  "https://grafana.example.com",
+	}
+	return New(config.Load(func(k string) string { return env[k] }))
 }
 
 func TestHeadlampKinds(t *testing.T) {
-	const base = "https://headlamp.home.techdufus.com/c/main/"
+	const base = "https://headlamp.example.com/c/main/"
 	tests := []struct {
 		kind, ns, name, want string
 	}{
@@ -53,25 +59,37 @@ func TestProxmoxLinks(t *testing.T) {
 	b := testBuilder()
 	tests := []struct {
 		name string
-		got  model.Link
+		got  []model.Link
 		want string
 	}{
 		{"console", b.VMConsole(2020, "talos-cp-1"),
-			"https://proxmox.home.techdufus.com:8006/?console=kvm&novnc=1&vmid=2020&vmname=talos-cp-1&node=pve-730&resize=off&cmd="},
+			"https://pve.example.com:8006/?console=kvm&novnc=1&vmid=2020&vmname=talos-cp-1&node=pve-1&resize=off&cmd="},
 		{"console name escaped", b.VMConsole(100, "a b"),
-			"https://proxmox.home.techdufus.com:8006/?console=kvm&novnc=1&vmid=100&vmname=a+b&node=pve-730&resize=off&cmd="},
+			"https://pve.example.com:8006/?console=kvm&novnc=1&vmid=100&vmname=a+b&node=pve-1&resize=off&cmd="},
 		{"shell", b.HostShell(),
-			"https://proxmox.home.techdufus.com:8006/?console=shell&novnc=1&node=pve-730&resize=off&cmd="},
-		{"ui", b.ProxmoxUI(), "https://proxmox.home.techdufus.com:8006/"},
-		{"grafana alerts", b.GrafanaAlerts(), "https://grafana.home.techdufus.com/alerting/list"},
-		{"grafana", b.Grafana(), "https://grafana.home.techdufus.com/"},
+			"https://pve.example.com:8006/?console=shell&novnc=1&node=pve-1&resize=off&cmd="},
+		{"ui", b.ProxmoxUI(), "https://pve.example.com:8006/"},
+		{"grafana alerts", b.GrafanaAlerts(), "https://grafana.example.com/alerting/list"},
+		{"grafana", b.Grafana(), "https://grafana.example.com/"},
 	}
 	for _, tc := range tests {
-		if tc.got.Href != tc.want {
-			t.Errorf("%s: got %q, want %q", tc.name, tc.got.Href, tc.want)
+		if len(tc.got) != 1 || tc.got[0].Href != tc.want {
+			t.Errorf("%s: got %+v, want %q", tc.name, tc.got, tc.want)
 		}
 	}
-	if b.VMConsole(1, "x").Kind != model.LinkKindProxmox || b.Grafana().Kind != model.LinkKindGrafana {
+	if b.VMConsole(1, "x")[0].Kind != model.LinkKindProxmox || b.Grafana()[0].Kind != model.LinkKindGrafana {
 		t.Error("wrong link kinds")
+	}
+}
+
+func TestUnconfiguredToolsGiveNoLinks(t *testing.T) {
+	b := New(config.Load(func(string) string { return "" }))
+	for name, got := range map[string][]model.Link{
+		"console": b.VMConsole(1, "x"), "shell": b.HostShell(), "ui": b.ProxmoxUI(),
+		"grafana alerts": b.GrafanaAlerts(), "grafana": b.Grafana(), "headlamp": b.Headlamp("Pod", "a", "b"),
+	} {
+		if got == nil || len(got) != 0 {
+			t.Errorf("%s: want an empty non-nil slice, got %#v", name, got)
+		}
 	}
 }

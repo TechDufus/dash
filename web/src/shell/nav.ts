@@ -23,7 +23,7 @@ export const NAV: NavItem[] = [
   { to: "/vms", label: "VMs", title: "Virtual machines", icon: Server },
   { to: "/cluster", label: "Cluster", title: "Kubernetes cluster", icon: Boxes },
   { to: "/gitops", label: "GitOps", title: "GitOps (Flux)", icon: GitBranch },
-  { to: "/hardware", label: "Hardware", title: "Hardware (R730)", icon: Cpu },
+  { to: "/hardware", label: "Hardware", title: "Hardware", icon: Cpu },
   { to: "/storage", label: "Storage", title: "Storage", icon: Database },
   { to: "/alerts", label: "Alerts", title: "Alerts and silences", icon: BellRing },
   { to: "/status", label: "Status", title: "Service status", icon: Activity },

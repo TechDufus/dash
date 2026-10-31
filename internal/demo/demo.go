@@ -24,7 +24,7 @@ import (
 // tick is how often the fixtures drift, so the UI looks live.
 const tick = 5 * time.Second
 
-// Config points every deep link at example.com and names the fake host.
+// Config points every deep link and launcher entry at example.com and names the fake host.
 func Config(cfg config.Config) config.Config {
 	cfg.ProxmoxURL = "https://pve.example.com:8006"
 	cfg.ProxmoxNode = hostName
@@ -32,6 +32,14 @@ func Config(cfg config.Config) config.Config {
 	cfg.HeadlampURL = "https://headlamp.example.com"
 	cfg.HeadlampCluster = "demo"
 	cfg.GrafanaURL = "https://grafana.example.com"
+	cfg.HostModel = "Dell R730"
+	cfg.Launcher = []model.LauncherLink{
+		{Name: "Proxmox", Href: "https://pve.example.com:8006", Icon: "proxmox", Description: "Hypervisor"},
+		{Name: "iDRAC", Href: "https://idrac.example.com", Icon: "idrac", Description: "Out-of-band"},
+		{Name: "UniFi", Href: "https://unifi.example.com", Icon: "unifi", Description: "Network"},
+		{Name: "NAS", Href: "https://nas.example.com", Icon: "unifi-drive", Description: "Backups"},
+		{Name: "GitOps repo", Href: "https://git.example.com/homelab", Icon: "github", Description: "Flux source"},
+	}
 	return cfg
 }
 

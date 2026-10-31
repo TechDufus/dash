@@ -78,7 +78,7 @@ func (m *Manager) buildVMs() model.VMsData {
 			Tags: v.Tags, CPUs: v.CPUs, CPURatio: v.CPURatio, MemBytes: v.MemBytes, MaxMemBytes: v.MaxMemBytes,
 			UptimeSeconds: v.UptimeSeconds, NetInBytes: v.NetInBytes, NetOutBytes: v.NetOutBytes,
 			Template: v.Template, Lock: v.Lock,
-			Links: []model.Link{m.d.Links.VMConsole(v.VMID, v.Name), m.d.Links.ProxmoxUI()},
+			Links: append(m.d.Links.VMConsole(v.VMID, v.Name), m.d.Links.ProxmoxUI()...),
 		}
 		if vm.Tags == nil {
 			vm.Tags = []string{}

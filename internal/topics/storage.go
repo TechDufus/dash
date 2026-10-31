@@ -30,7 +30,7 @@ func (m *Manager) pollStorage(ctx context.Context) {
 		"bucketUsed": queries.BucketUsed, "bucketQuota": queries.BucketQuota,
 		"rustfsUsed": queries.RustFSUsed, "rustfsUsable": queries.RustFSUsable,
 		"pveUsed": queries.PVEStorageUsed, "pveSize": queries.PVEStorageSize, "pveInfo": queries.PVEStorageInfo,
-		"nas": queries.NASBackupAge, "cnpg": queries.CNPGBackupAge,
+		"nas": queries.NASBackupAge(m.d.Cfg.Conventions.NASBackupNamespace, m.d.Cfg.Conventions.NASBackupCronJob), "cnpg": queries.CNPGBackupAge,
 		"etcdDB": queries.EtcdDB, "etcdQuota": queries.EtcdQuota,
 	})
 	m.setSource("storage:victoriametrics", firstErr(res))

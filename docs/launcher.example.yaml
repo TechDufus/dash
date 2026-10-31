@@ -1,0 +1,19 @@
+# Infrastructure links for the launcher (Overview and Apps), read from DASH_LAUNCHER_FILE.
+# icon is a name from https://github.com/homarr-labs/dashboard-icons (png) or an image URL;
+# leave it out for a generic icon. href must be http or https.
+- name: Proxmox
+  href: https://pve.example.com:8006
+  icon: proxmox
+  description: Hypervisor
+- name: BMC
+  href: https://bmc.example.com
+  icon: idrac
+  description: Out-of-band management
+- name: Router
+  href: https://192.0.2.1
+  icon: unifi
+  description: Network
+- name: GitOps repo
+  href: https://github.com/example/homelab
+  icon: github
+  description: Cluster config

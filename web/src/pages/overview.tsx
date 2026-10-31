@@ -17,7 +17,7 @@ import { Page, Reveal } from "@/components/page";
 import { PanelSkeleton } from "@/components/panel";
 import { SparkSeries } from "@/components/spark";
 import { Skeleton } from "@/components/ui/skeleton";
-import { INFRA_LINKS } from "@/config/links";
+import { useInfraLinks } from "@/config/links";
 import { formatCelsius, formatPercent, formatWatts } from "@/lib/format";
 import { HEALTH_COLOR, HEALTH_TEXT, ratioHealth } from "@/lib/health";
 import { cn } from "@/lib/utils";
@@ -192,6 +192,7 @@ function OverviewSkeleton() {
 export function OverviewPage() {
   const overview = useTopic("overview");
   const apps = useTopic("apps");
+  const infra = useInfraLinks();
   const data = overview?.data;
   return (
     <Page>
@@ -221,7 +222,7 @@ export function OverviewPage() {
         <Launcher
           title="Launcher"
           apps={apps?.data.apps}
-          infra={INFRA_LINKS}
+          infra={infra}
           sources={apps?.sources}
           compact
         />

@@ -3,15 +3,16 @@ import { useTopic } from "@/api/stream";
 import { appMatches, infraMatches, Launcher } from "@/components/launcher";
 import { Page, Reveal } from "@/components/page";
 import { Input } from "@/components/ui/input";
-import { INFRA_LINKS } from "@/config/links";
+import { useInfraLinks } from "@/config/links";
 import { useQueryParam } from "@/lib/query-param";
 
 export function AppsPage() {
   const env = useTopic("apps");
   const [query, setQuery] = useQueryParam("q");
+  const infra = useInfraLinks();
   const apps = env?.data.apps;
   const matchedApps = apps?.filter((a) => appMatches(a, query)).length ?? 0;
-  const matchedInfra = INFRA_LINKS.filter((l) => infraMatches(l, query)).length;
+  const matchedInfra = infra.filter((l) => infraMatches(l, query)).length;
   return (
     <Page>
       <Reveal index={0} className="flex flex-wrap items-center gap-3">
@@ -36,14 +37,14 @@ export function AppsPage() {
         </div>
         <p className="num w-full text-xs text-muted" aria-live="polite">
           {apps
-            ? `${matchedApps} of ${apps.length} apps · ${matchedInfra} of ${INFRA_LINKS.length} infrastructure links`
+            ? `${matchedApps} of ${apps.length} apps · ${matchedInfra} of ${infra.length} infrastructure links`
             : "Loading apps…"}
         </p>
       </Reveal>
       <Reveal index={1}>
         <Launcher
           apps={apps}
-          infra={INFRA_LINKS}
+          infra={infra}
           sources={env?.sources}
           query={query}
           emptyText={`No apps match “${query}”.`}

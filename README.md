@@ -6,6 +6,7 @@
   <a href="#features">Features</a> •
   <a href="#screenshots">Screenshots</a> •
   <a href="#try-it-with-demo-data">Demo mode</a> •
+  <a href="#configuration">Configuration</a> •
   <a href="#develop">Develop</a> •
   <a href="#release">Release</a>
 </p>
@@ -88,6 +89,47 @@ DASH_DEMO=true go run ./cmd/dash             # http://127.0.0.1:8080
 For UI work against the demo data, run `DASH_DEMO=true go run ./cmd/dash` and `make dev-web`,
 then open http://localhost:5173.
 
+## Configuration
+
+dash reads `DASH_*` environment variables and refuses to start when a required one is missing.
+Nothing about a particular lab is compiled in: an unset Headlamp, Grafana or Proxmox URL simply
+drops those links.
+
+| Variable | Default | What |
+|---|---|---|
+| `DASH_PUBLIC_URL` | required (dev: `http://localhost:5173`) | the URL people open; the only `Origin` accepted on writes |
+| `DASH_LISTEN` | `127.0.0.1:8080` | API and SPA, reached through oauth2-proxy |
+| `DASH_HEALTH_LISTEN` | `0.0.0.0:8081` | `/healthz` and `/readyz` |
+| `DASH_VM_URL` | `http://vmsingle-vm.monitoring.svc:8428` | VictoriaMetrics |
+| `DASH_ALERTMANAGER_URL` | `http://vmalertmanager-vm.monitoring.svc:9093` | Alertmanager |
+| `DASH_VLOGS_URL` | `http://vl-server.monitoring.svc:9428` | VictoriaLogs |
+| `DASH_GATUS_URL` | `http://gatus.gatus.svc:8080` | Gatus |
+| `DASH_PROXMOX_TOKEN` | empty (Proxmox off) | API token, `<user>!<token>=<secret>` |
+| `DASH_PROXMOX_URL`, `DASH_PROXMOX_NODE` | required with a token | Proxmox API and the node to read |
+| `DASH_HOST_NODENAME` | `DASH_PROXMOX_NODE` | `nodename` label of the host's node-exporter and IPMI series |
+| `DASH_HOST_MODEL` | empty | shown next to the host's name, e.g. `Dell R730` |
+| `DASH_HEADLAMP_URL`, `DASH_HEADLAMP_CLUSTER` | empty, `main` | Headlamp deep links |
+| `DASH_GRAFANA_URL` | empty | Grafana links |
+| `DASH_LAUNCHER_FILE` | empty | YAML list of infrastructure links for the launcher |
+| `KUBECONFIG` | in-cluster | used outside the cluster |
+
+The launcher file is a list of `name`, `href`, `icon` and `description`; `icon` is a
+[dashboard-icons](https://github.com/homarr-labs/dashboard-icons) name or an image URL. Mount it
+from a ConfigMap and point `DASH_LAUNCHER_FILE` at it. See
+[`docs/launcher.example.yaml`](docs/launcher.example.yaml).
+
+dash also reads a few labels, annotations and metric names from the cluster. The defaults match
+the homelab it was built for; change them to match yours.
+
+| Variable | Default | What |
+|---|---|---|
+| `DASH_LABEL_PROTECTED` | `homelab.io/protected` | namespace label (`"true"`) that makes a restart ask you to type the name |
+| `DASH_LABEL_TENANT` | `homelab.io/tenant` | namespace label that puts it under Tenants |
+| `DASH_ANNOTATION_SUSPEND_REASON` | `homelab.io/suspended` | Flux annotation shown as the reason an object is suspended |
+| `DASH_APPS_FLUX_PREFIX` | `app-` | namespaces applied by a Kustomization with this prefix go under Apps |
+| `DASH_ZFS_SCRUB_METRIC_PREFIX` | `homelab_zfs_scrub` | `<prefix>_last_end_timestamp_seconds`, `_last_errors`, `_in_progress` |
+| `DASH_NAS_BACKUP_NAMESPACE`, `DASH_NAS_BACKUP_CRONJOB` | `rustfs`, `nas-backup` | the CronJob behind the NAS backup age |
+
 ## Layout
 
 | Path | What |
@@ -108,6 +150,7 @@ then open http://localhost:5173.
 Tools are pinned in `mise.toml` (`mise install`). The homelab checkout must sit next to this one:
 dev mode uses its kubeconfig and its 1Password broker (`../homelab/scripts/hl-op`), and reaches
 in-cluster services through the API server's service proxy, so no port-forwards are needed.
+Copy `dev/site.env.example` to `dev/site.env` and fill in your lab's URLs; `make dev-api` loads it.
 
 ```sh
 make dev-api   # Go API on 127.0.0.1:8080 (DASH_DEV=true)

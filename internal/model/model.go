@@ -631,6 +631,22 @@ type Me struct {
 	Version string `json:"version"`
 }
 
+// LauncherLink is one infrastructure link in the launcher (DASH_LAUNCHER_FILE).
+type LauncherLink struct {
+	Name string `json:"name"`
+	Href string `json:"href"`
+	// Icon is a dashboard-icons name (e.g. "proxmox") or an image URL; empty shows a generic icon.
+	Icon        string `json:"icon"`
+	Description string `json:"description"`
+}
+
+// UIConfig is GET /api/config: the site-specific bits of the UI.
+type UIConfig struct {
+	// HostModel is shown next to the host's name, e.g. "Dell R730"; empty shows nothing.
+	HostModel string         `json:"hostModel"`
+	Launcher  []LauncherLink `json:"launcher"`
+}
+
 // APIError is the body of every non-2xx JSON answer.
 type APIError struct {
 	Error string `json:"error"`

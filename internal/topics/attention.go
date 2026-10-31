@@ -119,7 +119,7 @@ func attentionAlerts(in AttentionInput, add addFn) {
 			detail = a.Description
 		}
 		add("alert:"+a.Fingerprint, sev, "alertmanager", a.Name, detail, a.StartsAt, "/alerts",
-			[]model.Link{in.Links.GrafanaAlerts()})
+			in.Links.GrafanaAlerts())
 	}
 }
 
@@ -233,7 +233,7 @@ func latestFailureStart(e model.Endpoint) time.Time {
 }
 
 func attentionHost(in AttentionInput, add addFn) {
-	hl := []model.Link{in.Links.ProxmoxUI(), in.Links.HostShell()}
+	hl := append(in.Links.ProxmoxUI(), in.Links.HostShell()...)
 	for _, p := range in.Host.Pools {
 		if !strings.EqualFold(p.State, "online") {
 			add("zfs:pool:"+p.Name, model.HealthCrit, "zfs", fmt.Sprintf("ZFS pool %s is %s", p.Name, p.State), "", time.Time{}, "/hardware", hl)

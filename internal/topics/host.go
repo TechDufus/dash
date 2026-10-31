@@ -13,7 +13,7 @@ import (
 type hostSnap struct{ data model.HostData }
 
 func (m *Manager) pollHost(ctx context.Context) {
-	n := m.d.Cfg.HostNodename
+	n, scrub := m.d.Cfg.HostNodename, m.d.Cfg.Conventions.ZFSScrubMetricPrefix
 	m.mu.RLock()
 	d := m.host.data // last good values survive a failed query
 	m.mu.RUnlock()
@@ -40,9 +40,9 @@ func (m *Manager) pollHost(ctx context.Context) {
 		"psu":      queries.HostPSUs(n),
 		"sel":      queries.HostSELFree(n),
 		"pools":    queries.HostPools(n),
-		"scrubEnd": queries.HostScrubEnd(n),
-		"scrubErr": queries.HostScrubErrors(n),
-		"scrubRun": queries.HostScrubRunning(n),
+		"scrubEnd": queries.HostScrubEnd(scrub, n),
+		"scrubErr": queries.HostScrubErrors(scrub, n),
+		"scrubRun": queries.HostScrubRunning(scrub, n),
 		"healthy":  queries.HostSMARTHealthy(n),
 		"temp":     queries.HostSMARTTemp(n),
 		"life":     queries.HostSMARTLifeRemain(n),
@@ -191,6 +191,6 @@ func (m *Manager) buildHost() model.HostData {
 	if d.Disks == nil {
 		d.Disks = []model.Disk{}
 	}
-	d.Links = []model.Link{m.d.Links.ProxmoxUI(), m.d.Links.HostShell(), m.d.Links.Grafana()}
+	d.Links = append(append(m.d.Links.ProxmoxUI(), m.d.Links.HostShell()...), m.d.Links.Grafana()...)
 	return d
 }

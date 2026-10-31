@@ -10,8 +10,6 @@ import (
 	"github.com/TechDufus/dash/internal/model"
 )
 
-const annotationSuspended = "homelab.io/suspended"
-
 func (m *Manager) fluxObjects(gvr schema.GroupVersionResource, kind model.FluxKind) []model.FluxObj {
 	out := []model.FluxObj{}
 	for _, u := range m.d.Cluster.List(gvr) {
@@ -31,7 +29,7 @@ func (m *Manager) fluxObj(u *unstructured.Unstructured, kind model.FluxKind) mod
 	_, msg := conditionOf(u, "Ready")
 	o := model.FluxObj{
 		Kind: kind, Namespace: u.GetNamespace(), Name: u.GetName(), Ready: conditionTrue(u, "Ready"),
-		Suspended: suspended, SuspendReason: u.GetAnnotations()[annotationSuspended], Message: msg,
+		Suspended: suspended, SuspendReason: u.GetAnnotations()[m.d.Cfg.Conventions.SuspendReasonAnnotation], Message: msg,
 		LastTransition: conditionTime(u, "Ready"),
 		Links:          m.d.Links.Headlamp(string(kind), u.GetNamespace(), u.GetName()),
 	}

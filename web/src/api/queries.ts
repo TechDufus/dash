@@ -1,6 +1,6 @@
 import { keepPreviousData, QueryClient, useQuery } from "@tanstack/react-query";
 import { api } from "./client";
-import type { LogLine, Me, PodDetail, Series, VMDetail } from "./types";
+import type { LogLine, Me, PodDetail, Series, UIConfig, VMDetail } from "./types";
 
 export const queryClient = new QueryClient({
   defaultOptions: { queries: { retry: 1, refetchOnWindowFocus: false } },
@@ -54,6 +54,15 @@ export function useMe() {
   return useQuery({
     queryKey: ["me"],
     queryFn: () => api.get<Me>("/api/me"),
+    staleTime: Number.POSITIVE_INFINITY,
+  });
+}
+
+/** Site-specific UI settings; they change only when dash restarts. */
+export function useUIConfig() {
+  return useQuery({
+    queryKey: ["config"],
+    queryFn: () => api.get<UIConfig>("/api/config"),
     staleTime: Number.POSITIVE_INFINITY,
   });
 }

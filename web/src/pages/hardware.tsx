@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 import { useReducedMotion } from "motion/react";
 import type { ReactNode } from "react";
+import { useUIConfig } from "@/api/queries";
 import { useTopic } from "@/api/stream";
 import type { Disk, Health, HostData, Pool, SourceStatus } from "@/api/types";
 import { BytesBar } from "@/components/bytes-bar";
@@ -75,9 +76,14 @@ function BigPower({ watts }: { watts: number }) {
 }
 
 function Hero({ host, sources }: { host: HostData; sources: SourceStatus[] | undefined }) {
+  const model = useUIConfig().data?.hostModel;
   return (
     <Panel>
-      <PanelHeader title={`${host.name} · Dell R730`} icon={<Zap />} sources={sources}>
+      <PanelHeader
+        title={model ? `${host.name} · ${model}` : host.name}
+        icon={<Zap />}
+        sources={sources}
+      >
         <LinkButtons links={host.links} />
       </PanelHeader>
       <div className="grid gap-4 px-4 pb-4 lg:grid-cols-[minmax(0,280px)_minmax(0,1fr)]">

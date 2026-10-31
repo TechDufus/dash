@@ -559,6 +559,28 @@ export interface Me {
   version: string;
 }
 /**
+ * LauncherLink is one infrastructure link in the launcher (DASH_LAUNCHER_FILE).
+ */
+export interface LauncherLink {
+  name: string;
+  href: string;
+  /**
+   * Icon is a dashboard-icons name (e.g. "proxmox") or an image URL; empty shows a generic icon.
+   */
+  icon: string;
+  description: string;
+}
+/**
+ * UIConfig is GET /api/config: the site-specific bits of the UI.
+ */
+export interface UIConfig {
+  /**
+   * HostModel is shown next to the host's name, e.g. "Dell R730"; empty shows nothing.
+   */
+  hostModel: string;
+  launcher: LauncherLink[];
+}
+/**
  * APIError is the body of every non-2xx JSON answer.
  */
 export interface APIError {

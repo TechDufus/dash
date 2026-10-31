@@ -12,7 +12,9 @@ check: generate
 	go test ./...
 	cd web && npm ci && npm run check && npm run build
 
+# dev/site.env (see dev/site.env.example) holds this lab's URLs; it is optional.
 dev-api:
+	set -a; [ ! -f dev/site.env ] || . ./dev/site.env; set +a; \
 	$(HL_OP) run --env-file dev/secrets.env -- env DASH_DEV=true KUBECONFIG=$(KUBECONFIG) go run ./cmd/dash
 
 dev-web:
