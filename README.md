@@ -105,8 +105,9 @@ drops those links.
 | `DASH_VLOGS_URL` | `http://vl-server.monitoring.svc:9428` | VictoriaLogs |
 | `DASH_GATUS_URL` | `http://gatus.gatus.svc:8080` | Gatus |
 | `DASH_PROXMOX_TOKEN` | empty (Proxmox off) | API token, `<user>!<token>=<secret>` |
-| `DASH_PROXMOX_URL`, `DASH_PROXMOX_NODE` | required with a token | Proxmox API and the node to read |
-| `DASH_HOST_NODENAME` | `DASH_PROXMOX_NODE` | `nodename` label of the host's node-exporter and IPMI series |
+| `DASH_PROXMOX_URL` | required with a token | Proxmox API |
+| `DASH_PROXMOX_NODE` | discovered from the API when the cluster has one node | the node to read; set it for multi-node clusters or to skip discovery |
+| `DASH_HOST_NODENAME` | `DASH_PROXMOX_NODE` (or the discovered node) | `nodename` label of the host's node-exporter and IPMI series |
 | `DASH_HOST_MODEL` | empty | shown next to the host's name, e.g. `Dell R730` |
 | `DASH_HEADLAMP_URL`, `DASH_HEADLAMP_CLUSTER` | empty, `main` | Headlamp deep links |
 | `DASH_GRAFANA_URL` | empty | Grafana links |

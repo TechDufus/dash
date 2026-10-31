@@ -3,7 +3,8 @@
 // DASH_DEMO=true serves built-in fake data instead of a cluster and implies DASH_DEV.
 //
 // Nothing site-specific has a default: DASH_PUBLIC_URL is required outside dev, Proxmox needs
-// DASH_PROXMOX_URL and DASH_PROXMOX_NODE once a token is set, and an empty Headlamp or Grafana URL
+// DASH_PROXMOX_URL once a token is set (DASH_PROXMOX_NODE is optional: with one node in the
+// cluster dash discovers it from the API at startup), and an empty Headlamp or Grafana URL
 // drops those links.
 package config
 
@@ -34,12 +35,14 @@ type Config struct {
 	VLogsURL        string
 	GatusURL        string
 
-	ProxmoxURL   string
+	ProxmoxURL string
+	// ProxmoxNode is the node whose status and guests dash reads. Optional: when empty and a
+	// token is set, dash discovers it from the API at startup if the cluster has exactly one node.
 	ProxmoxNode  string
 	ProxmoxToken string // "<user>!<token>=<secret>"; empty marks Proxmox unavailable.
 
 	// HostNodename is the nodename label of the Proxmox host's node-exporter and IPMI series;
-	// it defaults to ProxmoxNode.
+	// it defaults to DASH_PROXMOX_NODE, or to the discovered node when that is empty.
 	HostNodename string
 	// HostModel is shown next to the host's name, e.g. "Dell R730"; empty shows nothing.
 	HostModel string
@@ -147,8 +150,8 @@ func (c Config) Validate() error {
 	if c.PublicURL == "" && !c.Dev {
 		errs = append(errs, errors.New("DASH_PUBLIC_URL is required (the URL users open, e.g. https://dash.example.com)"))
 	}
-	if c.ProxmoxToken != "" && (c.ProxmoxURL == "" || c.ProxmoxNode == "") {
-		errs = append(errs, errors.New("DASH_PROXMOX_URL and DASH_PROXMOX_NODE are required with DASH_PROXMOX_TOKEN"))
+	if c.ProxmoxToken != "" && c.ProxmoxURL == "" {
+		errs = append(errs, errors.New("DASH_PROXMOX_URL is required with DASH_PROXMOX_TOKEN"))
 	}
 	if !metricNameRE.MatchString(c.Conventions.ZFSScrubMetricPrefix) {
 		errs = append(errs, fmt.Errorf("DASH_ZFS_SCRUB_METRIC_PREFIX %q is not a metric name", c.Conventions.ZFSScrubMetricPrefix))

@@ -56,6 +56,9 @@ func run() error {
 		handler = demo.Wrap(srv.Handler())
 		slog.Info("demo mode: serving fake data, no cluster or upstreams are contacted")
 	} else {
+		if err := resolveProxmoxNode(ctx, &cfg, upstream.NewProxmox(cfg.ProxmoxURL, "", cfg.ProxmoxToken, nil).Nodes, proxmoxDiscoveryBudget); err != nil {
+			return err
+		}
 		rc, err := kube.LoadConfig(cfg)
 		if err != nil {
 			return err

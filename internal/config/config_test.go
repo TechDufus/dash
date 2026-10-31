@@ -40,8 +40,11 @@ func TestValidate(t *testing.T) {
 		{"dev does not", map[string]string{"DASH_DEV": "true"}, ""},
 		{"demo does not", map[string]string{"DASH_DEMO": "true"}, ""},
 		{"minimal prod", map[string]string{"DASH_PUBLIC_URL": "https://dash.example.com"}, ""},
-		{"token needs proxmox url and node",
-			map[string]string{"DASH_PUBLIC_URL": "https://d", "DASH_PROXMOX_TOKEN": "u!t=s"}, "DASH_PROXMOX_NODE"},
+		{"token needs proxmox url",
+			map[string]string{"DASH_PUBLIC_URL": "https://d", "DASH_PROXMOX_TOKEN": "u!t=s"}, "DASH_PROXMOX_URL"},
+		{"token with proxmox url, node left for discovery",
+			map[string]string{"DASH_PUBLIC_URL": "https://d", "DASH_PROXMOX_TOKEN": "u!t=s",
+				"DASH_PROXMOX_URL": "https://pve:8006"}, ""},
 		{"token with proxmox",
 			map[string]string{"DASH_PUBLIC_URL": "https://d", "DASH_PROXMOX_TOKEN": "u!t=s",
 				"DASH_PROXMOX_URL": "https://pve:8006", "DASH_PROXMOX_NODE": "pve"}, ""},
@@ -56,6 +59,49 @@ func TestValidate(t *testing.T) {
 		case tc.want != "" && (err == nil || !strings.Contains(err.Error(), tc.want)):
 			t.Errorf("%s: error %v, want it to mention %q", tc.name, err, tc.want)
 		}
+	}
+}
+
+// TestDeploymentEnvCompat loads exactly the env names the homelab Kubernetes deployment sets
+// (with placeholder values). DASH_PROXMOX_NODE, DASH_HOST_NODENAME, DASH_HOST_MODEL and
+// DASH_LAUNCHER_FILE are deliberately absent: the node is left for discovery at startup.
+func TestDeploymentEnvCompat(t *testing.T) {
+	e := map[string]string{
+		"DASH_PUBLIC_URL":       "https://dash.example.com",
+		"DASH_VM_URL":           "http://vm.example.com:8428",
+		"DASH_ALERTMANAGER_URL": "http://alertmanager.example.com:9093",
+		"DASH_VLOGS_URL":        "http://vlogs.example.com:9428",
+		"DASH_GATUS_URL":        "http://gatus.example.com:8080",
+		"DASH_PROXMOX_URL":      "https://pve.example.com:8006",
+		"DASH_HEADLAMP_URL":     "https://headlamp.example.com",
+		"DASH_GRAFANA_URL":      "https://grafana.example.com",
+		"DASH_PROXMOX_TOKEN":    "dash@pve!ci=00000000-0000-0000-0000-000000000000",
+	}
+	c := Load(env(e))
+	if err := c.Validate(); err != nil {
+		t.Fatalf("Validate: %v", err)
+	}
+	fields := map[string]string{
+		"DASH_PUBLIC_URL":       c.PublicURL,
+		"DASH_VM_URL":           c.VMURL,
+		"DASH_ALERTMANAGER_URL": c.AlertmanagerURL,
+		"DASH_VLOGS_URL":        c.VLogsURL,
+		"DASH_GATUS_URL":        c.GatusURL,
+		"DASH_PROXMOX_URL":      c.ProxmoxURL,
+		"DASH_HEADLAMP_URL":     c.HeadlampURL,
+		"DASH_GRAFANA_URL":      c.GrafanaURL,
+		"DASH_PROXMOX_TOKEN":    c.ProxmoxToken,
+	}
+	for name, want := range e {
+		if got := fields[name]; got != want {
+			t.Errorf("%s: field = %q, want %q (env name not consumed?)", name, got, want)
+		}
+	}
+	if len(fields) != len(e) {
+		t.Errorf("table covers %d env names, env sets %d", len(fields), len(e))
+	}
+	if c.ProxmoxNode != "" || c.HostNodename != "" {
+		t.Errorf("node = %q, nodename = %q, want both empty before discovery", c.ProxmoxNode, c.HostNodename)
 	}
 }
 

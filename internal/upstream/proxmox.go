@@ -110,6 +110,21 @@ func (p *Proxmox) vmPath(vmid int, suffix string) (string, error) {
 	return p.nodePath("/qemu/" + strconv.Itoa(vmid) + suffix), nil
 }
 
+// Nodes lists the names of the Proxmox cluster's nodes (GET /api2/json/nodes).
+func (p *Proxmox) Nodes(ctx context.Context) ([]string, error) {
+	var raw []struct {
+		Node string `json:"node"`
+	}
+	if err := p.get(ctx, "/api2/json/nodes", &raw); err != nil {
+		return nil, err
+	}
+	out := make([]string, 0, len(raw))
+	for _, n := range raw {
+		out = append(out, n.Node)
+	}
+	return out, nil
+}
+
 // NodeStatus returns the host facts shown on the Host page.
 func (p *Proxmox) NodeStatus(ctx context.Context) (PVEHost, error) {
 	var d struct {
