@@ -97,7 +97,7 @@ drops those links.
 
 | Variable | Default | What |
 |---|---|---|
-| `DASH_PUBLIC_URL` | required (dev: `http://localhost:5173`) | the URL people open; the only `Origin` accepted on writes |
+| `DASH_PUBLIC_URL` | required (dev and demo: `http://localhost:5173`) | the URL people open, with scheme and host (`https://dash.example.com`); the only `Origin` accepted on writes |
 | `DASH_LISTEN` | `127.0.0.1:8080` | API and SPA, reached through oauth2-proxy |
 | `DASH_ALLOWED_HOSTS` | empty | extra Host names the API answers besides the `DASH_PUBLIC_URL` host (comma-separated; `*` accepts any) |
 | `DASH_HEALTH_LISTEN` | `0.0.0.0:8081` | `/healthz` and `/readyz` |

@@ -71,6 +71,12 @@ func TestValidate(t *testing.T) {
 		{"allowed hosts: scheme", map[string]string{"DASH_PUBLIC_URL": "https://d", "DASH_ALLOWED_HOSTS": "https://x"}, "DASH_ALLOWED_HOSTS"},
 		{"allowed hosts: port", map[string]string{"DASH_PUBLIC_URL": "https://d", "DASH_ALLOWED_HOSTS": "x:80"}, "DASH_ALLOWED_HOSTS"},
 		{"allowed hosts: path", map[string]string{"DASH_PUBLIC_URL": "https://d", "DASH_ALLOWED_HOSTS": "a/b"}, "DASH_ALLOWED_HOSTS"},
+		{"public url without a scheme", map[string]string{"DASH_PUBLIC_URL": "dash.example.com"}, "DASH_PUBLIC_URL"},
+		{"public url with host and port but no scheme", map[string]string{"DASH_PUBLIC_URL": "dash.example.com:8443"}, "DASH_PUBLIC_URL"},
+		{"public url with another scheme", map[string]string{"DASH_PUBLIC_URL": "ftp://x"}, "DASH_PUBLIC_URL"},
+		{"public url without a host", map[string]string{"DASH_PUBLIC_URL": "https://"}, "DASH_PUBLIC_URL"},
+		{"public url in dev", map[string]string{"DASH_DEV": "true", "DASH_PUBLIC_URL": "http://localhost:5173"}, ""},
+		{"public url with a bad scheme in demo", map[string]string{"DASH_DEMO": "true", "DASH_PUBLIC_URL": "localhost:5173"}, "DASH_PUBLIC_URL"},
 	}
 	for _, tc := range tests {
 		err := Load(env(tc.env)).Validate()
@@ -107,6 +113,10 @@ func TestHostAllowed(t *testing.T) {
 		{"listed ip", Config{PublicURL: prod.PublicURL, AllowedHosts: []string{"192.0.2.10"}}, "192.0.2.10:8080", true},
 		{"unlisted ip", Config{PublicURL: prod.PublicURL, AllowedHosts: []string{"192.0.2.10"}}, "192.0.2.11:8080", false},
 		{"wildcard", Config{PublicURL: prod.PublicURL, AllowedHosts: []string{"*"}}, "anything.example", true},
+		{"public host with a trailing dot, bare host", Config{PublicURL: "https://dash.example.com."}, "dash.example.com", true},
+		{"public host with a trailing dot, dotted host", Config{PublicURL: "https://dash.example.com."}, "dash.example.com.", true},
+		{"public host in capitals", Config{PublicURL: "https://DASH.Example.com"}, "dash.example.com", true},
+		{"public url without a scheme matches nothing", Config{PublicURL: "dash.example.com"}, "dash.example.com", false},
 	}
 	for _, tc := range tests {
 		if got := tc.c.HostAllowed(tc.host); got != tc.want {

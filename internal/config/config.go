@@ -4,7 +4,7 @@
 // Vite dev server). DASH_DEMO=true serves built-in fake data instead of a cluster with the
 // same defaults but never signs in as "dev" (internal/demo injects the "demo" user).
 //
-// Nothing site-specific has a default: DASH_PUBLIC_URL is required outside dev, Proxmox needs
+// Nothing site-specific has a default: DASH_PUBLIC_URL is required outside dev and demo, Proxmox needs
 // DASH_PROXMOX_URL once a token is set (DASH_PROXMOX_NODE is optional: with one node in the
 // cluster dash discovers it from the API at startup), and an empty Headlamp or Grafana URL
 // drops those links.
@@ -162,6 +162,11 @@ func (c Config) Validate() error {
 	if c.PublicURL == "" && !c.Dev && !c.Demo {
 		errs = append(errs, errors.New("DASH_PUBLIC_URL is required (the URL users open, e.g. https://dash.example.com)"))
 	}
+	if c.PublicURL != "" {
+		if u, err := url.Parse(c.PublicURL); err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Hostname() == "" {
+			errs = append(errs, fmt.Errorf("DASH_PUBLIC_URL %q must be an http(s) URL with a host, e.g. https://dash.example.com", c.PublicURL))
+		}
+	}
 	if c.Dev && !loopbackAddr(c.Listen) {
 		errs = append(errs, fmt.Errorf("DASH_DEV=true signs requests in as %q without authentication, so DASH_LISTEN must be a loopback address such as 127.0.0.1:8080, not %q", "dev", c.Listen))
 	}
@@ -194,21 +199,39 @@ func splitHosts(s string) []string {
 }
 
 // HostAllowed reports whether the API answers requests addressed to host (a Host header value,
-// with or without a port). Ports are ignored: a DNS-rebinding attacker controls the host name,
-// not the port. Allowed are PublicURL's host, every AllowedHosts entry ("*" allows any host)
-// and, in dev and demo mode, localhost, 127.0.0.1 and ::1.
-func (c Config) HostAllowed(host string) bool {
+// with or without a port). It is HostMatcher()(host); callers on a hot path should keep the matcher.
+func (c Config) HostAllowed(host string) bool { return c.HostMatcher()(host) }
+
+// HostMatcher returns HostAllowed with the configuration resolved once. Ports are ignored: a
+// DNS-rebinding attacker controls the host name, not the port. Allowed are PublicURL's host,
+// every AllowedHosts entry ("*" allows any host) and, in dev and demo mode, localhost,
+// 127.0.0.1 and ::1. Both sides are compared lowercased without a trailing dot.
+func (c Config) HostMatcher() func(host string) bool {
+	public := ""
+	if u, err := url.Parse(c.PublicURL); err == nil {
+		public = normalizeHost(u.Hostname())
+	}
+	listed := slices.Clone(c.AllowedHosts)
+	anyHost := slices.Contains(listed, "*")
+	local := c.Dev || c.Demo
+	return func(host string) bool {
+		host = normalizeHost(host)
+		if anyHost || slices.Contains(listed, host) {
+			return true
+		}
+		if host != "" && host == public {
+			return true
+		}
+		return local && (host == "localhost" || host == "127.0.0.1" || host == "::1")
+	}
+}
+
+// normalizeHost strips a port and IPv6 brackets, lowercases and drops a trailing dot.
+func normalizeHost(host string) string {
 	if h, _, err := net.SplitHostPort(host); err == nil {
 		host = h
 	}
-	host = strings.TrimSuffix(strings.ToLower(strings.Trim(host, "[]")), ".")
-	if slices.Contains(c.AllowedHosts, "*") || slices.Contains(c.AllowedHosts, host) {
-		return true
-	}
-	if u, err := url.Parse(c.PublicURL); err == nil && host != "" && strings.ToLower(u.Hostname()) == host {
-		return true
-	}
-	return (c.Dev || c.Demo) && (host == "localhost" || host == "127.0.0.1" || host == "::1")
+	return strings.TrimSuffix(strings.ToLower(strings.Trim(host, "[]")), ".")
 }
 
 // loopbackAddr reports whether a host:port listen address binds only the loopback interface.

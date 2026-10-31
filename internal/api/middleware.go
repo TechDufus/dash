@@ -23,8 +23,9 @@ const hostWarnEvery = 10 * time.Second
 // stops DNS-rebinding: a hostile page whose name resolves to dash's address cannot read
 // responses from it.
 func (s *Server) hosts(next http.Handler) http.Handler {
+	allowed := s.d.Cfg.HostMatcher()
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if !s.d.Cfg.HostAllowed(r.Host) {
+		if !allowed(r.Host) {
 			now, last := s.now().UnixNano(), s.hostWarn.Load()
 			if now-last >= int64(hostWarnEvery) && s.hostWarn.CompareAndSwap(last, now) {
 				host := r.Host
