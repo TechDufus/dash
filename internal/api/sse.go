@@ -59,6 +59,11 @@ func (e *sseWriter) event(name string, data []byte) error {
 	return e.write(fmt.Sprintf("event: %s\ndata: %s\n\n", name, data))
 }
 
+// eventID is event with an SSE id, which the browser echoes as Last-Event-ID when it reconnects.
+func (e *sseWriter) eventID(name, id string, data []byte) error {
+	return e.write(fmt.Sprintf("id: %s\nevent: %s\ndata: %s\n\n", id, name, data))
+}
+
 // pings sends a heartbeat comment every interval until ctx ends or a write fails.
 func (e *sseWriter) pings(ctx context.Context, interval time.Duration) {
 	t := time.NewTicker(interval)
@@ -120,6 +125,13 @@ func (s *Server) logsTail(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	// A reconnecting EventSource sends the id of the last line it saw. Replay from just before
+	// it, never further back than maxTailResume, and drop what the client already has.
+	last, resumed := time.Time{}, false
+	if t, err := time.Parse(time.RFC3339Nano, r.Header.Get("Last-Event-ID")); err == nil {
+		last, resumed = t, true
+		q.StartOffset = min(max(s.now().Sub(t)+5*time.Second, 0), maxTailResume)
+	}
 	release, ok := s.tails.acquire(w, userFrom(r.Context()))
 	if !ok {
 		return
@@ -143,11 +155,17 @@ func (s *Server) logsTail(w http.ResponseWriter, r *http.Request) {
 		<-pingsDone
 	}()
 	err = s.d.VLogs.Tail(ctx, q, func(l model.LogLine) error {
+		if resumed && !l.Time.After(last) { // already delivered before the reconnect
+			return nil
+		}
 		b, err := json.Marshal(l)
 		if err != nil {
 			return err
 		}
-		return e.event("line", b)
+		if l.Time.IsZero() {
+			return e.event("line", b)
+		}
+		return e.eventID("line", l.Time.UTC().Format(time.RFC3339Nano), b)
 	})
 	if err != nil && ctx.Err() == nil {
 		slog.Warn("log tail ended", "error", err)

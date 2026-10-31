@@ -187,6 +187,35 @@ func TestVLogsTail(t *testing.T) {
 	}
 }
 
+func TestVLogsTailStartOffset(t *testing.T) {
+	var raw string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { raw = r.URL.RawQuery }))
+	defer srv.Close()
+	for _, tc := range []struct {
+		off  time.Duration
+		want string // start_offset value, empty = parameter absent
+	}{
+		{0, ""},
+		{-time.Second, ""},
+		{35 * time.Second, "35s"},
+		{1500 * time.Millisecond, "2s"},
+		{time.Minute, "60s"},
+	} {
+		raw = ""
+		q := LogQuery{Namespace: "n", StartOffset: tc.off}
+		if err := NewVLogs(srv.URL, nil).Tail(context.Background(), q, func(model.LogLine) error { return nil }); err != nil {
+			t.Fatal(err)
+		}
+		got, perr := url.ParseQuery(raw)
+		if perr != nil {
+			t.Fatal(perr)
+		}
+		if v := got.Get("start_offset"); v != tc.want || got.Has("start_offset") != (tc.want != "") {
+			t.Errorf("offset %v: start_offset = %q (raw %q), want %q", tc.off, v, raw, tc.want)
+		}
+	}
+}
+
 func TestRecordLineAppendsFields(t *testing.T) {
 	base := map[string]string{
 		"_time": "2026-10-30T21:47:02.295551Z", "_msg": "audit", "_stream": "{x}", "_stream_id": "1", "stream": "stderr",

@@ -34,8 +34,12 @@ var (
 	logEscaper = strings.NewReplacer(`\`, `\\`, `"`, `\"`)
 )
 
-// LogQuery selects container logs. Namespace is required.
-type LogQuery struct{ Namespace, Pod, Container, Text, Since string }
+// LogQuery selects container logs. Namespace is required. StartOffset applies to tails only: when
+// positive the tail starts that far in the past instead of at now; BuildQuery ignores it.
+type LogQuery struct {
+	Namespace, Pod, Container, Text, Since string
+	StartOffset                            time.Duration
+}
 
 // BuildQuery renders q as a LogsQL query. tail=true omits the time filter and
 // the sort, as /select/logsql/tail wants.
@@ -161,7 +165,12 @@ func (v *VLogs) Tail(ctx context.Context, q LogQuery, emit func(model.LogLine) e
 	if err != nil {
 		return err
 	}
-	resp, err := v.stream.open(ctx, http.MethodGet, "/select/logsql/tail", url.Values{"query": {expr}, "offset": {"1s"}}, nil, nil)
+	params := url.Values{"query": {expr}, "offset": {"1s"}}
+	if q.StartOffset > 0 {
+		// Whole seconds, rounded up, in the plain duration form LogsQL accepts.
+		params.Set("start_offset", strconv.FormatInt(int64((q.StartOffset+time.Second-1)/time.Second), 10)+"s")
+	}
+	resp, err := v.stream.open(ctx, http.MethodGet, "/select/logsql/tail", params, nil, nil)
 	if err != nil {
 		if ctx.Err() != nil {
 			return nil

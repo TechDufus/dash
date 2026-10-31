@@ -21,12 +21,21 @@ import (
 // sseClient opens path on a real server and delivers its lines on a channel.
 func sseClient(t *testing.T, h http.Handler, path string) (*http.Response, <-chan string) {
 	t.Helper()
+	return sseClientWith(t, h, path, nil)
+}
+
+// sseClientWith is sseClient with extra request headers.
+func sseClientWith(t *testing.T, h http.Handler, path string, header map[string]string) (*http.Response, <-chan string) {
+	t.Helper()
 	ts := httptest.NewServer(h)
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(func() { cancel(); ts.Close() })
 	r, _ := http.NewRequestWithContext(ctx, http.MethodGet, ts.URL+path, nil)
 	r.Host = testHost
 	r.Header.Set("X-Forwarded-Preferred-Username", "alice")
+	for k, v := range header {
+		r.Header.Set(k, v)
+	}
 	resp, err := http.DefaultClient.Do(r)
 	if err != nil {
 		t.Fatal(err)
@@ -312,4 +321,51 @@ func TestDecodeBodyDeadline(t *testing.T) {
 			t.Errorf("status = %d, created = %d, want 200 and 1", resp.StatusCode, am.created)
 		}
 	})
+}
+
+func TestLogsTailResume(t *testing.T) {
+	t0 := fixedNow.Add(-30 * time.Second)
+	at := func(d time.Duration) string { return t0.Add(d).UTC().Format(time.RFC3339Nano) }
+	tests := []struct {
+		name       string
+		lastID     string // Last-Event-ID header; empty = not sent
+		wantOffset time.Duration
+		wantIDs    []string // ids of the delivered lines, in order
+	}{
+		{"no header is unchanged", "", 0, []string{at(-time.Second), at(0), at(time.Second), at(2 * time.Second)}},
+		{"resume after t0", at(0), 35 * time.Second, []string{at(time.Second), at(2 * time.Second)}},
+		{"resume window is capped", fixedNow.Add(-time.Hour).Format(time.RFC3339Nano), time.Minute, []string{at(-time.Second), at(0), at(time.Second), at(2 * time.Second)}},
+		{"unparseable header is ignored", "garbage", 0, []string{at(-time.Second), at(0), at(time.Second), at(2 * time.Second)}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			logs := &fakeLogs{}
+			logs.tail = func(emit func(model.LogLine) error) error {
+				for _, d := range []time.Duration{-time.Second, 0, time.Second, 2 * time.Second} {
+					if err := emit(model.LogLine{Time: t0.Add(d), Pod: "plex-0", Msg: "m"}); err != nil {
+						return err
+					}
+				}
+				return nil // the stream ends, which closes the response
+			}
+			s := newServer(func(d *Deps) { d.VLogs = logs })
+			hdr := map[string]string{}
+			if tc.lastID != "" {
+				hdr["Last-Event-ID"] = tc.lastID
+			}
+			_, lines := sseClientWith(t, s.Handler(), "/api/logs/tail?ns=media&pod=plex-0", hdr)
+			var ids []string
+			for l := range lines {
+				if id, ok := strings.CutPrefix(l, "id: "); ok {
+					ids = append(ids, id)
+				}
+			}
+			if strings.Join(ids, ",") != strings.Join(tc.wantIDs, ",") {
+				t.Errorf("ids = %v, want %v", ids, tc.wantIDs)
+			}
+			if logs.q.StartOffset != tc.wantOffset {
+				t.Errorf("start offset = %v, want %v", logs.q.StartOffset, tc.wantOffset)
+			}
+		})
+	}
 }

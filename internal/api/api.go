@@ -147,6 +147,7 @@ const (
 	maxTailsPerUser   = 4 // /api/logs/tail connections per user
 	maxTails          = 32
 	maxTailDuration   = 30 * time.Minute
+	maxTailResume     = time.Minute // furthest back a reconnecting tail replays
 	sseWriteTimeout   = 10 * time.Second
 	bodyReadTimeout   = 10 * time.Second
 )
