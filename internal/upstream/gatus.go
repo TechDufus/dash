@@ -31,33 +31,29 @@ type gatusStatus struct {
 	} `json:"results"`
 }
 
-// Statuses lists every endpoint with its recent results (oldest first).
-// Gatus does not return the configured endpoint URL, so URL carries the host
-// that the latest result probed (a bare hostname or IP, no scheme).
+// Statuses lists every endpoint with its recent results (oldest first). Gatus pages each
+// endpoint's results (not the endpoint list), so one request returns all endpoints with up
+// to gatusPageSize results each. Gatus does not return the configured endpoint URL, so URL
+// carries the host that the latest result probed (a bare hostname or IP, no scheme).
 func (g *Gatus) Statuses(ctx context.Context) ([]model.Endpoint, error) {
-	out := []model.Endpoint{}
-	for page := 1; page <= 10; page++ {
-		q := url.Values{"page": {strconv.Itoa(page)}, "pageSize": {strconv.Itoa(gatusPageSize)}}
-		var raw []gatusStatus
-		if err := g.c.getJSON(ctx, http.MethodGet, "/api/v1/endpoints/statuses", q, nil, nil, &raw); err != nil {
-			return nil, err
+	q := url.Values{"page": {"1"}, "pageSize": {strconv.Itoa(gatusPageSize)}}
+	var raw []gatusStatus
+	if err := g.c.getJSON(ctx, http.MethodGet, "/api/v1/endpoints/statuses", q, nil, nil, &raw); err != nil {
+		return nil, err
+	}
+	out := make([]model.Endpoint, 0, len(raw))
+	for _, r := range raw {
+		e := model.Endpoint{Group: r.Group, Name: r.Name, Key: r.Key, Results: make([]model.CheckResult, 0, len(r.Results))}
+		for _, res := range r.Results {
+			e.Results = append(e.Results, model.CheckResult{
+				Success: res.Success, Timestamp: res.Timestamp, DurationMs: float64(res.Duration) / 1e6,
+			})
 		}
-		for _, r := range raw {
-			e := model.Endpoint{Group: r.Group, Name: r.Name, Key: r.Key, Results: make([]model.CheckResult, 0, len(r.Results))}
-			for _, res := range r.Results {
-				e.Results = append(e.Results, model.CheckResult{
-					Success: res.Success, Timestamp: res.Timestamp, DurationMs: float64(res.Duration) / 1e6,
-				})
-			}
-			if n := len(r.Results); n > 0 {
-				e.Healthy = r.Results[n-1].Success
-				e.URL = r.Results[n-1].Hostname
-			}
-			out = append(out, e)
+		if n := len(r.Results); n > 0 {
+			e.Healthy = r.Results[n-1].Success
+			e.URL = r.Results[n-1].Hostname
 		}
-		if len(raw) < gatusPageSize {
-			break
-		}
+		out = append(out, e)
 	}
 	return out, nil
 }

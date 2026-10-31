@@ -65,9 +65,9 @@ export function PodLogs({ ns, pod, containers, active }: PodLogsProps) {
   const [liveRows, setLiveRows] = useState<Row[]>([]);
   const [stream, setStream] = useState<StreamState>("connecting");
 
-  // The API returns newest first; show oldest first so the newest line is at the bottom.
+  // The API returns lines oldest first, so the newest line ends up at the bottom.
   const fetched = useMemo<Row[]>(
-    () => (logs.data ? [...logs.data].reverse().map((line, id) => ({ id, line })) : []),
+    () => (logs.data ? logs.data.map((line, id) => ({ id, line })) : []),
     [logs.data],
   );
   const rows = live ? liveRows : fetched;

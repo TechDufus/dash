@@ -106,8 +106,12 @@ func classifyNamespace(labels map[string]string) nsInfo {
 }
 
 func (m *Manager) namespaceInfos() map[string]nsInfo {
-	out := map[string]nsInfo{}
-	for _, ns := range m.d.Cluster.ListNamespaces() {
+	return namespaceInfosOf(m.d.Cluster.ListNamespaces())
+}
+
+func namespaceInfosOf(list []*corev1.Namespace) map[string]nsInfo {
+	out := make(map[string]nsInfo, len(list))
+	for _, ns := range list {
 		out[ns.Name] = classifyNamespace(ns.Labels)
 	}
 	return out
@@ -181,7 +185,8 @@ func (m *Manager) buildCluster(now time.Time) model.ClusterData {
 	m.mu.RUnlock()
 	c := m.d.Cluster
 	res := c.Resolver()
-	infos := m.namespaceInfos()
+	nsList := c.ListNamespaces() // listed once: the classification and the namespace rows must agree
+	infos := namespaceInfosOf(nsList)
 
 	out := model.ClusterData{
 		Nodes: []model.Node{}, Namespaces: []model.Namespace{}, Workloads: []model.Workload{}, Pods: []model.Pod{},
@@ -224,7 +229,7 @@ func (m *Manager) buildCluster(now time.Time) model.ClusterData {
 			notReady[w.Namespace]++
 		}
 	}
-	for _, ns := range c.ListNamespaces() {
+	for _, ns := range nsList {
 		info := infos[ns.Name]
 		n := model.Namespace{
 			Name: ns.Name, Group: info.group, Protected: info.protected, Tenant: info.tenant, Privileged: info.privileged,

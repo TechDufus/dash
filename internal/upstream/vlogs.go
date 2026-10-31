@@ -11,6 +11,8 @@ import (
 	"net/url"
 	"regexp"
 	"slices"
+	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -92,19 +94,32 @@ func NewVLogs(baseURL string, rt http.RoundTripper) *VLogs {
 	}
 }
 
-type vlRecord struct {
-	Msg       string `json:"_msg"`
-	Time      string `json:"_time"`
-	Pod       string `json:"kubernetes.pod_name"`
-	Container string `json:"kubernetes.container_name"`
-}
-
-func (r vlRecord) line() (model.LogLine, bool) {
-	t, err := time.Parse(time.RFC3339Nano, r.Time)
+// recordLine turns one VictoriaLogs record into a LogLine. vlagent moves a JSON log line's "msg" into
+// _msg and every other key into its own field, so the remaining fields are appended after the
+// message as " k=v" (sorted by key) to keep structured lines such as audit entries readable.
+func recordLine(rec map[string]string) (model.LogLine, bool) {
+	t, err := time.Parse(time.RFC3339Nano, rec["_time"])
 	if err != nil {
 		return model.LogLine{}, false
 	}
-	return model.LogLine{Time: t, Pod: r.Pod, Container: r.Container, Msg: r.Msg}, true
+	keys := make([]string, 0, len(rec))
+	for k := range rec {
+		if strings.HasPrefix(k, "_") || strings.HasPrefix(k, "kubernetes.") || k == "stream" {
+			continue
+		}
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	var msg strings.Builder
+	msg.WriteString(rec["_msg"])
+	for _, k := range keys {
+		v := rec[k]
+		if v == "" || strings.ContainsAny(v, " \t\"") {
+			v = strconv.Quote(v)
+		}
+		msg.WriteString(" " + k + "=" + v)
+	}
+	return model.LogLine{Time: t, Pod: rec["kubernetes.pod_name"], Container: rec["kubernetes.container_name"], Msg: msg.String()}, true
 }
 
 // Query returns up to 500 of the newest matching lines, oldest first.
@@ -138,7 +153,7 @@ func (v *VLogs) Tail(ctx context.Context, q LogQuery, emit func(model.LogLine) e
 	if err != nil {
 		return err
 	}
-	resp, err := v.stream.open(ctx, http.MethodGet, "/select/logsql/tail", url.Values{"query": {expr}}, nil, nil)
+	resp, err := v.stream.open(ctx, http.MethodGet, "/select/logsql/tail", url.Values{"query": {expr}, "offset": {"1s"}}, nil, nil)
 	if err != nil {
 		if ctx.Err() != nil {
 			return nil
@@ -167,9 +182,9 @@ func readLogLines(r io.Reader, emit func(model.LogLine) error) error {
 	for {
 		b, err := br.ReadBytes('\n')
 		if len(bytes.TrimSpace(b)) > 0 {
-			var rec vlRecord
+			var rec map[string]string
 			if json.Unmarshal(b, &rec) == nil {
-				if l, ok := rec.line(); ok {
+				if l, ok := recordLine(rec); ok {
 					if eerr := emit(l); eerr != nil {
 						return eerr
 					}

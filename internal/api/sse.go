@@ -104,8 +104,16 @@ func (s *Server) logsTail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ctx, cancel := context.WithCancel(r.Context())
-	defer cancel()
-	go e.pings(ctx, s.heartbeat)
+	// The heartbeat writes to w, so it must be finished before the handler returns.
+	pingsDone := make(chan struct{})
+	go func() {
+		defer close(pingsDone)
+		e.pings(ctx, s.heartbeat)
+	}()
+	defer func() {
+		cancel()
+		<-pingsDone
+	}()
 	err = s.d.VLogs.Tail(ctx, q, func(l model.LogLine) error {
 		b, err := json.Marshal(l)
 		if err != nil {

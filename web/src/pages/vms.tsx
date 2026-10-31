@@ -15,7 +15,7 @@ import { useMemo } from "react";
 import { Link, useLocation } from "wouter";
 import { useTopic } from "@/api/stream";
 import type { Machine, PVETask, VM } from "@/api/types";
-import { BytesBar } from "@/components/bytes-bar";
+import { BytesBar, PVE_MEM_TIP } from "@/components/bytes-bar";
 import { Gauge } from "@/components/gauge";
 import { Page, Reveal } from "@/components/page";
 import { Empty, Panel, PanelHeader, SourceChips } from "@/components/panel";
@@ -97,7 +97,13 @@ function VMCard({ vm }: { vm: VM }) {
             </span>
           </div>
           <div className="min-w-0 flex-1 space-y-3">
-            <BytesBar used={vm.memBytes} total={vm.maxMemBytes} label="Memory" />
+            <BytesBar
+              used={vm.memBytes}
+              total={vm.maxMemBytes}
+              label="Memory"
+              neutral
+              labelTip={PVE_MEM_TIP}
+            />
             <div className="flex items-center gap-1.5 text-xs text-muted">
               <Clock className="size-3.5" aria-hidden="true" />
               <span>Uptime</span>

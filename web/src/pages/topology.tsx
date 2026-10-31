@@ -9,11 +9,12 @@ import type {
   TopologyHost,
   TopologyVM,
 } from "@/api/types";
-import { BytesBar } from "@/components/bytes-bar";
+import { BytesBar, PVE_MEM_TIP } from "@/components/bytes-bar";
 import { Gauge } from "@/components/gauge";
 import { AnimatedBeam } from "@/components/magicui/animated-beam";
 import { Panel, PanelHeader } from "@/components/panel";
 import { HealthBadge, StatusDot } from "@/components/status";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { formatCelsius, formatPercent, formatWatts } from "@/lib/format";
 import { HEALTH_TEXT, ratioHealth } from "@/lib/health";
 import { useIsDesktop } from "@/lib/hooks";
@@ -110,12 +111,17 @@ function VMCard({ vm, className }: { vm: TopologyVM; className?: string }) {
           />
           <div className="min-w-0 flex-1">
             <div className="mb-1 flex items-baseline justify-between text-[11px]">
-              <span className="text-muted">Mem</span>
-              <span className={cn("num", HEALTH_TEXT[ratioHealth(vm.memRatio)])}>
-                {formatPercent(vm.memRatio)}
-              </span>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <span className="cursor-help text-muted underline decoration-dotted underline-offset-2">
+                    Mem
+                  </span>
+                </TooltipTrigger>
+                <TooltipContent>{PVE_MEM_TIP}</TooltipContent>
+              </Tooltip>
+              <span className="num text-fg">{formatPercent(vm.memRatio)}</span>
             </div>
-            <BytesBar used={vm.memRatio} total={1} compact label={`${vm.name} memory`} />
+            <BytesBar used={vm.memRatio} total={1} compact neutral label={`${vm.name} memory`} />
           </div>
         </div>
       ) : (
@@ -291,10 +297,7 @@ function VMRow({ vm }: { vm: TopologyVM }) {
             </span>
           </span>
           <span>
-            mem{" "}
-            <span className={HEALTH_TEXT[ratioHealth(vm.memRatio)]}>
-              {formatPercent(vm.memRatio)}
-            </span>
+            mem <span className="text-fg">{formatPercent(vm.memRatio)}</span>
           </span>
         </span>
       ) : (

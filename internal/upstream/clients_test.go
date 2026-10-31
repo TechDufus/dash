@@ -269,23 +269,6 @@ func TestGatusStatuses(t *testing.T) {
 	}
 }
 
-func TestGatusPaging(t *testing.T) {
-	pages := 0
-	s := serve(t, func(w http.ResponseWriter, r *http.Request) {
-		pages++
-		if r.URL.Query().Get("page") == "1" {
-			list := make([]gatusStatus, gatusPageSize)
-			json.NewEncoder(w).Encode(list)
-			return
-		}
-		io.WriteString(w, `[{"name":"last","group":"g","key":"g_last","results":[]}]`)
-	})
-	got, err := NewGatus(s.URL, nil).Statuses(ctx)
-	if err != nil || len(got) != gatusPageSize+1 || pages != 2 {
-		t.Fatalf("len=%d pages=%d err=%v", len(got), pages, err)
-	}
-}
-
 func pveServer(t *testing.T, routes map[string]string) (*httptest.Server, *[]string) {
 	t.Helper()
 	var auth []string

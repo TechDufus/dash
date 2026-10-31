@@ -116,6 +116,9 @@ func topology(in AttentionInput, items []model.AttentionItem) model.Topology {
 	}
 	for _, ns := range in.Cluster.Namespaces {
 		g := groups[ns.Group]
+		if g == nil {
+			continue
+		}
 		g.Namespaces = append(g.Namespaces, model.TopologyNamespace{Name: ns.Name, Health: ns.Health, Pods: ns.PodsTotal})
 		g.Health = Worst(g.Health, ns.Health)
 	}

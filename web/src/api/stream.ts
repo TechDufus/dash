@@ -1,4 +1,5 @@
 import { useSyncExternalStore } from "react";
+import { api } from "./client";
 import { TOPICS, type TopicData, type TypedEnvelope } from "./topics";
 import type { Envelope, Topic } from "./types";
 
@@ -36,8 +37,11 @@ function open() {
     setConnection(
       envelopes.size === 0 && connection === "connecting" ? "connecting" : "reconnecting",
     );
-    // The browser retries by itself while CONNECTING; a CLOSED stream (HTTP error) needs a new one.
+    // The browser retries by itself while CONNECTING; a CLOSED stream (HTTP error, or oauth2-proxy
+    // redirecting to GitHub after the session expired) needs a new one. The /api/me probe runs the
+    // 401 -> reload reauth path in the client when the session is gone.
     if (es.readyState === EventSource.CLOSED) {
+      void api.get("/api/me").catch(() => {});
       clearTimeout(retryTimer);
       retryTimer = setTimeout(open, 3000);
     }

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 	"time"
@@ -151,9 +152,9 @@ func TestVLogsQueryEmptyAndErrors(t *testing.T) {
 }
 
 func TestVLogsTail(t *testing.T) {
-	var gotQuery string
+	var gotQuery, gotRawQuery string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		gotQuery = r.URL.Query().Get("query")
+		gotQuery, gotRawQuery = r.URL.Query().Get("query"), r.URL.RawQuery
 		fmt.Fprintf(w, "%s\n%s\n", vlOldest, vlNewest)
 		w.(http.Flusher).Flush()
 		<-r.Context().Done() // stay open like a real tail
@@ -178,6 +179,42 @@ func TestVLogsTail(t *testing.T) {
 	}
 	if gotQuery != `kubernetes.pod_namespace:="n" kubernetes.pod_name:="p1" "x"` {
 		t.Fatalf("query = %q", gotQuery)
+	}
+	wantRaw := "offset=1s&query=" + url.QueryEscape(`kubernetes.pod_namespace:="n" kubernetes.pod_name:="p1" "x"`)
+	if gotRawQuery != wantRaw {
+		t.Fatalf("raw query = %q, want %q", gotRawQuery, wantRaw)
+	}
+}
+
+func TestRecordLineAppendsFields(t *testing.T) {
+	base := map[string]string{
+		"_time": "2026-10-30T21:47:02.295551Z", "_msg": "audit", "_stream": "{x}", "_stream_id": "1", "stream": "stderr",
+		"kubernetes.pod_name": "dash-1", "kubernetes.container_name": "dash", "kubernetes.pod_ip": "10.0.0.1",
+	}
+	tests := []struct {
+		name  string
+		extra map[string]string
+		want  string
+	}{
+		{"plain message", nil, "audit"},
+		{"sorted fields", map[string]string{"user": "TechDufus", "action": "restart", "level": "INFO"}, "audit action=restart level=INFO user=TechDufus"},
+		{"values with spaces are quoted", map[string]string{"error": "boom happened", "result": "error"}, `audit error="boom happened" result=error`},
+	}
+	for _, tc := range tests {
+		rec := map[string]string{}
+		for k, v := range base {
+			rec[k] = v
+		}
+		for k, v := range tc.extra {
+			rec[k] = v
+		}
+		l, ok := recordLine(rec)
+		if !ok || l.Msg != tc.want || l.Pod != "dash-1" || l.Container != "dash" {
+			t.Errorf("%s: got %+v ok=%v, want msg %q", tc.name, l, ok, tc.want)
+		}
+	}
+	if _, ok := recordLine(map[string]string{"_msg": "x", "_time": "nope"}); ok {
+		t.Error("a record with a bad _time must be skipped")
 	}
 }
 

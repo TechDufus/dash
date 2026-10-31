@@ -130,10 +130,21 @@ func (m *Manager) Run(ctx context.Context) {
 			case <-ctx.Done():
 				return
 			case <-t.C:
-				m.rebuild()
+				m.safeRebuild()
 			}
 		}
 	}()
+}
+
+// safeRebuild runs one rebuild; a panicking builder is logged and never kills the process.
+// The dirty set was already consumed, so the affected topics rebuild on their next change.
+func (m *Manager) safeRebuild() {
+	defer func() {
+		if r := recover(); r != nil {
+			slog.Error("rebuild panic", "panic", r)
+		}
+	}()
+	m.rebuild()
 }
 
 func (m *Manager) every(ctx context.Context, name string, d time.Duration, fn func(context.Context)) {
