@@ -1,5 +1,6 @@
 // Package config reads dash's environment. Defaults are the in-cluster values; DASH_DEV=true
 // switches the dev defaults (health listener on loopback, public URL of the Vite dev server).
+// DASH_DEMO=true serves built-in fake data instead of a cluster and implies DASH_DEV.
 package config
 
 import (
@@ -10,7 +11,8 @@ import (
 
 // Config is the whole runtime configuration.
 type Config struct {
-	Dev bool
+	Dev  bool
+	Demo bool // fake data from internal/demo; no cluster or upstreams are contacted
 
 	Listen       string // API + SPA listener; loopback only, reached through oauth2-proxy.
 	HealthListen string // /healthz and /readyz only.
@@ -38,7 +40,8 @@ type Config struct {
 
 // Load reads the environment through getenv (os.Getenv in production).
 func Load(getenv func(string) string) Config {
-	dev := strings.EqualFold(strings.TrimSpace(getenv("DASH_DEV")), "true")
+	demo := strings.EqualFold(strings.TrimSpace(getenv("DASH_DEMO")), "true")
+	dev := demo || strings.EqualFold(strings.TrimSpace(getenv("DASH_DEV")), "true")
 	str := func(key, def string) string {
 		if v := strings.TrimSpace(getenv(key)); v != "" {
 			return v
@@ -51,6 +54,7 @@ func Load(getenv func(string) string) Config {
 	}
 	return Config{
 		Dev:             dev,
+		Demo:            demo,
 		Listen:          str("DASH_LISTEN", "127.0.0.1:8080"),
 		HealthListen:    str("DASH_HEALTH_LISTEN", healthDef),
 		PublicURL:       strings.TrimRight(str("DASH_PUBLIC_URL", publicDef), "/"),
