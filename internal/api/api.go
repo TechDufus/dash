@@ -63,6 +63,9 @@ type Server struct {
 	static    fs.FS
 	now       func() time.Time
 	heartbeat time.Duration
+	events    *streamLimiter // open /api/stream connections
+	tails     *streamLimiter // open /api/logs/tail connections
+	tailMax   time.Duration  // longest a log tail stays open
 }
 
 // New builds a Server serving the embedded SPA.
@@ -71,7 +74,12 @@ func New(d Deps) *Server {
 	if err != nil { // only if the embed root is renamed
 		panic(err)
 	}
-	return &Server{d: d, static: dist, now: time.Now, heartbeat: 15 * time.Second}
+	return &Server{
+		d: d, static: dist, now: time.Now, heartbeat: 15 * time.Second,
+		events:  newStreamLimiter(maxStreamsPerUser, maxStreams),
+		tails:   newStreamLimiter(maxTailsPerUser, maxTails),
+		tailMax: maxTailDuration,
+	}
 }
 
 // Handler is the API plus the SPA, for the loopback listener.
@@ -128,8 +136,25 @@ func writeErr(w http.ResponseWriter, code int, msg string) {
 // maxBody caps JSON request bodies.
 const maxBody = 64 << 10
 
+// Stream and request limits; constants until the layered config makes them settings.
+const (
+	maxStreamsPerUser = 16 // /api/stream connections per user
+	maxStreams        = 256
+	maxTailsPerUser   = 4 // /api/logs/tail connections per user
+	maxTails          = 32
+	maxTailDuration   = 30 * time.Minute
+	sseWriteTimeout   = 10 * time.Second
+	bodyReadTimeout   = 10 * time.Second
+)
+
 // decodeBody reads a JSON body into v; it answers 400 itself and reports false on failure.
 func decodeBody(w http.ResponseWriter, r *http.Request, v any) bool {
+	rc := http.NewResponseController(w)
+	if rc.SetReadDeadline(time.Now().Add(bodyReadTimeout)) == nil {
+		// Reset on return: the server's background read inherits the deadline, and once it
+		// fires it cancels the request context.
+		defer func() { _ = rc.SetReadDeadline(time.Time{}) }()
+	}
 	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxBody)).Decode(v); err != nil {
 		writeErr(w, http.StatusBadRequest, "invalid request body")
 		return false

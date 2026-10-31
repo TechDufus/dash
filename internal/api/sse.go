@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -34,10 +35,22 @@ func startSSE(w http.ResponseWriter) (*sseWriter, error) {
 func (e *sseWriter) write(s string) error {
 	e.mu.Lock()
 	defer e.mu.Unlock()
+	// A stalled client must not pin the handler: each write gets its own deadline.
+	if err := e.rc.SetWriteDeadline(time.Now().Add(sseWriteTimeout)); err != nil && !errors.Is(err, http.ErrNotSupported) {
+		return err
+	}
 	if _, err := e.w.Write([]byte(s)); err != nil {
 		return err
 	}
 	return e.rc.Flush()
+}
+
+// done clears the write deadline. http.Server has no WriteTimeout, so a stale deadline would
+// carry over to the next request on a kept-alive connection.
+func (e *sseWriter) done() {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	_ = e.rc.SetWriteDeadline(time.Time{})
 }
 
 func (e *sseWriter) event(name string, data []byte) error {
@@ -61,9 +74,15 @@ func (e *sseWriter) pings(ctx context.Context, interval time.Duration) {
 }
 
 func (s *Server) stream(w http.ResponseWriter, r *http.Request) {
+	release, ok := s.events.acquire(w, userFrom(r.Context()))
+	if !ok {
+		return
+	}
+	defer release()
 	snapshot, ch, cancel := s.d.Hub.Subscribe()
 	defer cancel()
 	e, err := startSSE(w)
+	defer e.done()
 	if err != nil {
 		return
 	}
@@ -99,11 +118,18 @@ func (s *Server) logsTail(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	release, ok := s.tails.acquire(w, userFrom(r.Context()))
+	if !ok {
+		return
+	}
+	defer release()
 	e, err := startSSE(w)
+	defer e.done()
 	if err != nil {
 		return
 	}
-	ctx, cancel := context.WithCancel(r.Context())
+	// When the deadline ends the tail, the browser's EventSource reconnects by itself.
+	ctx, cancel := context.WithTimeout(r.Context(), s.tailMax)
 	// The heartbeat writes to w, so it must be finished before the handler returns.
 	pingsDone := make(chan struct{})
 	go func() {

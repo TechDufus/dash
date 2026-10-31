@@ -100,7 +100,8 @@ func run() error {
 		Addr:              cfg.Listen,
 		Handler:           handler,
 		ReadHeaderTimeout: 10 * time.Second,
-		IdleTimeout:       120 * time.Second, // no WriteTimeout: SSE streams are open-ended
+		MaxHeaderBytes:    64 << 10,
+		IdleTimeout:       120 * time.Second, // no WriteTimeout: SSE streams are open-ended; each SSE write has its own deadline (internal/api/sse.go)
 		BaseContext:       func(net.Listener) context.Context { return baseCtx },
 	}
 	apiSrv.RegisterOnShutdown(cancelStreams)
@@ -109,6 +110,7 @@ func run() error {
 		Handler:           srv.HealthHandler(),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       5 * time.Second,
+		MaxHeaderBytes:    8 << 10,
 		WriteTimeout:      5 * time.Second,
 		IdleTimeout:       30 * time.Second,
 	}

@@ -136,3 +136,98 @@ func TestVMDetailErrors(t *testing.T) {
 		}
 	}
 }
+
+// streamStatus opens path on a real server as user and returns the response status.
+func streamStatus(t *testing.T, h http.Handler, path, user string) int {
+	t.Helper()
+	ts := httptest.NewServer(h)
+	defer ts.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	r, _ := http.NewRequestWithContext(ctx, http.MethodGet, ts.URL+path, nil)
+	r.Header.Set("X-Forwarded-Preferred-Username", user)
+	resp, err := http.DefaultClient.Do(r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	return resp.StatusCode
+}
+
+func TestStreamCapPerUser(t *testing.T) {
+	s := newServer(nil)
+	s.events = newStreamLimiter(1, 10)
+	h := s.Handler()
+	_, lines := sseClient(t, h, "/api/stream") // alice's slot, held until cleanup
+	expect(t, lines, "retry: 3000")
+	if got := streamStatus(t, h, "/api/stream", "alice"); got != http.StatusTooManyRequests {
+		t.Errorf("second stream for alice = %d, want 429", got)
+	}
+}
+
+func TestLogsTailEndsAfterMax(t *testing.T) {
+	s := newServer(nil) // the default fakeLogs blocks until its context ends
+	s.tailMax = 50 * time.Millisecond
+	_, lines := sseClient(t, s.Handler(), "/api/logs/tail?ns=media&pod=plex-0")
+	expect(t, lines, "retry: 3000")
+	timeout := time.After(2 * time.Second)
+	for {
+		select {
+		case _, ok := <-lines:
+			if !ok {
+				return
+			}
+		case <-timeout:
+			t.Fatal("tail still open long after tailMax")
+		}
+	}
+}
+
+// deadlineWriter records the deadlines set through http.ResponseController.
+type deadlineWriter struct {
+	*httptest.ResponseRecorder
+	write, read []time.Time
+}
+
+func (d *deadlineWriter) SetWriteDeadline(t time.Time) error {
+	d.write = append(d.write, t)
+	return nil
+}
+
+func (d *deadlineWriter) SetReadDeadline(t time.Time) error {
+	d.read = append(d.read, t)
+	return nil
+}
+
+func TestSSEWriteDeadline(t *testing.T) {
+	d := &deadlineWriter{ResponseRecorder: httptest.NewRecorder()}
+	e, err := startSSE(d)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := e.event("x", []byte("{}")); err != nil {
+		t.Fatal(err)
+	}
+	if len(d.write) != 2 {
+		t.Fatalf("write deadlines = %d, want one per write", len(d.write))
+	}
+	now := time.Now()
+	for i, dl := range d.write {
+		if dl.Before(now.Add(9*time.Second)) || dl.After(now.Add(11*time.Second)) {
+			t.Errorf("write deadline %d is %v from now, want about 10s", i, dl.Sub(now))
+		}
+	}
+	e.done()
+	if last := d.write[len(d.write)-1]; !last.IsZero() {
+		t.Errorf("deadline after done = %v, want zero", last)
+	}
+
+	var v struct{}
+	r := httptest.NewRequest(http.MethodPost, "/", strings.NewReader("{}"))
+	if !decodeBody(d, r, &v) {
+		t.Fatal("decodeBody failed")
+	}
+	if len(d.read) != 2 || d.read[0].IsZero() || !d.read[1].IsZero() {
+		t.Errorf("read deadlines = %v, want a non-zero one then a zero one", d.read)
+	}
+}
