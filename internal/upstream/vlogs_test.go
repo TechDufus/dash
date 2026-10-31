@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/TechDufus/dash/internal/model"
 )
@@ -236,5 +237,30 @@ func TestVLogsTailEmitError(t *testing.T) {
 	// Stream ending on its own is a nil return.
 	if err := NewVLogs(srv.URL, nil).Tail(context.Background(), LogQuery{Namespace: "n"}, func(model.LogLine) error { return nil }); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestReadLogLinesSkipsOversizedRecord(t *testing.T) {
+	huge := `{"_msg":"` + strings.Repeat("x", 300<<10) + `","_time":"2026-10-30T21:39:17.5Z"}`
+	var got []model.LogLine
+	err := readLogLines(strings.NewReader(vlOldest+"\n"+huge+"\n"+vlNewest+"\n"), func(l model.LogLine) error {
+		got = append(got, l)
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 || got[0].Msg != "first" || got[1].Msg != "second" {
+		t.Fatalf("got %d lines %+v, want first and second", len(got), got)
+	}
+}
+
+func TestRecordLineCapsMessage(t *testing.T) {
+	l, ok := recordLine(map[string]string{"_time": "2026-10-30T21:39:17.5Z", "_msg": strings.Repeat("é", 10000)})
+	if !ok {
+		t.Fatal("record skipped")
+	}
+	if n := utf8.RuneCountInString(l.Msg); n != maxLogMsg+1 || !strings.HasSuffix(l.Msg, "…") {
+		t.Errorf("message has %d runes, suffix %q; want %d ending in …", n, l.Msg[len(l.Msg)-3:], maxLogMsg+1)
 	}
 }

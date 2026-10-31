@@ -22,6 +22,10 @@ import (
 const (
 	maxLogText = 200
 	logLimit   = "500"
+
+	maxLogRecord   = 256 << 10 // bytes; longer records are skipped
+	maxLogMsg      = 8192      // runes kept per message
+	maxLogResponse = 16 << 20  // bytes read per query
 )
 
 var (
@@ -119,7 +123,11 @@ func recordLine(rec map[string]string) (model.LogLine, bool) {
 		}
 		msg.WriteString(" " + k + "=" + v)
 	}
-	return model.LogLine{Time: t, Pod: rec["kubernetes.pod_name"], Container: rec["kubernetes.container_name"], Msg: msg.String()}, true
+	m := msg.String()
+	if t := truncate(m, maxLogMsg); len(t) < len(m) {
+		m = t + "…"
+	}
+	return model.LogLine{Time: t, Pod: rec["kubernetes.pod_name"], Container: rec["kubernetes.container_name"], Msg: m}, true
 }
 
 // Query returns up to 500 of the newest matching lines, oldest first.
@@ -134,7 +142,7 @@ func (v *VLogs) Query(ctx context.Context, q LogQuery) ([]model.LogLine, error) 
 	}
 	defer resp.Body.Close()
 	out := []model.LogLine{}
-	err = readLogLines(resp.Body, func(l model.LogLine) error {
+	err = readLogLines(io.LimitReader(resp.Body, maxLogResponse), func(l model.LogLine) error {
 		out = append(out, l)
 		return nil
 	})
@@ -176,14 +184,26 @@ func (v *VLogs) Tail(ctx context.Context, q LogQuery, emit func(model.LogLine) e
 }
 
 // readLogLines decodes JSON lines from r and passes each to emit; malformed
-// lines are skipped. An emit error is returned as is .
+// and oversized lines are skipped. An emit error is returned as is.
 func readLogLines(r io.Reader, emit func(model.LogLine) error) error {
 	br := bufio.NewReaderSize(r, 64<<10)
+	var buf []byte
+	skip := false // the current record exceeds maxLogRecord
 	for {
-		b, err := br.ReadBytes('\n')
-		if len(bytes.TrimSpace(b)) > 0 {
+		chunk, err := br.ReadSlice('\n')
+		if !skip {
+			if len(buf)+len(chunk) > maxLogRecord {
+				skip, buf = true, buf[:0]
+			} else {
+				buf = append(buf, chunk...)
+			}
+		}
+		if err == bufio.ErrBufferFull {
+			continue // the record goes on
+		}
+		if !skip && len(bytes.TrimSpace(buf)) > 0 {
 			var rec map[string]string
-			if json.Unmarshal(b, &rec) == nil {
+			if json.Unmarshal(buf, &rec) == nil {
 				if l, ok := recordLine(rec); ok {
 					if eerr := emit(l); eerr != nil {
 						return eerr
@@ -191,6 +211,7 @@ func readLogLines(r io.Reader, emit func(model.LogLine) error) error {
 				}
 			}
 		}
+		buf, skip = buf[:0], false
 		if err == io.EOF {
 			return nil
 		}
