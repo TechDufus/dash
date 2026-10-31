@@ -206,7 +206,7 @@ Every resolved field carries `source` (`default|ui|file|env`) and an origin (env
 - A redacting `slog.Handler`.
 - A scrubber applied to `SourceStatus.Error` (`internal/topics/manager.go:189-199`) and to API error messages built from upstream errors.
 - Error categories for viewers (design C.6, K.3): `SourceStatus.Error` and API error messages built from upstream errors carry one category only, `unreachable|timeout|tls|auth|http_<code>|invalid_response|not_configured`. The detail goes to the logs and to the admin plugin status, never to a viewer.
-- Pattern and encoding redaction (design C.6, K.24): the scrubber and the slog handler also redact `dash_pat_`, `dash_at_`, `dash_rt_`, `dash_setup_` and `enc:v1:` strings, and the base64 and URL-encoded forms of any resolved secret of 8 or more bytes.
+- Pattern and encoding redaction (design C.6, K.24): the scrubber and the slog handler also redact `dash_pat_`, `dash_at_`, `dash_rt_` and `enc:v1:` strings, and the base64 and URL-encoded forms of any resolved secret of 8 or more bytes. `dash_setup_` is not one of the slog patterns: the one-time setup line (P4.3) is written once at startup through a writer that bypasses the scrubber, so the operator can read it. The logs API read path redacts all of these prefixes, including `dash_setup_`, in every line it returns.
 
 Move `ProxmoxToken` onto `secret.Value`.
 
@@ -225,7 +225,7 @@ Move `ProxmoxToken` onto `secret.Value`.
 
 - Key sources: `DASH_SECRET_KEY` or `DASH_SECRET_KEY_FILE` only. There is no default or auto-generated key. Without a key, UI-entered secret fields are disabled ("set via env/file only") and the rest of dash runs, including env, file and k8s refs.
 - `DASH_SECRET_KEY_PREVIOUS` triggers a re-encrypt on startup.
-- Clear and Replace also remove the previous ciphertext from the retained `ui-settings.yaml.bak.N` files, so a cleared secret does not persist in backups (design C.6, K.24).
+- Clear and Replace rewrite every retained `ui-settings.yaml.bak.N` copy without the old value, so a restore cannot bring back a cleared secret (design B.7, K.24).
 
 **Acceptance criteria**
 - Round-trip tests.
@@ -288,15 +288,16 @@ Also (design C.7, K.21):
 - Each record carries `actor{type, user, tokenID, grantID, clientID, surface: ui|api|mcp}`, `peer`, `requestId` and `authMode`.
 - Denials (403, CSRF failures, rate limits) are audited, at most one record per peer and reason per minute.
 - Each JSONL record has a `prev` SHA-256 chain. `dash audit verify` checks it across the rotated files.
-- With a writable data dir, a JSONL write error fails the audited operation with 503 (fail closed). With an unwritable dir the log stays slog-only.
+- Every action (UI, API, approval execution, MCP) writes an **intent** record before `Act` and an **outcome** record after it (design C.7, A.8). With a writable data dir, a JSONL write error on the intent record fails the operation with 503 (code `audit_unavailable`) and `Act` does not run. A write error on the outcome record is logged at ERROR; the response still reports the action's real result. `dash audit verify` also reports intents without outcomes. With an unwritable dir the log stays slog-only.
 
 **Acceptance criteria**
 - Restart, reconcile and silence actions produce identical slog output to today, plus a JSONL line.
 - Rotation is tested.
 - No-op when the data dir is unwritable (slog only).
 - An edited JSONL line makes `dash audit verify` fail.
+- An intent without an outcome record is reported by `dash audit verify`.
 - A CSRF denial yields exactly one audit record; a repeat from the same peer within a minute yields none.
-- A forced JSONL write error on a writable data dir fails the action with 503 and the action does not run.
+- With the audit file unwritable (a forced JSONL write error on a writable data dir), an action returns 503 `audit_unavailable` and does not run.
 
 **Dependencies:** P1.6.
 
@@ -363,18 +364,18 @@ Validation runs schema first, then `Validator`. Add the CLI subcommands `dash co
 
 - `GET /api/plugins` returns `{id, name, version, state, message, topics, actions, nav, configurable}`.
 - `Router` plugins mount GET routes under `/api/plugins/{id}/`.
-- `POST /api/plugins/{id}/actions/{name}` runs auth, then `MinRole`, then the existing CSRF check (`internal/api/middleware.go:18-29`), then the body cap and input schema validation, then `Act`, then audit.
 - Actions are off by default per plugin (J.11), and are mounted only when that plugin's `actions.enabled` is true.
 - Typed-name confirmation is enforced server-side.
 - Routes live under `/api/v1` (design L.1): `GET /api/v1/plugins`, `GET /api/v1/plugins/{id}/...` and `POST /api/v1/plugins/{id}/actions/{name}`.
 - `ActionSpec` gains `Idempotent`, `Summary(input)` and `Target(input)` (design A.2). `Destructive`, `Idempotent` and `Input` also define the MCP tool (P7.5).
-- The action chain is the design A.8 chain: principal, then the `actions:<plugin>` scope (tokens, P7.1), then `MinRole`, then CSRF (session and proxy principals), then a per-principal rate limit of 10 per minute, then the body cap with a read deadline, then schema validation, then `actions.denyNamespaces` and the token's `actionNamespaces`, then the agent policy (P7.5), then `Act`, then audit. Steps that depend on later leaves pass through until those land.
-- Action errors carry `APIError.Code` (design L.2, with the code set from P2.10).
+- The action chain is the design A.8 chain: principal, then the `actions:<plugin>` scope (tokens, P7.1), then `MinRole`, then CSRF and Origin checks (every non-bearer request), then a per-principal rate limit of 10 per minute, then the body cap with a read deadline, then schema validation, then `actions.denyNamespaces` and the token's `actionNamespaces`, then the agent policy (P7.5), then the audit intent record, then `Act`, then the audit outcome record (P1.8; if the intent record cannot be written the action returns 503 `audit_unavailable` and does not run). Steps that depend on later leaves pass through until those land.
+- This leaf introduces `APIError.Code` and the `ErrCode*` constants its chain returns (`forbidden`, `insufficient_scope`, `csrf_failed`, `rate_limited`, `invalid_input`, `not_found`, `audit_unavailable`); P2.10 completes the L.2 set.
 
 **Acceptance criteria**
 - Tests for a fake action: 403 without the role; 403 on CSRF failure; 400 on invalid input; 404 when actions are disabled; an audit line on every outcome.
 - The 11th action from one principal within a minute gets 429 `rate_limited`.
 - A target in a denied namespace gets 403, and the denial is audited (K.6).
+- With the audit file unwritable, an action returns 503 `audit_unavailable` and does not run.
 - `/api/plugins` lists the states correctly.
 
 **Dependencies:** P2.1, P1.8.
@@ -481,7 +482,7 @@ Visibility follows `/api/plugins` and `core.plugins`. A disabled plugin's route 
 **Body:** make the HTTP API a stable, documented surface for non-browser clients (design L.1 to L.4, L.8).
 
 - Move the core routes under `/api/v1`. `me`, `stream` and `series` join `/api/v1/plugins...` (P2.3) and `/api/v1/topics/{topic}` (P2.4). The SPA uses the same paths. Unversioned paths return 404 once moved; there are no aliases. The API is stable from 1.0, and breaking changes in 0.x are called out in the release notes (J.19).
-- Errors are `{"error", "code", "requestId", "details?"}`. The codes are `ErrCode*` constants in `internal/model`: `unauthenticated`, `forbidden`, `insufficient_scope`, `invalid_token`, `ambiguous_credentials`, `csrf_failed`, `not_found`, `invalid_input`, `locked_field`, `readonly_settings`, `rate_limited`, `too_many_streams`, `upstream_unavailable`, `approval_required`, `approval_denied`, `approval_expired`, `conflict` and `precondition_failed`.
+- Errors are `{"error", "code", "requestId", "details?"}`. The codes are `ErrCode*` constants in `internal/model`: `unauthenticated`, `forbidden`, `insufficient_scope`, `invalid_token`, `ambiguous_credentials`, `csrf_failed`, `not_found`, `invalid_input`, `locked_field`, `readonly_settings`, `rate_limited`, `too_many_streams`, `upstream_unavailable`, `audit_unavailable`, `approval_required`, `approval_denied`, `approval_expired`, `conflict` and `precondition_failed`.
 - Every response has an `X-Request-Id` header: 128-bit random hex, taken from the inbound header only when the peer is a trusted proxy. It appears in logs and audit records.
 - `dash api openapi` generates OpenAPI 3.1 into `docs/api/openapi.json`, and drift fails `make check`. Every route registers its method, path, summary, scope, request type and response type through typed helpers. Schemas come from the P2.2 reflector, and topic envelopes are typed per topic.
 - Discovery: `GET /api/v1/me` returns `{user, role, authMode, scopes, audience, version, capabilities{actions, mcp, push, oauth}}`, and `GET /api/v1/plugins` lists actions as `{name, title, destructive, idempotent, confirm, inputSchema}`.
@@ -518,6 +519,7 @@ Visibility follows `/api/plugins` and `core.plugins`. A disabled plugin's route 
 
 - Series: `dash_build_info`, `dash_http_requests_total{route,code}`, `dash_http_request_duration_seconds{route}`, `dash_sse_streams{kind}`, `dash_plugin_state{plugin,state}`, `dash_upstream_requests_total{plugin,outcome}`, `dash_upstream_request_duration_seconds{plugin}`, `dash_actions_total{plugin,action,outcome}` and `dash_auth_failures_total{reason}`.
 - Label values never carry user names, object names or host names. `route` is the registered pattern, not the request path.
+- Enabling it shows plugin names and states to any peer that reaches the health listener, which P2.6 otherwise hides; keep that listener cluster-internal.
 
 **Acceptance criteria**
 - With `server.metrics: false`, `/metrics` returns 404.
@@ -826,15 +828,16 @@ Icons: replace the hard-coded jsDelivr base (`feeds.go:77`, `web/src/config/link
 
 **Body:** local mode, the default auth mode (J.6), with an argon2id hash stored in settings or supplied via `DASH_ADMIN_PASSWORD_HASH`.
 
-- Bootstrap: a one-time setup token is logged once (1h, single use); `/setup?token=` sets the password.
+- Bootstrap: a one-time setup token is written once at startup (1h, single use) through a writer that bypasses the log scrubber, so the operator can read it; `/setup?token=` sets the password.
 - `dash hash-password` prints a hash.
 - `/login` and `/auth/logout`.
 - AEAD session cookie keyed via HKDF from the secret key; 12h idle, 7d absolute; epoch-based "log out everywhere". Without `DASH_SECRET_KEY` the session key is random per process, so logins end on restart.
 - Opt-in `anonymousViewer`: a read-only viewer for wall displays, off by default.
 - The SPA's 401 handling becomes mode-aware (`web/src/api/client.ts:24-32`, `web/src/api/stream.ts:40-47`).
-- Sessions (design M.8, K.18): the cookie is `__Host-dash_session` when the public URL is https. The payload carries no role; the role is re-resolved on every request. Each user has an epoch, bumped by "log out everywhere" and by a password change, in addition to the global epoch. Bearer principals skip CSRF and Origin checks (design M.2); sessions never do.
+- Sessions (design M.8, K.18): the cookie is `__Host-dash_session` when the public URL is https. The payload is the user, the groups and role-claim value captured at login (OIDC; local users have none), the expiry and the per-user epoch. On every request the role is derived from the current mapping (`adminUsers`, `adminGroups`, `roleClaim`) applied to those values (proxy mode: from the request's headers), so mapping changes apply on the next request, while group or claim changes at the IdP apply at the next login. Each user has an epoch, bumped by "log out everywhere" and by a password change, in addition to the global epoch. CSRF and Origin checks apply to every non-bearer request (design M.2); bearer principals skip them.
 - Login (design M.9, K.19): after 5 failures per peer or per user the delay doubles from 1s up to 15 min, and the error message is generic. argon2id uses t=3, m=64 MiB, p=4 (RFC 9106), with at most 2 concurrent hashes; extra requests get 429.
-- The setup token is `dash_setup_<base64url 32 bytes>`. `/setup` returns 404 once an admin exists. The logs API redacts `dash_setup_` strings (P1.4). `anonymousViewer` never gets logs.
+- The setup token is `dash_setup_<base64url 32 bytes>`. The slog scrubber does not redact it (P1.4): only the one-time setup line carries it. The logs API redacts `dash_setup_` in every line it returns (design C.6, M.9). `/setup` returns 404 once an admin exists. `anonymousViewer` never gets logs.
+- `$DASH_DATA_DIR/credentials.yaml` is created here (design M.7, B.7) for the per-user session epochs: mode 0600, `schemaVersion`, the atomic write of design B.7 under the store's writer mutex and `.lock`, and no `.bak` rotation, so a restore can never revive a logged-out session. P7.1 adds PATs and OAuth grants to it, and P7.7 adds push subscriptions and the VAPID key pair.
 
 **Acceptance criteria**
 - The setup token cannot be reused or used after expiry.
@@ -843,12 +846,13 @@ Icons: replace the hard-coded jsDelivr base (`feeds.go:77`, `web/src/config/link
 - Login POSTs require a valid Origin.
 - `anonymousViewer` is off by default; when on, an unauthenticated request gets the viewer role only.
 - The cookie is named `__Host-dash_session` on an https public URL.
-- A role change in the proxy or OIDC mapping applies on the next request, with no re-login.
+- A change to `adminUsers` or to the proxy mapping applies on the next request, with no re-login.
 - A per-user epoch bump invalidates only that user's sessions.
 - After 5 failed logins the next attempts are delayed with a doubling backoff, and the error text is the same for an unknown user and a wrong password.
 - A third concurrent login hash gets 429.
 - `/setup` returns 404 once an admin exists.
-- A `dash_setup_` token in log output is redacted by the logs API.
+- The setup URL printed at startup works, and the same line read through the logs API shows `dash_setup_[redacted]`.
+- `credentials.yaml` is mode 0600, holds the per-user epochs, and no backup file of it exists.
 - An anonymous viewer request to the logs endpoints is refused.
 
 **Dependencies:** P4.2, P1.5, P1.8.
@@ -858,11 +862,12 @@ Icons: replace the hard-coded jsDelivr base (`feeds.go:77`, `web/src/config/link
 **Body:** OIDC is an option, not the default (J.6). Authorization code with PKCE, using `github.com/coreos/go-oidc/v3` and `golang.org/x/oauth2`.
 
 - Config: `issuer`, `clientID`, `clientSecret` (secret), `scopes`, `allowedUsers`/`allowedGroups`, `adminGroups`, `roleClaim`.
-- Sessions as in P4.3.
+- Sessions as in P4.3. The cookie captures the user's groups and role-claim value at login; the role is derived from them and the current mapping on every request.
 
 **Acceptance criteria**
 - Integration test against a local mock OIDC provider: login, role mapping and denial of disallowed users.
 - State and nonce are validated.
+- A change to the `adminGroups` or `roleClaim` mapping applies on the next request; a group or claim change at the IdP applies at the next login.
 
 **Dependencies:** P4.3.
 
@@ -903,7 +908,7 @@ Also (design A.9, K.8, K.12):
 
 ### P4.7 feat(api): settings API with provenance, locking and secret endpoints
 
-**Body:** a `/api/settings/**` route group: auth, then admin, then CSRF, then audit (design E.5).
+**Body:** a `/api/settings/**` route group: interactive principals only (a bearer principal gets 403), then admin, then CSRF, then audit (design E.5).
 
 - `GET` returns the effective tree with `source` and `locked` per field and secret metadata only.
 - `GET schema`.
@@ -916,20 +921,20 @@ Also (design A.9, K.8, K.12):
 
 Also (design B.2, C.2, A.3, K.22, K.23):
 
-- UI-ineligible fields: `server.*`, `auth.*`, `settings.ui` and `dataDir` can never be written through the API. A write returns 409 `{path, source: "ui-ineligible"}`.
+- UI-ineligible fields: `server.*`, `auth.*`, `settings.ui` and `dataDir` can never be written through the API. A write returns 409 in the L.2 envelope: `{"error", "code": "locked_field", "requestId", "details": {"path", "source": "ui-ineligible"}}`. For every locked-field 409, `source` is `file`, `env` or `ui-ineligible`.
 - The UI layer holds encrypted literals and `k8s:` refs only. `file:` and `env:` refs are accepted only from the file and env layers, and a UI write containing one is rejected with a path-qualified error.
 - "Test connection" and save never send a stored secret to a URL or host other than the saved one. When the URL or host changes, the form must re-enter the secret.
 - Dial guards: `Host.HTTPClient` always refuses link-local addresses, and refuses loopback when the URL came from the UI layer.
 
 **Acceptance criteria**
-- Every write (PUT, PATCH, DELETE, secret Replace/Clear) to a file- or env-locked path returns 409 with `{path, source, ref}`, tested per verb for both file- and env-locked fields.
+- Every write (PUT, PATCH, DELETE, secret Replace/Clear) to a file- or env-locked path returns 409 with code `locked_field` and `details {path, source, ref}` in the L.2 envelope, tested per verb for both file- and env-locked fields.
 - Remove-stored-value is the only write accepted on a locked path.
 - With `settings.ui: readonly`, every write returns 409.
 - A stale `If-Match` returns 412.
 - No response body ever contains a secret (canary test across all endpoints).
 - The export contains only admin-saved keys and no plaintext secret (canary test).
 - Every change is audited, with field paths only.
-- A write to `server.listen`, `auth.mode`, `settings.ui` or `dataDir` returns 409 with `source: "ui-ineligible"`.
+- A write to `server.listen`, `auth.mode`, `settings.ui` or `dataDir` returns 409 `locked_field` with `details.source: "ui-ineligible"`.
 - A UI write of a `file:` or `env:` ref is rejected; a `k8s:` ref is accepted.
 - Test connection with a changed URL and no re-entered secret sends no credential (a fake upstream records no `Authorization` header, canary test).
 - A UI-layer URL that resolves to a link-local or loopback address fails to dial (test).
@@ -1119,10 +1124,10 @@ The chart lives in this repo (J.7). Publish it as OCI to GHCR from the release w
 - `internal/topics/attention_test.go`
 - `internal/links/links_test.go`
 
-Use `example.com`, `192.0.2.0/24`, neutral node, VM and tenant names, a zero-filled token fixture, and `admission denied:` strings. Fix the comments at `cmd/dash/main.go:1`, `internal/demo/demo.go:2` and `internal/api/actions.go:41`. Add a repo-wide denylist test (generalising `internal/demo/demo_test.go:44`) with an explicit allowlist (module path, GHCR image, LICENSE).
+Use `example.com`, `192.0.2.0/24`, neutral node, VM and tenant names, a zero-filled token fixture, and `admission denied:` strings. Fix the comments at `cmd/dash/main.go:1`, `internal/demo/demo.go:2` and `internal/api/actions.go:41`. Add a repo-wide denylist test (generalising `internal/demo/demo_test.go:44`) with an explicit allowlist (module path, GHCR image, LICENSE, and the Android application ID `io.github.techdufus.dash`, design M.6, P.4).
 
 **Acceptance criteria**
-- The denylist test fails on any of the identifiers listed in design G.2, and passes on the tree.
+- The denylist test fails on any of the identifiers listed in design G.2, and passes on the tree, including the Android application ID `io.github.techdufus.dash` (allow-listed).
 - No test assertion loses coverage: same cases, new names.
 
 **Dependencies:** none (can run after G0; rebase over G3 moves).
@@ -1201,7 +1206,7 @@ Use `example.com`, `192.0.2.0/24`, neutral node, VM and tenant names, a zero-fil
 - The release job keeps its self-hosted runner until P6.7 replaces it (design K.14).
 - Add a compatibility matrix (J.18): the last 3 Kubernetes minors on kind with current Flux v2 and Gateway API v1 CRDs installed; Proxmox VE 8 and 9 covered by API fixtures for each major version.
 - Use `npm ci --ignore-scripts` in the Makefile, the Dockerfile and CI. Move `shadcn` from runtime dependencies to devDependencies in `web/package.json` (design H.2, K.13).
-- The denylist gains the strings `op://`, `github-runner-1`, `registry.home` and `hl-op`.
+- The denylist gains three new strings, `op://`, `github-runner-1` and `hl-op`; `registry.home` is already in the design G.2 list.
 
 **Acceptance criteria**
 - No workflow references self-hosted labels, except the private release job that P6.7 removes.
@@ -1209,9 +1214,9 @@ Use `example.com`, `192.0.2.0/24`, neutral node, VM and tenant names, a zero-fil
 - A PR from a branch runs `check` and `scan` on GitHub-hosted runners.
 - The matrix jobs run on PRs and pass.
 - The web build and the tests pass with `npm ci --ignore-scripts`, and `shadcn` is not in runtime dependencies.
-- The denylist test fails on each of the four added strings.
+- The denylist test fails on each of the three added strings.
 
-**Dependencies:** none.
+**Dependencies:** P6.1 (the denylist test it extends).
 
 ### P6.7 ci(release): publish multi-arch images and the chart to GHCR with attestations
 
@@ -1307,21 +1312,22 @@ Remove the Zot push (`ci.yml:31`). README release steps are updated. There is no
 - `docs/api/openapi.json` covers every `/api/v1` route.
 - G7 is not required for the public release (P6.10). P7.9 is not part of this acceptance.
 
-**Dependencies:** G2, G3, P4.2 to P4.4, P1.5. Independent of G5, G6 and the public flip. Phase 7 may start as soon as those land.
+**Dependencies:** G2, G3, P1.5, P4.2 to P4.4, P4.6, P4.7 and P5.4. Independent of G6 and the public flip. Phase 7 may start as soon as those land.
 
 ### P7.1 feat(auth): bearer principals and personal access tokens
 
 **Body:** machine-client authentication (design M.1 to M.5, M.7, L.7; K.16, K.17, K.18).
 
 - One principal per request, resolved in this order: `Authorization: Bearer` (token only; proxy headers are ignored, and a session cookie as well gives 400 `ambiguous_credentials`), then the session cookie, then proxy headers from trusted TCP peers, then the anonymous viewer if enabled, otherwise 401 with `WWW-Authenticate: Bearer resource_metadata="<publicURL>/.well-known/oauth-protected-resource/<api|mcp>"`.
-- CSRF and Origin checks apply to session, proxy and anonymous principals. Bearer principals skip them. The SPA never uses bearer tokens.
-- Scopes narrow the role ceiling: `read`, `logs`, `actions:<plugin>`, `approvals` and `push`. Effective permission is role ∩ scopes ∩ feature switches. Settings, token and OAuth-client management and audit reads are session-only.
+- CSRF and Origin checks apply to every non-bearer request. Bearer principals skip them. The SPA never uses bearer tokens.
+- An **interactive principal** is a person using the SPA: kind `session`, `proxy`, `dev` or `demo`. `token` and `anonymous` principals are never interactive.
+- Scopes narrow the role ceiling: `read`, `logs`, `actions:<plugin>`, `approvals` and `push`. Effective permission is role ∩ scopes ∩ feature switches. Settings, token and OAuth-client management and audit reads are interactive-only (a bearer principal gets 403). `approvals` and `push` go only to interactive principals and the first-party app (P7.2); PATs and static tokens never hold them.
 - Each token is bound to one audience, `api` (`<publicURL>/api`) or `mcp` (`<publicURL>/mcp`). Using it at the other surface gives 401 `invalid_token`.
-- Personal access tokens: shown once, stored as SHA-256 and compared in constant time. Expiry is required (default 30d, maximum 365d). Allowed scopes are `read`, `logs` and `actions:<id>` (admin only), with an optional `actionNamespaces` list of exact names or `prefix*` globs. `lastUsedAt` is kept in memory and flushed at least every 5 minutes. Revocation is immediate. Rate limit: 300 requests per minute per `api` token.
-- Static tokens: `auth.tokens: [{name, role, audience, scopes, hash: "sha256:<hex>"}]` from file or env (`DASH_AUTH_TOKENS`), with `dash token generate` printing a token and its hash. The principal user is `token:<name>`.
-- `credentials.yaml` in the data dir: mode 0600, `schemaVersion`, the atomic write of design B.7 under the store's writer mutex and `.lock`, and no `.bak` rotation, so a restore can never bring back a revoked credential. It holds PATs now; grants, push subscriptions, per-user epochs and the VAPID key pair arrive with later leaves.
-- Token management under `/api/v1/tokens/**`, session-only, CSRF-checked and audited.
-- CORS: no `Access-Control-*` headers by default. `server.corsOrigins` is an explicit list (never `*`) that applies to bearer requests only, with `Vary: Origin`.
+- Personal access tokens: shown once, stored as SHA-256 and compared in constant time. Expiry is required (default 30d, maximum 365d). Allowed scopes are `read`, `logs` and `actions:<id>` (admin only), with an optional `actionNamespaces` list of exact names or `prefix*` globs. `lastUsedAt` is kept in memory and flushed at least every 5 minutes. Revocation is immediate. Rate limit: 300 requests per minute per `api` token. A PAT records its creator's groups and role-claim value at creation; the role is derived from them and the current mapping on every request (as in P4.3), then the scopes narrow it.
+- Static tokens: `auth.tokens: [{name, role, audience, scopes, hash: "sha256:<hex>"}]` from file or env (`DASH_AUTH_TOKENS`), with `dash token generate` printing a token and its hash. The principal user is `token:<name>`. A static token with `audience: mcp` cannot hold `actions:*` (a config validation error): approvals are decided by the owning user and a static token has none; use a PAT or an OAuth grant. Static tokens hold only `read`, `logs` and `actions:<id>`.
+- `credentials.yaml` in the data dir (created in P4.3 for per-user epochs): mode 0600, `schemaVersion`, the atomic write of design B.7 under the store's writer mutex and `.lock`, and no `.bak` rotation, so a restore can never bring back a revoked credential. This leaf adds PATs and OAuth grants to it; P7.7 adds push subscriptions and the VAPID key pair.
+- Token management under `/api/v1/tokens/**`, interactive principals only, CSRF-checked and audited.
+- CORS (design L.7): no `Access-Control-*` headers by default. `server.corsOrigins` is an explicit list (never `*`). An `OPTIONS` preflight from a listed origin gets `Access-Control-Allow-Origin: <that origin>`, `Access-Control-Allow-Methods: GET, POST, DELETE`, `Access-Control-Allow-Headers: authorization, content-type`, `Access-Control-Max-Age: 600` and `Vary: Origin`. Other responses carry `Access-Control-Allow-Origin` only on bearer requests from a listed origin. `Access-Control-Allow-Credentials` is never sent.
 
 **Acceptance criteria**
 - A request with both a bearer token and a session cookie gets 400.
@@ -1331,18 +1337,20 @@ Remove the Zot push (`ci.yml:31`). README release steps are updated. There is no
 - A canary token secret never appears in logs, errors or the audit file.
 - `credentials.yaml` is mode 0600 and no backup file of it exists.
 - A viewer cannot mint a token with `actions:*` scopes.
-- The settings and token endpoints refuse bearer principals with 403.
+- The settings, token and OAuth-consent endpoints refuse bearer principals with 403.
+- A static token with `audience: mcp` and an `actions:*` scope fails config validation; a PAT or static token cannot hold `approvals` or `push`.
+- A preflight from a listed origin returns the headers above and no `Access-Control-Allow-Credentials`; a preflight from an unlisted origin gets none.
 
-**Dependencies:** P4.2, P1.6, P1.8.
+**Dependencies:** P4.2, P4.7, P1.6, P1.8.
 
 ### P7.2 feat(auth): built-in OAuth 2.1 authorization server
 
 **Body:** dash is its own OAuth 2.1 authorization server in `local`, `oidc` and `proxy` modes (design M.6, M.10; K.16). It is disabled in `none` mode and without a writable data dir.
 
-- Metadata: `/.well-known/oauth-authorization-server` (RFC 8414) with `issuer` set to the public URL, `/oauth/authorize`, `/oauth/token` and `/oauth/revoke` (RFC 7009), `code_challenge_methods_supported: [S256]`, grant types `authorization_code` and `refresh_token`, `token_endpoint_auth_methods_supported: [none]`, `client_id_metadata_document_supported: true` and `authorization_response_iss_parameter_supported: true`. Protected resource metadata (RFC 9728) at `/.well-known/oauth-protected-resource/api` and `/mcp`, with `scopes_supported` listing `read`, `logs` and `actions:<id>` for each plugin with actions enabled; the api audience adds `approvals` and `push`.
-- Clients: the built-in public client `dash-android` (redirect `io.github.techdufus.dash:/oauth2redirect`, api audience only, may receive every scope); client ID metadata documents (https only, the address must be global unless `auth.oauth.cimdAllowPrivate`, 5s timeout, 64 KiB cap, no redirects, cached 24h, with `client_id` equal to its URL, a `client_name`, and `redirect_uris` that are https, loopback http on any port, or a private-use scheme containing a dot); and `auth.oauth.clients[]` from config. There is no dynamic client registration.
-- Flow: `/oauth/authorize` validates PKCE S256, `resource`, `state` and the exact redirect, authenticates the user through the auth mode, stores a pending request for 10 minutes, and redirects to the SPA route `/consent/<id>`. The SPA uses `GET` and `POST /api/v1/oauth/consents/{id}` (session, CSRF-checked). The consent screen pre-ticks only `read`; `logs` and `actions:*` show warnings, and the actions text depends on the audience ("each action waits for your approval" for mcp, "runs without asking again" for api). The response carries `code`, `state` and `iss` (RFC 9207).
-- Tokens: codes last 60s, are single use and live in memory. Access tokens are `dash_at_<base64url>`, sealed with XChaCha20-Poly1305 under HKDF(`DASH_SECRET_KEY`, `dash/oauth-access/v1`), or under a per-process random key when there is no secret key. They live 15 minutes, and validation re-checks that the grant is not revoked and re-resolves the role. Refresh tokens are `dash_rt_<grantID>_<secret>`, stored hashed and rotated on every use; reuse revokes the grant; idle expiry is 30d and absolute expiry 180d.
+- Metadata: `/.well-known/oauth-authorization-server` (RFC 8414) with `issuer` set to the public URL, `/oauth/authorize`, `/oauth/token` and `/oauth/revoke` (RFC 7009), `code_challenge_methods_supported: [S256]`, grant types `authorization_code` and `refresh_token`, `token_endpoint_auth_methods_supported: [none]`, `client_id_metadata_document_supported: true` and `authorization_response_iss_parameter_supported: true`. Protected resource metadata (RFC 9728) at `/.well-known/oauth-protected-resource/api` and `/mcp`, with `scopes_supported` listing `read`, `logs` and `actions:<id>` for each plugin with actions enabled; the api audience adds `approvals` and `push`, which only `dash-android` may be granted.
+- Clients: the built-in public client `dash-android` (redirect `io.github.techdufus.dash:/oauth2redirect`, api audience only, the only client that may be granted `approvals` and `push`); client ID metadata documents (https only, the address must be global unless `auth.oauth.cimdAllowPrivate`, 5s timeout, 64 KiB cap, no redirects, cached 24h, with `client_id` equal to its URL, a `client_name`, and `redirect_uris` that are https, loopback http on any port, or a private-use scheme containing a dot); and `auth.oauth.clients[]` from config. Any client other than `dash-android` that requests `approvals` or `push` gets `invalid_scope` at `/oauth/authorize`, and consent never shows them. There is no dynamic client registration.
+- Flow: `/oauth/authorize` validates PKCE S256, `resource`, `state` and the exact redirect, authenticates the user through the auth mode, stores a pending request for 10 minutes, and redirects to the SPA route `/consent/<id>`. The SPA uses `GET` and `POST /api/v1/oauth/consents/{id}` (interactive principals, CSRF-checked). The consent screen pre-ticks only `read`; `logs` and `actions:*` show warnings, and the actions text depends on the audience ("each action waits for your approval" for mcp, "runs without asking again" for api). The response carries `code`, `state` and `iss` (RFC 9207).
+- Tokens: codes last 60s, are single use and live in memory. Access tokens are `dash_at_<base64url>`, sealed with XChaCha20-Poly1305 under HKDF(`DASH_SECRET_KEY`, `dash/oauth-access/v1`), or under a per-process random key when there is no secret key. They live 15 minutes, and validation re-checks that the grant is not revoked and re-derives the role from the groups and role-claim value the grant recorded at creation and the current mapping, then narrows it by the grant's scopes. Refresh tokens are `dash_rt_<grantID>_<secret>`, stored hashed and rotated on every use; reuse revokes the grant; idle expiry is 30d and absolute expiry 180d.
 - Settings → Connected apps lists grants (client, scopes, last used) with a revoke button.
 - Proxy mode (M.10): `/oauth/authorize` must go through the proxy because it needs the identity. `/oauth/token`, `/oauth/revoke`, `/.well-known/oauth-*`, `/mcp` and bearer `/api/v1/*` must reach dash directly, with dash on `0.0.0.0:8080` and `trustedProxies: [127.0.0.1/32]`. The Helm chart gains `routes.direct` for this.
 
@@ -1356,16 +1364,17 @@ Remove the Zot push (`ci.yml:31`). README release steps are updated. There is no
 - A client ID metadata document on a private IP is refused unless `cimdAllowPrivate` is set.
 - An end-to-end PKCE test obtains an mcp-audience token.
 - The consent screen ticks only `read` by default.
+- A client ID metadata document client requesting `approvals` gets `invalid_scope`, and the consent screen never offers `approvals` or `push` to it.
 - The `routes.direct` chart values render and pass `helm lint`.
 
-**Dependencies:** P7.1, P4.3, P4.4.
+**Dependencies:** P7.1, P4.3, P4.4, P5.4 (the chart's `routes.direct`).
 
 ### P7.3 feat(mcp): read-only MCP server
 
 **Body:** an MCP server inside dash at `POST /mcp` (design N.1 to N.3, N.5 to N.8; K.16).
 
 - Streamable HTTP, stateless, MCP `2026-07-28`, using `github.com/modelcontextprotocol/go-sdk` v1.8.0 or later (`mcp.NewStreamableHTTPHandler`, `auth.RequireBearerToken`). `mcp.enabled` is false by default; when it is off, `/mcp` and its protected-resource metadata return 404. It is unavailable in `auth.mode: none`. Tokens need audience `mcp`.
-- Confirm in this PR whether the SDK can also serve `2025-11-25` statelessly (`ServerOptions.SupportedProtocolVersions`); if it cannot, serve `2026-07-28` only. Confirm too whether the SDK's localhost protection rejects proxied requests (loopback listener with a public Host) and use its documented opt-out if it does; dash's Host allow-list already covers DNS rebinding. A present `Origin` must equal the public URL origin or an entry of `server.corsOrigins`, otherwise 403.
+- Confirm in this PR whether the SDK can also serve `2025-11-25` statelessly (`ServerOptions.SupportedProtocolVersions`); if it cannot, serve `2026-07-28` only. Confirm too whether the SDK's localhost protection rejects proxied requests (loopback listener with a public Host); use its localhost-protection opt-out, if one exists (unverified, N.1). dash's Host allow-list already covers DNS rebinding. A present `Origin` must equal the public URL origin or an entry of `server.corsOrigins`, otherwise 403.
 - Read tools, in deterministic order, listed only when the principal can call them: `dash_overview` (KPIs plus at most 50 attention items), `dash_search {query, kinds?, limit<=25}`, `dash_get {ref}`, `dash_topic {topic, pointer?}` (RFC 6901 JSON Pointer), `dash_series {name, range, args}` (per-line min, max, average and last, at most 60 points, named series only), `dash_logs {namespace, pod, container?, since<=1h, query?, limit<=200}` (needs `logs`) and `dash_approval {id}`. `dash_context` and the prompts come in P7.4; action tools come in P7.5.
 - Resources: `dash://topics/<topic>` for each readable topic. `subscriptions/listen` delivers `notifications/resources/updated`, debounced 5s per topic. `cacheScope: private`, `ttlMs` 60000 for lists and 5000 for reads.
 - The `Objects` plugin interface (design N.4), with `Search` and `Get` implemented for kubernetes, flux, proxmox, alertmanager, gatus, cnpg and hardware (`Context` comes in P7.4).
@@ -1408,11 +1417,12 @@ Remove the Zot push (`ci.yml:31`). README release steps are updated. There is no
 
 - Action tools are named `<plugin>_<action with . replaced by _>`, with `inputSchema` from `ActionSpec.Input` and annotations `readOnlyHint: false`, `destructiveHint: Destructive`, `idempotentHint: Idempotent` and `openWorldHint: false`. They are listed only for role admin, scope `actions:<plugin>`, `actions.enabled` and an agent policy other than `deny`.
 - `plugins.<id>.actions.agents: deny|approve|allow`, default `approve`. It applies only to mcp-audience principals; api-audience tokens and sessions follow role, scopes and UI confirmations.
+- A static token with `audience: mcp` cannot hold `actions:*` (P7.1): approvals are decided by the owning user, and a static token has none. Use a PAT or an OAuth grant.
 - Lifecycle: validate the input and permissions, then create an approval request `{id appr_<26 base32>, user, token or grant, clientName, plugin, action, canonical input, inputHash, Summary(input), Target(input), confirm rule, expiresAt now+10min}`. Notify through the user-scoped `core.approvals` topic (P2.4) and, once P7.7 lands, Web Push.
 - If the client declares URL-mode elicitation, return an MRTR `InputRequiredResult` pointing at `<publicURL>/approve/<id>`, with an HMAC-protected `requestState`. Otherwise return `{status: "pending_approval", approvalId, approveURL, expiresAt}` and tell the agent to poll `dash_approval`.
 - Duplicate pending requests (same token, action and input hash) are deduplicated. Each user may have at most 20 pending requests.
-- The SPA route `/approve/<id>` shows the client, token, action, target, summary, full input JSON, a destructive badge and a countdown, and requires the typed name when ConfirmTypeName applies. `POST /api/v1/approvals/{id}/decision {approve, confirm?}` requires a session, or an `approvals` token, of the same user; any other user gets 403.
-- On approval dash runs the action server-side immediately, as the requester, with `approvedBy`. The stored result (at most 64 KiB) is kept until expiry plus 10 minutes and returned once. Denial, expiry or a restart gives `approval_denied` or `approval_expired`. Requests live in memory, and every transition is audited.
+- The SPA route `/approve/<id>` (interactive principals) shows the client, token, action, target, summary, full input JSON, a destructive badge and a countdown, and requires the typed name when ConfirmTypeName applies. `POST /api/v1/approvals/{id}/decision {approve, confirm?}` requires an interactive principal, or an `approvals` token, of the same user; any other user gets 403.
+- On approval dash runs the action server-side immediately, as the requester, with `approvedBy`, through the same intent-then-outcome audit as P2.3: an intent record before `Act` (if it cannot be written, 503 `audit_unavailable` and the action does not run) and an outcome record after. The stored result (at most 64 KiB) is kept until expiry plus 10 minutes and returned once. Denial, expiry or a restart gives `approval_denied` or `approval_expired`. Requests live in memory, and every transition is audited.
 
 **Acceptance criteria**
 - An action stays pending until the same user approves it, then runs exactly once.
@@ -1423,6 +1433,7 @@ Remove the Zot push (`ci.yml:31`). README release steps are updated. There is no
 - An api-audience token never goes through approvals.
 - A duplicate request is deduplicated, and a 21st pending request for one user is rate-limited.
 - The audit log shows requester, approver and result for an approved action.
+- An approved action writes an intent record before it runs and an outcome record after; with the audit file unwritable the approval returns 503 `audit_unavailable` and the action does not run.
 
 **Dependencies:** P7.3, P2.3, P4.2.
 
@@ -1484,7 +1495,7 @@ Remove the Zot push (`ci.yml:31`). README release steps are updated. There is no
 
 - It speaks OpenAI-compatible Chat Completions with tools. Config: `baseURL`, `model`, `apiKey` (secret), `maxTokens` and `timeout`.
 - Features: "Explain" for an attention item, alert or pod (a streamed answer from the context bundle), "Ask" in the command palette, and an optional daily digest push.
-- Tools: read tools only, limited to the session's read scopes. It never executes actions; it can only render a "Run action" button that opens the normal confirmation.
+- Tools: read tools only, limited to the requesting user's read scopes. It never executes actions; it can only render a "Run action" button that opens the normal confirmation.
 - Settings warns about data egress when the `baseURL` host is not loopback or private.
 - Answers render as sanitized Markdown: no raw HTML, and http(s) links only.
 
