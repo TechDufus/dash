@@ -22,13 +22,15 @@ Non-goals for this plan:
 ## Summary of decisions
 
 1. **Plugins are in-process Go packages, listed explicitly at compile time.** Each one sits behind a small interface (`internal/plugin`): a manifest, a config struct that generates a JSON Schema, a status, topics, actions and series. The SPA has a matching module per plugin ID, compiled into the bundle. `GET /api/plugins` tells the SPA which plugins are enabled, and the SPA never loads remote JS. Out-of-process plugins are a later adapter behind the same interface.
-2. **Config layers, from lowest to highest priority:** built-in defaults, then UI settings (`/data/ui-settings.yaml`), then the config file (`DASH_CONFIG`), then environment variables. Any field set by the file or by env is **locked**: the UI shows it read-only, along with where it came from, and the server rejects writes to it. The UI only fills gaps, so GitOps-managed values always win. Secret references (`env:`, `file:`, `k8s:`) are a *value form* that every layer can use, not a separate layer. The Helm chart defaults to editable UI settings; `settings.ui: readonly` is the option for GitOps installs (J.4).
+2. **Config layers, from lowest to highest priority:** built-in defaults, then UI settings (`/data/ui-settings.yaml`), then the config file (`DASH_CONFIG`), then environment variables. Any field set by the file or by env is **locked**: the UI shows it read-only, along with where it came from, and the server rejects writes to it. The UI only fills gaps, so GitOps-managed values always win. Secret references (`env:`, `file:`, `k8s:`) are a *value form*, not a separate layer: the file and env layers can use all three, while the UI layer holds only encrypted literals and `k8s:` refs (B.2). The Helm chart defaults to editable UI settings; `settings.ui: readonly` is the option for GitOps installs (J.4).
 3. **Secrets never reach the browser.** The API returns only `{set, source, updatedAt}`. Secrets entered in the UI are encrypted at rest with XChaCha20-Poly1305. A dedicated `secret.Value` type redacts itself in logs, JSON and errors.
 4. **Kubernetes becomes optional.** Today the process exits without a cluster (`cmd/dash/main.go:59-62`), and readiness is informer sync (`internal/topics/manager.go:105`). The new `kubernetes` plugin auto-detects in-cluster config or a kubeconfig and gates its informers on API discovery. With no cluster, it reports "unavailable" without crashing, and `/readyz` is unaffected. `flux`, `cnpg` and the apps discovery depend on it.
 5. **Auth becomes part of dash.** The default for open source is a built-in local admin, bootstrapped with a one-time setup token. Trusted reverse-proxy headers (today's oauth2-proxy setup, now restricted to trusted proxy CIDRs) and built-in OIDC are first-class alternatives. There are two roles, viewer and admin; settings and actions need admin. An anonymous read-only viewer for wall displays is opt-in and off by default. The CSRF and Origin checks stay.
 6. **Packaging:** one image (`ghcr.io/techdufus/dash`, multi-arch) that runs with `docker run -v dash-data:/data`, Docker Compose, PaaS platforms and Kubernetes. A Helm chart in the repo, published as an OCI chart to GHCR, is the Kubernetes path (J.7).
 7. **Before going public:** remove the self-hosted runner, move CI to GitHub-hosted runners, publish to GHCR with provenance and SBOM attestations, scrub real-lab identifiers from tests and docs, decouple dev tooling from `../homelab`, license the project MIT (J.1), and keep the git history but scrub the lab identifiers from it with `git filter-repo` right before the flip, as a separate step that needs the owner's explicit go-ahead (J.8).
 8. **Clients beyond the browser.** Non-browser clients (a native Android app, AI agents over MCP) get bearer tokens, a built-in OAuth 2.1 server, a versioned `/api/v1`, an MCP server that holds agent writes for human approval, and a PWA with push notifications. The design, the security review of this plan and phase 7 are in [`clients-and-ai.md`](clients-and-ai.md) (sections K–S).
+
+Convention: core API paths in sections A–J are written unversioned (`/api/plugins`, `/api/settings`, …). From P2.3 and P2.10 they live under `/api/v1` ([`clients-and-ai.md`](clients-and-ai.md) L.1).
 
 ---
 
@@ -244,7 +246,7 @@ type Host interface {
 
 The core supervises each instance the way `topics.Manager` supervises pollers today: it recovers panics in pollers and builders (`manager.go:141-176`), and a panicking plugin becomes `error` state without taking the process down.
 
-`Host.HTTPClient` guards every dial, so a settings value cannot turn dash into a request proxy: connections to link-local addresses (including cloud metadata endpoints) are always refused, and connections to loopback are refused when the URL came from the UI layer (clients-and-ai.md K.22).
+`Host.HTTPClient` guards every dial, so a settings value cannot turn dash into a request proxy: connections to link-local addresses (`169.254.0.0/16` and `fe80::/10`) and to the cloud metadata address `fd00:ec2::254` are always refused, and connections to loopback are refused when the URL came from the UI layer (clients-and-ai.md K.22).
 
 ### A.4 Config schema and validation
 
@@ -327,7 +329,7 @@ The core starts plugins in dependency order. A plugin whose `Requires` provider 
 
 Today there are three hand-written handlers (`api.go:88-91`), plus the audit helper at `internal/api/actions.go:30-38`.
 
-- A plugin declares an `ActionSpec`, and the core mounts `POST /api/v1/plugins/{id}/actions/{name}`. The middleware chain is: principal (clients-and-ai.md M.1), then the `actions:<plugin>` scope (tokens only), then `RequireRole(spec.MinRole)`, then CSRF (session and proxy principals only; bearer principals skip it, M.2), then a per-principal rate limit (10 per minute), then body cap plus read deadline, then schema validation of the input, then deny namespaces (`actions.denyNamespaces`) plus the token's `actionNamespaces`, then the agent policy (`actions.agents`, clients-and-ai.md O.1), then `Actor.Act`, then an audit record (always, including denials and errors). Action errors carry `APIError.Code` (clients-and-ai.md L.2).
+- A plugin declares an `ActionSpec`, and the core mounts `POST /api/v1/plugins/{id}/actions/{name}`. The middleware chain is: principal (clients-and-ai.md M.1), then the `actions:<plugin>` scope (tokens only), then `RequireRole(spec.MinRole)`, then CSRF (every non-bearer request; bearer principals skip it, M.2), then a per-principal rate limit (10 per minute), then body cap plus read deadline, then schema validation of the input, then deny namespaces (`actions.denyNamespaces`) plus the token's `actionNamespaces`, then the agent policy (`actions.agents`, clients-and-ai.md O.1), then an audit **intent** record (denials are audited too; if the write fails, the request returns 503 `audit_unavailable` and `Act` does not run), then `Actor.Act`, then an audit **outcome** record (a failure there is logged at ERROR; the response still reports the action's real result). Action errors carry `APIError.Code` (clients-and-ai.md L.2).
 - **Opt-in.** A plugin with actions also has an `actions.enabled` config field. The default is `false` for every plugin (decided, J.11), and the homelab sets `true`. With actions disabled, the action is not mounted and the SPA hides its buttons.
 - **Confirm semantics stay server-side.** `ConfirmTypeName` reproduces today's rule: in a protected namespace, `confirm` must equal the target name (`actions.go:82-87`). The plugin decides per request whether typed confirmation applies (e.g. a namespace carrying the configured protected label). `ConfirmDialog` is a UI-only confirmation.
 - **Capability matrix after migration:**
@@ -392,7 +394,7 @@ built-in defaults  <  UI settings (/data)  <  config file (DASH_CONFIG)  <  envi
 
 - The effective value of a field is the value from the highest layer that sets it.
 - **Locked fields.** A field set by the config file or by env is read-only in the UI. The UI shows its source (`env DASH_PLUGINS_PROXMOX_URL` or `file /etc/dash/config.yaml`). Declarative sources therefore always win, and a click in the UI can never silently diverge from git.
-- **Locks are enforced on the server.** The greyed-out field is only a hint. Any write (PUT, PATCH or DELETE, including secret Replace and Clear) to a file- or env-locked path returns `409 Conflict` with `{path, source, ref}`. The one write accepted on a locked path is "remove stored value" (below), because it deletes a shadowed UI key and cannot change the effective value. With `settings.ui: readonly` every settings write returns 409, including that one.
+- **Locks are enforced on the server.** The greyed-out field is only a hint. Any write (PUT, PATCH or DELETE, including secret Replace and Clear) to a file- or env-locked path returns `409 Conflict` in the L.2 error envelope (clients-and-ai.md L.2): `{"error", "code": "locked_field", "requestId", "details": {"path", "source", "ref"}}`, where `source` is `file`, `env` or `ui-ineligible` and `ref` names the env variable or file that locks the field (absent for `ui-ineligible`). The one write accepted on a locked path is "remove stored value" (below), because it deletes a shadowed UI key and cannot change the effective value. With `settings.ui: readonly` every settings write returns 409 (code `readonly_settings`), including that one.
 - **Overlay at read time, never sync.** File and env values are merged in when the effective config is resolved, on every load and read. They are never copied into the UI store. Removing a value from the file or env immediately reveals the stored UI value, if any, or the default.
 - **The UI store is sparse.** `ui-settings.yaml` holds only keys an admin explicitly saved, never a snapshot of the effective config. Saving a form persists only changed, unlocked fields; "reset to default" deletes the key. Vaultwarden shows the failure mode: its admin page writes every option to `config.json`, which then silently shadows later env changes ([configuration overview](https://github.com/dani-garcia/vaultwarden/wiki/Configuration-overview)).
 - **Shadowed UI values.** If a UI value exists and an operator later sets the same field in the file or in env, the UI value is ignored. Settings shows "overridden by env; stored value unused", with a "remove stored value" button.
@@ -409,8 +411,8 @@ built-in defaults  <  UI settings (/data)  <  config file (DASH_CONFIG)  <  envi
   | Grafana SSO settings | UI/API-saved values over ini and env | The docs warn: "nothing in the UI or the file says so, which most often surprises people during credential rotation" ([configure-grafana](https://raw.githubusercontent.com/grafana/grafana/main/docs/sources/setup-grafana/configure-grafana/_index.md), [sso-settings API](https://raw.githubusercontent.com/grafana/grafana/main/docs/sources/developer-resources/api-reference/http-api/api-legacy/sso-settings.md)) |
 
   dash locks per field and shows the source, which is finer than any of them (Grafana locks per object, Home Assistant per section, Immich the whole config).
-- **Secrets are a value form, not a layer.** In the file and env layers a secret field may hold a literal (allowed in env; allowed in the file with a startup warning, since the file is often in git) or a reference (`env:NAME`, `file:/path`, `k8s:ns/name#key`, see C.3). The UI layer holds only an encrypted value or a `k8s:` ref: `env:` and `file:` refs are accepted only from the file and env layers, so an admin session cannot point a secret at an arbitrary file or process variable (clients-and-ai.md K.22, S.14). `DASH_<NAME>_FILE` on an env var is shorthand for a `file:` ref, following the Docker secrets convention, and is resolved by the Go binary (B.3).
-- **UI-ineligible fields.** `server.*`, `auth.*`, `settings.ui` and `dataDir` can never be written from the UI, whatever the other layers say. A settings write that touches one returns `409 Conflict` with `{path, source: "ui-ineligible"}`. They come from the file, env or defaults only (clients-and-ai.md K.23, S.14).
+- **Secrets are a value form, not a layer.** In the file and env layers a secret field may hold a literal (allowed in env; allowed in the file with a startup warning, since the file is often in git) or a reference (`env:NAME`, `file:/path`, `k8s:ns/name#key`, see C.3). The UI layer holds only an encrypted value or a `k8s:` ref: `env:` and `file:` refs are accepted only from the file and env layers, so an admin in the UI cannot point a secret at an arbitrary file or process variable (clients-and-ai.md K.22, S.14). `DASH_<NAME>_FILE` on an env var is shorthand for a `file:` ref, following the Docker secrets convention, and is resolved by the Go binary (B.3).
+- **UI-ineligible fields.** `server.*`, `auth.*`, `settings.ui` and `dataDir` can never be written from the UI, whatever the other layers say. A settings write that touches one returns `409 Conflict` with the same envelope and `source: "ui-ineligible"` (above). They come from the file, env or defaults only (clients-and-ai.md K.23, S.14).
 
 ### B.3 Environment naming
 
@@ -523,9 +525,9 @@ The store file:
 - **Schema version.** A top-level `schemaVersion` field. On load, ordered migration functions upgrade older versions before use. Home Assistant's versioned `.storage` envelope is the precedent ([storage.py](https://raw.githubusercontent.com/home-assistant/core/dev/homeassistant/helpers/storage.py)).
 - **Atomic write.** Write a temp file in the same directory, fsync the file, rename it over `ui-settings.yaml`, then fsync the directory. renameio skips the directory fsync ([tempfile.go](https://raw.githubusercontent.com/google/renameio/master/tempfile.go)), so dash does this itself.
 - **Lock.** `flock` on a separate, never-replaced `/data/.lock`, which refuses a second instance. A lock on `ui-settings.yaml` itself would follow the old inode after the rename.
-- **Backups.** Each write first rotates the last 5 copies, `ui-settings.yaml.bak.1` (newest) to `ui-settings.yaml.bak.5`.
+- **Backups.** Each write first rotates the last 5 copies, `ui-settings.yaml.bak.1` (newest) to `ui-settings.yaml.bak.5`. Clearing or replacing a secret rewrites every `.bak.N` copy without the old value (P1.5), so a restore cannot bring back a cleared secret.
 
-**`credentials.yaml`.** Credential state (personal access tokens, OAuth grants, push subscriptions, per-user session epochs, the VAPID key pair) lives in a second file, `$DASH_DATA_DIR/credentials.yaml`: mode 0600, the same atomic write and writer mutex, no `.bak` rotation, so a restore can never bring back a revoked credential. Still no database (J.3). Details: clients-and-ai.md M.7.
+**`credentials.yaml`.** Credential state lives in a second file, `$DASH_DATA_DIR/credentials.yaml`: mode 0600, `schemaVersion`, the same atomic write and writer mutex, no `.bak` rotation, so a restore can never bring back a revoked credential. Still no database (J.3). P4.3 creates it for per-user session epochs; P7.1 adds personal access tokens and OAuth grants; P7.7 adds push subscriptions and the VAPID key pair. Details: clients-and-ai.md M.7.
 
 ---
 
@@ -545,7 +547,7 @@ The store file:
 
 ### C.2 Write-only fields in the UI
 
-Secret fields render as "Set (file) · updated 2 days ago" with two buttons, **Replace** and **Clear**. The current value is never shown and never read back. `PUT /api/settings/plugins/{id}/secrets/{field}` with `{value}` replaces it; `DELETE` clears it. Both are refused server-side with `409 Conflict` and `{path, source, ref}` if the field is locked (set by file or env), or if settings are read-only (B.2). "Test connection" (`Checker`) can use a candidate value from the form without saving it. Neither "Test connection" nor save ever sends a stored secret to a URL or host other than the saved one: if the form changes the URL or host, the secret must be entered again in the same form (clients-and-ai.md K.22).
+Secret fields render as "Set (file) · updated 2 days ago" with two buttons, **Replace** and **Clear**. The current value is never shown and never read back. `PUT /api/settings/plugins/{id}/secrets/{field}` with `{value}` replaces it; `DELETE` clears it. Both are refused server-side with `409 Conflict`, code `locked_field` (error envelope as in B.2), if the field is locked (set by file or env), or if settings are read-only (B.2). "Test connection" (`Checker`) can use a candidate value from the form without saving it. Neither "Test connection" nor save ever sends a stored secret to a URL or host other than the saved one: if the form changes the URL or host, the secret must be entered again in the same form (clients-and-ai.md K.22).
 
 ### C.3 Secret references
 
@@ -575,18 +577,18 @@ Secret fields render as "Set (file) · updated 2 days ago" with two buttons, **R
 - A redacting `slog.Handler` scrubs every currently resolved secret value from messages and string attributes. That covers secrets that leak through third-party error text.
 - The same scrubber runs on `SourceStatus.Error` before publishing (`manager.go:189-199` today), and on `writeErr` messages built from upstream errors (`internal/api/read.go:47-50,104-117`; `silences.go:51-103`).
 - `Host.HTTPClient` puts credentials in headers, never in URLs (as Proxmox already does at `internal/upstream/proxmox.go:86`), so `url.Error` text stays clean.
-- **Pattern redaction.** The scrubber also removes values by shape, whether or not they are currently resolved: `dash_pat_`, `dash_at_`, `dash_rt_`, `dash_setup_` and `enc:v1:` followed by their token characters (clients-and-ai.md K.19, K.24).
+- **Pattern redaction.** The slog scrubber also removes values by shape, whether or not they are currently resolved: `dash_pat_`, `dash_at_`, `dash_rt_` and `enc:v1:` followed by their token characters (clients-and-ai.md K.24). It does not match `dash_setup_`: the one-time setup line is written once at startup through a writer that bypasses the scrubber (E.2). The logs API redacts every pattern above and `dash_setup_` in every line it returns (clients-and-ai.md K.19, M.9).
 - **Encodings.** Besides the exact value, the scrubber removes the base64 and URL-encoded forms of every resolved secret of 8 bytes or more.
 - **Error categories.** `SourceStatus.Error` for viewers is one category: `unreachable`, `timeout`, `tls`, `auth`, `http_<code>`, `invalid_response` or `not_configured`. The detail (which can hold internal URLs) goes only to the logs and to the admin plugin status (clients-and-ai.md K.3).
 
 ### C.7 Audit log
 
 - Every settings change, secret replace or clear, auth event (login, failed login, setup) and action goes to the existing structured `audit` slog record (`actions.go:30-38`) and to `$DASH_DATA_DIR/audit.jsonl`, rotated at 10 MiB, 5 files.
-- Records hold user, action, plugin, the field paths changed and their source, and the result. Never values; secrets are recorded as `replaced` or `cleared`.
+- Records hold user, action, plugin, the field paths changed and their source, and the result (the outcome record; the intent record holds the same fields without it). Never values; secrets are recorded as `replaced` or `cleared`.
 - Records also carry `actor{type, user, tokenID, grantID, clientID, surface: ui|api|mcp}`, the TCP `peer`, the `requestId` (clients-and-ai.md L.2) and the `authMode`.
 - Denials are audited too (403, CSRF, rate limit), at most one record per peer and reason per minute.
 - Each record carries a `prev` field, the SHA-256 of the previous record, forming a chain that `dash audit verify` checks.
-- If the data dir is writable and the JSONL write fails, the audited operation fails with 503 instead of proceeding unaudited (clients-and-ai.md K.21).
+- Every action (UI, API, approval execution or MCP) writes an **intent** record before `Act` and an **outcome** record after it. If the intent write fails on a writable data dir, the action returns 503 with code `audit_unavailable` and `Act` does not run (clients-and-ai.md K.21). A failure writing the outcome is logged at ERROR; the response still reports the action's real result. `dash audit verify` reports intents that have no outcome.
 - `GET /api/settings/audit` (admin) serves the latest N records.
 
 ---
@@ -766,15 +768,15 @@ oauth2-proxy runs as a sidecar and admits only the GitHub user `TechDufus` (`REA
 
 | Mode | For | How | Notes |
 |---|---|---|---|
-| `local` (**default**, decided, J.6) | docker run, compose, small installs | One admin account with an argon2id hash (`golang.org/x/crypto/argon2`). Bootstrap: if no hash is stored and `DASH_ADMIN_PASSWORD_HASH` is unset, dash logs a one-time setup URL with a random token, valid 1 hour, single use. `/setup?token=...` sets the password. `dash hash-password` prints a hash for env-only setups | Opt-in `auth.local.anonymousViewer: true` for wall displays: unauthenticated users get read-only access. Off by default (decided, J.6) |
+| `local` (**default**, decided, J.6) | docker run, compose, small installs | One admin account with an argon2id hash (`golang.org/x/crypto/argon2`). Bootstrap: if no hash is stored and `DASH_ADMIN_PASSWORD_HASH` is unset, dash prints a one-time setup URL with a random token, valid 1 hour, single use. The line is written once at startup through a writer that bypasses the log scrubber (C.6), so the operator can read it; the logs API redacts the token in every line it returns (clients-and-ai.md M.9). `/setup?token=...` sets the password. `dash hash-password` prints a hash for env-only setups | Opt-in `auth.local.anonymousViewer: true` for wall displays: unauthenticated users get read-only access. Off by default (decided, J.6) |
 | `proxy` | oauth2-proxy, Authelia, Authentik, Pomerium, Cloudflare Access, Tailscale serve | Configurable `userHeaders` (default today's two), `groupsHeader`, **`trustedProxies` CIDRs (default `127.0.0.1/32, ::1/128`)**. Headers from any other peer are ignored, and the request is 401. Trust is the TCP peer only: `X-Forwarded-For` never decides it. Requests with `Authorization: Bearer` ignore identity headers entirely (clients-and-ai.md M.1) | The homelab sets this mode. The sidecar keeps working unchanged, and binding `0.0.0.0` no longer allows spoofing |
 | `oidc` | users with an IdP | Authorization code + PKCE (`golang.org/x/oauth2`, `github.com/coreos/go-oidc/v3`); `issuer`, `clientID`, `clientSecret` (secret), `scopes`, `allowedUsers` / `allowedGroups`, `adminGroups`, `roleClaim` | Session cookie as in E.3 |
 | `none` | local-only trials | Everyone is admin. A WARN on every startup and a persistent red banner in the UI. Docs say to publish only to `127.0.0.1` | Requires explicit `DASH_AUTH_MODE=none`; never the default |
 
 ### E.3 Sessions and CSRF
 
-- `local` and `oidc` use a cookie, `__Host-dash_session` when the public URL is https (`dash_session` on http, where `Secure` and the `__Host-` prefix are unavailable): an AEAD-sealed payload (user, expiry, per-user session epoch) under a key derived via HKDF from the secret key (C.4). The payload holds no role; the role is re-resolved on every request, so a role change applies at once (clients-and-ai.md M.8). Without `DASH_SECRET_KEY`, the session key is random per process, so logins do not survive a restart (D.3). The cookie is `HttpOnly; Secure` (unless the public URL is http); `SameSite=Lax`; 12h idle and 7d absolute expiry. Each user has an epoch, bumped by "log out everywhere" and by a password change; the global epoch stored in settings remains. No server-side session table is needed.
-- CSRF stays as it is: `X-Dash-Csrf: 1` plus `Origin == PublicOrigin()` on every non-GET request (`middleware.go:18-29`; the client already sends the header, `web/src/api/client.ts:36`). Login and setup POSTs get the same Origin check. The check applies to session, proxy and anonymous principals; bearer principals skip it, because a browser never attaches a bearer token on its own (clients-and-ai.md M.2).
+- `local` and `oidc` use a cookie, `__Host-dash_session` when the public URL is https (`dash_session` on http, where `Secure` and the `__Host-` prefix are unavailable): an AEAD-sealed payload (user, the groups and role-claim value captured at login (OIDC; local users have none), expiry, per-user session epoch) under a key derived via HKDF from the secret key (C.4). The payload holds no role. On every request the role is derived from the *current* mapping (`adminUsers`, `adminGroups`, `roleClaim`, E.4) applied to those captured values (in `proxy` mode, to the request's headers), so a mapping change applies on the next request; a group or claim change at the IdP applies at the next login (clients-and-ai.md M.8). PATs and OAuth grants record the creator's groups and role-claim value at creation and derive the role the same way; scopes then narrow it (clients-and-ai.md M.5, M.6). Without `DASH_SECRET_KEY`, the session key is random per process, so logins do not survive a restart (D.3). The cookie is `HttpOnly; Secure` (unless the public URL is http); `SameSite=Lax`; 12h idle and 7d absolute expiry. Each user has an epoch, bumped by "log out everywhere" and by a password change; the global epoch stored in settings remains. Epochs are kept in `credentials.yaml` (B.7), created in P4.3. No server-side session table is needed.
+- CSRF stays as it is: `X-Dash-Csrf: 1` plus `Origin == PublicOrigin()` on every non-GET request (`middleware.go:18-29`; the client already sends the header, `web/src/api/client.ts:36`). Login and setup POSTs get the same Origin check. The check applies to every non-bearer request (session, proxy, dev, demo and anonymous principals); bearer principals skip it, because a browser never attaches a bearer token on its own (clients-and-ai.md M.2).
 - The 401 path in the SPA (`client.ts:24-32`, `stream.ts:40-47`) becomes mode-aware: `proxy` reloads, as today; `local`/`oidc` redirect to `/login?next=...`.
 
 ### E.4 Roles
@@ -798,15 +800,15 @@ Tokens narrow the role ceiling with scopes and a single audience; the effective 
 
 ```
 /api/v1/** (GET: me, stream, series, topics, context, plugins, plugins/{id}/...)  principal -> viewer (tokens: `read`; log routes: `logs`)
-/api/v1/plugins/{id}/actions/{name} (POST)                                       principal -> actions:<plugin> scope -> MinRole -> csrf -> rate limit -> ... -> audit (A.8)
-/api/v1/settings/**, /api/v1/tokens/**, /api/v1/oauth/consents/**                session only -> admin where applicable -> csrf -> audit
-/api/v1/approvals/**                                                             session or `approvals` token -> csrf (session) -> audit
-/api/v1/push/**                                                                  session or `push` token
+/api/v1/plugins/{id}/actions/{name} (POST)                                       principal -> actions:<plugin> scope -> MinRole -> csrf -> rate limit -> ... -> audit intent -> Act -> audit outcome (A.8)
+/api/v1/settings/**, /api/v1/tokens/**, /api/v1/oauth/consents/**                interactive only -> admin where applicable -> csrf -> audit (bearer: 403)
+/api/v1/approvals/**                                                             interactive or `approvals` token -> csrf (non-bearer) -> audit
+/api/v1/push/**                                                                  interactive or `push` token
 /mcp                                                                             mcp-audience bearer only
 /oauth/authorize                                                                 interactive (authenticates through the auth mode)
 /oauth/token, /oauth/revoke, /.well-known/*                                      public
 /login, /setup, /auth/callback, /auth/logout                                     unauthenticated, Origin-checked POSTs
-SPA routes /consent/*, /approve/*                                                session
+SPA routes /consent/*, /approve/*                                                interactive
 /healthz, /readyz                                                                health listener only (unchanged)
 ```
 
@@ -814,7 +816,7 @@ Settings API (paths shown without the `/api/v1` prefix they get in P2.10):
 
 - `GET /api/settings`: the effective tree, resolved at read time, with per-field `{value | secret-meta, source, locked}`.
 - `GET /api/settings/schema`
-- `PUT /api/settings/plugins/{id}`: JSON merge patch with `If-Match: <revision>`; 412 on conflict; 409 with `{path, source, ref}` if it touches a locked path or settings are read-only (B.2).
+- `PUT /api/settings/plugins/{id}`: JSON merge patch with `If-Match: <revision>`; 412 on conflict; 409 `locked_field` (error envelope as in B.2) if it touches a locked path or settings are read-only.
 - `POST /api/settings/plugins/{id}/test`
 - `PUT|DELETE /api/settings/plugins/{id}/secrets/{field}`
 - `DELETE /api/settings/plugins/{id}/stored/{field}`: "remove stored value" for a shadowed field (B.2).
@@ -957,7 +959,7 @@ During Phase 3 the not-yet-migrated code keeps running inside `topics.Manager`. 
 - [ ] Rewrite the fixtures listed in 1.1: `clients_test.go`, `transport_test.go`, `queries_test.go`, `api_test.go`, `silences_test.go`, `attention_test.go`, `links_test.go`, `actions_test.go` (`homelab guardrail:` → `admission denied:`).
 - [ ] Use RFC 5737 IPs (`192.0.2.0/24`) and RFC 2606 domains (`example.com`).
 - [ ] Use a token fixture that is not shaped like a real ID (`dash@pve!test=...` with zeros).
-- [ ] Add a repo-wide denylist test (generalising `internal/demo/demo_test.go:44`) that fails CI on `techdufus` (outside the module path, image name and LICENSE), `home.techdufus`, `10.0.20.`, `pve-730`, `talos-cp`, `yahwai`, `registry.home`, `omp-cloud`, `mac-mini`, `rpi-control` and similar lab identifiers.
+- [ ] Add a repo-wide denylist test (generalising `internal/demo/demo_test.go:44`) that fails CI on `techdufus` (outside the module path, image name, LICENSE and the Android application ID `io.github.techdufus.dash`, clients-and-ai.md M.6 and P.4), `home.techdufus`, `10.0.20.`, `pve-730`, `talos-cp`, `yahwai`, `registry.home`, `omp-cloud`, `mac-mini`, `rpi-control` and similar lab identifiers.
 
 ### G.3 Dev tooling
 
@@ -1183,12 +1185,12 @@ Each phase maps 1:1 to an epic group in [`epic-draft.md`](epic-draft.md). Leaves
 | 3 | Migrate integrations | 13 plugins in the order of F.0; Kubernetes optional; `internal/topics` legacy deleted; demo per plugin | 2 |
 | 4 | Settings UI and auth | Auth modes (proxy with CIDRs, local, OIDC, none); roles; settings API; Settings pages; security headers | 1, 2 (UI forms need schemas); role enforcement on actions needs P2.3 and P3.3 |
 | 5 | Packaging and deployment targets | Dockerfile updates; healthcheck command; docker/compose/PaaS docs; Helm chart (default `settings.ui: editable`); manifests; CI smoke tests | 3 (plugin config paths); P4.1 and P4.3 (in-app auth before the `0.0.0.0` default) |
-| 6 | Open-source readiness and public CI | Fixtures scrubbed; denylist test; dev tooling; docs; MIT licence; community files; GitHub-hosted CI; GHCR release; repo settings; history scrub (needs the owner's explicit go-ahead); flip | Most leaves are independent. The CI move (P6.6) can happen any time after Phase 0. The flip (P6.10) depends on everything |
-| 7 | Clients and AI | `/api/v1` clients: personal access tokens, built-in OAuth 2.1 server, MCP server, human approval for agent actions, PWA, push, native-client and agent guides, optional assistant plugin ([`clients-and-ai.md`](clients-and-ai.md) L–Q) | G2, G3, P4.2–P4.4 and P1.5; not required for P6.10 |
+| 6 | Open-source readiness and public CI | Fixtures scrubbed; denylist test; dev tooling; docs; MIT licence; community files; GitHub-hosted CI; GHCR release; repo settings; history scrub (needs the owner's explicit go-ahead); flip | Most leaves are independent. The CI move (P6.6) can happen any time after Phase 0. The flip (P6.10) depends on everything except phase 7 |
+| 7 | Clients and AI | `/api/v1` clients: personal access tokens, built-in OAuth 2.1 server, MCP server, human approval for agent actions, PWA, push, native-client and agent guides, optional assistant plugin ([`clients-and-ai.md`](clients-and-ai.md) L–Q) | G2, G3, P1.5, P4.2–P4.4, P4.6, P4.7 and P5.4; independent of phase 6 and of the public flip (P6.10) |
 
 Parallelism: P6.1, P6.2, P6.4, P6.5 and P6.6 do not depend on Phases 1-5 and can run alongside them. Auth (P4.1-P4.5) can start once Phase 1 lands. The leaf IDs (P<phase>.<n>) are the ones used in [`epic-draft.md`](epic-draft.md).
 
-Phase 7 may start as soon as its dependencies land, in parallel with phases 5 and 6. It is not on the path to the public flip (P6.10).
+Phase 7 may start as soon as its dependencies land (including the Helm chart, P5.4, for the OAuth `routes.direct` value), in parallel with phase 6. It is not on the path to the public flip (P6.10).
 
 ---
 
