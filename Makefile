@@ -1,7 +1,7 @@
 HL_OP ?= ../homelab/scripts/hl-op
 KUBECONFIG ?= ../homelab/.kube/config
 
-.PHONY: generate check dev-api dev-web image
+.PHONY: generate check dev-api dev-web image hooks hooks-uninstall
 
 generate:
 	go tool tygo generate
@@ -20,3 +20,9 @@ dev-web:
 
 image:
 	docker buildx build --load -t dash:dev .
+
+hooks:
+	git config core.hooksPath .githooks
+
+hooks-uninstall:
+	git config --unset core.hooksPath || true

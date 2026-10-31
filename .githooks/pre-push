@@ -1,0 +1,145 @@
+#!/usr/bin/env bash
+# Opt-in pre-push gate: checks only what the pushed commits change.
+# Install: make hooks. Skip: git push --no-verify, or DASH_SKIP_HOOKS=1 git push.
+# The full gate is still `make check` (it also runs the production build).
+set -euo pipefail
+
+if [ "${DASH_SKIP_HOOKS:-0}" = "1" ]; then
+	echo "pre-push: DASH_SKIP_HOOKS=1, skipping checks"
+	exit 0
+fi
+
+cd "$(git rev-parse --show-toplevel)"
+
+remote="${1:-origin}"
+zero=0000000000000000000000000000000000000000
+
+now() { if [ -n "${EPOCHREALTIME:-}" ]; then echo "${EPOCHREALTIME/,/.}"; else date +%s; fi; }
+since() { awk -v a="$1" -v b="$(now)" 'BEGIN { printf "%.1fs", b - a }'; }
+
+start=$(now)
+failed=()
+
+# step <label> <cmd...>: run one check, print its time, remember failures.
+step() {
+	local label=$1 t
+	shift
+	echo "pre-push: >> $label"
+	t=$(now)
+	if "$@"; then
+		echo "pre-push: ok $label ($(since "$t"))"
+	else
+		echo "pre-push: FAIL $label ($(since "$t"))"
+		failed+=("$label")
+	fi
+}
+
+# Base for a branch the remote does not have yet.
+new_branch_base() {
+	local sha=$1 ref
+	for ref in "$remote/main" "$remote/HEAD" origin/main origin/HEAD; do
+		if git rev-parse --verify --quiet "refs/remotes/$ref^{commit}" >/dev/null; then
+			git merge-base "$sha" "refs/remotes/$ref" && return 0
+		fi
+	done
+	return 1
+}
+
+changed=$(mktemp)
+trap 'rm -f "$changed"' EXIT
+full=0
+
+while read -r _lref lsha _rref rsha; do
+	[ "$lsha" = "$zero" ] && continue # branch delete
+	if [ "$rsha" = "$zero" ] || ! git cat-file -e "$rsha^{commit}" 2>/dev/null; then
+		if ! base=$(new_branch_base "$lsha"); then
+			echo "pre-push: no merge-base with $remote/main, $remote/HEAD or origin; checking everything"
+			full=1
+			continue
+		fi
+	else
+		base=$rsha
+	fi
+	git diff --name-only "$base" "$lsha" >>"$changed"
+done
+
+if [ "$full" = 1 ]; then
+	git ls-files >>"$changed"
+fi
+
+# Arrays are only expanded behind a length check: set -u rejects empty "${a[@]}" on bash < 4.4.
+nfiles=0 go_all=0 tygo=0 web_config=0 web_ts=0
+go_dirs=() lint=()
+while read -r f; do
+	nfiles=$((nfiles + 1))
+	case "$f" in
+	tygo.yaml | internal/model/*.go | web/src/api/types.ts) tygo=1 ;;
+	esac
+	case "$f" in
+	go.mod | go.sum) go_all=1 ;;
+	*/testdata/* | testdata/*) ;;
+	*.go) go_dirs+=("./$(dirname "$f")") ;;
+	web/dist/* | web/*.md) ;;
+	web/package.json | web/package-lock.json | web/biome.json | web/tsconfig*.json | web/vite.config.ts)
+		web_config=1 web_ts=1
+		;;
+	web/*)
+		case "$f" in *.ts | *.tsx | *.mts | *.json) web_ts=1 ;; esac
+		# Biome gets only files that still exist; tsc covers deletions.
+		if [ -f "$f" ]; then lint+=("${f#web/}"); fi
+		;;
+	esac
+done < <(sort -u "$changed")
+
+# A deleted package can break its importers, which are not otherwise checked: use ./... then.
+pkgs=()
+if [ "${#go_dirs[@]}" -gt 0 ] && [ "$go_all" = 0 ]; then
+	while read -r d; do
+		if compgen -G "$d/*.go" >/dev/null; then pkgs+=("$d"); else go_all=1; fi
+	done < <(printf '%s\n' "${go_dirs[@]}" | sort -u)
+fi
+if [ "$go_all" = 1 ]; then
+	pkgs=(./...)
+fi
+
+if [ "${#pkgs[@]}" -eq 0 ] && [ "$tygo" = 0 ] && [ "$web_config" = 0 ] && [ "$web_ts" = 0 ] && [ "${#lint[@]}" -eq 0 ]; then
+	echo "pre-push: $nfiles changed file(s), no Go or web code; nothing to check ($(since "$start"))"
+	exit 0
+fi
+
+if ! git diff --quiet HEAD --; then
+	echo "pre-push: note: uncommitted changes present; checks run against the working tree"
+fi
+
+if [ "${#pkgs[@]}" -gt 0 ]; then
+	step "go vet ${pkgs[*]}" go vet "${pkgs[@]}"
+	step "go test ${pkgs[*]}" go test "${pkgs[@]}"
+fi
+
+if [ "$tygo" = 1 ]; then
+	# Same as `make generate` + the diff in `make check`, without needing make.
+	step "tygo drift (go tool tygo generate; git diff web/src/api/types.ts)" \
+		sh -c 'go tool tygo generate && git diff --exit-code web/src/api/types.ts'
+fi
+
+if [ "$web_config" = 1 ] || [ "$web_ts" = 1 ] || [ "${#lint[@]}" -gt 0 ]; then
+	if [ ! -x web/node_modules/.bin/tsc ] || [ ! -x web/node_modules/.bin/biome ]; then
+		echo "pre-push: SKIP web checks: web/node_modules is missing; run 'cd web && npm ci'"
+	else
+		if [ "$web_ts" = 1 ]; then
+			step "tsc --noEmit" sh -c 'cd web && node_modules/.bin/tsc --noEmit'
+		fi
+		if [ "$web_config" = 1 ]; then
+			step "biome check ." sh -c 'cd web && node_modules/.bin/biome check .'
+		elif [ "${#lint[@]}" -gt 0 ]; then
+			step "biome check (${#lint[@]} file(s))" sh -c 'cd web && node_modules/.bin/biome check --no-errors-on-unmatched --files-ignore-unknown=true "$@"' biome "${lint[@]}"
+		fi
+	fi
+fi
+
+if [ "${#failed[@]}" -gt 0 ]; then
+	echo "pre-push: FAILED: ${failed[*]} ($(since "$start"))"
+	echo "pre-push: fix it, or bypass with 'git push --no-verify' / DASH_SKIP_HOOKS=1"
+	exit 1
+fi
+echo "pre-push: all checks passed ($(since "$start"))"

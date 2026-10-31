@@ -41,6 +41,33 @@ current, `go vet`, `go test`, `tsc`, Biome and the production build.
 After changing a struct in `internal/model`, run `make generate` and commit
 `web/src/api/types.ts` with it.
 
+### Pre-push hook (opt-in)
+
+CI runs only on `main` and tags, so `.githooks/pre-push` is the pre-merge gate. It diffs the
+pushed commits against the remote (a new branch against its merge-base with `origin/main`) and
+checks only what changed, usually in a few seconds:
+
+- Go files: `go vet` and `go test` on the changed packages (`./...` if `go.mod`/`go.sum` changed
+  or a package was deleted). Packages that import a changed package are not re-tested.
+- `internal/model`, `tygo.yaml` or `web/src/api/types.ts`: the `make generate` drift check.
+- `web/`: `tsc --noEmit`, and Biome on the changed files (all of `web/` if its config, package
+  or lock files changed). Skipped with a hint if `web/node_modules` is missing (`npm ci`).
+- Anything else (docs, CI, Dockerfile): nothing; the hook exits at once.
+
+It never runs `vite build` (too slow for a push); that, and checks across every package, stay in
+`make check`, which is still the full gate. Checks see the working tree, not a clean checkout of
+the pushed commits. On an empty Go build cache the first Go check compiles client-go (about a
+minute); after that a push takes a few seconds.
+
+```sh
+make hooks              # git config core.hooksPath .githooks
+make hooks-uninstall    # git config --unset core.hooksPath
+git push --no-verify    # skip once
+DASH_SKIP_HOOKS=1 git push
+```
+
+`core.hooksPath` replaces `.git/hooks`, so hooks kept there stop running while it is set.
+
 ## Release
 
 1. On `main` with CI green: `git tag vX.Y.Z && git push origin vX.Y.Z`.
