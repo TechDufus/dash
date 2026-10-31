@@ -42,6 +42,7 @@ function ChartContainer({
   children,
   config,
   initialDimension = INITIAL_DIMENSION,
+  style,
   ...props
 }: React.ComponentProps<"div"> & {
   config: ChartConfig
@@ -55,6 +56,7 @@ function ChartContainer({
 }) {
   const uniqueId = React.useId()
   const chartId = `chart-${id ?? uniqueId.replace(/:/g, "")}`
+  const colorVars = React.useMemo(() => chartColorVars(config), [config])
 
   return (
     <ChartContext.Provider value={{ config }}>
@@ -65,9 +67,9 @@ function ChartContainer({
           "flex aspect-video justify-center text-xs [&_.recharts-cartesian-axis-tick_text]:fill-panel-hover-foreground [&_.recharts-cartesian-grid_line[stroke='#ccc']]:stroke-border/50 [&_.recharts-curve.recharts-tooltip-cursor]:stroke-border [&_.recharts-dot[stroke='#fff']]:stroke-transparent [&_.recharts-layer]:outline-hidden [&_.recharts-polar-grid_[stroke='#ccc']]:stroke-border [&_.recharts-radial-bar-background-sector]:fill-panel-hover [&_.recharts-rectangle.recharts-tooltip-cursor]:fill-panel-hover [&_.recharts-reference-line_[stroke='#ccc']]:stroke-border [&_.recharts-sector]:outline-hidden [&_.recharts-sector[stroke='#fff']]:stroke-transparent [&_.recharts-surface]:outline-hidden",
           className
         )}
+        style={{ ...colorVars, ...style } as React.CSSProperties}
         {...props}
       >
-        <ChartStyle id={chartId} config={config} />
         <RechartsPrimitive.ResponsiveContainer
           initialDimension={initialDimension}
         >
@@ -78,37 +80,21 @@ function ChartContainer({
   )
 }
 
-const ChartStyle = ({ id, config }: { id: string; config: ChartConfig }) => {
-  const colorConfig = Object.entries(config).filter(
-    ([, config]) => config.theme ?? config.color
-  )
-
-  if (!colorConfig.length) {
-    return null
+/**
+ * Series colours as CSS custom properties for the container's `style`. Set through the
+ * CSSOM, so no `<style>` element is injected and a config key cannot add CSS rules. The app
+ * is dark-only (`index.html` has `class="dark"` and `globals.css` applies the same tokens
+ * either way), so a theme's dark value is the one used.
+ */
+function chartColorVars(config: ChartConfig): Record<string, string> {
+  const vars: Record<string, string> = {}
+  for (const [key, item] of Object.entries(config)) {
+    const color = item.theme?.dark ?? item.color
+    if (color) {
+      vars[`--color-${key.replace(/[^A-Za-z0-9_-]/g, "_")}`] = color
+    }
   }
-
-  return (
-    <style
-      dangerouslySetInnerHTML={{
-        __html: Object.entries(THEMES)
-          .map(
-            ([theme, prefix]) => `
-${prefix} [data-chart=${id}] {
-${colorConfig
-  .map(([key, itemConfig]) => {
-    const color =
-      itemConfig.theme?.[theme as keyof typeof itemConfig.theme] ??
-      itemConfig.color
-    return color ? `  --color-${key}: ${color};` : null
-  })
-  .join("\n")}
-}
-`
-          )
-          .join("\n"),
-      }}
-    />
-  )
+  return vars
 }
 
 const ChartTooltip = RechartsPrimitive.Tooltip
@@ -366,5 +352,4 @@ export {
   ChartTooltipContent,
   ChartLegend,
   ChartLegendContent,
-  ChartStyle,
 }
