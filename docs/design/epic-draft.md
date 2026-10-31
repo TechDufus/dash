@@ -1,6 +1,6 @@
 # Epic draft: plugin architecture, layered config and open-source readiness
 
-> **Draft. Not filed.** These issues get filed only after the design in [`plugins-and-config.md`](plugins-and-config.md) is approved and the open decisions in its section J are answered.
+> **Draft. Not filed.** These issues get filed only after the design in [`plugins-and-config.md`](plugins-and-config.md) is approved. The open decisions in its section J were answered on 2026-10-31 and are recorded there.
 >
 > **Filing order:** the epic first, then the seven group issues (linked as sub-issues of the epic), then the leaves (linked as sub-issues of their group). When filing, replace every `P<phase>.<n>` reference with the real issue number.
 >
@@ -26,9 +26,9 @@ This epic turns dash into a modular, self-hostable app:
 - integrations become plugins with a schema, a status, topics and actions;
 - configuration is layered: defaults < UI settings < config file < env, with locked fields;
 - secrets are handled safely (refs, encryption at rest, never sent to the browser);
-- auth is part of dash (local, proxy, OIDC);
+- auth is part of dash (local admin by default; proxy and OIDC as options);
 - dash ships as one multi-arch image for Docker, Compose, PaaS and Kubernetes (Helm);
-- the repo meets open-source prerequisites, including GitHub-hosted CI and GHCR releases.
+- the repo meets open-source prerequisites, including an MIT licence, GitHub-hosted CI and GHCR releases.
 
 Design: `docs/design/plugins-and-config.md`.
 
@@ -45,11 +45,11 @@ Design: `docs/design/plugins-and-config.md`.
 **Acceptance criteria**
 
 - `docker run -p 127.0.0.1:8080:8080 -v dash-data:/data ghcr.io/techdufus/dash:<v>` starts with no cluster and no env other than the public URL. An admin can set up an account, enable Prometheus and Proxmox in Settings, and see their pages.
-- The same image runs in Kubernetes from the Helm chart, configured only through a ConfigMap and Secrets, with the settings UI read-only.
-- The homelab runs the released GHCR image in `proxy` auth mode with the same features as today.
+- The same image runs in Kubernetes from the Helm chart, configured through a ConfigMap and Secrets. Settings are UI-editable by default; `settings.ui: readonly` is the opt-in for GitOps.
+- The homelab runs the released GHCR image (pulled directly, optionally through a Zot pull-through cache) in `proxy` auth mode with the same features as today.
 - No real-lab identifier remains in tracked files; the denylist test enforces this.
 - CI runs on GitHub-hosted runners; no workflow targets self-hosted labels.
-- The repository is public, with a licence, SECURITY.md and CONTRIBUTING.md.
+- The repository is public, with an MIT licence, SECURITY.md and CONTRIBUTING.md.
 
 **Dependencies:** none (top level).
 
@@ -57,12 +57,12 @@ Design: `docs/design/plugins-and-config.md`.
 
 ## G0: docs(adr): phase 0, decisions and ADR
 
-**Body:** land the configurable-settings branch and record the decisions this epic depends on.
+**Body:** land the configurable-settings branch and record the decisions this epic depends on. The phase 0 PR is based on `claude/project-thread-8gve8b` (not `main`), so the ADR lands on the same base.
 
 - [ ] P0.1 chore: land claude/project-thread-8gve8b (e2b7f93) on main
 - [ ] P0.2 docs(adr): record plugin, config, auth and release decisions
 
-**Acceptance criteria:** both leaves closed; every item in design section J is either decided in the ADR or explicitly deferred with an owner.
+**Acceptance criteria:** both leaves closed; all 19 decisions in design section J (answered 2026-10-31) are recorded in the ADR.
 
 **Dependencies:** this design PR merged.
 
@@ -76,6 +76,8 @@ Design: `docs/design/plugins-and-config.md`.
 
 Everything below assumes the `Conventions` struct, `GET /api/config`, `DASH_LAUNCHER_FILE` and `dev/site.env.example` exist on `main`.
 
+The phase 0 PR is based on `claude/project-thread-8gve8b`, so the ADR lands on the same base. Merging that branch lands P0.1 and is the owner's call.
+
 **Acceptance criteria**
 - `main` contains `e2b7f93` (or its squash), and CI is green.
 - The homelab deployment runs the resulting image with unchanged behaviour. Only the homelab knows its env, so this is verified by the owner.
@@ -84,24 +86,30 @@ Everything below assumes the `Conventions` struct, `GET /api/config`, `DASH_LAUN
 
 ### P0.2 docs(adr): record plugin, config, auth and release decisions
 
-**Body:** write `docs/adr/0001-plugins-config-auth.md` covering design section J. At minimum:
+**Body:** write `docs/adr/0001-plugins-config-auth.md` covering design section J. It records all 19 decisions made on 2026-10-31:
 
-- licence
-- plugin boundary
-- settings store (already decided in design J.3: no database, one YAML file `ui-settings.yaml`; SQLite only on the named triggers, in a separate `dash.db`; no bbolt; the ADR records it)
-- precedence and locked fields
-- legacy env aliases
-- default auth mode
-- Helm vs manifests
-- git history
-- homelab image source
-- plugin naming
-- actions default
-- roles
-- multi-instance
+1. Licence: MIT, `LICENSE` copyright "Matthew DeGarmo (TechDufus)".
+2. Plugin boundary: in-process, compile-time plugin list, kept in `internal/plugin` until the API is stable at 1.0, then promoted to `pkg/plugin`. Out-of-process plugins rejected for v1 (may return later as an adapter).
+3. Settings store: no database; YAML on `/data` (`ui-settings.yaml`); SQLite only on the named triggers, in a separate `dash.db`; no bbolt.
+4. Precedence defaults < UI < file < env, with locked fields. The Helm chart defaults to UI-editable settings (`settings.ui: editable`), with `readonly` as the opt-in for GitOps (the homelab can opt in). Removing a stored value on a locked field stays allowed. The strict replica guard stays (`replicaCount > 1` only with readonly settings and persistence off), so multi-replica requires opting into readonly.
+5. Legacy env aliases: a one-release alias layer for legacy `DASH_*` names that logs a deprecation warning, then is removed. Direct cutover rejected.
+6. Default auth: local admin with a bootstrap token. `proxy` and `oidc` are options. The anonymous read-only viewer for wall displays is opt-in, off by default.
+7. Helm: the chart lives in this repo and is published as an OCI chart to GHCR. A separate charts repo and manifests-only rejected.
+8. Git history: keep it (no squash), and scrub the homelab identifiers with `git filter-repo` right before going public. That is a separate later step needing TechDufus's explicit go-ahead at that time (history rewrite and force-push).
+9. Homelab image source: GHCR directly, with an optional Zot pull-through cache. Private mirror job rejected.
+10. Plugin naming: `prometheus` (displayed "Prometheus-compatible", covers VictoriaMetrics); `hardware`, `rustfs` and `cnpg` are separate plugins. `victoriametrics` name rejected.
+11. Actions are off by default per plugin.
+12. Roles: only `viewer` and `admin` in v1. `operator` rejected for v1.
+13. A standalone logs page and backup freshness without a cluster are deferred to post-v1.
+14. Branding: keep the `dash` name and the "Homelab mission control" tagline.
+15. Demo mode stays opt-in via a config flag (`DASH_DEMO` / config); no separate `:demo` image tag. A public demo instance comes post-v1.
+16. One instance per plugin type in v1, with the schema ready for more (`plugins.<instance>.type`).
+17. Icons are bundled or self-hosted by default; the jsDelivr CDN is opt-in.
+18. Tested against Proxmox VE 8 and 9, the last 3 Kubernetes minor versions, current Flux v2 and Gateway API v1.
+19. Versioning: stay on 0.x until the plugin API is stable; semver releases are cut from git tags `vX.Y.Z`.
 
 **Acceptance criteria**
-- The ADR exists, with each decision, the alternatives considered, and the consequences.
+- The ADR exists with all 19 decisions numbered as in design section J, each with its decided outcome, the alternatives considered (including the rejected ones) and the consequences.
 - The design doc's section J links to it.
 
 **Dependencies:** P0.1 (so the ADR lands on the same base).
@@ -143,12 +151,12 @@ Everything below assumes the `Conventions` struct, `GET /api/config`, `DASH_LAUN
 - Env overrides the file.
 - Names are generated from the config schema: camelCase becomes UPPER_SNAKE (design B.3).
 - `DASH_*_FILE` suffix support, resolved in the Go binary (the image is distroless, so there is no shell entrypoint). Setting both `DASH_X` and `DASH_X_FILE` is a startup error.
-- A legacy alias table for today's variables (design B.5), with one deprecation warning per variable. Whether the aliases ship at all is decided in P0.2.
+- A legacy alias table for today's variables (design B.5), with one deprecation warning per variable. The alias layer ships for one release and is then removed (J.5); the release notes announce the removal. There is no direct-cutover option.
 
 Every resolved field carries `source` (`default|ui|file|env`) and an origin (env var name or file path).
 
 **Acceptance criteria**
-- For every row of design B.5, a test sets the legacy variable and asserts the new path and value.
+- For every row of design B.5, a test sets the legacy variable, asserts the new path and value, and asserts one deprecation warning.
 - A collision test fails if two schema paths generate the same env name.
 - An unknown `DASH_PLUGINS_*` variable fails startup; other unknown `DASH_*` variables warn, except `DASH_API`.
 - Setting both `DASH_X` and `DASH_X_FILE` fails startup, naming both variables.
@@ -212,7 +220,7 @@ Move `ProxmoxToken` onto `secret.Value`.
 - `flock` on a separate, never-replaced `.lock` to refuse a second instance (a lock on the store file would follow the old inode after the rename);
 - sparse store: it holds only the keys an admin explicitly saved, never a snapshot of the effective config. A form save persists only changed, unlocked fields, and "reset to default" deletes the key;
 - read-time merge: the effective config is resolved from defaults, the UI store, the file and env on every load, and file and env values are never copied into the store;
-- read-only mode when the directory is unwritable or `settings.ui: readonly` is set.
+- editable by default; read-only mode when the directory is unwritable or `settings.ui: readonly` is set (the GitOps opt-in, J.4).
 
 The UI layer sits below file and env (design B.2).
 
@@ -276,9 +284,9 @@ Env changes still need a restart. Fields marked `restart` only raise a "restart 
 
 ### P2.1 feat(plugin): plugin contract, registry and lifecycle supervisor
 
-**Body:** add `internal/plugin` with `ID`, `Manifest`, `Plugin`, the optional interfaces and `Host` (design A.2, A.3). The explicit list lives in `cmd/dash/plugins.go`, along with:
+**Body:** add `internal/plugin` with `ID`, `Manifest`, `Plugin`, the optional interfaces and `Host` (design A.2, A.3). Plugins are compiled in; the package stays `internal/plugin` until the API is stable at 1.0, then moves to `pkg/plugin` (J.2). The explicit list lives in `cmd/dash/plugins.go`, along with:
 
-- instance config keyed by instance name, with a `type` default;
+- instance config keyed by instance name, `plugins.<instance>.type` (J.16): the schema allows several instances, v1 enforces one per type;
 - dependency ordering by `Requires`/`Uses`;
 - panic recovery;
 - the states `disabled|unavailable|unconfigured|blocked|starting|healthy|degraded|error` (design A.6);
@@ -315,7 +323,7 @@ Validation runs schema first, then `Validator`. Add the CLI subcommands `dash co
 - `GET /api/plugins` returns `{id, name, version, state, message, topics, actions, nav, configurable}`.
 - `Router` plugins mount GET routes under `/api/plugins/{id}/`.
 - `POST /api/plugins/{id}/actions/{name}` runs auth, then `MinRole`, then the existing CSRF check (`internal/api/middleware.go:18-29`), then the body cap and input schema validation, then `Act`, then audit.
-- Actions are mounted only when `actions.enabled` is true.
+- Actions are off by default per plugin (J.11), and are mounted only when that plugin's `actions.enabled` is true.
 - Typed-name confirmation is enforced server-side.
 
 **Acceptance criteria**
@@ -452,7 +460,7 @@ No aliases survive the phase.
 
 **Body:**
 
-- Wrap `internal/upstream/prom.go` as the `prometheus` plugin. Config: `url`, `timeout`, `auth.basic`/`auth.bearerToken` (secret), `headers`, `tls`.
+- Wrap `internal/upstream/prom.go` as the `prometheus` plugin, displayed "Prometheus-compatible" (it also covers VictoriaMetrics, J.10). Config: `url`, `timeout`, `auth.basic`/`auth.bearerToken` (secret), `headers`, `tls`.
 - Expose the `Querier` service.
 - `/api/series` dispatches to the `SeriesSpec`s registered by plugins; the existing names are registered by the legacy code until it migrates.
 - The legacy `DASH_VM_URL` maps here.
@@ -516,6 +524,7 @@ No aliases survive the phase.
 
 - Config: `url`, `auth`, `tls`, `fields` (defaults `kubernetes.pod_namespace`, `kubernetes.pod_name`, `kubernetes.container_name`; today hard-coded at `vlogs.go:60-67`), `limit`.
 - Service: `Logs`.
+- A standalone logs page is deferred to post-v1 (J.13); the kubernetes pod sheet stays the only entry point.
 
 **Acceptance criteria**
 - `vlogs_test.go` passes with the default mapping.
@@ -538,13 +547,14 @@ No aliases survive the phase.
 - `clients_test.go` Proxmox cases pass, with neutral fixtures (see P6.1).
 - A self-signed server works with `caFile`, and fails without it.
 - A stopped VM in `criticalVMs` is critical; any other stopped VM warns.
-- The legacy `DASH_PROXMOX_TOKEN` alias (if kept) is split correctly.
+- Fixtures cover Proxmox VE 8 and 9 API responses (J.18).
+- The legacy `DASH_PROXMOX_TOKEN` alias (kept for one release, J.5) is split correctly.
 
 **Dependencies:** P3.1, P3.2, P1.4.
 
 ### P3.7 feat(plugins): hardware plugin for host metrics and machines
 
-**Body:** move `internal/topics/host.go` metrics, the `Host*` queries (`internal/queries/queries.go:57-118`), the ZFS, SMART and temperature attention rules, and the machines (`vms.go:42-47,96-103`) into `hardware`.
+**Body:** move `internal/topics/host.go` metrics, the `Host*` queries (`internal/queries/queries.go:57-118`), the ZFS, SMART and temperature attention rules, and the machines (`vms.go:42-47,96-103`) into `hardware`, a plugin separate from `prometheus` and `proxmox` (J.10).
 
 - Config: `hosts[] {name, nodename, model, bays, fanMaxRPM, sensorAliases}`, `zfsScrubMetricPrefix`, `selectors`, `machines[] {name, nodeExporterNodename | gatusEndpoint}`, `tempThresholds`.
 - The Hardware page reads `bays` and `fanMaxRPM` instead of `BAY_COUNT` and `FAN_SCALE_MIN` (`web/src/pages/hardware.tsx:46-47`).
@@ -565,6 +575,7 @@ No aliases survive the phase.
 - Conventions default to empty.
 - `upstreamViaAPIServer` (opt-in) hosts today's dev transport (`internal/upstream/transport.go`).
 - Series: `node.*`, `pod.*`.
+- Backup freshness stays in this plugin. Backup freshness without a cluster is deferred to post-v1 (J.13).
 
 **Acceptance criteria**
 - dash starts and serves Proxmox pages with no kubeconfig.
@@ -584,9 +595,12 @@ No aliases survive the phase.
 
 with `apps {gateways, excludeNamespaces, annotationPrefix, ingress}`. With no `gateways`, all HTTPRoutes are accepted. Ingress support is optional, behind `ingress: true`.
 
+Icons: replace the hard-coded jsDelivr base (`feeds.go:77`, `web/src/config/links.ts:4`) with `ui.iconBaseURL`. Icons are bundled or self-hosted by default; the CDN is opt-in (J.17).
+
 **Acceptance criteria**
 - Table tests for gateway filtering, namespace exclusion, prefix change, and Ingress on and off.
 - The homelab config reproduces today's app list (verified by the owner).
+- With default settings the browser requests no icon from a third-party CDN.
 
 **Dependencies:** P3.8.
 
@@ -621,8 +635,8 @@ with `apps {gateways, excludeNamespaces, annotationPrefix, ingress}`. With no `g
 
 **Body:**
 
-- `cnpg` (requires kubernetes, uses prometheus): clusters plus backup age.
-- `rustfs` (requires prometheus): bucket usage and quota, plus cluster capacity.
+- `cnpg` (a separate plugin, J.10; requires kubernetes, uses prometheus): clusters plus backup age.
+- `rustfs` (a separate plugin, J.10; requires prometheus): bucket usage and quota, plus cluster capacity.
 - Remove `RustFS`, `CNPG`, `NASBackups` and `Etcd` from `model.StorageData` (`model.go:521-529`). The Storage page renders slots from kubernetes (PVCs, etcd, backup jobs), proxmox (storages), cnpg and rustfs.
 
 **Acceptance criteria**
@@ -665,7 +679,7 @@ with `apps {gateways, excludeNamespaces, annotationPrefix, ingress}`. With no `g
 
 ### P4.1 feat(auth): auth modes and proxy mode with trusted proxy CIDRs
 
-**Body:** replace `auth` (`internal/api/middleware.go:32-51`) with a mode switch. `proxy` mode takes `userHeaders` (default: today's two), `groupsHeader` and `trustedProxies` (default loopback). Headers from untrusted peers are ignored. Dev and demo behaviour are kept.
+**Body:** replace `auth` (`internal/api/middleware.go:32-51`) with a mode switch. `local` is the default (P4.3); `proxy` and `oidc` are options (J.6). `proxy` mode takes `userHeaders` (default: today's two), `groupsHeader` and `trustedProxies` (default loopback). Headers from untrusted peers are ignored. Dev and demo behaviour are kept.
 
 **Acceptance criteria**
 - A request with `X-Forwarded-User` from a non-trusted remote address gets 401.
@@ -676,7 +690,7 @@ with `apps {gateways, excludeNamespaces, annotationPrefix, ingress}`. With no `g
 
 ### P4.2 feat(auth): viewer and admin roles enforced on actions
 
-**Body:** `auth.User{Name, Role}`.
+**Body:** `auth.User{Name, Role}`. Only `viewer` and `admin` exist in v1 (J.12); there is no `operator` role.
 
 - Proxy role mapping: `adminUsers`/`adminGroups`. If both are empty, every authenticated user is admin, with a warning.
 - The action framework enforces `MinRole`. The SPA hides actions for viewers, using `/api/me`, which gains `role`.
@@ -690,13 +704,13 @@ with `apps {gateways, excludeNamespaces, annotationPrefix, ingress}`. With no `g
 
 ### P4.3 feat(auth): local admin with bootstrap token and sessions
 
-**Body:** local mode with an argon2id hash, stored in settings or supplied via `DASH_ADMIN_PASSWORD_HASH`.
+**Body:** local mode, the default auth mode (J.6), with an argon2id hash stored in settings or supplied via `DASH_ADMIN_PASSWORD_HASH`.
 
 - Bootstrap: a one-time setup token is logged once (1h, single use); `/setup?token=` sets the password.
 - `dash hash-password` prints a hash.
 - `/login` and `/auth/logout`.
 - AEAD session cookie keyed via HKDF from the secret key; 12h idle, 7d absolute; epoch-based "log out everywhere". Without `DASH_SECRET_KEY` the session key is random per process, so logins end on restart.
-- Optional `anonymousViewer`.
+- Opt-in `anonymousViewer`: a read-only viewer for wall displays, off by default.
 - The SPA's 401 handling becomes mode-aware (`web/src/api/client.ts:24-32`, `web/src/api/stream.ts:40-47`).
 
 **Acceptance criteria**
@@ -704,12 +718,13 @@ with `apps {gateways, excludeNamespaces, annotationPrefix, ingress}`. With no `g
 - A wrong password is rate-limited and audited.
 - A cookie is invalid after an epoch bump.
 - Login POSTs require a valid Origin.
+- `anonymousViewer` is off by default; when on, an unauthenticated request gets the viewer role only.
 
 **Dependencies:** P4.2, P1.5, P1.8.
 
 ### P4.4 feat(auth): built-in OIDC login
 
-**Body:** authorization code with PKCE, using `github.com/coreos/go-oidc/v3` and `golang.org/x/oauth2`.
+**Body:** OIDC is an option, not the default (J.6). Authorization code with PKCE, using `github.com/coreos/go-oidc/v3` and `golang.org/x/oauth2`.
 
 - Config: `issuer`, `clientID`, `clientSecret` (secret), `scopes`, `allowedUsers`/`allowedGroups`, `adminGroups`, `roleClaim`.
 - Sessions as in P4.3.
@@ -735,13 +750,14 @@ with `apps {gateways, excludeNamespaces, annotationPrefix, ingress}`. With no `g
 
 **Body:** on SPA and API responses (`internal/api/static.go`):
 
-- `Content-Security-Policy: default-src 'self'; script-src 'self'; connect-src 'self'; img-src 'self' data: <icon origin>; frame-ancestors 'none'`
+- `Content-Security-Policy: default-src 'self'; script-src 'self'; connect-src 'self'; img-src 'self' data:; frame-ancestors 'none'` (the icon CDN origin is added only when the opt-in CDN icon base is configured, J.17)
 - `X-Content-Type-Options: nosniff`
 - `Referrer-Policy: same-origin`
 
 **Acceptance criteria**
 - The built SPA loads with no CSP violations, checked in a browser smoke run.
 - An injected inline script is blocked.
+- With default settings, no third-party origin appears in the CSP.
 
 **Dependencies:** P2.7.
 
@@ -827,7 +843,7 @@ The general section shows read-only server and auth info, a banner when settings
 - [ ] P5.5 docs(deploy): plain Kubernetes manifests rendered from the chart
 - [ ] P5.6 docs(deploy): PaaS guide and read-only settings without a volume
 
-**External dependency (private repo, not filed here):** the homelab migrates to the chart, or adds a ConfigMap and `DASH_AUTH_MODE=proxy`, and pulls from GHCR.
+**External dependency (private repo, not filed here):** the homelab migrates to the chart, or adds a ConfigMap and `DASH_AUTH_MODE=proxy`, and pulls from GHCR directly (optionally through a Zot pull-through cache). It can opt into `settings.ui: readonly`.
 
 **Acceptance criteria:** all leaves closed. The examples in the docs are exercised in CI.
 
@@ -881,21 +897,22 @@ The general section shows read-only server and auth info, a banner when settings
 - the config file as a ConfigMap, `secretEnv`;
 - required `secretKey.existingSecret` (no default; `helm template` fails without it);
 - render fails if any `x-dash-secret` field in `.Values.config` is a literal instead of an `env:`/`file:`/`k8s:` ref (secrets come from `existingSecret`, `secretEnv` or refs);
+- settings editable by default (`settings.ui: editable`, J.4), with `readonly` as the opt-in for GitOps;
 - persistence (PVC, or emptyDir with read-only settings), with `persistence.accessModes` offering `[ReadWriteOncePod]` (where the CSI driver supports it) besides the default `[ReadWriteOnce]`;
 - RBAC `read`, `actions.restart`, `actions.fluxReconcile` and `secretRefs` (`resourceNames`);
 - an optional oauth2-proxy sidecar;
 - optional Ingress or HTTPRoute;
 - an optional generic ValidatingAdmissionPolicy fencing the ServiceAccount to the enabled actions, written fresh;
 - `strategy: Recreate` always;
-- a replica guard: render fails if `replicaCount > 1` unless `settings.ui: readonly` and `persistence.enabled: false`.
+- a replica guard: render fails if `replicaCount > 1` unless `settings.ui: readonly` and `persistence.enabled: false`, so multi-replica requires opting into readonly settings.
 
-Publish the chart as OCI to GHCR from the release workflow (P6.7).
+The chart lives in this repo (J.7). Publish it as OCI to GHCR from the release workflow (P6.7).
 
 **Acceptance criteria**
-- `helm lint` and `helm template` succeed for the read-only, actions and sidecar value sets.
+- `helm lint` and `helm template` succeed for the default (editable), readonly, actions and sidecar value sets.
 - A kind-based CI job installs the chart and reaches ready.
 - With actions off, the RBAC has no `patch` verbs.
-- `helm template` fails without `secretKey.existingSecret`, with a literal secret in `config`, and with `replicaCount: 2` while settings are editable or persistence is on.
+- `helm template` fails without `secretKey.existingSecret`, with a literal secret in `config`, and with `replicaCount: 2` while settings are editable or persistence is on; it succeeds with `replicaCount: 2`, `settings.ui: readonly` and `persistence.enabled: false`.
 - The rendered Deployment uses `Recreate`.
 
 **Dependencies:** P3.8, P3.10, P5.2.
@@ -978,7 +995,7 @@ Use `example.com`, `192.0.2.0/24`, neutral node, VM and tenant names, a zero-fil
 
 **Body:**
 
-- A new README: generic intro, feature list per plugin, quick start (docker run, compose, Helm), screenshots from demo mode, and links to docs.
+- A new README: generic intro, feature list per plugin, quick start (docker run, compose, Helm), screenshots from demo mode, and links to docs. It keeps the `dash` name and the "Homelab mission control" tagline (J.14).
 - Remove the homelab-specific text (`README.md:23-28,51-53,150-151,166-174`).
 - `docs/configuration.md` and `docs/plugins/<id>.md` generated from the schemas, plus `docs/auth.md` and `docs/security.md`.
 
@@ -1001,13 +1018,13 @@ Use `example.com`, `192.0.2.0/24`, neutral node, VM and tenant names, a zero-fil
 **Acceptance criteria**
 - The files exist, and GitHub's community profile shows them as complete.
 
-**Dependencies:** P0.2 (licence and conduct choices).
+**Dependencies:** P0.2 (licence decision).
 
 ### P6.5 chore: add LICENSE and third-party notices
 
 **Body:**
 
-- Add `LICENSE` per the P0.2 decision.
+- Add an MIT `LICENSE` with the copyright line "Matthew DeGarmo (TechDufus)" (J.1).
 - Generate `THIRD_PARTY_NOTICES` from `go-licenses report` and an npm licence report.
 - Attribute dashboard-icons (Apache-2.0) and the vendored shadcn/ui and Magic UI components.
 - A CI check fails on disallowed licences.
@@ -1016,6 +1033,7 @@ Use `example.com`, `192.0.2.0/24`, neutral node, VM and tenant names, a zero-fil
 - The notices are generated reproducibly.
 - The CI licence check passes.
 - The Magic UI licence is confirmed at its source.
+- `LICENSE` is MIT and names "Matthew DeGarmo (TechDufus)".
 
 **Dependencies:** P0.2.
 
@@ -1028,17 +1046,19 @@ Use `example.com`, `192.0.2.0/24`, neutral node, VM and tenant names, a zero-fil
 - Add a `scan` job: gitleaks and trufflehog over full history, govulncheck, and actionlint/zizmor failing on `pull_request_target`, `workflow_run`, `issue_comment` and unpinned actions.
 - Add Dependabot for `github-actions`, `gomod`, `npm` and `docker`.
 - Keep the existing private release job until P6.7.
+- Add a compatibility matrix (J.18): the last 3 Kubernetes minors on kind with current Flux v2 and Gateway API v1 CRDs installed; Proxmox VE 8 and 9 covered by API fixtures for each major version.
 
 **Acceptance criteria**
 - No workflow references self-hosted labels.
 - The scans pass on the current history.
 - A PR from a branch runs `check` and `scan` on GitHub-hosted runners.
+- The matrix jobs run on PRs and pass.
 
 **Dependencies:** none.
 
 ### P6.7 ci(release): publish multi-arch images and the chart to GHCR with attestations
 
-**Body:** a release job on tags `vX.Y.Z` (design H.2):
+**Body:** a release job on tags `vX.Y.Z` (design H.2). Releases are semver and stay 0.x until the plugin API is stable (J.19):
 
 - tag validation and a create-only check;
 - `docker/metadata-action` tags `X.Y.Z`, `X.Y`, `X` (not for 0.x) and `latest`;
@@ -1048,14 +1068,14 @@ Use `example.com`, `192.0.2.0/24`, neutral node, VM and tenant names, a zero-fil
 - `helm push` of the chart to `oci://ghcr.io/techdufus/charts`;
 - the digest in the job summary.
 
-Remove the Zot push (`ci.yml:31`). README release steps are updated.
+Remove the Zot push (`ci.yml:31`). README release steps are updated. There is no `:demo` image tag: demo mode stays opt-in via `DASH_DEMO` or a config flag (J.15), and a public demo instance comes post-v1.
 
 **Acceptance criteria**
 - A pre-release tag on a fork or test repo publishes both architectures.
 - `gh attestation verify oci://ghcr.io/techdufus/dash:<v> --owner TechDufus` succeeds.
 - Re-pushing an existing version fails.
 
-**Dependencies:** P6.6, P5.1, P5.4. **External:** the homelab switches its image to GHCR (design H.3 option a), or a private mirror job in the homelab repo.
+**Dependencies:** P6.6, P5.1, P5.4. **External:** the homelab pulls its image from GHCR directly, optionally through a Zot pull-through cache (J.9).
 
 ### P6.8 docs: automate screenshots from demo mode
 
@@ -1086,7 +1106,7 @@ Remove the Zot push (`ci.yml:31`). README release steps are updated.
 
 **Body:**
 
-- Apply the P0.2 history decision: keep, or a fresh squash into a new repo or orphan branch. Do not use `filter-repo`.
+- Apply the P0.2 history decision (J.8): keep the history, no squash. Right before going public, scrub the homelab identifiers with `git filter-repo`. This is a separate step: it is a history rewrite and force-push, and runs only after TechDufus gives an explicit go-ahead at that time.
 - Run gitleaks and trufflehog over all refs one last time.
 - Confirm the denylist test is green.
 - Make GHCR packages public.
@@ -1097,5 +1117,6 @@ Remove the Zot push (`ci.yml:31`). README release steps are updated.
 - The repo and packages are public.
 - `docker pull ghcr.io/techdufus/dash:<v>` works anonymously.
 - The first public release notes are published.
+- The scrub ran only after that explicit go-ahead, which is recorded in the issue.
 
 **Dependencies:** everything else in this epic.
