@@ -102,7 +102,7 @@ const (
 
 Every response carries an `X-Request-Id` header: 128-bit random hex. An inbound value is honoured only when the request comes from a trusted proxy (E.2). The ID appears in logs and in audit records (C.7).
 
-`locked_field` errors (B.2) use the same envelope, with `details: {"path", "source", "ref"}` where `source` is `file`, `env` or `ui-ineligible` and `ref` names the env variable or file that locks the field (absent for `ui-ineligible`). `audit_unavailable` is the 503 returned when the audit intent record cannot be written and the action therefore did not run (C.7).
+`locked_field` errors (B.2) use the same envelope, with `details: {"path", "source", "ref"}` where `source` is `file`, `env` or `ui-ineligible` and `ref` names the env variable or file that locks the field (absent for `ui-ineligible`). `audit_unavailable` is the 503 returned when the audit intent record for a write (an action, a settings change, a secret Replace or Clear, a PAT, grant or consent change, an approval decision) cannot be written; nothing changed (C.7).
 
 ### L.3 OpenAPI
 
@@ -136,8 +136,9 @@ Every object in a plugin payload carries a `ref`, so a client can name an object
 
 No `Access-Control-*` headers are sent by default. `server.corsOrigins` is an explicit list (never `*`) and applies to bearer clients only:
 
-- An `OPTIONS` preflight from a listed origin gets `Access-Control-Allow-Origin: <that origin>`, `Access-Control-Allow-Methods: GET, POST, DELETE`, `Access-Control-Allow-Headers: authorization, content-type`, `Access-Control-Max-Age: 600` and `Vary: Origin`. A preflight carries no credentials, so it is answered on the origin alone; it grants nothing by itself.
-- Other responses carry `Access-Control-Allow-Origin` only on bearer requests from a listed origin, with `Vary: Origin`.
+- An `OPTIONS` preflight from a listed origin gets `Access-Control-Allow-Origin: <that origin>`, `Access-Control-Allow-Methods: GET, POST, DELETE`, `Access-Control-Allow-Headers: authorization, content-type, if-none-match, mcp-protocol-version, mcp-method, mcp-name`, `Access-Control-Max-Age: 600` and `Vary: Origin`. A preflight carries no credentials, so it is answered on the origin alone; it grants nothing by itself. The three `mcp-*` headers are the ones MCP 2026-07-28 Streamable HTTP requires (`MCP-Protocol-Version`, and `Mcp-Method` and `Mcp-Name` for `tools/call`, `resources/read` and `prompts/get`; [transport spec](https://modelcontextprotocol.io/specification/2026-07-28/basic/transports/streamable-http.md)). dash's tool schemas declare no `x-mcp-header` parameters, so no `Mcp-Param-*` headers are needed.
+- Other responses carry `Access-Control-Allow-Origin` only on bearer requests from a listed origin, with `Vary: Origin`, and `Access-Control-Expose-Headers: ETag, X-Request-Id, WWW-Authenticate`.
+- Listed origins also get `Access-Control-Allow-Origin` on 401 responses and on `/.well-known/oauth-*`, `/oauth/token` and `/oauth/revoke`, so browser-based MCP clients can discover and refresh. Never on `/oauth/authorize`, which is a browser navigation.
 - `Access-Control-Allow-Credentials` is never sent.
 - Interactive and anonymous requests stay same-origin.
 
@@ -213,8 +214,8 @@ Each token is bound to one audience: `api` (`<publicURL>/api`) or `mcp` (`<publi
 - Expiry is required: default 30 days, maximum 365 days.
 - Allowed scopes: `read`, `logs` and `actions:<id>` (admin only). An optional `actionNamespaces` list holds exact names or `prefix*` globs and restricts which Kubernetes namespaces the token's actions may touch. `approvals` and `push` can never be put on a PAT.
 - `lastUsedAt` is kept in memory and flushed at least every 5 minutes.
-- Revocation is immediate.
-- Role: a PAT records the creator's groups and role-claim value at creation (local users have none). The role is derived on every request from the current mapping (`adminUsers`, `adminGroups`, `roleClaim`, E.4) applied to those values, and the token's scopes then narrow it.
+- Revocation is immediate. Admins can list and revoke any user's PATs.
+- Role: a PAT records the creator's groups and role-claim value (local users have none). The role is derived on every request from the current mapping (`adminUsers`, `adminGroups`, `roleClaim`, E.4) applied to those values, and the token's scopes then narrow it. Whenever dash sees the user interactively, it rewrites the recorded groups and role-claim value if they changed (M.8), so a group change takes effect at the user's next interactive request. Offboarding: removing a user at the identity provider or proxy does not reach a PAT they no longer use interactively; revoke the user's PATs (and grants, M.6) in dash.
 - Static tokens for GitOps installs: `auth.tokens: [{name, role: viewer|admin, audience, scopes, hash: "sha256:<hex>"}]`, from file or env (`DASH_AUTH_TOKENS`). `dash token generate` prints a token and its hash; only the hash goes into config. The principal's user is `token:<name>`. Scopes are limited as for PATs. A static token with `audience: mcp` cannot hold `actions:*` (a config validation error): approvals are decided by the owning user (O.3) and a static token has none. Use a PAT or an OAuth grant for agents that run actions.
 - Rate limit: 300 requests per minute per `api` token. MCP limits are in N.6.
 
@@ -256,7 +257,7 @@ dash is its own OAuth 2.1 authorization server in local, oidc and proxy modes, s
 - Access tokens: `dash_at_<base64url>`, sealed with XChaCha20-Poly1305 under HKDF(`DASH_SECRET_KEY`, `dash/oauth-access/v1`), or under a per-process random key when there is no secret key. TTL 15 minutes. Validation re-checks that the grant is not revoked and re-derives the role as for PATs (M.5): from the groups and role-claim value recorded on the grant when it was created, against the current mapping.
 - Refresh tokens: `dash_rt_<grantID>_<secret>`, stored hashed and rotated on every use. Reuse of a rotated token revokes the grant. Idle expiry 30 days, absolute expiry 180 days.
 
-Settings → Connected apps lists the grants (client, scopes, last used) with a revoke button.
+Settings → Connected apps lists the grants (client, scopes, last used) with a revoke button. Admins can list and revoke any user's grants. Grants follow the identity provider as PATs do (M.8): the recorded groups and role-claim value are refreshed at the user's next interactive request. Offboarding: removing a user at the identity provider or proxy does not reach grants they no longer use interactively; revoke the user's grants (and PATs, M.5) in dash. "Log out everywhere" (M.8) revokes the user's grants.
 
 ### M.7 Credential state
 
@@ -276,7 +277,9 @@ Amends E.3:
 
 - The cookie is `__Host-dash_session` when publicURL is https.
 - The payload carries the user, the groups and role-claim value captured at login (OIDC; local users have none), the expiry and the per-user epoch. It does not carry the role. On every request the role is derived from the current mapping (`adminUsers`, `adminGroups`, `roleClaim`) applied to those values (in proxy mode, from the request's headers). A mapping change therefore applies on the next request, not after 12 hours; a group or claim change at the identity provider applies at the next login.
-- Each user has an epoch, bumped by "log out everywhere" and by a password change. The global epoch remains.
+- Each user has an epoch, bumped by "log out everywhere" and by a password change. The global epoch remains. "Log out everywhere" also revokes the user's OAuth grants (M.6); PATs are revoked separately in Settings → Tokens.
+- Tokens follow the identity provider. Whenever dash sees a user interactively (a login in `local` or `oidc` mode; any request in `proxy` mode), it rewrites the groups and role-claim value recorded on that user's PATs and OAuth grants, only when they changed (no write otherwise). A group change therefore reaches a user's tokens at their next interactive request.
+- Offboarding: removing a user at the identity provider or proxy does not reach tokens they no longer use interactively. An admin revokes that user's dash PATs and grants (M.5, M.6).
 
 ### M.9 Login hardening
 
@@ -519,7 +522,7 @@ The epic grows from 58 to 71 leaves and from 7 to 8 groups. The detailed Body, A
 | P7.9 (new) | `feat(plugins)`: optional assistant plugin (later; off by default; not part of the G7 acceptance) | Q.2 |
 | P1.4 | Error categories for viewers; pattern and encoding redaction (scrubber prefixes exclude `dash_setup_`; the logs API redacts it); canary tests for upstream URLs and `dash_pat_` | C.6, K.3, K.24 |
 | P1.5 | After Clear or Replace, no `.bak.N` file contains the old ciphertext | B.7, K.24 |
-| P1.8 | Audit actor fields, denials, hash chain, `dash audit verify` (reports intents without outcomes); intent record before and outcome record after each action; unwritable audit file → 503 `audit_unavailable` | C.7, K.21 |
+| P1.8 | Audit actor fields, denials, hash chain, `dash audit verify` (reports intents without outcomes); intent record before and outcome record after every audited write (actions, settings, secret Replace/Clear, token, grant and consent changes, approval decisions); a JSONL write error on a writable data dir → 503 `audit_unavailable` with nothing changed; auth events (logins, logouts, denials) are best effort | C.7, K.21 |
 | P2.3 | `/api/v1/plugins…`, new `ActionSpec` fields, the A.8 chain (CSRF on every non-bearer request; audit intent before `Act`), `APIError.Code`; the 11th action in a minute gets 429 | A.8, K.6 |
 | P2.4 | `GET /api/v1/topics/{topic}` with ETag/304, `topics=` filter, user-scoped hub topics | L.5 |
 | P2.6 | Verbose readiness only to loopback peers | A.6, K.15 |
