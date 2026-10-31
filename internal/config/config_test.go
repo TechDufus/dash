@@ -66,6 +66,11 @@ func TestValidate(t *testing.T) {
 				"DASH_PROXMOX_URL": "https://pve:8006", "DASH_PROXMOX_NODE": "pve"}, ""},
 		{"bad metric prefix",
 			map[string]string{"DASH_DEV": "true", "DASH_ZFS_SCRUB_METRIC_PREFIX": "a-b"}, "not a metric name"},
+		{"allowed hosts: name, ip and wildcard",
+			map[string]string{"DASH_PUBLIC_URL": "https://d", "DASH_ALLOWED_HOSTS": " Dash.Example.com, 192.0.2.10 ,,*"}, ""},
+		{"allowed hosts: scheme", map[string]string{"DASH_PUBLIC_URL": "https://d", "DASH_ALLOWED_HOSTS": "https://x"}, "DASH_ALLOWED_HOSTS"},
+		{"allowed hosts: port", map[string]string{"DASH_PUBLIC_URL": "https://d", "DASH_ALLOWED_HOSTS": "x:80"}, "DASH_ALLOWED_HOSTS"},
+		{"allowed hosts: path", map[string]string{"DASH_PUBLIC_URL": "https://d", "DASH_ALLOWED_HOSTS": "a/b"}, "DASH_ALLOWED_HOSTS"},
 	}
 	for _, tc := range tests {
 		err := Load(env(tc.env)).Validate()
@@ -75,6 +80,43 @@ func TestValidate(t *testing.T) {
 		case tc.want != "" && (err == nil || !strings.Contains(err.Error(), tc.want)):
 			t.Errorf("%s: error %v, want it to mention %q", tc.name, err, tc.want)
 		}
+	}
+}
+
+func TestHostAllowed(t *testing.T) {
+	prod := Config{PublicURL: "https://dash.example.com:8443"}
+	dev := Config{PublicURL: "http://localhost:5173", Dev: true}
+	demo := Config{Demo: true}
+	tests := []struct {
+		name string
+		c    Config
+		host string
+		want bool
+	}{
+		{"public host", prod, "dash.example.com", true},
+		{"public host with port and case", prod, "DASH.example.com:443", true},
+		{"public host with a trailing dot", prod, "dash.example.com.", true},
+		{"other host", prod, "evil.example", false},
+		{"loopback ip in prod", prod, "127.0.0.1:8080", false},
+		{"localhost in prod", prod, "localhost", false},
+		{"empty host", prod, "", false},
+		{"dev localhost with port", dev, "localhost:5173", true},
+		{"dev ipv6 loopback", dev, "[::1]:8080", true},
+		{"dev other host", dev, "evil.example", false},
+		{"demo loopback", demo, "127.0.0.1:8080", true},
+		{"listed ip", Config{PublicURL: prod.PublicURL, AllowedHosts: []string{"192.0.2.10"}}, "192.0.2.10:8080", true},
+		{"unlisted ip", Config{PublicURL: prod.PublicURL, AllowedHosts: []string{"192.0.2.10"}}, "192.0.2.11:8080", false},
+		{"wildcard", Config{PublicURL: prod.PublicURL, AllowedHosts: []string{"*"}}, "anything.example", true},
+	}
+	for _, tc := range tests {
+		if got := tc.c.HostAllowed(tc.host); got != tc.want {
+			t.Errorf("%s: HostAllowed(%q) = %v, want %v", tc.name, tc.host, got, tc.want)
+		}
+	}
+
+	c := Load(env(map[string]string{"DASH_ALLOWED_HOSTS": " Media.Example.com, ,192.0.2.10"}))
+	if got := strings.Join(c.AllowedHosts, "|"); got != "media.example.com|192.0.2.10" {
+		t.Errorf("AllowedHosts = %q", got)
 	}
 }
 

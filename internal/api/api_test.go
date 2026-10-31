@@ -2,6 +2,7 @@ package api
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"encoding/json"
 	"net/http"
@@ -20,6 +21,9 @@ import (
 )
 
 const testOrigin = "https://dash.example.com"
+
+// testHost is the Host header requests carry unless a test sets another.
+const testHost = "dash.example.com"
 
 var fixedNow = time.Date(2026, 10, 30, 12, 0, 0, 123456789, time.UTC)
 
@@ -124,6 +128,7 @@ func newServer(mod func(*Deps)) *Server {
 // req is one test request; Origin/CSRF headers are added for writes unless raw.
 type req struct {
 	method, path string
+	host         string // Host header; defaults to testHost
 	body         any
 	header       map[string]string
 	raw          bool // do not add CSRF headers
@@ -144,6 +149,7 @@ func (r req) do(h http.Handler) *httptest.ResponseRecorder {
 		rd = bytes.NewReader(j)
 	}
 	hr := httptest.NewRequest(r.method, r.path, rd)
+	hr.Host = cmp.Or(r.host, testHost)
 	hr.Header.Set("X-Forwarded-Preferred-Username", "alice")
 	if !r.raw && r.method != http.MethodGet {
 		hr.Header.Set("X-Dash-Csrf", "1")

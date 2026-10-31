@@ -2,8 +2,10 @@ package api
 
 import (
 	"context"
+	"log/slog"
 	"net/http"
 	"strings"
+	"time"
 )
 
 type userKey struct{}
@@ -12,6 +14,30 @@ type userKey struct{}
 func userFrom(ctx context.Context) string {
 	u, _ := ctx.Value(userKey{}).(string)
 	return u
+}
+
+// hostWarnEvery spaces the log lines about requests for unknown hosts.
+const hostWarnEvery = 10 * time.Second
+
+// hosts answers 421 to requests addressed to a Host name dash is not configured for, which
+// stops DNS-rebinding: a hostile page whose name resolves to dash's address cannot read
+// responses from it.
+func (s *Server) hosts(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !s.d.Cfg.HostAllowed(r.Host) {
+			now, last := s.now().UnixNano(), s.hostWarn.Load()
+			if now-last >= int64(hostWarnEvery) && s.hostWarn.CompareAndSwap(last, now) {
+				host := r.Host
+				if len(host) > 100 {
+					host = host[:100]
+				}
+				slog.Warn("rejected request for unknown host", "host", host)
+			}
+			writeErr(w, http.StatusMisdirectedRequest, "unknown host; set DASH_PUBLIC_URL or DASH_ALLOWED_HOSTS")
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
 }
 
 // csrf requires the custom header and the public Origin on every state-changing request.

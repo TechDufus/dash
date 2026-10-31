@@ -99,6 +99,7 @@ drops those links.
 |---|---|---|
 | `DASH_PUBLIC_URL` | required (dev: `http://localhost:5173`) | the URL people open; the only `Origin` accepted on writes |
 | `DASH_LISTEN` | `127.0.0.1:8080` | API and SPA, reached through oauth2-proxy |
+| `DASH_ALLOWED_HOSTS` | empty | extra Host names the API answers besides the `DASH_PUBLIC_URL` host (comma-separated; `*` accepts any) |
 | `DASH_HEALTH_LISTEN` | `0.0.0.0:8081` | `/healthz` and `/readyz` |
 | `DASH_VM_URL` | `http://vmsingle-vm.monitoring.svc:8428` | VictoriaMetrics |
 | `DASH_ALERTMANAGER_URL` | `http://vmalertmanager-vm.monitoring.svc:9093` | Alertmanager |

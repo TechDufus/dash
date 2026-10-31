@@ -3,6 +3,7 @@ package api
 import (
 	"encoding/json"
 	"net/http"
+	"strings"
 	"testing"
 
 	"github.com/TechDufus/dash/internal/config"
@@ -99,4 +100,29 @@ func TestUserResolution(t *testing.T) {
 			t.Errorf("code = %d body = %q", w.Code, w.Body)
 		}
 	})
+}
+
+func TestHostCheck(t *testing.T) {
+	s := newServer(nil)
+	h := s.Handler()
+
+	w := req{path: "/api/me", host: "evil.example"}.do(h)
+	if w.Code != http.StatusMisdirectedRequest {
+		t.Errorf("unknown host: code = %d, want 421", w.Code)
+	}
+	if msg := decodeErr(t, w); !strings.Contains(msg, "DASH_ALLOWED_HOSTS") {
+		t.Errorf("unknown host: error = %q", msg)
+	}
+
+	if w := (req{path: "/api/me"}).do(h); w.Code != http.StatusOK {
+		t.Errorf("default host: code = %d, want 200", w.Code)
+	}
+	if w := (req{path: "/api/me", host: "DASH.example.com:443"}).do(h); w.Code != http.StatusOK {
+		t.Errorf("public host with port and case: code = %d, want 200", w.Code)
+	}
+
+	// The health listener is probed by IP, so it never checks Host.
+	if w := (req{path: "/healthz", host: "192.0.2.10:8081"}).do(s.HealthHandler()); w.Code != http.StatusOK {
+		t.Errorf("health handler with an unlisted host: code = %d, want 200", w.Code)
+	}
 }

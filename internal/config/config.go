@@ -17,6 +17,7 @@ import (
 	"net/url"
 	"os"
 	"regexp"
+	"slices"
 	"strings"
 
 	"sigs.k8s.io/yaml"
@@ -36,6 +37,9 @@ type Config struct {
 	Listen       string
 	HealthListen string // /healthz and /readyz only.
 	PublicURL    string
+	// AllowedHosts are extra Host names the API answers besides PublicURL's host
+	// (DASH_ALLOWED_HOSTS); "*" accepts any. See HostAllowed.
+	AllowedHosts []string
 
 	VMURL           string
 	AlertmanagerURL string
@@ -107,6 +111,7 @@ func Load(getenv func(string) string) Config {
 		Listen:          str("DASH_LISTEN", "127.0.0.1:8080"),
 		HealthListen:    str("DASH_HEALTH_LISTEN", healthDef),
 		PublicURL:       strings.TrimRight(str("DASH_PUBLIC_URL", publicDef), "/"),
+		AllowedHosts:    splitHosts(getenv("DASH_ALLOWED_HOSTS")),
 		VMURL:           strings.TrimRight(str("DASH_VM_URL", "http://vmsingle-vm.monitoring.svc:8428"), "/"),
 		AlertmanagerURL: strings.TrimRight(str("DASH_ALERTMANAGER_URL", "http://vmalertmanager-vm.monitoring.svc:9093"), "/"),
 		VLogsURL:        strings.TrimRight(str("DASH_VLOGS_URL", "http://vl-server.monitoring.svc:9428"), "/"),
@@ -166,7 +171,44 @@ func (c Config) Validate() error {
 	if !metricNameRE.MatchString(c.Conventions.ZFSScrubMetricPrefix) {
 		errs = append(errs, fmt.Errorf("DASH_ZFS_SCRUB_METRIC_PREFIX %q is not a metric name", c.Conventions.ZFSScrubMetricPrefix))
 	}
+	for _, h := range c.AllowedHosts {
+		if h != "*" && net.ParseIP(h) == nil && !hostNameRE.MatchString(h) {
+			errs = append(errs, fmt.Errorf("DASH_ALLOWED_HOSTS entry %q is not a host name or IP address (no scheme or port)", h))
+		}
+	}
 	return errors.Join(errs...)
+}
+
+// hostNameRE matches a DNS host name: dot-separated labels of lowercase letters, digits and hyphens.
+var hostNameRE = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*$`)
+
+// splitHosts splits a comma-separated list, trimming and lowercasing entries and dropping empty ones.
+func splitHosts(s string) []string {
+	var out []string
+	for _, h := range strings.Split(s, ",") {
+		if h = strings.ToLower(strings.TrimSpace(h)); h != "" {
+			out = append(out, h)
+		}
+	}
+	return out
+}
+
+// HostAllowed reports whether the API answers requests addressed to host (a Host header value,
+// with or without a port). Ports are ignored: a DNS-rebinding attacker controls the host name,
+// not the port. Allowed are PublicURL's host, every AllowedHosts entry ("*" allows any host)
+// and, in dev and demo mode, localhost, 127.0.0.1 and ::1.
+func (c Config) HostAllowed(host string) bool {
+	if h, _, err := net.SplitHostPort(host); err == nil {
+		host = h
+	}
+	host = strings.TrimSuffix(strings.ToLower(strings.Trim(host, "[]")), ".")
+	if slices.Contains(c.AllowedHosts, "*") || slices.Contains(c.AllowedHosts, host) {
+		return true
+	}
+	if u, err := url.Parse(c.PublicURL); err == nil && host != "" && strings.ToLower(u.Hostname()) == host {
+		return true
+	}
+	return (c.Dev || c.Demo) && (host == "localhost" || host == "127.0.0.1" || host == "::1")
 }
 
 // loopbackAddr reports whether a host:port listen address binds only the loopback interface.

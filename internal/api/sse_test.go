@@ -20,6 +20,7 @@ func sseClient(t *testing.T, h http.Handler, path string) (*http.Response, <-cha
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(func() { cancel(); ts.Close() })
 	r, _ := http.NewRequestWithContext(ctx, http.MethodGet, ts.URL+path, nil)
+	r.Host = testHost
 	r.Header.Set("X-Forwarded-Preferred-Username", "alice")
 	resp, err := http.DefaultClient.Do(r)
 	if err != nil {
@@ -145,6 +146,7 @@ func streamStatus(t *testing.T, h http.Handler, path, user string) int {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 	r, _ := http.NewRequestWithContext(ctx, http.MethodGet, ts.URL+path, nil)
+	r.Host = testHost
 	r.Header.Set("X-Forwarded-Preferred-Username", user)
 	resp, err := http.DefaultClient.Do(r)
 	if err != nil {

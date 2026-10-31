@@ -7,6 +7,7 @@ import (
 	"errors"
 	"io/fs"
 	"net/http"
+	"sync/atomic"
 	"time"
 
 	"k8s.io/client-go/dynamic"
@@ -66,6 +67,7 @@ type Server struct {
 	events    *streamLimiter // open /api/stream connections
 	tails     *streamLimiter // open /api/logs/tail connections
 	tailMax   time.Duration  // longest a log tail stays open
+	hostWarn  atomic.Int64   // unix nanos of the last unknown-host warning
 }
 
 // New builds a Server serving the embedded SPA.
@@ -101,7 +103,7 @@ func (s *Server) Handler() http.Handler {
 		writeErr(w, http.StatusNotFound, "not found")
 	})
 	mux.HandleFunc("/", s.serveStatic)
-	return s.csrf(s.auth(mux))
+	return s.hosts(s.csrf(s.auth(mux)))
 }
 
 // HealthHandler serves only /healthz and /readyz, for the unauthenticated health listener.
