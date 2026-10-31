@@ -30,6 +30,17 @@ func TestHostNodenameFollowsProxmoxNode(t *testing.T) {
 	}
 }
 
+// A demo server may bind every interface; it never signs requests in as "dev".
+func TestDemoDoesNotImplyDev(t *testing.T) {
+	c := Load(env(map[string]string{"DASH_DEMO": "true"}))
+	if !c.Demo || c.Dev {
+		t.Errorf("Demo = %v, Dev = %v; want demo without dev", c.Demo, c.Dev)
+	}
+	if c.PublicURL != "http://localhost:5173" || c.HealthListen != "127.0.0.1:8081" {
+		t.Errorf("demo defaults: PublicURL = %q, HealthListen = %q", c.PublicURL, c.HealthListen)
+	}
+}
+
 func TestValidate(t *testing.T) {
 	tests := []struct {
 		name string
@@ -39,6 +50,11 @@ func TestValidate(t *testing.T) {
 		{"prod needs public url", nil, "DASH_PUBLIC_URL"},
 		{"dev does not", map[string]string{"DASH_DEV": "true"}, ""},
 		{"demo does not", map[string]string{"DASH_DEMO": "true"}, ""},
+		{"dev on all interfaces", map[string]string{"DASH_DEV": "true", "DASH_LISTEN": "0.0.0.0:8080"}, "DASH_LISTEN"},
+		{"dev with an empty host", map[string]string{"DASH_DEV": "true", "DASH_LISTEN": ":8080"}, "DASH_LISTEN"},
+		{"dev on ipv6 loopback", map[string]string{"DASH_DEV": "true", "DASH_LISTEN": "[::1]:8080"}, ""},
+		{"dev on localhost", map[string]string{"DASH_DEV": "true", "DASH_LISTEN": "localhost:8080"}, ""},
+		{"demo may bind every interface", map[string]string{"DASH_DEMO": "true", "DASH_LISTEN": "0.0.0.0:8080"}, ""},
 		{"minimal prod", map[string]string{"DASH_PUBLIC_URL": "https://dash.example.com"}, ""},
 		{"token needs proxmox url",
 			map[string]string{"DASH_PUBLIC_URL": "https://d", "DASH_PROXMOX_TOKEN": "u!t=s"}, "DASH_PROXMOX_URL"},

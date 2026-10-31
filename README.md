@@ -158,6 +158,9 @@ make dev-api   # Go API on 127.0.0.1:8080 (DASH_DEV=true)
 make dev-web   # Vite on http://localhost:5173, proxying /api to the Go API
 ```
 
+`DASH_DEV=true` signs every request in as `dev` without authentication, so dash refuses to
+start unless `DASH_LISTEN` is a loopback address (`127.0.0.1:8080`, `[::1]:8080`, `localhost:8080`).
+
 Open http://localhost:5173. `make check` runs everything CI runs: the generated types must be
 current, `go vet`, `go test`, `tsc`, Biome and the production build.
 

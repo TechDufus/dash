@@ -1,6 +1,8 @@
-// Package config reads dash's environment. Defaults are the in-cluster values; DASH_DEV=true
-// switches the dev defaults (health listener on loopback, public URL of the Vite dev server).
-// DASH_DEMO=true serves built-in fake data instead of a cluster and implies DASH_DEV.
+// Package config reads dash's environment. Defaults are the in-cluster values. DASH_DEV=true
+// signs every request in as "dev" without authentication, so it only runs on a loopback
+// DASH_LISTEN, and switches the dev defaults (health listener on loopback, public URL of the
+// Vite dev server). DASH_DEMO=true serves built-in fake data instead of a cluster with the
+// same defaults but never signs in as "dev" (internal/demo injects the "demo" user).
 //
 // Nothing site-specific has a default: DASH_PUBLIC_URL is required outside dev, Proxmox needs
 // DASH_PROXMOX_URL once a token is set (DASH_PROXMOX_NODE is optional: with one node in the
@@ -11,6 +13,7 @@ package config
 import (
 	"errors"
 	"fmt"
+	"net"
 	"net/url"
 	"os"
 	"regexp"
@@ -23,10 +26,14 @@ import (
 
 // Config is the whole runtime configuration.
 type Config struct {
+	// Dev signs every request in as "dev" without authentication, so Validate requires a
+	// loopback Listen. Demo has the same defaults but never the "dev" user.
 	Dev  bool
 	Demo bool // fake data from internal/demo; no cluster or upstreams are contacted
 
-	Listen       string // API + SPA listener; loopback only, reached through oauth2-proxy.
+	// Listen is the API + SPA listener, reached through oauth2-proxy. It defaults to loopback;
+	// with Dev it must be a loopback address.
+	Listen       string
 	HealthListen string // /healthz and /readyz only.
 	PublicURL    string
 
@@ -82,7 +89,7 @@ type Conventions struct {
 // Load reads the environment through getenv (os.Getenv in production).
 func Load(getenv func(string) string) Config {
 	demo := strings.EqualFold(strings.TrimSpace(getenv("DASH_DEMO")), "true")
-	dev := demo || strings.EqualFold(strings.TrimSpace(getenv("DASH_DEV")), "true")
+	dev := strings.EqualFold(strings.TrimSpace(getenv("DASH_DEV")), "true")
 	str := func(key, def string) string {
 		if v := strings.TrimSpace(getenv(key)); v != "" {
 			return v
@@ -90,7 +97,7 @@ func Load(getenv func(string) string) Config {
 		return def
 	}
 	healthDef, publicDef := "0.0.0.0:8081", ""
-	if dev {
+	if dev || demo {
 		healthDef, publicDef = "127.0.0.1:8081", "http://localhost:5173"
 	}
 	node := str("DASH_PROXMOX_NODE", "")
@@ -147,8 +154,11 @@ var metricNameRE = regexp.MustCompile(`^[a-zA-Z_:][a-zA-Z0-9_:]*$`)
 // Validate reports settings that are missing or unusable.
 func (c Config) Validate() error {
 	var errs []error
-	if c.PublicURL == "" && !c.Dev {
+	if c.PublicURL == "" && !c.Dev && !c.Demo {
 		errs = append(errs, errors.New("DASH_PUBLIC_URL is required (the URL users open, e.g. https://dash.example.com)"))
+	}
+	if c.Dev && !loopbackAddr(c.Listen) {
+		errs = append(errs, fmt.Errorf("DASH_DEV=true signs requests in as %q without authentication, so DASH_LISTEN must be a loopback address such as 127.0.0.1:8080, not %q", "dev", c.Listen))
 	}
 	if c.ProxmoxToken != "" && c.ProxmoxURL == "" {
 		errs = append(errs, errors.New("DASH_PROXMOX_URL is required with DASH_PROXMOX_TOKEN"))
@@ -157,6 +167,20 @@ func (c Config) Validate() error {
 		errs = append(errs, fmt.Errorf("DASH_ZFS_SCRUB_METRIC_PREFIX %q is not a metric name", c.Conventions.ZFSScrubMetricPrefix))
 	}
 	return errors.Join(errs...)
+}
+
+// loopbackAddr reports whether a host:port listen address binds only the loopback interface.
+// An empty host (":8080") binds every interface.
+func loopbackAddr(addr string) bool {
+	host, _, err := net.SplitHostPort(addr)
+	if err != nil {
+		return false
+	}
+	if host == "localhost" {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
 }
 
 // LoadLauncher reads a YAML or JSON list of launcher links.
