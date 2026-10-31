@@ -6,7 +6,7 @@
 | Owner | TechDufus |
 | Base | Builds on the **not-yet-merged** branch `claude/project-thread-8gve8b` (tip `e2b7f93`, "feat(config): make site-specific settings configurable"), which sits 3 commits ahead of `main` (`3fe842c`): `397f4c6` demo mode, `ba73150` README, `e2b7f93` configurable settings. |
 | Line references | Every `file:line` below refers to `e2b7f93`. Several cited files (`dev/site.env.example`, `docs/launcher.example.yaml`, the `Conventions` struct, `GET /api/config`) do not exist on `main` until that branch lands. |
-| Companion | [`epic-draft.md`](epic-draft.md): the issue epic that implements this plan. It gets filed only after this plan is approved. |
+| Companion | [`epic-draft.md`](epic-draft.md): the issue epic that implements this plan. It gets filed only after this plan is approved. [`clients-and-ai.md`](clients-and-ai.md) (sections K–S, continuing A–J) is the second companion: the security review of this plan, API clients, MCP agents, mobile and AI. It amends this plan where marked. |
 
 ## Goal
 
@@ -28,6 +28,7 @@ Non-goals for this plan:
 5. **Auth becomes part of dash.** The default for open source is a built-in local admin, bootstrapped with a one-time setup token. Trusted reverse-proxy headers (today's oauth2-proxy setup, now restricted to trusted proxy CIDRs) and built-in OIDC are first-class alternatives. There are two roles, viewer and admin; settings and actions need admin. An anonymous read-only viewer for wall displays is opt-in and off by default. The CSRF and Origin checks stay.
 6. **Packaging:** one image (`ghcr.io/techdufus/dash`, multi-arch) that runs with `docker run -v dash-data:/data`, Docker Compose, PaaS platforms and Kubernetes. A Helm chart in the repo, published as an OCI chart to GHCR, is the Kubernetes path (J.7).
 7. **Before going public:** remove the self-hosted runner, move CI to GitHub-hosted runners, publish to GHCR with provenance and SBOM attestations, scrub real-lab identifiers from tests and docs, decouple dev tooling from `../homelab`, license the project MIT (J.1), and keep the git history but scrub the lab identifiers from it with `git filter-repo` right before the flip, as a separate step that needs the owner's explicit go-ahead (J.8).
+8. **Clients beyond the browser.** Non-browser clients (a native Android app, AI agents over MCP) get bearer tokens, a built-in OAuth 2.1 server, a versioned `/api/v1`, an MCP server that holds agent writes for human approval, and a PWA with push notifications. The design, the security review of this plan and phase 7 are in [`clients-and-ai.md`](clients-and-ai.md) (sections K–S).
 
 ---
 
@@ -177,12 +178,15 @@ type TopicSpec struct {
 }
 
 type ActionSpec struct {
-	Name        string    // "restart" -> POST /api/plugins/kubernetes/actions/restart
+	Name        string    // "restart" -> POST /api/v1/plugins/kubernetes/actions/restart
 	Title       string
 	MinRole     auth.Role // auth.RoleAdmin unless stated
 	Confirm     Confirm   // ConfirmNone | ConfirmDialog | ConfirmTypeName
 	Destructive bool
+	Idempotent  bool                                           // repeating with the same input is safe; becomes the MCP idempotentHint
 	Input       func() any // zero request struct; schema reflected; body capped like decodeBody today
+	Summary     func(input any) string                         // one line for approvals and audit, e.g. "Restart deployment media/app-0"
+	Target      func(input any) (kind, namespace, name string) // what the action touches; drives deny namespaces, typed confirmation and approvals
 }
 
 type SeriesSpec struct {
@@ -190,6 +194,8 @@ type SeriesSpec struct {
 	Expr func(a SeriesArgs) (string, error)   // validated args only, as queries.Series does today
 }
 ```
+
+`Destructive`, `Idempotent` and `Input` also define the MCP tool for the action (clients-and-ai.md N.2).
 
 Config is keyed by instance name. `plugins.<instance>.type` defaults to the instance name, so `plugins.proxmox: {...}` just works, and a second instance can later be `plugins.pvelab2: {type: proxmox, ...}`. Instance names follow the ID rule above, and topics, routes and env names use the instance name. v1 enforces one instance per type (decided, J.16), but nothing in the schema or the env naming has to change to lift that limit.
 
@@ -211,18 +217,25 @@ type Plugin interface {
 type Validator interface{ Validate(cfg any) error }                  // cross-field rules
 type Checker interface{ Check(ctx context.Context, cfg any) error }  // settings "Test connection"
 type Actor interface {
-	Act(ctx context.Context, action string, u auth.User, input any) (any, error)
+	Act(ctx context.Context, action string, p auth.Principal, input any) (any, error) // auth.Principal: clients-and-ai.md M.1
 }
-type Router interface{ Routes(m *http.ServeMux) } // GET-only, mounted under /api/plugins/{id}/
+type Router interface{ Routes(m *http.ServeMux) } // GET-only, mounted under /api/v1/plugins/{id}/
 type AttentionSource interface{ Attention(now time.Time) []model.AttentionItem }
 type KPISource interface{ KPIs() []model.KPI }
 type Demo interface{ Demo() Plugin }          // fixture-backed twin for DASH_DEMO=true
+
+// Objects lets the core search, fetch and describe a plugin's objects by ref (clients-and-ai.md N.4, L.6).
+type Objects interface {
+	Search(query string, limit int) []model.SearchHit
+	Get(ctx context.Context, ref string) (any, error)
+	Context(ctx context.Context, ref string, o model.ContextOptions) (model.ContextPart, error)
+}
 
 // Host is what the core gives a running plugin.
 type Host interface {
 	Publish(topic string, data any, sources []model.SourceStatus) // namespaced by the core
 	Logger() *slog.Logger                                          // redacting handler (C.6)
-	HTTPClient(c HTTPConfig) (*http.Client, error)                 // TLS/CA, auth header, timeouts
+	HTTPClient(c HTTPConfig) (*http.Client, error)                 // TLS/CA, auth header, timeouts; dial guards below
 	Service(id ID) (any, bool)                                     // see A.5
 	Links() links.Registry                                         // deep-link providers (F.2)
 	Now() time.Time
@@ -230,6 +243,8 @@ type Host interface {
 ```
 
 The core supervises each instance the way `topics.Manager` supervises pollers today: it recovers panics in pollers and builders (`manager.go:141-176`), and a panicking plugin becomes `error` state without taking the process down.
+
+`Host.HTTPClient` guards every dial, so a settings value cannot turn dash into a request proxy: connections to link-local addresses (including cloud metadata endpoints) are always refused, and connections to loopback are refused when the URL came from the UI layer (clients-and-ai.md K.22).
 
 ### A.4 Config schema and validation
 
@@ -281,7 +296,7 @@ The core starts plugins in dependency order. A plugin whose `Requires` provider 
 
 - `Status.Sources` reuses `model.SourceStatus`. The per-topic source keys `"<scope>:<source>"` (`manager.go:188-242`) become per-plugin.
 - `/healthz` is unchanged: the process is alive.
-- `/readyz` means: config loaded, HTTP serving, and every enabled plugin has returned from `Start`. Plugin health never makes `/readyz` fail, which reverses today's `manager.go:104-105`. `/readyz?verbose=1` lists plugin states, and the health listener stays unauthenticated and separate (`api.go:99-115`). If someone wants today's semantics, they can set `server.readyRequires: [kubernetes]`, which waits for the informer sync, capped at `server.readyTimeout` (default 60s).
+- `/readyz` means: config loaded, HTTP serving, and every enabled plugin has returned from `Start`. Plugin health never makes `/readyz` fail, which reverses today's `manager.go:104-105`. `/readyz?verbose=1` lists plugin states, but only to loopback peers (other peers get the plain status; clients-and-ai.md K.15), and the health listener stays unauthenticated and separate (`api.go:99-115`). If someone wants today's semantics, they can set `server.readyRequires: [kubernetes]`, which waits for the informer sync, capped at `server.readyTimeout` (default 60s).
 
 ### A.7 Data, topics and SSE
 
@@ -303,13 +318,16 @@ The core starts plugins in dependency order. A plugin whose `Requires` provider 
 - `Envelope` (`model.go:69-75`) is unchanged: `{topic, updatedAt, sources, data}`. The topic string carries the plugin ID.
 - **Cutover:** each migration PR renames its topic in Go and in `web/src/api/topics.ts` together; the compile-time guard at `topics.ts:29-34` enforces this. No alias topics.
 - When a plugin is disabled, the core removes its latest events from the hub and publishes `core.plugins`. The SPA drops the corresponding pages.
-- Per-plugin API: `GET /api/plugins` returns `[{id, name, version, state, message, topics, actions, nav, configurable}]`. Plugin GET routes live under `/api/plugins/{id}/...`: today's `/api/vms/{vmid}` becomes `/api/plugins/proxmox/vms/{vmid}`, `/api/pods/{ns}/{name}` becomes `/api/plugins/kubernetes/pods/{ns}/{name}`, and `/api/logs` becomes `/api/plugins/victorialogs/logs`. `/api/series` stays a core endpoint that dispatches to the `SeriesSpec` registered under the series name, so the browser can still only ask for named, validated series.
+- Per-plugin API: `GET /api/v1/plugins` returns `[{id, name, version, state, message, topics, actions, nav, configurable}]`. Plugin GET routes live under `/api/v1/plugins/{id}/...`: today's `/api/vms/{vmid}` becomes `/api/v1/plugins/proxmox/vms/{vmid}`, `/api/pods/{ns}/{name}` becomes `/api/v1/plugins/kubernetes/pods/{ns}/{name}`, and `/api/logs` becomes `/api/v1/plugins/victorialogs/logs`. `/api/v1/series` stays a core endpoint that dispatches to the `SeriesSpec` registered under the series name, so the browser can still only ask for named, validated series. The whole public API moves under `/api/v1` (clients-and-ai.md L.1, P2.10).
+- **Snapshot GET.** `GET /api/v1/topics/{topic}` returns the Envelope with an `ETag` (the hub digest); `If-None-Match` gets 304 (clients-and-ai.md L.5).
+- **Topic filter and user-scoped topics.** `GET /api/v1/stream?topics=a,b` sends only the listed topics. There is no resumption: a reconnect replays current state. User-scoped topics such as `core.approvals` reach only their owner (clients-and-ai.md L.5).
+- **Object refs.** Every object in a plugin payload carries `ref`, `<plugin>:<Kind>/<id>` (for example `kubernetes:Pod/media/app-0`). Refs are opaque to clients; the prefix routes to the owning plugin's `Objects` (clients-and-ai.md L.6).
 
 ### A.8 Actions (writes)
 
 Today there are three hand-written handlers (`api.go:88-91`), plus the audit helper at `internal/api/actions.go:30-38`.
 
-- A plugin declares an `ActionSpec`, and the core mounts `POST /api/plugins/{id}/actions/{name}`. The middleware chain is: auth, then `RequireRole(spec.MinRole)`, then CSRF (unchanged), then body cap, then schema validation of the input, then `Actor.Act`, then an audit record (always, including denials and errors).
+- A plugin declares an `ActionSpec`, and the core mounts `POST /api/v1/plugins/{id}/actions/{name}`. The middleware chain is: principal (clients-and-ai.md M.1), then the `actions:<plugin>` scope (tokens only), then `RequireRole(spec.MinRole)`, then CSRF (session and proxy principals only; bearer principals skip it, M.2), then a per-principal rate limit (10 per minute), then body cap plus read deadline, then schema validation of the input, then deny namespaces (`actions.denyNamespaces`) plus the token's `actionNamespaces`, then the agent policy (`actions.agents`, clients-and-ai.md O.1), then `Actor.Act`, then an audit record (always, including denials and errors). Action errors carry `APIError.Code` (clients-and-ai.md L.2).
 - **Opt-in.** A plugin with actions also has an `actions.enabled` config field. The default is `false` for every plugin (decided, J.11), and the homelab sets `true`. With actions disabled, the action is not mounted and the SPA hides its buttons.
 - **Confirm semantics stay server-side.** `ConfirmTypeName` reproduces today's rule: in a protected namespace, `confirm` must equal the target name (`actions.go:82-87`). The plugin decides per request whether typed confirmation applies (e.g. a namespace carrying the configured protected label). `ConfirmDialog` is a UI-only confirmation.
 - **Capability matrix after migration:**
@@ -322,6 +340,8 @@ Today there are three hand-written handlers (`api.go:88-91`), plus the audit hel
 | alertmanager | `silence.expire` | `silences.go:91-103` | admin | Dialog |
 
 - The admission guardrail stays the real fence for Kubernetes writes. The Helm chart ships an optional generic ValidatingAdmissionPolicy (D.4), written fresh rather than copied from the private homelab repo. `writeKubeErr` keeps passing 403/404/409/422 messages through verbatim (`actions.go:40-52`).
+- **Silence rules** (F.3): `protectedAlerts` can never be silenced, and `silence.expire` works only on silences dash created.
+- **Agents.** `ConfirmDialog` is a UI-only confirmation, so scripts and agents bypass it. Requests from MCP clients are held for human approval instead (clients-and-ai.md K.20, O).
 
 ### A.9 How the SPA renders plugins
 
@@ -346,7 +366,9 @@ export const MODULES: PluginModule[] = [proxmox, hardware, kubernetes, flux, ale
 - `stream.ts:49-60` registers listeners for the topics listed by `/api/plugins` instead of the fixed `TOPICS` (`topics.ts:36-46`). `TopicData` stays a typed map, generated per plugin from the Go model packages; `tygo.yaml` gains one entry per plugin `model` package.
 - **Composite pages** (Overview, Storage, Apps) render panel slots in registry order. Attention items come from `core.overview` and carry `plugin` and `route`. The route is shown only if that plugin's page is enabled.
 - **Generic panels for simple plugins (optional, Phase 2).** A plugin without a React module may declare `UI.Generic: []GenericView{Topic, Kind: "table"|"stat"|"list", Columns}`. The SPA renders it with the existing `Panel` and table components, which is enough for link-only or simple status plugins.
-- **No remote JavaScript.** JS fetched at runtime would run with the admin's session and could call settings or action endpoints, so it is equivalent to stored XSS. Add a CSP to SPA responses (`internal/api/static.go` sets no security headers today): `default-src 'self'; script-src 'self'; connect-src 'self'; img-src 'self' data: <ui.iconBaseURL origin>; frame-ancestors 'none'`.
+- **No remote JavaScript.** JS fetched at runtime would run with the admin's session and could call settings or action endpoints, so it is equivalent to stored XSS. Add a CSP to SPA responses (`internal/api/static.go` sets no security headers today): `default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; worker-src 'self'; manifest-src 'self'; frame-ancestors 'none'; base-uri 'none'; object-src 'none'; form-action 'self'`, plus the `ui.iconBaseURL` origin in `img-src` when it is configured. `style-src 'self'` allows no inline `<style>`: the one that needed it, the chart colours in `web/src/components/ui/chart.tsx`, is fixed by the hardening PR (branch `fix/api-hardening`); a dependency that injects one at runtime must have its CSS imported statically (P4.6).
+- **`safeHref()`.** Every `href` built from config or upstream data (launcher links, `web/src/config/links.ts`) goes through `safeHref()`, which allows `http:` and `https:` only; anything else renders as text (clients-and-ai.md K.12).
+- **Launcher icons** may be a bundled name, a same-origin path, or a URL under `ui.iconBaseURL`. Any other URL is rejected.
 - Closed unions widen: `LinkKind` becomes the provider plugin ID plus `app`/`external`, and `ICONS` (`links.tsx:6-12`) moves into modules. `Group` stays a core enum (Platform, Apps, Tenants, Other), because grouping is a core concept that the kubernetes plugin feeds.
 
 ---
@@ -387,7 +409,8 @@ built-in defaults  <  UI settings (/data)  <  config file (DASH_CONFIG)  <  envi
   | Grafana SSO settings | UI/API-saved values over ini and env | The docs warn: "nothing in the UI or the file says so, which most often surprises people during credential rotation" ([configure-grafana](https://raw.githubusercontent.com/grafana/grafana/main/docs/sources/setup-grafana/configure-grafana/_index.md), [sso-settings API](https://raw.githubusercontent.com/grafana/grafana/main/docs/sources/developer-resources/api-reference/http-api/api-legacy/sso-settings.md)) |
 
   dash locks per field and shows the source, which is finer than any of them (Grafana locks per object, Home Assistant per section, Immich the whole config).
-- **Secrets are a value form, not a layer.** In any layer a secret field may hold a literal (allowed in env; allowed in the file with a startup warning, since the file is often in git), a reference (`env:NAME`, `file:/path`, `k8s:ns/name#key`, see C.3), or (UI layer only) an encrypted value. `DASH_<NAME>_FILE` on an env var is shorthand for a `file:` ref, following the Docker secrets convention, and is resolved by the Go binary (B.3).
+- **Secrets are a value form, not a layer.** In the file and env layers a secret field may hold a literal (allowed in env; allowed in the file with a startup warning, since the file is often in git) or a reference (`env:NAME`, `file:/path`, `k8s:ns/name#key`, see C.3). The UI layer holds only an encrypted value or a `k8s:` ref: `env:` and `file:` refs are accepted only from the file and env layers, so an admin session cannot point a secret at an arbitrary file or process variable (clients-and-ai.md K.22, S.14). `DASH_<NAME>_FILE` on an env var is shorthand for a `file:` ref, following the Docker secrets convention, and is resolved by the Go binary (B.3).
+- **UI-ineligible fields.** `server.*`, `auth.*`, `settings.ui` and `dataDir` can never be written from the UI, whatever the other layers say. A settings write that touches one returns `409 Conflict` with `{path, source: "ui-ineligible"}`. They come from the file, env or defaults only (clients-and-ai.md K.23, S.14).
 
 ### B.3 Environment naming
 
@@ -445,6 +468,7 @@ Decided (J.5): accept the legacy names as aliases for one release, logging one d
 | `DASH_PUBLIC_URL` | `server.publicURL` | none |
 | `DASH_LISTEN` | `server.listen` | container default becomes `0.0.0.0:8080` (D.5) |
 | `DASH_HEALTH_LISTEN` | `server.healthListen` | none |
+| `DASH_ALLOWED_HOSTS` (new) | `server.allowedHosts` | none; extra Host names the API answers besides the `server.publicURL` host (comma-separated; `*` accepts any). Added by the hardening PR (branch `fix/api-hardening`) |
 | `DASH_DEV`, `DASH_DEMO` | unchanged env names (process modes); `DASH_DEMO` can also be set as a config flag (decision J.15) | opt-in, off by default; demo uses each plugin's `Demo()` |
 | `DASH_VM_URL` | `plugins.prometheus.url` | **No default**: today `vmsingle-vm.monitoring.svc:8428` |
 | `DASH_ALERTMANAGER_URL` | `plugins.alertmanager.url` | **No default** |
@@ -463,6 +487,8 @@ Decided (J.5): accept the legacy names as aliases for one release, logging one d
 | `DASH_ZFS_SCRUB_METRIC_PREFIX` | `plugins.hardware.zfsScrubMetricPrefix` | **Default empty** (scrub panel hidden) |
 | `DASH_NAS_BACKUP_NAMESPACE`, `DASH_NAS_BACKUP_CRONJOB` | `plugins.kubernetes.backupJobs: [{namespace, cronjob, label}]` | **Default empty**; becomes a list |
 | `KUBECONFIG` | `plugins.kubernetes.kubeconfig` (still honours `KUBECONFIG`) | none |
+
+`DASH_DEV` is loopback-only (dash refuses to start with it on a non-loopback `DASH_LISTEN`), and `DASH_DEMO` no longer implies dev: both fixed by the hardening PR (branch `fix/api-hardening`; clients-and-ai.md K.1).
 
 Sequencing risk: if the homelab deployment relies on today's `.svc` defaults, removing them blanks Prometheus, Alertmanager, VictoriaLogs and Gatus. The leaf that removes the defaults (P1.3 in the epic) is blocked on the homelab manifest setting those values explicitly first.
 
@@ -499,6 +525,8 @@ The store file:
 - **Lock.** `flock` on a separate, never-replaced `/data/.lock`, which refuses a second instance. A lock on `ui-settings.yaml` itself would follow the old inode after the rename.
 - **Backups.** Each write first rotates the last 5 copies, `ui-settings.yaml.bak.1` (newest) to `ui-settings.yaml.bak.5`.
 
+**`credentials.yaml`.** Credential state (personal access tokens, OAuth grants, push subscriptions, per-user session epochs, the VAPID key pair) lives in a second file, `$DASH_DATA_DIR/credentials.yaml`: mode 0600, the same atomic write and writer mutex, no `.bak` rotation, so a restore can never bring back a revoked credential. Still no database (J.3). Details: clients-and-ai.md M.7.
+
 ---
 
 ## C. Secret handling
@@ -517,7 +545,7 @@ The store file:
 
 ### C.2 Write-only fields in the UI
 
-Secret fields render as "Set (file) · updated 2 days ago" with two buttons, **Replace** and **Clear**. The current value is never shown and never read back. `PUT /api/settings/plugins/{id}/secrets/{field}` with `{value}` replaces it; `DELETE` clears it. Both are refused server-side with `409 Conflict` and `{path, source, ref}` if the field is locked (set by file or env), or if settings are read-only (B.2). "Test connection" (`Checker`) can use a candidate value from the form without saving it.
+Secret fields render as "Set (file) · updated 2 days ago" with two buttons, **Replace** and **Clear**. The current value is never shown and never read back. `PUT /api/settings/plugins/{id}/secrets/{field}` with `{value}` replaces it; `DELETE` clears it. Both are refused server-side with `409 Conflict` and `{path, source, ref}` if the field is locked (set by file or env), or if settings are read-only (B.2). "Test connection" (`Checker`) can use a candidate value from the form without saving it. Neither "Test connection" nor save ever sends a stored secret to a URL or host other than the saved one: if the form changes the URL or host, the secret must be entered again in the same form (clients-and-ai.md K.22).
 
 ### C.3 Secret references
 
@@ -547,11 +575,18 @@ Secret fields render as "Set (file) · updated 2 days ago" with two buttons, **R
 - A redacting `slog.Handler` scrubs every currently resolved secret value from messages and string attributes. That covers secrets that leak through third-party error text.
 - The same scrubber runs on `SourceStatus.Error` before publishing (`manager.go:189-199` today), and on `writeErr` messages built from upstream errors (`internal/api/read.go:47-50,104-117`; `silences.go:51-103`).
 - `Host.HTTPClient` puts credentials in headers, never in URLs (as Proxmox already does at `internal/upstream/proxmox.go:86`), so `url.Error` text stays clean.
+- **Pattern redaction.** The scrubber also removes values by shape, whether or not they are currently resolved: `dash_pat_`, `dash_at_`, `dash_rt_`, `dash_setup_` and `enc:v1:` followed by their token characters (clients-and-ai.md K.19, K.24).
+- **Encodings.** Besides the exact value, the scrubber removes the base64 and URL-encoded forms of every resolved secret of 8 bytes or more.
+- **Error categories.** `SourceStatus.Error` for viewers is one category: `unreachable`, `timeout`, `tls`, `auth`, `http_<code>`, `invalid_response` or `not_configured`. The detail (which can hold internal URLs) goes only to the logs and to the admin plugin status (clients-and-ai.md K.3).
 
 ### C.7 Audit log
 
 - Every settings change, secret replace or clear, auth event (login, failed login, setup) and action goes to the existing structured `audit` slog record (`actions.go:30-38`) and to `$DASH_DATA_DIR/audit.jsonl`, rotated at 10 MiB, 5 files.
 - Records hold user, action, plugin, the field paths changed and their source, and the result. Never values; secrets are recorded as `replaced` or `cleared`.
+- Records also carry `actor{type, user, tokenID, grantID, clientID, surface: ui|api|mcp}`, the TCP `peer`, the `requestId` (clients-and-ai.md L.2) and the `authMode`.
+- Denials are audited too (403, CSRF, rate limit), at most one record per peer and reason per minute.
+- Each record carries a `prev` field, the SHA-256 of the previous record, forming a chain that `dash audit verify` checks.
+- If the data dir is writable and the JSONL write fails, the audited operation fails with 503 instead of proceeding unaudited (clients-and-ai.md K.21).
 - `GET /api/settings/audit` (admin) serves the latest N records.
 
 ---
@@ -654,7 +689,7 @@ rbac:
     fluxReconcile: false    # patch flux kinds
   secretRefs: []            # Secret names dash may `get` for k8s: refs (resourceNames)
 guardrails:
-  enabled: false            # optional ValidatingAdmissionPolicy fencing the ServiceAccount to the enabled actions
+  enabled: auto             # auto renders the ValidatingAdmissionPolicy whenever any rbac.actions.* is true; true/false force it (clients-and-ai.md K.7)
 auth:
   oauth2ProxySidecar: { enabled: false, args: [] }  # today's pattern; sets auth.mode=proxy, listen 127.0.0.1:8080
 service: { port: 8080 }
@@ -732,14 +767,14 @@ oauth2-proxy runs as a sidecar and admits only the GitHub user `TechDufus` (`REA
 | Mode | For | How | Notes |
 |---|---|---|---|
 | `local` (**default**, decided, J.6) | docker run, compose, small installs | One admin account with an argon2id hash (`golang.org/x/crypto/argon2`). Bootstrap: if no hash is stored and `DASH_ADMIN_PASSWORD_HASH` is unset, dash logs a one-time setup URL with a random token, valid 1 hour, single use. `/setup?token=...` sets the password. `dash hash-password` prints a hash for env-only setups | Opt-in `auth.local.anonymousViewer: true` for wall displays: unauthenticated users get read-only access. Off by default (decided, J.6) |
-| `proxy` | oauth2-proxy, Authelia, Authentik, Pomerium, Cloudflare Access, Tailscale serve | Configurable `userHeaders` (default today's two), `groupsHeader`, **`trustedProxies` CIDRs (default `127.0.0.1/32, ::1/128`)**. Headers from any other peer are ignored, and the request is 401 | The homelab sets this mode. The sidecar keeps working unchanged, and binding `0.0.0.0` no longer allows spoofing |
+| `proxy` | oauth2-proxy, Authelia, Authentik, Pomerium, Cloudflare Access, Tailscale serve | Configurable `userHeaders` (default today's two), `groupsHeader`, **`trustedProxies` CIDRs (default `127.0.0.1/32, ::1/128`)**. Headers from any other peer are ignored, and the request is 401. Trust is the TCP peer only: `X-Forwarded-For` never decides it. Requests with `Authorization: Bearer` ignore identity headers entirely (clients-and-ai.md M.1) | The homelab sets this mode. The sidecar keeps working unchanged, and binding `0.0.0.0` no longer allows spoofing |
 | `oidc` | users with an IdP | Authorization code + PKCE (`golang.org/x/oauth2`, `github.com/coreos/go-oidc/v3`); `issuer`, `clientID`, `clientSecret` (secret), `scopes`, `allowedUsers` / `allowedGroups`, `adminGroups`, `roleClaim` | Session cookie as in E.3 |
 | `none` | local-only trials | Everyone is admin. A WARN on every startup and a persistent red banner in the UI. Docs say to publish only to `127.0.0.1` | Requires explicit `DASH_AUTH_MODE=none`; never the default |
 
 ### E.3 Sessions and CSRF
 
-- `local` and `oidc` use a cookie `dash_session`: an AEAD-sealed payload (user, role, expiry, session epoch) under a key derived via HKDF from the secret key (C.4). Without `DASH_SECRET_KEY`, the session key is random per process, so logins do not survive a restart (D.3). The cookie is `HttpOnly; Secure` (unless the public URL is http); `SameSite=Lax`; 12h idle and 7d absolute expiry. "Log out everywhere" bumps the epoch stored in settings. No server-side session table is needed.
-- CSRF stays as it is: `X-Dash-Csrf: 1` plus `Origin == PublicOrigin()` on every non-GET request (`middleware.go:18-29`; the client already sends the header, `web/src/api/client.ts:36`). Login and setup POSTs get the same Origin check.
+- `local` and `oidc` use a cookie, `__Host-dash_session` when the public URL is https (`dash_session` on http, where `Secure` and the `__Host-` prefix are unavailable): an AEAD-sealed payload (user, expiry, per-user session epoch) under a key derived via HKDF from the secret key (C.4). The payload holds no role; the role is re-resolved on every request, so a role change applies at once (clients-and-ai.md M.8). Without `DASH_SECRET_KEY`, the session key is random per process, so logins do not survive a restart (D.3). The cookie is `HttpOnly; Secure` (unless the public URL is http); `SameSite=Lax`; 12h idle and 7d absolute expiry. Each user has an epoch, bumped by "log out everywhere" and by a password change; the global epoch stored in settings remains. No server-side session table is needed.
+- CSRF stays as it is: `X-Dash-Csrf: 1` plus `Origin == PublicOrigin()` on every non-GET request (`middleware.go:18-29`; the client already sends the header, `web/src/api/client.ts:36`). Login and setup POSTs get the same Origin check. The check applies to session, proxy and anonymous principals; bearer principals skip it, because a browser never attaches a bearer token on its own (clients-and-ai.md M.2).
 - The 401 path in the SPA (`client.ts:24-32`, `stream.ts:40-47`) becomes mode-aware: `proxy` reloads, as today; `local`/`oidc` redirect to `/login?next=...`.
 
 ### E.4 Roles
@@ -752,22 +787,30 @@ oauth2-proxy runs as a sidecar and admits only the GitHub user `TechDufus` (`REA
 Role mapping:
 
 - `local`: the account is admin; anonymous viewer if enabled.
-- `proxy`: `adminUsers` / `adminGroups`. If both are empty, every authenticated user is admin, which is today's behaviour, with a startup warning.
+- `proxy`: `adminUsers` / `adminGroups`. If both are empty, every authenticated user is a **viewer** (fail closed; clients-and-ai.md K.2). `adminUsers: ["*"]` restores everyone-is-admin, today's behaviour, explicitly and with a startup warning.
 - `oidc`: `adminGroups` / `roleClaim`.
 
 Only `viewer` and `admin` exist in v1. A third `operator` role (actions but not settings) was rejected for v1 (decision J.12).
 
+Tokens narrow the role ceiling with scopes and a single audience; the effective permission is role ∩ scopes ∩ feature switches (clients-and-ai.md M.3–M.4).
+
 ### E.5 Route groups
 
 ```
-/api/me, /api/stream, /api/series, /api/plugins, /api/plugins/{id}/... (GET)   auth -> viewer
-/api/plugins/{id}/actions/{name} (POST)                                          auth -> MinRole -> csrf -> audit
-/api/settings/** (GET, PUT, POST, DELETE)                                        auth -> admin -> csrf -> audit
+/api/v1/** (GET: me, stream, series, topics, context, plugins, plugins/{id}/...)  principal -> viewer (tokens: `read`; log routes: `logs`)
+/api/v1/plugins/{id}/actions/{name} (POST)                                       principal -> actions:<plugin> scope -> MinRole -> csrf -> rate limit -> ... -> audit (A.8)
+/api/v1/settings/**, /api/v1/tokens/**, /api/v1/oauth/consents/**                session only -> admin where applicable -> csrf -> audit
+/api/v1/approvals/**                                                             session or `approvals` token -> csrf (session) -> audit
+/api/v1/push/**                                                                  session or `push` token
+/mcp                                                                             mcp-audience bearer only
+/oauth/authorize                                                                 interactive (authenticates through the auth mode)
+/oauth/token, /oauth/revoke, /.well-known/*                                      public
 /login, /setup, /auth/callback, /auth/logout                                     unauthenticated, Origin-checked POSTs
+SPA routes /consent/*, /approve/*                                                session
 /healthz, /readyz                                                                health listener only (unchanged)
 ```
 
-Settings API:
+Settings API (paths shown without the `/api/v1` prefix they get in P2.10):
 
 - `GET /api/settings`: the effective tree, resolved at read time, with per-field `{value | secret-meta, source, locked}`.
 - `GET /api/settings/schema`
@@ -781,6 +824,10 @@ Settings API:
 ### E.6 Default for open source (decision J.6)
 
 Default `auth.mode=local` with bootstrap. It is the only mode that is safe on `0.0.0.0` with zero extra infrastructure. Document `proxy` (with the homelab's oauth2-proxy sidecar as the worked example) and `oidc` as options, both first-class. The anonymous read-only viewer is opt-in and off by default. The homelab sets `DASH_AUTH_MODE=proxy` in the release that introduces auth modes.
+
+### E.7 Clients beyond the browser
+
+Everything above authenticates a browser. Non-browser clients (a native Android app, AI agents over MCP) need credentials that are not cookies or forwarded headers: personal access tokens, a built-in OAuth 2.1 server, scopes and audiences that narrow the role, human approval for agent writes, and push notifications. They are specified in [`clients-and-ai.md`](clients-and-ai.md) sections M (principals, tokens and OAuth), N (MCP), O (approvals) and P (mobile), and implemented in phase 7 (I).
 
 ---
 
@@ -825,6 +872,7 @@ During Phase 3 the not-yet-migrated code keeps running inside `topics.Manager`. 
 - **From:** `internal/upstream/alertmanager.go`; `topics/feeds.go:21-44`; `attention.go:111-124`; `api/silences.go`.
 - **Config:** `url`, `auth`, `tls`, `ignoreAlerts` (default `[Watchdog, InfoInhibitor]`, `health.go:145`), `severityMap` (default `critical`→crit, `warning`→warn, `health.go:133-142`), `silenceDurations` (default `1h,4h,24h,7d`, `silences.go:18-23`), `actions.enabled`.
 - **Topics:** `alertmanager.alerts`. **Actions:** `silence.create`, `silence.expire`. **Attention:** firing alerts. **KPI:** "Alerts firing".
+- **Action rules:** `protectedAlerts` (default `[Watchdog]`) lists alerts that can never be silenced; a `silence.create` that matches one returns 403. `silence.expire` works only for silences whose `createdBy` starts with `dash:`, so dash never expires a silence it did not create (clients-and-ai.md K.6).
 - **k8s:** no.
 
 ### F.4 `gatus`
@@ -838,12 +886,14 @@ During Phase 3 the not-yet-migrated code keeps running inside `topics.Manager`. 
 - **From:** `internal/upstream/vlogs.go`; `api/read.go:93-117`; `api/sse.go:96-127`.
 - **Config:** `url`, `auth`, `tls`, `fields {namespace: kubernetes.pod_namespace, pod: kubernetes.pod_name, container: kubernetes.container_name}` (today hard-coded at `vlogs.go:60-67`), `limit` (500).
 - **Routes:** `GET /api/plugins/victorialogs/logs`, `/logs/tail`. **Service:** `Logs`. **Topics/actions:** none.
+- **Namespace policy and audit:** `denyNamespaces` (default `[]`) lists namespaces whose logs are never served (403), for queries and tails alike. Every tail open is audited. Size, duration and concurrency limits on reads and tails are fixed by the hardening PR (branch `fix/api-hardening`) and become settings in P2.11 (clients-and-ai.md K.4).
 - **k8s:** no API access. Its only UI entry point is the kubernetes pod sheet. A standalone logs page is deferred post-v1 (decision J.13).
 
 ### F.6 `proxmox`
 
 - **From:** `internal/upstream/proxmox.go`; `topics/vms.go`; `host.go:22-30`; `links.VMConsole/HostShell/ProxmoxUI` (`links.go:84-101`); `health.go:75-87`; `attention.go:187-196`; `queries.go:40-42` and the `vm.*` series (`queries.go:167-185`).
 - **Config:** `url`, `node`, `tokenID`, `tokenSecret*`, `tls {caFile, insecureSkipVerify}` (self-signed Proxmox is the common case), `criticalVMs {ids: [], tags: []}` (replaces `IsTalosVM`), `storage.source: api|prometheus` (default `api`: `/nodes/{node}/storage` removes the pve-exporter dependency for the storage panel).
+- **TLS warning:** `tls.insecureSkipVerify: true` (here and in every plugin with a `tls` block) logs a startup WARN and adds a `tls: verification disabled` source note, visible in plugin status (clients-and-ai.md K.11).
 - **Topics:** `proxmox.vms`, `proxmox.node`, `proxmox.storage`. **Routes:** `GET vms/{vmid}`. **Series:** `vm.*` when `prometheus` is enabled and pve-exporter is scraped (`series.vmSelector` default `id="qemu/{vmid}"`). **Links:** console, shell, UI. **Uses:** kubernetes (VM-to-node), prometheus.
 - **Actions:** none today. VM start/stop is explicitly out of scope until requested.
 - **k8s:** no. Multi-node clusters: `/cluster/resources` already lists every VM (`proxmox.go:141`), but node facts read a single `node`. `nodes: []` is future work.
@@ -871,7 +921,7 @@ During Phase 3 the not-yet-migrated code keeps running inside `topics.Manager`. 
   - `backupJobs[] {namespace, cronjob, label}`, `etcd {job: etcd}`
   - `optional {certificates: auto, externalSecrets: auto, httpRoutes: auto}`
   - `upstreamViaAPIServer: false`
-  - `actions.enabled`
+  - `actions.enabled`, `actions.denyNamespaces` (default `[]`; a restart that targets a listed namespace returns 403 and is audited)
 - **Topics:** `kubernetes.cluster`, `kubernetes.apps`, `kubernetes.storage`. **Routes:** `GET pods/{ns}/{name}`. **Series:** `node.*`, `pod.*` (with prometheus). **Actions:** `restart`. **Services:** `Cluster`, `NodeIndex`, `SecretResolver`. **Attention:** nodes, pods, workloads, certificates, PVCs.
 - **Discovery gating:** at Start, `ServerGroupsAndResources` decides which dynamic informers to create. Missing optional CRDs become a `degraded` source note, never a blocked sync. A periodic re-discovery (5 min) picks up CRDs installed later.
 - **No cluster:** in `auto` mode, if there is no in-cluster env and no kubeconfig, the state is `unavailable` with the reason. No crash, and `/readyz` is unaffected.
@@ -949,7 +999,7 @@ Decided (J.1): MIT, with the copyright line "Matthew DeGarmo (TechDufus)" in `LI
 ### G.7 Community files
 
 - [ ] `LICENSE` (MIT, copyright "Matthew DeGarmo (TechDufus)"), `NOTICE` / `THIRD_PARTY_NOTICES`.
-- [ ] `SECURITY.md`: GitHub private vulnerability reporting enabled; supported versions; scope (actions, auth bypass, secret leakage).
+- [ ] `SECURITY.md`: GitHub private vulnerability reporting enabled; supported versions; scope (actions, auth bypass, secret leakage, tokens, OAuth, MCP, approvals and push).
 - [ ] `CONTRIBUTING.md`: `mise install`, `make check`, `make generate`, demo mode, conventional commits, how to add a plugin.
 - [ ] `CODE_OF_CONDUCT.md` (Contributor Covenant 2.1).
 - [ ] Issue and PR templates; `CODEOWNERS`.
@@ -1033,7 +1083,7 @@ jobs:
     needs: [check, scan]
     runs-on: ubuntu-24.04
     timeout-minutes: 30
-    environment: release            # optional: required reviewer before publishing
+    environment: release            # required reviewer (repository setting) before publishing
     permissions:
       contents: read
       packages: write               # push to ghcr.io with GITHUB_TOKEN
@@ -1089,9 +1139,9 @@ jobs:
           subject-digest: ${{ steps.build.outputs.digest }}
           sbom-path: sbom.spdx.json
           push-to-registry: true
-      # Optional: keyless signing
-      # - uses: sigstore/cosign-installer@<sha>
-      # - run: cosign sign --yes ghcr.io/techdufus/dash@${{ steps.build.outputs.digest }}
+      # Required: keyless signing (clients-and-ai.md K.25)
+      - uses: sigstore/cosign-installer@<sha>
+      - run: cosign sign --yes ghcr.io/techdufus/dash@${{ steps.build.outputs.digest }}
       - run: |
           echo "image: \`ghcr.io/techdufus/dash:${VERSION}@${{ steps.build.outputs.digest }}\`" >> "$GITHUB_STEP_SUMMARY"
       # Helm chart: helm package charts/dash --version "$VERSION" && helm push ... oci://ghcr.io/techdufus/charts
@@ -1105,6 +1155,9 @@ Notes:
 - Releases are cut from git tags `vX.Y.Z` (semver) and stay `0.x` until the plugin API is stable (decision J.19). The chart is pushed to `oci://ghcr.io/techdufus/charts` from the same job (J.7), at the same version.
 - Demo mode ships in the normal image and is switched on by `DASH_DEMO` or a config flag. The workflow builds no `:demo` tag (decision J.15).
 - Test matrix (decision J.18): the kubernetes, flux and cnpg plugin tests run against the last 3 Kubernetes minor versions, with current Flux v2 and Gateway API v1 CRDs; the proxmox plugin tests cover Proxmox VE 8 and 9 through recorded API fixtures.
+- Cosign keyless signing is required, not optional. Users can verify with `cosign verify ghcr.io/techdufus/dash@<digest> --certificate-identity-regexp '^https://github.com/TechDufus/dash/' --certificate-oidc-issuer https://token.actions.githubusercontent.com`.
+- The `release` environment has a required reviewer, and a tag ruleset restricts creating `v*` tags to the owner, so a compromised workflow or collaborator cannot publish a release alone.
+- Every install of web dependencies uses `npm ci --ignore-scripts` (Makefile, Dockerfile and CI), so a dependency's install script never runs in the build. The `shadcn` CLI moves from runtime to dev dependencies (clients-and-ai.md K.13).
 
 ### H.3 The private Zot push (`registry.home.techdufus.com`, `ci.yml:31`)
 
@@ -1131,8 +1184,11 @@ Each phase maps 1:1 to an epic group in [`epic-draft.md`](epic-draft.md). Leaves
 | 4 | Settings UI and auth | Auth modes (proxy with CIDRs, local, OIDC, none); roles; settings API; Settings pages; security headers | 1, 2 (UI forms need schemas); role enforcement on actions needs P2.3 and P3.3 |
 | 5 | Packaging and deployment targets | Dockerfile updates; healthcheck command; docker/compose/PaaS docs; Helm chart (default `settings.ui: editable`); manifests; CI smoke tests | 3 (plugin config paths); P4.1 and P4.3 (in-app auth before the `0.0.0.0` default) |
 | 6 | Open-source readiness and public CI | Fixtures scrubbed; denylist test; dev tooling; docs; MIT licence; community files; GitHub-hosted CI; GHCR release; repo settings; history scrub (needs the owner's explicit go-ahead); flip | Most leaves are independent. The CI move (P6.6) can happen any time after Phase 0. The flip (P6.10) depends on everything |
+| 7 | Clients and AI | `/api/v1` clients: personal access tokens, built-in OAuth 2.1 server, MCP server, human approval for agent actions, PWA, push, native-client and agent guides, optional assistant plugin ([`clients-and-ai.md`](clients-and-ai.md) L–Q) | G2, G3, P4.2–P4.4 and P1.5; not required for P6.10 |
 
 Parallelism: P6.1, P6.2, P6.4, P6.5 and P6.6 do not depend on Phases 1-5 and can run alongside them. Auth (P4.1-P4.5) can start once Phase 1 lands. The leaf IDs (P<phase>.<n>) are the ones used in [`epic-draft.md`](epic-draft.md).
+
+Phase 7 may start as soon as its dependencies land, in parallel with phases 5 and 6. It is not on the path to the public flip (P6.10).
 
 ---
 
@@ -1159,3 +1215,5 @@ TechDufus decided all 19 items on 2026-10-31. They are recorded as an ADR in `do
 17. **Icon source (G.5):** **Decided:** icons are bundled or self-hosted by default; the jsDelivr CDN is opt-in through `ui.iconBaseURL`. Rejected: the CDN as the default.
 18. **Supported upstream versions to test against (H.2):** **Decided:** Proxmox VE 8 and 9, the last 3 Kubernetes minor versions, current Flux v2, and Gateway API v1. Rejected: testing only the latest upstream versions.
 19. **Release cadence and versioning (H.2):** **Decided:** stay on 0.x until the plugin API is stable; semver releases are cut from git tags (`vX.Y.Z`). `pkg/plugin` does not exist before 1.0 (J.2), so it gets no compatibility promise until then. Rejected: a 1.0 release before the plugin API is stable.
+
+Later decisions (API clients, agents, mobile and AI) are in [`clients-and-ai.md`](clients-and-ai.md) section S and are recorded in ADR 0002 (P0.3).
