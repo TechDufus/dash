@@ -45,12 +45,14 @@ func (e *sseWriter) write(s string) error {
 	return e.rc.Flush()
 }
 
-// done clears the write deadline. http.Server has no WriteTimeout, so a stale deadline would
-// carry over to the next request on a kept-alive connection.
+// done gives net/http's closing chunk a fresh deadline. The handler may end long after the last
+// write (a tail hitting its cap between heartbeats), so the previous deadline can already have
+// passed; leaving none would let a client that stopped reading hold the connection. net/http
+// clears the write deadline itself once the request is finished.
 func (e *sseWriter) done() {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	_ = e.rc.SetWriteDeadline(time.Time{})
+	_ = e.rc.SetWriteDeadline(time.Now().Add(sseWriteTimeout))
 }
 
 func (e *sseWriter) event(name string, data []byte) error {

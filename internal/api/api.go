@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"io/fs"
 	"net/http"
 	"sync/atomic"
@@ -60,14 +61,15 @@ type Deps struct {
 
 // Server holds the handlers' state.
 type Server struct {
-	d         Deps
-	static    fs.FS
-	now       func() time.Time
-	heartbeat time.Duration
-	events    *streamLimiter // open /api/stream connections
-	tails     *streamLimiter // open /api/logs/tail connections
-	tailMax   time.Duration  // longest a log tail stays open
-	hostWarn  atomic.Int64   // unix nanos of the last unknown-host warning
+	d           Deps
+	static      fs.FS
+	now         func() time.Time
+	heartbeat   time.Duration
+	events      *streamLimiter // open /api/stream connections
+	tails       *streamLimiter // open /api/logs/tail connections
+	tailMax     time.Duration  // longest a log tail stays open
+	bodyTimeout time.Duration  // longest a request body may take to arrive
+	hostWarn    atomic.Int64   // unix nanos of the last unknown-host warning
 }
 
 // New builds a Server serving the embedded SPA.
@@ -80,7 +82,7 @@ func New(d Deps) *Server {
 		d: d, static: dist, now: time.Now, heartbeat: 15 * time.Second,
 		events:  newStreamLimiter(maxStreamsPerUser, maxStreams),
 		tails:   newStreamLimiter(maxTailsPerUser, maxTails),
-		tailMax: maxTailDuration,
+		tailMax: maxTailDuration, bodyTimeout: bodyReadTimeout,
 	}
 }
 
@@ -150,16 +152,27 @@ const (
 )
 
 // decodeBody reads a JSON body into v; it answers 400 itself and reports false on failure.
-func decodeBody(w http.ResponseWriter, r *http.Request, v any) bool {
+//
+// The read deadline bounds the whole body. On failure it is left set, so net/http's drain of
+// the unread remainder fails at once and closes the connection instead of waiting for a
+// client that stalled mid-body. On success the rest of the body is read while the deadline
+// still applies and only then is it cleared: the server's background read inherits the
+// deadline, and once it fires it cancels the request context, which would abort a handler
+// that outlasts the timeout.
+func (s *Server) decodeBody(w http.ResponseWriter, r *http.Request, v any) bool {
 	rc := http.NewResponseController(w)
-	if rc.SetReadDeadline(time.Now().Add(bodyReadTimeout)) == nil {
-		// Reset on return: the server's background read inherits the deadline, and once it
-		// fires it cancels the request context.
-		defer func() { _ = rc.SetReadDeadline(time.Time{}) }()
-	}
-	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxBody)).Decode(v); err != nil {
+	armed := rc.SetReadDeadline(time.Now().Add(s.bodyTimeout)) == nil
+	body := http.MaxBytesReader(w, r.Body, maxBody)
+	if err := json.NewDecoder(body).Decode(v); err != nil {
 		writeErr(w, http.StatusBadRequest, "invalid request body")
 		return false
+	}
+	if _, err := io.Copy(io.Discard, body); err != nil {
+		writeErr(w, http.StatusBadRequest, "invalid request body")
+		return false
+	}
+	if armed {
+		_ = rc.SetReadDeadline(time.Time{})
 	}
 	return true
 }

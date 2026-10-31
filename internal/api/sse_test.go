@@ -2,7 +2,11 @@ package api
 
 import (
 	"bufio"
+	"bytes"
 	"context"
+	"encoding/json"
+	"fmt"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -11,6 +15,7 @@ import (
 
 	"github.com/TechDufus/dash/internal/model"
 	"github.com/TechDufus/dash/internal/topics"
+	"github.com/TechDufus/dash/internal/upstream"
 )
 
 // sseClient opens path on a real server and delivers its lines on a channel.
@@ -160,10 +165,23 @@ func TestStreamCapPerUser(t *testing.T) {
 	s := newServer(nil)
 	s.events = newStreamLimiter(1, 10)
 	h := s.Handler()
-	_, lines := sseClient(t, h, "/api/stream") // alice's slot, held until cleanup
+	resp, lines := sseClient(t, h, "/api/stream") // alice's slot
 	expect(t, lines, "retry: 3000")
 	if got := streamStatus(t, h, "/api/stream", "alice"); got != http.StatusTooManyRequests {
 		t.Errorf("second stream for alice = %d, want 429", got)
+	}
+	// Closing the stream frees the slot once the server notices the disconnect.
+	resp.Body.Close()
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		got := streamStatus(t, h, "/api/stream", "alice")
+		if got == http.StatusOK {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("stream after close = %d, want 200 (slot not released)", got)
+		}
+		time.Sleep(20 * time.Millisecond)
 	}
 }
 
@@ -185,19 +203,14 @@ func TestLogsTailEndsAfterMax(t *testing.T) {
 	}
 }
 
-// deadlineWriter records the deadlines set through http.ResponseController.
+// deadlineWriter records the write deadlines set through http.ResponseController.
 type deadlineWriter struct {
 	*httptest.ResponseRecorder
-	write, read []time.Time
+	write []time.Time
 }
 
 func (d *deadlineWriter) SetWriteDeadline(t time.Time) error {
 	d.write = append(d.write, t)
-	return nil
-}
-
-func (d *deadlineWriter) SetReadDeadline(t time.Time) error {
-	d.read = append(d.read, t)
 	return nil
 }
 
@@ -220,16 +233,83 @@ func TestSSEWriteDeadline(t *testing.T) {
 		}
 	}
 	e.done()
-	if last := d.write[len(d.write)-1]; !last.IsZero() {
-		t.Errorf("deadline after done = %v, want zero", last)
+	if len(d.write) != 3 {
+		t.Fatalf("write deadlines after done = %d, want 3", len(d.write))
 	}
+	// The closing chunk gets a fresh, bounded deadline; net/http clears it afterwards.
+	if last := d.write[2]; last.Before(now.Add(9*time.Second)) || last.After(now.Add(11*time.Second)) {
+		t.Errorf("deadline after done is %v from now, want about 10s", last.Sub(now))
+	}
+}
 
-	var v struct{}
-	r := httptest.NewRequest(http.MethodPost, "/", strings.NewReader("{}"))
-	if !decodeBody(d, r, &v) {
-		t.Fatal("decodeBody failed")
+// slowAM delays CreateSilence to model an action that outlasts the body deadline.
+type slowAM struct {
+	*fakeAM
+	delay time.Duration
+}
+
+func (a slowAM) CreateSilence(ctx context.Context, s upstream.SilenceSpec) (string, error) {
+	select {
+	case <-time.After(a.delay):
+	case <-ctx.Done():
+		return "", ctx.Err()
 	}
-	if len(d.read) != 2 || d.read[0].IsZero() || !d.read[1].IsZero() {
-		t.Errorf("read deadlines = %v, want a non-zero one then a zero one", d.read)
-	}
+	return a.fakeAM.CreateSilence(ctx, s)
+}
+
+func TestDecodeBodyDeadline(t *testing.T) {
+	t.Run("stalled body gets 400 and the action does not run", func(t *testing.T) {
+		am := &fakeAM{}
+		s := newServer(func(d *Deps) { d.AM = am })
+		s.bodyTimeout = 200 * time.Millisecond
+		ts := httptest.NewServer(s.Handler())
+		defer ts.Close()
+		conn, err := net.Dial("tcp", ts.Listener.Addr().String())
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer conn.Close()
+		_ = conn.SetDeadline(time.Now().Add(3 * time.Second)) // the client's own timeout
+		fmt.Fprintf(conn, "POST /api/silences HTTP/1.1\r\nHost: %s\r\nX-Forwarded-Preferred-Username: alice\r\n"+
+			"X-Dash-Csrf: 1\r\nOrigin: %s\r\nContent-Type: application/json\r\nContent-Length: 100\r\n\r\n{\"matchers\":",
+			testHost, testOrigin)
+		start := time.Now()
+		resp, err := http.ReadResponse(bufio.NewReader(conn), nil)
+		if err != nil {
+			t.Fatalf("no response to a stalled body after %v: %v", time.Since(start), err)
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode != http.StatusBadRequest {
+			t.Errorf("status = %d, want 400", resp.StatusCode)
+		}
+		if el := time.Since(start); el > 2*time.Second {
+			t.Errorf("400 after %v, want about the 200ms body deadline", el)
+		}
+		if am.created != 0 {
+			t.Errorf("action ran %d times", am.created)
+		}
+	})
+
+	t.Run("complete body whose action outlasts the deadline still succeeds", func(t *testing.T) {
+		am := &fakeAM{}
+		s := newServer(func(d *Deps) { d.AM = slowAM{fakeAM: am, delay: 500 * time.Millisecond} })
+		s.bodyTimeout = 200 * time.Millisecond
+		ts := httptest.NewServer(s.Handler())
+		defer ts.Close()
+		body, _ := json.Marshal(silenceBody(nil))
+		r, _ := http.NewRequest(http.MethodPost, ts.URL+"/api/silences", bytes.NewReader(body))
+		r.Host = testHost
+		r.Header.Set("X-Forwarded-Preferred-Username", "alice")
+		r.Header.Set("X-Dash-Csrf", "1")
+		r.Header.Set("Origin", testOrigin)
+		r.Header.Set("Content-Type", "application/json")
+		resp, err := http.DefaultClient.Do(r)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode != http.StatusOK || am.created != 1 {
+			t.Errorf("status = %d, created = %d, want 200 and 1", resp.StatusCode, am.created)
+		}
+	})
 }

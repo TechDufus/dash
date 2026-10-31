@@ -57,7 +57,7 @@ func accepted(w http.ResponseWriter) {
 
 func (s *Server) restart(w http.ResponseWriter, r *http.Request) {
 	var req model.RestartRequest
-	if !decodeBody(w, r, &req) {
+	if !s.decodeBody(w, r, &req) {
 		return
 	}
 	switch req.Kind {
@@ -108,7 +108,7 @@ func (s *Server) restart(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) reconcile(w http.ResponseWriter, r *http.Request) {
 	var req model.ReconcileRequest
-	if !decodeBody(w, r, &req) {
+	if !s.decodeBody(w, r, &req) {
 		return
 	}
 	gvr, ok := fluxResources[req.Kind]

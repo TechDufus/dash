@@ -50,7 +50,7 @@ func validateSilence(req model.SilenceRequest) (time.Duration, string, string) {
 
 func (s *Server) createSilence(w http.ResponseWriter, r *http.Request) {
 	var req model.SilenceRequest
-	if !decodeBody(w, r, &req) {
+	if !s.decodeBody(w, r, &req) {
 		return
 	}
 	dur, comment, msg := validateSilence(req)
