@@ -173,3 +173,7 @@ After changing a struct in `internal/model`, run `make generate` and commit
 3. In the homelab repo, bump the `image:` line of the `dash` container in
    `kubernetes/apps/dash/app/deployment.yaml` to that tag and digest, then `task validate`,
    commit (signed), push and `task k8s:status`.
+
+## License
+
+MIT. See [LICENSE](LICENSE).
