@@ -3,6 +3,7 @@ package plugin_test
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"log/slog"
 	"net/http"
@@ -1261,6 +1262,7 @@ func TestGenericViewsAreValidated(t *testing.T) {
 		"list without cols":   table(func(v *model.GenericView) { v.Kind, v.Columns = model.GenericList, nil }),
 		"column without key":  table(func(v *model.GenericView) { v.Columns = []model.GenericColumn{{Label: "x"}} }),
 		"unknown column fmt":  table(func(v *model.GenericView) { v.Columns = []model.GenericColumn{{Key: "a", Format: "hex"}} }),
+		"duplicate column":    table(func(v *model.GenericView) { v.Columns = []model.GenericColumn{{Key: "a"}, {Key: "b"}, {Key: "a"}} }),
 		"unknown stat format": table(func(v *model.GenericView) { v.Kind, v.Format = model.GenericStat, "hex" }),
 		"duplicate id":        {Generic: append(table(func(*model.GenericView) {}).Generic, table(func(v *model.GenericView) { v.Topic = "other" }).Generic...)},
 		"duplicate id (stat)": {Generic: []model.GenericView{{ID: "s", Kind: model.GenericStat, Topic: "items"}, {ID: "s", Kind: model.GenericStat, Topic: "items"}}},
@@ -1332,5 +1334,22 @@ func TestInfosResolveGenericTopics(t *testing.T) {
 	aa.Generic[0].Columns[0].Label = "mutated by a reader"
 	if got := e.info(t, "aa").Generic[0].Columns[0].Label; got != "Name" {
 		t.Fatalf("a PluginInfo shares columns with the manifest: label %q", got)
+	}
+}
+
+// A stat view has no columns; the wire type is an array, so the row carries [] and never null.
+func TestInfoSendsStatColumnsAsEmptyArray(t *testing.T) {
+	stat := model.GenericView{ID: "s", Title: "Count", Kind: model.GenericStat, Topic: "items", Path: "/n"}
+	e := start(t, genericPlugin("aa", plugin.UISpec{Generic: []model.GenericView{stat}}))
+	got := e.info(t, "aa").Generic[0]
+	if got.Columns == nil {
+		t.Fatal("Columns is nil")
+	}
+	raw, err := json.Marshal(got)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(raw), `"columns":[]`) {
+		t.Fatalf("stat view = %s, want \"columns\":[]", raw)
 	}
 }

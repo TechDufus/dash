@@ -337,15 +337,21 @@ func cloneGeneric(id ID, views []model.GenericView, topics map[string]bool) ([]m
 		if v.Format != "" && !genericFormats[v.Format] {
 			return nil, bad("unknown format %q", v.Format)
 		}
+		keys := map[string]bool{}
 		for _, c := range v.Columns {
 			if c.Key == "" {
 				return nil, bad("a column has no key")
 			}
+			if keys[c.Key] {
+				return nil, bad("duplicate column key %q", c.Key)
+			}
+			keys[c.Key] = true
 			if c.Format != "" && !genericFormats[c.Format] {
 				return nil, bad("column %q has unknown format %q", c.Key, c.Format)
 			}
 		}
-		v.Columns = slices.Clone(v.Columns)
+		// Never nil, so a stat view's columns reach the wire as [], not null.
+		v.Columns = append([]model.GenericColumn{}, v.Columns...)
 		out[i] = v
 	}
 	return out, nil

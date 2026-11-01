@@ -56,7 +56,7 @@ func (s *Supervisor) info(in *instance) model.PluginInfo {
 				v.Topic = string(topicName(in.id, t))
 			}
 		}
-		v.Columns = slices.Clone(v.Columns)
+		v.Columns = append([]model.GenericColumn{}, v.Columns...)
 		pi.Generic = append(pi.Generic, v)
 	}
 	if len(pi.Generic) > 0 && len(pi.Nav) == 0 {
