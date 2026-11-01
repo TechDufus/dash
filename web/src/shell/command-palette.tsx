@@ -37,7 +37,7 @@ function moduleGroups(ctx: PaletteCtx, visible: (id: string) => boolean): Palett
   const groups = [...merged].map(([id, g]) => ({
     id,
     heading: g.heading,
-    items: g.items.toSorted((a, b) => (a.rank ?? 0) - (b.rank ?? 0)), // stable: ties keep module order
+    items: [...g.items].sort((a, b) => (a.rank ?? 0) - (b.rank ?? 0)), // stable: ties keep module order
   }));
   const actions = groups.filter((g) => g.id === "actions");
   return [...actions, ...groups.filter((g) => g.id !== "actions")].filter(

@@ -162,6 +162,24 @@ describe("command palette", () => {
     ]);
   });
 
+  // The build targets Firefox 114, which has no ES2023 array copy methods (toSorted and friends).
+  it("builds the palette on a runtime without the ES2023 array copy methods", async () => {
+    const methods = ["toSorted", "toReversed", "toSpliced"] as const;
+    const saved = methods.map((m) => Object.getOwnPropertyDescriptor(Array.prototype, m));
+    for (const m of methods) Reflect.deleteProperty(Array.prototype, m);
+    try {
+      connect();
+      renderApp(<CommandPalette />);
+      const dialog = await open();
+      expect(itemsOf(dialog, "Actions")).toEqual(["Reconcile flux-system", "Restart media/app"]);
+    } finally {
+      methods.forEach((m, i) => {
+        const d = saved[i];
+        if (d) Object.defineProperty(Array.prototype, m, d);
+      });
+    }
+  });
+
   it("draws ids and addresses in the monospace face and kinds and groups in the body face", async () => {
     connect();
     renderApp(<CommandPalette />);
