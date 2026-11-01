@@ -15,17 +15,10 @@ import (
 
 	"github.com/TechDufus/dash/internal/api"
 	"github.com/TechDufus/dash/internal/config"
-	"github.com/TechDufus/dash/internal/hub"
-	"github.com/TechDufus/dash/internal/kube"
 	"github.com/TechDufus/dash/internal/links"
-	"github.com/TechDufus/dash/internal/plugin"
 	"github.com/TechDufus/dash/internal/secret"
 	"github.com/TechDufus/dash/internal/topics"
 	"github.com/TechDufus/dash/internal/upstream"
-	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/apimachinery/pkg/runtime/schema"
-	dynfake "k8s.io/client-go/dynamic/fake"
-	kubefake "k8s.io/client-go/kubernetes/fake"
 )
 
 // lockedBuf is a log sink the test can read while the reloader writes to it.
@@ -63,7 +56,7 @@ func TestReloadedSecretReachesTheProxmoxClientWhileReadinessHolds(t *testing.T) 
 	writeTestFile(t, cfgPath, "plugins:\n  headlamp:\n    url: https://hl-a.example.com\n")
 	writeTestFile(t, tokenPath, "token-one-0123456789\n")
 	startEnv(t, dir,
-		"DASH_CONFIG="+cfgPath, "DASH_PLUGINS_PROXMOX_URL="+pve.URL,
+		"DASH_CONFIG="+cfgPath, "DASH_PLUGINS_PROXMOX_URL="+pve.URL, `DASH_SERVER_READY_REQUIRES=["kubernetes"]`,
 		"DASH_PLUGINS_PROXMOX_TOKEN_ID=u@pve!t", "DASH_PLUGINS_PROXMOX_TOKEN_SECRET_FILE="+tokenPath)
 
 	var logs lockedBuf
@@ -81,34 +74,19 @@ func TestReloadedSecretReachesTheProxmoxClientWhileReadinessHolds(t *testing.T) 
 	// (server.readyRequires = [kubernetes]), not the reloader.
 	cfg := res.Config
 	pveClient := upstream.NewProxmox(cfg.ProxmoxURL, "", cfg.ProxmoxTokenID, cfg.ProxmoxTokenSecret, nil)
-	listKinds := map[schema.GroupVersionResource]string{}
-	for _, gvr := range []schema.GroupVersionResource{
-		kube.GVRKustomizations, kube.GVRHelmReleases, kube.GVRGitRepositories, kube.GVROCIRepositories, kube.GVRHelmRepositories,
-		kube.GVRCNPGClusters, kube.GVRCertificates, kube.GVRExternalSecrets, kube.GVRHTTPRoutes,
-	} {
-		listKinds[gvr] = gvr.Resource + "List"
-	}
-	cluster := kube.NewFromClients(kubefake.NewClientset(), dynfake.NewSimpleDynamicClientWithCustomListKinds(runtime.NewScheme(), listKinds))
-	h := hub.New()
-	sup := plugin.NewSupervisor(plugin.Options{
-		Publisher: h, Settings: treeSettings{func() config.Tree { return res.Tree }},
-		ReadyRequires: []plugin.ID{"kubernetes"}, ReadyTimeout: time.Minute,
-	})
+	fw := newFramework(res, store, config.ReloadOptions{Interval: time.Millisecond})
+	sup, reloader := fw.sup, fw.reloader
 	mgr := topics.New(topics.Deps{
-		Cfg: cfg, Cluster: cluster, Prom: upstream.NewProm(cfg.VMURL, nil), AM: upstream.NewAlertmanager(cfg.AlertmanagerURL, nil),
+		Cfg: cfg, Cluster: testCluster(), Prom: upstream.NewProm(cfg.VMURL, nil), AM: upstream.NewAlertmanager(cfg.AlertmanagerURL, nil),
 		Gatus: upstream.NewGatus(cfg.GatusURL, nil), PVE: pveClient, Hosts: sup,
 		Links: links.New(cfg), Secrets: reg,
 	})
 	ctx, cancel := context.WithCancel(context.Background())
-	if err := sup.Add(mgr.Plugins()...); err != nil {
-		t.Fatal(err)
-	}
-	if err := sup.Run(ctx); err != nil {
+	if err := fw.start(ctx, mgr.Plugins(), func() { mgr.Run(ctx) }); err != nil {
 		t.Fatal(err)
 	}
 	defer sup.Shutdown(context.Background())
-	mgr.Run(ctx)
-	srv := api.New(api.Deps{Cfg: cfg, Hub: hub.New(), Secrets: reg, Health: sup})
+	srv := api.New(api.Deps{Cfg: cfg, Hub: fw.hub, Secrets: reg, Health: sup})
 	srv.MarkServing()
 	health := srv.HealthHandler()
 	ready := func() int {
@@ -125,7 +103,6 @@ func TestReloadedSecretReachesTheProxmoxClientWhileReadinessHolds(t *testing.T) 
 		return pve.auth[len(pve.auth)-1]
 	}
 
-	reloader := config.NewReloader(res, store, config.ReloadOptions{Interval: time.Millisecond})
 	events := make(chan config.Change, 8)
 	reloader.Subscribe(func(c config.Change) { events <- c })
 	done := make(chan struct{})

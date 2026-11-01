@@ -27,3 +27,32 @@ func TestUnknownCommandIsRefused(t *testing.T) {
 		t.Errorf("error = %v", err)
 	}
 }
+
+// The usage a mistyped command prints names the whole command line, and lists each command once
+// with its own `dash` prefix (no "dash [dash config …").
+func TestUsageTextNamesTheCommandAndEachUsageOnce(t *testing.T) {
+	for _, tc := range []struct {
+		args    []string
+		unknown string
+	}{
+		{[]string{"api"}, `"api"`},
+		{[]string{"api", "nope"}, `"api nope"`},
+		{[]string{"config", "nope"}, `"config nope"`},
+		{[]string{"nope"}, `"nope"`},
+	} {
+		err := command(tc.args, &bytes.Buffer{})
+		if err == nil || !strings.Contains(err.Error(), "unknown command "+tc.unknown) {
+			t.Errorf("%v: error = %v, want unknown command %s", tc.args, err, tc.unknown)
+			continue
+		}
+		if strings.Contains(err.Error(), "[]") || strings.Contains(err.Error(), "dash [") {
+			t.Errorf("%v: malformed usage: %v", tc.args, err)
+		}
+	}
+	err := command([]string{"nope"}, &bytes.Buffer{})
+	for _, u := range []string{configUsage, auditUsage, apiUsage} {
+		if err == nil || strings.Count(err.Error(), u) != 1 {
+			t.Errorf("usage %q is not in the top-level error exactly once: %v", u, err)
+		}
+	}
+}

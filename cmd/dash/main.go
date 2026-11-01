@@ -17,11 +17,9 @@ import (
 	"github.com/TechDufus/dash/internal/api"
 	"github.com/TechDufus/dash/internal/config"
 	"github.com/TechDufus/dash/internal/demo"
-	"github.com/TechDufus/dash/internal/hub"
 	"github.com/TechDufus/dash/internal/kube"
 	"github.com/TechDufus/dash/internal/links"
 	"github.com/TechDufus/dash/internal/obs"
-	"github.com/TechDufus/dash/internal/plugin"
 	"github.com/TechDufus/dash/internal/secret"
 	"github.com/TechDufus/dash/internal/topics"
 	"github.com/TechDufus/dash/internal/upstream"
@@ -60,7 +58,7 @@ func command(args []string, out io.Writer) error {
 	if len(args) >= 1 && args[0] == "api" {
 		return apiCommand(args[1:], out)
 	}
-	return fmt.Errorf("unknown command %q; usage: dash [%s | audit verify [--dir DIR] | %s]", strings.Join(args, " "), configUsage, apiUsage)
+	return fmt.Errorf("unknown command %q; usage: %s | %s | %s", strings.Join(args, " "), configUsage, auditUsage, apiUsage)
 }
 
 // exitCode is the exit status of a subcommand that returned err: 1 when it ran and found a
@@ -91,26 +89,10 @@ func run(reg *secret.Registry) error {
 	defer stop()
 
 	// Rotated secret files reach the running credentials, and a changed plugins.* section reaches
-	// the plugin supervisor, which applies it in-process where the plugin allows it (the legacy
-	// ones still need a restart, and the log says so). Readiness does not depend on the reloader.
-	// The loop ends with ctx and is awaited before the audit log and the store close. sup is set
-	// before the loop starts, so the Live hook never sees nil.
-	var sup *plugin.Supervisor
-	reloader := config.NewReloader(res, store, config.ReloadOptions{Live: func(s string) bool { return sup.Live(s) }})
-	h := hub.New()
-	ready := make([]plugin.ID, len(cfg.ReadyRequires))
-	for i, id := range cfg.ReadyRequires {
-		ready[i] = plugin.ID(id)
-	}
-	sup = plugin.NewSupervisor(plugin.Options{
-		Publisher: h, Settings: treeSettings{reloader.Tree}, ReadyRequires: ready, ReadyTimeout: cfg.ReadyTimeout,
-	})
-	h.SetOrder(sup.TopicOrder)
-	reloader.Subscribe(func(c config.Change) {
-		if strings.HasPrefix(c.Section, "plugins.") {
-			sup.Reload()
-		}
-	})
+	// the plugin supervisor (newFramework). The reloader's loop ends with ctx and is awaited
+	// before the audit log and the store close.
+	fw := newFramework(res, store, config.ReloadOptions{})
+	h, sup, reloader := fw.hub, fw.sup, fw.reloader
 	reloaderDone := make(chan struct{})
 	go func() { defer close(reloaderDone); reloader.Run(ctx) }()
 	defer func() { stop(); <-reloaderDone }()
@@ -131,13 +113,9 @@ func run(reg *secret.Registry) error {
 	if cfg.Demo {
 		cfg = demo.Config(cfg)
 		src := demo.New(cfg)
-		if err := sup.Add(src.Plugins(sup)...); err != nil {
+		if err := fw.start(ctx, src.Plugins(sup), func() { src.Run(ctx) }); err != nil {
 			return err
 		}
-		if err := sup.Run(ctx); err != nil {
-			return err
-		}
-		src.Run(ctx)
 		srv = api.New(api.Deps{
 			Cfg: cfg, Version: version, Hub: h, Plugins: sup, Prom: src, AM: src, VLogs: src, Data: src, Health: sup, Metrics: metrics, Secrets: reg, Audit: alog,
 		})
@@ -174,13 +152,9 @@ func run(reg *secret.Registry) error {
 			Links: links.New(cfg), Secrets: reg,
 		})
 		// The supervisor starts before the Manager so that no first publish is dropped.
-		if err := sup.Add(mgr.Plugins()...); err != nil {
+		if err := fw.start(ctx, mgr.Plugins(), func() { mgr.Run(ctx) }); err != nil {
 			return err
 		}
-		if err := sup.Run(ctx); err != nil {
-			return err
-		}
-		mgr.Run(ctx)
 
 		srv = api.New(api.Deps{
 			Cfg: cfg, Version: version, Hub: h, Plugins: sup, Kube: cluster.Client, Dyn: cluster.Dynamic,

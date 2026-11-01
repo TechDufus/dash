@@ -15,6 +15,8 @@ import (
 // errAuditFailed makes `dash audit verify` exit 1; the report it printed says why.
 var errAuditFailed = errors.New("audit log failed verification")
 
+const auditUsage = "dash audit verify [--dir DIR]"
+
 // auditVerify checks the hash chain of the audit log in --dir, by default the data directory
 // the server would use (file and environment layers, as for the settings store), and lists
 // intents that never got an outcome (a crash mid-action).
@@ -23,10 +25,10 @@ func auditVerify(args []string, out io.Writer) error {
 	fs.SetOutput(io.Discard)
 	dir := fs.String("dir", "", "directory holding audit.jsonl (default: the configured data directory)")
 	if err := fs.Parse(args); err != nil {
-		return fmt.Errorf("%w; usage: dash audit verify [--dir DIR]", err)
+		return fmt.Errorf("%w; usage: %s", err, auditUsage)
 	}
 	if fs.NArg() > 0 {
-		return fmt.Errorf("unexpected argument %q; usage: dash audit verify [--dir DIR]", fs.Arg(0))
+		return fmt.Errorf("unexpected argument %q; usage: %s", fs.Arg(0), auditUsage)
 	}
 	if *dir == "" {
 		src, err := config.ProcessSources(nil) // verification reads no secret

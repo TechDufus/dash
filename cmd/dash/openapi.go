@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 
 	"github.com/TechDufus/dash/internal/api"
 )
@@ -14,7 +15,7 @@ const apiUsage = "dash api openapi [-o FILE]"
 // apiCommand runs `dash api <args>`.
 func apiCommand(args []string, out io.Writer) error {
 	if len(args) == 0 || args[0] != "openapi" {
-		return fmt.Errorf("unknown command %q; usage: %s", "api "+fmt.Sprint(args), apiUsage)
+		return fmt.Errorf("unknown command %q; usage: %s", strings.Join(append([]string{"api"}, args...), " "), apiUsage)
 	}
 	return openapiCommand(args[1:], out)
 }
