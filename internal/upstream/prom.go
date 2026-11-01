@@ -12,16 +12,16 @@ import (
 	"time"
 
 	"github.com/TechDufus/dash/internal/model"
+	"github.com/TechDufus/dash/internal/svc"
 )
 
-// Sample is one instant-vector element.
-type Sample struct {
-	Labels map[string]string
-	Value  float64
-}
+// Sample is one instant-vector element. It is svc.Sample, so *Prom satisfies svc.Querier.
+type Sample = svc.Sample
 
 // Prom queries a Prometheus-compatible API (VictoriaMetrics).
 type Prom struct{ c client }
+
+var _ svc.Querier = (*Prom)(nil)
 
 func NewProm(baseURL string, rt http.RoundTripper) *Prom {
 	return &Prom{c: newClient(baseURL, rt, 5*time.Second)}

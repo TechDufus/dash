@@ -6,13 +6,12 @@ package demo
 import (
 	"context"
 	"fmt"
-	"hash/fnv"
-	"math"
 	"net/http"
 	"strings"
 	"time"
 
 	"github.com/TechDufus/dash/internal/config"
+	"github.com/TechDufus/dash/internal/demo/world"
 	"github.com/TechDufus/dash/internal/links"
 	"github.com/TechDufus/dash/internal/model"
 	"github.com/TechDufus/dash/internal/plugin"
@@ -26,25 +25,23 @@ const tick = 5 * time.Second
 // Config points every deep link and launcher entry at example.com and names the fake host.
 func Config(cfg config.Config) config.Config {
 	cfg.ProxmoxURL = "https://pve.example.com:8006"
-	cfg.ProxmoxNode = hostName
-	cfg.HostNodename = hostName
+	cfg.ProxmoxNode = world.HostName
+	cfg.HostNodename = world.HostName
 	cfg.HeadlampURL = "https://headlamp.example.com"
 	cfg.HeadlampCluster = "demo"
 	cfg.GrafanaURL = "https://grafana.example.com"
 	cfg.HostModel = "Dell R730"
-	cfg.Launcher = []model.LauncherLink{
-		{Name: "Proxmox", Href: "https://pve.example.com:8006", Icon: "proxmox", Description: "Hypervisor"},
-		{Name: "iDRAC", Href: "https://idrac.example.com", Icon: "idrac", Description: "Out-of-band"},
-		{Name: "UniFi", Href: "https://unifi.example.com", Icon: "unifi", Description: "Network"},
-		{Name: "NAS", Href: "https://nas.example.com", Icon: "unifi-drive", Description: "Backups"},
-		{Name: "GitOps repo", Href: "https://git.example.com/homelab", Icon: "github", Description: "Flux source"},
-	}
+	cfg.Launcher = world.Launcher().Links
 	return cfg
 }
 
 // Source serves the fixtures to the hub and the API.
 type Source struct {
-	links *links.Builder
+	// HasReal reports whether a plugin has a real factory (and so publishes its own demo data
+	// through its twin). Nil means none does. Set it before Plugins.
+	HasReal func(id plugin.ID) bool
+
+	world *world.World
 	start time.Time
 	now   func() time.Time
 	hosts plugin.HostProvider
@@ -52,22 +49,32 @@ type Source struct {
 
 // New returns a Source anchored at the current time. Call Plugins before Run.
 func New(cfg config.Config) *Source {
-	return &Source{links: links.New(cfg), start: time.Now(), now: time.Now}
+	s := &Source{start: time.Now(), now: time.Now}
+	s.world = world.New(func() time.Time { return s.now() }, s.start, links.New(cfg))
+	return s
 }
 
-// Plugins returns the eleven plugins of the legacy manifests, all healthy: the demo has nothing
-// to poll. Unlike the production shims they can be switched off and on at runtime. Each topic
-// is published through the Host of its plugin in hosts (the supervisor they are added to), so
-// disabling a plugin in demo mode removes its topics like it does for real.
+// Plugins returns the demo shims of the legacy manifests, all healthy: the demo has nothing to
+// poll. Unlike the production shims they can be switched off and on at runtime. Each topic is
+// published through the Host of its plugin in hosts (the supervisor they are added to), so
+// disabling a plugin in demo mode removes its topics like it does for real. A plugin for which
+// HasReal reports a factory is left out and its topics are not published here: its demo twin
+// builds them from the world, so a twin and a shim never both register.
 func (s *Source) Plugins(hosts plugin.HostProvider) []plugin.Factory {
 	s.hosts = hosts
 	ms := topics.LegacyManifests()
-	out := make([]plugin.Factory, len(ms))
-	for i, m := range ms {
-		out[i] = func() plugin.Plugin { return demoPlugin{m} }
+	out := make([]plugin.Factory, 0, len(ms))
+	for _, m := range ms {
+		if s.real(m.ID) {
+			continue
+		}
+		out = append(out, func() plugin.Plugin { return demoPlugin{m} })
 	}
 	return out
 }
+
+// real reports whether the plugin has a real factory, and with it a demo twin.
+func (s *Source) real(id plugin.ID) bool { return s.HasReal != nil && s.HasReal(id) }
 
 // Run publishes every topic now and again on each tick until ctx ends; it does not block. Plugins
 // must have been called.
@@ -113,7 +120,7 @@ func (s *Source) publish() {
 		{model.TopicApps, w.apps, src("kubernetes", "gatus")},
 	} {
 		if id, local, ok := topics.Owner(p.topic); ok {
-			if s.hosts.Running(id) { // a disabled plugin publishes nothing
+			if s.hosts.Running(id) && !s.real(id) { // a disabled plugin publishes nothing; a twin publishes for itself
 				s.hosts.HostFor(id).Publish(local, p.data, p.srcs)
 			}
 		} else {
@@ -122,83 +129,16 @@ func (s *Source) publish() {
 	}
 }
 
-// wave is a smooth, repeatable drift in [-1, 1] for a key at time t.
-func wave(key string, t time.Time) float64 {
-	f := fnv.New32a()
-	_, _ = f.Write([]byte(key))
-	phase := float64(f.Sum32()%1000) / 1000 * 2 * math.Pi
-	x := float64(t.Unix())
-	// A daily swing, an hourly one and a little chatter, so every chart range has some shape.
-	return 0.5*math.Sin(2*math.Pi*x/86400+phase) + 0.35*math.Sin(x/1700+2*phase) + 0.15*math.Sin(x/240+3*phase)
-}
-
-// around returns base drifting by up to ±spread.
-func around(key string, t time.Time, base, spread float64) float64 {
-	return base + spread*wave(key, t)
-}
-
 // ---- REST: series, logs, details, silences ----
 
 // Range answers /api/v1/series with generated lines shaped like the real query's result.
 func (s *Source) Range(_ context.Context, expr string, start, end time.Time, step time.Duration) ([]model.SeriesLine, error) {
-	type shape struct {
-		labels       map[string]string
-		base, spread float64
-	}
-	one := func(base, spread float64) []shape { return []shape{{map[string]string{}, base, spread}} }
-	var shapes []shape
-	switch {
-	case strings.Contains(expr, "ipmi_fan_speed_rpm"):
-		for i, rpm := range []float64{5880, 6000, 5760, 6120, 5940, 6060} {
-			shapes = append(shapes, shape{map[string]string{"name": fmt.Sprintf("Fan%d", i+1)}, rpm, 240})
-		}
-	case strings.Contains(expr, "ipmi_temperature_celsius"):
-		for _, x := range hostSensors {
-			shapes = append(shapes, shape{map[string]string{"name": x.Name}, x.ValueC, 3})
-		}
-	case strings.Contains(expr, "ipmi_power_watts"):
-		shapes = one(214, 26)
-	case strings.Contains(expr, "node_hwmon_temp_celsius"):
-		shapes = one(57, 6)
-	case strings.Contains(expr, "pve_cpu_usage_ratio"), strings.Contains(expr, "node_cpu_seconds_total"):
-		shapes = one(0.22, 0.12)
-	case strings.Contains(expr, "pve_memory"), strings.Contains(expr, "node_memory"):
-		shapes = one(0.61, 0.06)
-	case strings.Contains(expr, "network_receive"):
-		shapes = one(3.2e6, 2.4e6)
-	case strings.Contains(expr, "network_transmit"):
-		shapes = one(1.4e6, 1.1e6)
-	case strings.Contains(expr, "disk_read"):
-		shapes = one(8.5e5, 7e5)
-	case strings.Contains(expr, "disk_written"):
-		shapes = one(2.1e6, 1.6e6)
-	case strings.Contains(expr, "container_cpu_usage"):
-		shapes = one(0.045, 0.03)
-	case strings.Contains(expr, "container_memory"):
-		shapes = one(1.8e8, 2.5e7)
-	default:
-		shapes = one(0.5, 0.2)
-	}
-	out := make([]model.SeriesLine, 0, len(shapes))
-	for _, sh := range shapes {
-		key := expr + fmt.Sprint(sh.labels)
-		var pts [][2]float64
-		for t := start.Truncate(step); !t.After(end); t = t.Add(step) {
-			pts = append(pts, [2]float64{float64(t.Unix()), math.Max(0, around(key, t, sh.base, sh.spread))})
-		}
-		out = append(out, model.SeriesLine{Labels: sh.labels, Points: pts})
-	}
-	return out, nil
+	return world.Series(expr, start, end, step), nil
 }
 
 // Query answers /api/logs with a few minutes of plausible lines for the pod.
 func (s *Source) Query(_ context.Context, q upstream.LogQuery) ([]model.LogLine, error) {
-	now := s.now()
-	lines := make([]model.LogLine, 0, 60)
-	for i := 59; i >= 0; i-- {
-		lines = append(lines, logLine(q, now.Add(-time.Duration(i)*7*time.Second), i))
-	}
-	return lines, nil
+	return s.world.Logs(q.Pod, q.Container), nil
 }
 
 // Tail emits a new line every couple of seconds until the client goes away.
@@ -210,32 +150,11 @@ func (s *Source) Tail(ctx context.Context, q upstream.LogQuery, emit func(model.
 		case <-ctx.Done():
 			return nil
 		case now := <-t.C:
-			if err := emit(logLine(q, now, i)); err != nil {
+			if err := emit(world.LogLine(q.Pod, q.Container, now, i)); err != nil {
 				return err
 			}
 		}
 	}
-}
-
-var logMsgs = []string{
-	`level=info msg="request served" method=GET path=/healthz status=200 duration=1.2ms`,
-	`level=info msg="reconcile finished" changed=0 duration=48ms`,
-	`level=info msg="cache synced" kind=Pod items=212`,
-	`level=debug msg="watch event" type=MODIFIED object=demo/web-7d9c`,
-	`level=info msg="request served" method=GET path=/api/stream status=200 duration=31.4s`,
-	`level=warn msg="slow upstream" target=metrics duration=1.8s`,
-}
-
-func logLine(q upstream.LogQuery, at time.Time, i int) model.LogLine {
-	pod := q.Pod
-	if pod == "" {
-		pod = "demo"
-	}
-	c := q.Container
-	if c == "" {
-		c = "app"
-	}
-	return model.LogLine{Time: at.UTC(), Pod: pod, Container: c, Msg: logMsgs[i%len(logMsgs)]}
 }
 
 // PodDetail answers /api/pods/{ns}/{name} from the cluster fixtures.

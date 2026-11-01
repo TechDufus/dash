@@ -59,6 +59,14 @@ The settings store behind the settings page.
 |---|---|---|---|---|
 | `dataDir` | `DASH_DATA_DIR` | string | `/data` | Where dash keeps its state (ui-settings.yaml, audit.jsonl) and looks for config.yaml. Demo mode uses none. _Restart-only._ |
 
+## `ui`
+
+What the web UI is told by the server.
+
+| Setting | Variable | Type | Default | Description |
+|---|---|---|---|---|
+| `ui.iconBaseURL` | `DASH_UI_ICON_BASE_URL` | string | - | Where icon names resolve: an icon called proxmox is requested from <iconBaseURL>/proxmox.png, and an icon URL is only used when it lies under this URL. An http(s) URL with a host, without query or fragment, e.g. https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/png. Empty requests no icon from any third party: an icon name shows a letter tile. _Restart-only._ |
+
 ## `plugins.prometheus`
 
 VictoriaMetrics or Prometheus: the series behind charts, KPIs and host metrics.
@@ -68,6 +76,34 @@ VictoriaMetrics or Prometheus: the series behind charts, KPIs and host metrics.
 | `plugins.prometheus.type` | `DASH_PLUGINS_PROMETHEUS_TYPE` | string | - | The plugin type. dash runs one instance per type, so this is empty or the section name. |
 | `plugins.prometheus.enabled` | `DASH_PLUGINS_PROMETHEUS_ENABLED` | boolean | - | false turns the plugin off (a restart applies it): its topics are removed, and the web UI drops its rail entry, palette entries, overview tiles and panels and shows a switched-off page at its address. The Kubernetes connection is required whichever plugins are off. Unset leaves it on: a plugin without its settings reports itself unavailable (not configured), and the web UI hides its pages. |
 | `plugins.prometheus.url` | `DASH_PLUGINS_PROMETHEUS_URL` | string | - | Base URL of the service, e.g. http://host:9090. Empty turns the source off: dash makes no request and its panels show "source not configured". |
+| `plugins.prometheus.timeout` | `DASH_PLUGINS_PROMETHEUS_TIMEOUT` | duration (e.g. 30s) | `5s` | How long one query may take before dash gives up on it. |
+| `plugins.prometheus.headers` | `DASH_PLUGINS_PROMETHEUS_HEADERS` | object (JSON) | - | Extra headers sent with every request, as {name: value}. Plain configuration, not secrets: put credentials in auth. Authorization, Proxy-Authorization, Cookie and Host cannot be set. A JSON object in the environment. |
+
+## `plugins.prometheus.auth.basic`
+
+HTTP Basic authentication. Not together with bearerToken.
+
+| Setting | Variable | Type | Default | Description |
+|---|---|---|---|---|
+| `plugins.prometheus.auth.basic.username` | `DASH_PLUGINS_PROMETHEUS_AUTH_BASIC_USERNAME` | string | - | User name. |
+| `plugins.prometheus.auth.basic.password` | `DASH_PLUGINS_PROMETHEUS_AUTH_BASIC_PASSWORD` | string | - | Password: a literal, env:NAME or file:/path. Set together with username. _Secret._ |
+
+## `plugins.prometheus.auth`
+
+How dash authenticates to the service. Neither basic nor bearerToken sends no credentials.
+
+| Setting | Variable | Type | Default | Description |
+|---|---|---|---|---|
+| `plugins.prometheus.auth.bearerToken` | `DASH_PLUGINS_PROMETHEUS_AUTH_BEARER_TOKEN` | string | - | Bearer token sent as Authorization: Bearer: a literal, env:NAME or file:/path. Not together with basic. _Secret._ |
+
+## `plugins.prometheus.tls`
+
+How dash verifies the service's certificate.
+
+| Setting | Variable | Type | Default | Description |
+|---|---|---|---|---|
+| `plugins.prometheus.tls.caFile` | `DASH_PLUGINS_PROMETHEUS_TLS_CA_FILE` | string | - | Path of a PEM file with the certificate authority that signed the service's certificate, added to the system roots. Empty uses the system roots only. |
+| `plugins.prometheus.tls.insecureSkipVerify` | `DASH_PLUGINS_PROMETHEUS_TLS_INSECURE_SKIP_VERIFY` | boolean | - | Skip verifying the service's certificate and host name. Anyone on the network path can then impersonate the service: prefer caFile. |
 
 ## `plugins.alertmanager`
 
@@ -78,6 +114,44 @@ Alertmanager: alerts and silences.
 | `plugins.alertmanager.type` | `DASH_PLUGINS_ALERTMANAGER_TYPE` | string | - | The plugin type. dash runs one instance per type, so this is empty or the section name. |
 | `plugins.alertmanager.enabled` | `DASH_PLUGINS_ALERTMANAGER_ENABLED` | boolean | - | false turns the plugin off (a restart applies it): its topics are removed, and the web UI drops its rail entry, palette entries, overview tiles and panels and shows a switched-off page at its address. The Kubernetes connection is required whichever plugins are off. Unset leaves it on: a plugin without its settings reports itself unavailable (not configured), and the web UI hides its pages. |
 | `plugins.alertmanager.url` | `DASH_PLUGINS_ALERTMANAGER_URL` | string | - | Base URL of the service, e.g. http://host:9090. Empty turns the source off: dash makes no request and its panels show "source not configured". |
+| `plugins.alertmanager.ignoreAlerts` | `DASH_PLUGINS_ALERTMANAGER_IGNORE_ALERTS` | list of strings (JSON) | `["Watchdog","InfoInhibitor"]` | Alert names dash drops everywhere: the alert list, the attention items and the firing count. A JSON list in the environment. |
+| `plugins.alertmanager.severityMap` | `DASH_PLUGINS_ALERTMANAGER_SEVERITY_MAP` | object (JSON) | `{"critical":"crit","warning":"warn"}` | How an alert's severity label value becomes dash's severity (crit or warn), as {label value: severity}. A JSON object in the environment. |
+| `plugins.alertmanager.silenceDurations` | `DASH_PLUGINS_ALERTMANAGER_SILENCE_DURATIONS` | list of strings (JSON) | `["1h","4h","24h","7d"]` | The silence lengths the dialog offers, from 1h, 4h, 24h and 7d. A JSON list in the environment. |
+| `plugins.alertmanager.protectedAlerts` | `DASH_PLUGINS_ALERTMANAGER_PROTECTED_ALERTS` | list of strings (JSON) | `["Watchdog"]` | Alert names nobody can silence through dash, whatever the role. A JSON list in the environment. |
+
+## `plugins.alertmanager.auth.basic`
+
+HTTP Basic authentication. Not together with bearerToken.
+
+| Setting | Variable | Type | Default | Description |
+|---|---|---|---|---|
+| `plugins.alertmanager.auth.basic.username` | `DASH_PLUGINS_ALERTMANAGER_AUTH_BASIC_USERNAME` | string | - | User name. |
+| `plugins.alertmanager.auth.basic.password` | `DASH_PLUGINS_ALERTMANAGER_AUTH_BASIC_PASSWORD` | string | - | Password: a literal, env:NAME or file:/path. Set together with username. _Secret._ |
+
+## `plugins.alertmanager.auth`
+
+How dash authenticates to Alertmanager. Neither basic nor bearerToken sends no credentials.
+
+| Setting | Variable | Type | Default | Description |
+|---|---|---|---|---|
+| `plugins.alertmanager.auth.bearerToken` | `DASH_PLUGINS_ALERTMANAGER_AUTH_BEARER_TOKEN` | string | - | Bearer token sent as Authorization: Bearer: a literal, env:NAME or file:/path. Not together with basic. _Secret._ |
+
+## `plugins.alertmanager.tls`
+
+How dash verifies Alertmanager's certificate.
+
+| Setting | Variable | Type | Default | Description |
+|---|---|---|---|---|
+| `plugins.alertmanager.tls.caFile` | `DASH_PLUGINS_ALERTMANAGER_TLS_CA_FILE` | string | - | Path of a PEM file with the certificate authority that signed the service's certificate, added to the system roots. Empty uses the system roots only. |
+| `plugins.alertmanager.tls.insecureSkipVerify` | `DASH_PLUGINS_ALERTMANAGER_TLS_INSECURE_SKIP_VERIFY` | boolean | - | Skip verifying the service's certificate and host name. Anyone on the network path can then impersonate the service: prefer caFile. |
+
+## `plugins.alertmanager.actions`
+
+The silence actions.
+
+| Setting | Variable | Type | Default | Description |
+|---|---|---|---|---|
+| `plugins.alertmanager.actions.enabled` | `DASH_PLUGINS_ALERTMANAGER_ACTIONS_ENABLED` | boolean | - | Offer the plugin's actions. Off by default: without it the actions are not mounted and the web UI does not show their buttons. |
 
 ## `plugins.victorialogs`
 
@@ -88,6 +162,44 @@ VictoriaLogs: the pod logs the UI shows.
 | `plugins.victorialogs.type` | `DASH_PLUGINS_VICTORIALOGS_TYPE` | string | - | The plugin type. dash runs one instance per type, so this is empty or the section name. |
 | `plugins.victorialogs.enabled` | `DASH_PLUGINS_VICTORIALOGS_ENABLED` | boolean | - | false turns the plugin off (a restart applies it): its topics are removed, and the web UI drops its rail entry, palette entries, overview tiles and panels and shows a switched-off page at its address. The Kubernetes connection is required whichever plugins are off. Unset leaves it on: a plugin without its settings reports itself unavailable (not configured), and the web UI hides its pages. |
 | `plugins.victorialogs.url` | `DASH_PLUGINS_VICTORIALOGS_URL` | string | - | Base URL of the service, e.g. http://host:9090. Empty turns the source off: dash makes no request and its panels show "source not configured". |
+| `plugins.victorialogs.limit` | `DASH_PLUGINS_VICTORIALOGS_LIMIT` | integer | `500` | Most log lines one query returns. Greater than zero. |
+| `plugins.victorialogs.denyNamespaces` | `DASH_PLUGINS_VICTORIALOGS_DENY_NAMESPACES` | list of strings (JSON) | - | Namespaces whose logs dash refuses to show, whatever the role. A JSON list in the environment. |
+
+## `plugins.victorialogs.auth.basic`
+
+HTTP Basic authentication. Not together with bearerToken.
+
+| Setting | Variable | Type | Default | Description |
+|---|---|---|---|---|
+| `plugins.victorialogs.auth.basic.username` | `DASH_PLUGINS_VICTORIALOGS_AUTH_BASIC_USERNAME` | string | - | User name. |
+| `plugins.victorialogs.auth.basic.password` | `DASH_PLUGINS_VICTORIALOGS_AUTH_BASIC_PASSWORD` | string | - | Password: a literal, env:NAME or file:/path. Set together with username. _Secret._ |
+
+## `plugins.victorialogs.auth`
+
+How dash authenticates to VictoriaLogs. Neither basic nor bearerToken sends no credentials.
+
+| Setting | Variable | Type | Default | Description |
+|---|---|---|---|---|
+| `plugins.victorialogs.auth.bearerToken` | `DASH_PLUGINS_VICTORIALOGS_AUTH_BEARER_TOKEN` | string | - | Bearer token sent as Authorization: Bearer: a literal, env:NAME or file:/path. Not together with basic. _Secret._ |
+
+## `plugins.victorialogs.tls`
+
+How dash verifies VictoriaLogs's certificate.
+
+| Setting | Variable | Type | Default | Description |
+|---|---|---|---|---|
+| `plugins.victorialogs.tls.caFile` | `DASH_PLUGINS_VICTORIALOGS_TLS_CA_FILE` | string | - | Path of a PEM file with the certificate authority that signed the service's certificate, added to the system roots. Empty uses the system roots only. |
+| `plugins.victorialogs.tls.insecureSkipVerify` | `DASH_PLUGINS_VICTORIALOGS_TLS_INSECURE_SKIP_VERIFY` | boolean | - | Skip verifying the service's certificate and host name. Anyone on the network path can then impersonate the service: prefer caFile. |
+
+## `plugins.victorialogs.fields`
+
+The field names of the log records that identify the pod. Letters, digits, underscores and dots, not starting with a digit or a dot.
+
+| Setting | Variable | Type | Default | Description |
+|---|---|---|---|---|
+| `plugins.victorialogs.fields.namespace` | `DASH_PLUGINS_VICTORIALOGS_FIELDS_NAMESPACE` | string | `kubernetes.pod_namespace` | Field holding the pod's namespace. |
+| `plugins.victorialogs.fields.pod` | `DASH_PLUGINS_VICTORIALOGS_FIELDS_POD` | string | `kubernetes.pod_name` | Field holding the pod's name. |
+| `plugins.victorialogs.fields.container` | `DASH_PLUGINS_VICTORIALOGS_FIELDS_CONTAINER` | string | `kubernetes.container_name` | Field holding the container's name. |
 
 ## `plugins.gatus`
 
@@ -98,6 +210,34 @@ Gatus: endpoint health.
 | `plugins.gatus.type` | `DASH_PLUGINS_GATUS_TYPE` | string | - | The plugin type. dash runs one instance per type, so this is empty or the section name. |
 | `plugins.gatus.enabled` | `DASH_PLUGINS_GATUS_ENABLED` | boolean | - | false turns the plugin off (a restart applies it): its topics are removed, and the web UI drops its rail entry, palette entries, overview tiles and panels and shows a switched-off page at its address. The Kubernetes connection is required whichever plugins are off. Unset leaves it on: a plugin without its settings reports itself unavailable (not configured), and the web UI hides its pages. |
 | `plugins.gatus.url` | `DASH_PLUGINS_GATUS_URL` | string | - | Base URL of the service, e.g. http://host:9090. Empty turns the source off: dash makes no request and its panels show "source not configured". |
+| `plugins.gatus.criticalGroups` | `DASH_PLUGINS_GATUS_CRITICAL_GROUPS` | list of strings (JSON) | - | Gatus groups whose failing checks are critical (compared without regard to case); a failing check in any other group is a warning. The Status page lists these groups first. Empty makes every failure a warning. A JSON list in the environment. |
+| `plugins.gatus.pageSize` | `DASH_PLUGINS_GATUS_PAGE_SIZE` | integer | `30` | Endpoints requested from Gatus per page. Greater than zero. |
+
+## `plugins.gatus.auth.basic`
+
+HTTP Basic authentication. Not together with bearerToken.
+
+| Setting | Variable | Type | Default | Description |
+|---|---|---|---|---|
+| `plugins.gatus.auth.basic.username` | `DASH_PLUGINS_GATUS_AUTH_BASIC_USERNAME` | string | - | User name. |
+| `plugins.gatus.auth.basic.password` | `DASH_PLUGINS_GATUS_AUTH_BASIC_PASSWORD` | string | - | Password: a literal, env:NAME or file:/path. Set together with username. _Secret._ |
+
+## `plugins.gatus.auth`
+
+How dash authenticates to Gatus. Neither basic nor bearerToken sends no credentials.
+
+| Setting | Variable | Type | Default | Description |
+|---|---|---|---|---|
+| `plugins.gatus.auth.bearerToken` | `DASH_PLUGINS_GATUS_AUTH_BEARER_TOKEN` | string | - | Bearer token sent as Authorization: Bearer: a literal, env:NAME or file:/path. Not together with basic. _Secret._ |
+
+## `plugins.gatus.tls`
+
+How dash verifies Gatus's certificate.
+
+| Setting | Variable | Type | Default | Description |
+|---|---|---|---|---|
+| `plugins.gatus.tls.caFile` | `DASH_PLUGINS_GATUS_TLS_CA_FILE` | string | - | Path of a PEM file with the certificate authority that signed the service's certificate, added to the system roots. Empty uses the system roots only. |
+| `plugins.gatus.tls.insecureSkipVerify` | `DASH_PLUGINS_GATUS_TLS_INSECURE_SKIP_VERIFY` | boolean | - | Skip verifying the service's certificate and host name. Anyone on the network path can then impersonate the service: prefer caFile. |
 
 ## `plugins.proxmox`
 

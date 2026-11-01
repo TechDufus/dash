@@ -7,6 +7,8 @@ import (
 	"net/url"
 	"strings"
 	"testing"
+
+	"k8s.io/client-go/rest"
 )
 
 func mustURL(t *testing.T, s string) *url.URL {
@@ -109,5 +111,43 @@ func TestSvcRewriterRoundTrip(t *testing.T) {
 	resp.Body.Close()
 	if resp.Header.Get("X-From") != "plain" || plainGot.URL.String() != "/x?y=1" {
 		t.Fatalf("plain host was rewritten: %v", plainGot.URL)
+	}
+}
+
+// baseRT records the requests DevWrap's base transport receives.
+type baseRT struct{ got []*http.Request }
+
+func (b *baseRT) RoundTrip(r *http.Request) (*http.Response, error) {
+	b.got = append(b.got, r)
+	return &http.Response{StatusCode: http.StatusNoContent, Body: http.NoBody, Header: http.Header{}, Request: r}, nil
+}
+
+func TestDevWrapKeepsTheCallersTransportForOtherHosts(t *testing.T) {
+	var apiPath string
+	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { apiPath = r.URL.Path }))
+	defer api.Close()
+	wrap, err := DevWrap(&rest.Config{Host: api.URL})
+	if err != nil {
+		t.Fatal(err)
+	}
+	base := &baseRT{}
+	hc := &http.Client{Transport: wrap(base)}
+
+	resp, err := hc.Get("http://grafana.monitoring.svc:3000/d/x")
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if len(base.got) != 0 || apiPath != "/api/v1/namespaces/monitoring/services/grafana:3000/proxy/d/x" {
+		t.Fatalf("an in-cluster service must go through the API server proxy: base saw %d, api saw %q", len(base.got), apiPath)
+	}
+
+	resp, err = hc.Get("https://dash.example.com/healthz")
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if len(base.got) != 1 || base.got[0].URL.Host != "dash.example.com" {
+		t.Fatalf("any other host must use the caller's transport, got %d requests", len(base.got))
 	}
 }

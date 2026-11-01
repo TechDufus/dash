@@ -55,6 +55,11 @@ export class PanelBoundary extends Component<BoundaryProps, { failed: boolean }>
   }
 }
 
+/** Whether a plugin's module contributes at least one panel to `slot`. */
+export function contributesPanel(pluginId: string, slot: SlotId): boolean {
+  return (PANELS[pluginId]?.[slot]?.length ?? 0) > 0;
+}
+
 interface Placed {
   moduleId: string;
   panel: PanelContribution;

@@ -133,6 +133,11 @@ export interface AttentionItem {
    */
   route: string;
   links: Link[];
+  /**
+   * Ref is the plugin:Kind/id reference of the object the item points at (design L.6); empty
+   * for items of code that has not migrated to plugins yet.
+   */
+  ref?: string;
 }
 export interface WorstPVC {
   namespace: string;
@@ -234,6 +239,11 @@ export interface Disk {
   lifeRemainingPct?: number /* float64 */;
 }
 export interface HostData {
+  /**
+   * Model is shown next to the host's name, e.g. "Dell R730"; empty shows nothing. It replaces
+   * UIConfig.HostModel.
+   */
+  model: string;
   name: string;
   uptimeSeconds: number /* int64 */;
   pveVersion: string;
@@ -536,6 +546,12 @@ export interface StorageData {
   etcd: Etcd;
 }
 export interface Alert {
+  ref: string; // alertmanager:Alert/<fingerprint>
+  /**
+   * Protected is set when the alert's name is in plugins.alertmanager.protectedAlerts: it cannot
+   * be silenced through dash.
+   */
+  protected: boolean;
   fingerprint: string;
   name: string;
   severity: string;
@@ -557,6 +573,12 @@ export interface Matcher {
   isEqual: boolean;
 }
 export interface Silence {
+  ref: string; // alertmanager:Silence/<id>
+  /**
+   * Dash is set when dash created the silence (createdBy starts with "dash:"): only those can
+   * be expired through dash.
+   */
+  dash: boolean;
   id: string;
   matchers: Matcher[];
   createdBy: string;
@@ -568,6 +590,11 @@ export interface Silence {
 export interface AlertsData {
   alerts: Alert[];
   silences: Silence[];
+  /**
+   * SilenceDurations are the durations the silence dialog offers (plugins.alertmanager.
+   * silenceDurations).
+   */
+  silenceDurations?: string[];
 }
 export interface CheckResult {
   success: boolean;
@@ -575,6 +602,7 @@ export interface CheckResult {
   durationMs: number /* float64 */;
 }
 export interface Endpoint {
+  ref: string; // gatus:Endpoint/<Key>
   group: string;
   name: string;
   key: string;
@@ -584,6 +612,11 @@ export interface Endpoint {
 }
 export interface StatusData {
   endpoints: Endpoint[];
+  /**
+   * CriticalGroups are the groups whose failing checks are critical and that the Status page
+   * lists first (plugins.gatus.criticalGroups).
+   */
+  criticalGroups?: string[];
 }
 export interface App {
   name: string;
@@ -630,6 +663,17 @@ export interface Me {
   audience: string; // api
   version: string;
   capabilities: MeCapabilities;
+  ui: MeUI;
+}
+/**
+ * MeUI is the site configuration the SPA reads once with /me.
+ */
+export interface MeUI {
+  /**
+   * IconBaseURL resolves icon names and is the only origin icon URLs may come from
+   * (ui.iconBaseURL). The JSON key is iconBaseUrl: the API document is linted for camelCase.
+   */
+  iconBaseUrl: string;
 }
 /**
  * MeCapabilities says which optional parts of the API this dash serves.
@@ -639,6 +683,12 @@ export interface MeCapabilities {
   mcp: boolean;
   push: boolean;
   oauth: boolean;
+}
+/**
+ * LauncherData is the payload of the launcher.links topic.
+ */
+export interface LauncherData {
+  links: LauncherLink[];
 }
 /**
  * LauncherLink is one infrastructure link in the launcher (DASH_LAUNCHER_FILE).
@@ -778,6 +828,11 @@ export interface ActionInfo {
   destructive: boolean;
   idempotent: boolean;
   confirm: Confirm;
+  /**
+   * MinRole is the lowest role that may run the action (admin or viewer). The SPA shows the
+   * action's controls only to a role that meets it.
+   */
+  minRole: string;
   inputSchema: unknown; // filled by P2.10; null before
 }
 /**

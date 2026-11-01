@@ -33,13 +33,24 @@ type factoryOf interface{ Factory() plugin.Factory }
 // settings, and serves it through an api.Server whose clock and audit log follow clk.
 func newPluginEnv(t *testing.T, ics []plugin.InstanceConfig, fakes ...factoryOf) *pluginEnv {
 	t.Helper()
+	return newPluginEnvOpt(t, nil, ics, fakes...)
+}
+
+// newPluginEnvOpt is newPluginEnv with the supervisor's Options adjusted by opt (the core
+// callbacks a test wants: ScrubLog).
+func newPluginEnvOpt(t *testing.T, opt func(*plugin.Options), ics []plugin.InstanceConfig, fakes ...factoryOf) *pluginEnv {
+	t.Helper()
 	h := hub.New()
 	set := &plugintest.Settings{}
 	set.Set(ics...)
-	sup := plugin.NewSupervisor(plugin.Options{
+	o := plugin.Options{
 		Publisher: h, Settings: set, StatusEvery: 10 * time.Millisecond, StopTimeout: time.Second,
 		Log: slog.New(slog.DiscardHandler),
-	})
+	}
+	if opt != nil {
+		opt(&o)
+	}
+	sup := plugin.NewSupervisor(o)
 	for _, f := range fakes {
 		if err := sup.Add(f.Factory()); err != nil {
 			t.Fatalf("Add %v: %v", f, err)
@@ -132,8 +143,10 @@ func TestPluginsListShowsEveryState(t *testing.T) {
 		t.Errorf("rows = %+v", got)
 	}
 
-	// Without plugins the answer is an empty array, not null.
-	if w := (req{path: "/api/v1/plugins"}.do(newServer(nil).Handler())); w.Code != http.StatusOK || strings.TrimSpace(w.Body.String()) != "[]" {
+	// Without plugins the answer is an empty array, not null. (newServer registers the fake
+	// prometheus plugin next to Deps.Prom, so a server with none has no Prom either.)
+	noPlugins := newServer(func(d *Deps) { d.Prom = nil })
+	if w := (req{path: "/api/v1/plugins"}.do(noPlugins.Handler())); w.Code != http.StatusOK || strings.TrimSpace(w.Body.String()) != "[]" {
 		t.Errorf("no plugins = %d %q, want 200 []", w.Code, w.Body)
 	}
 }

@@ -6,7 +6,9 @@ import (
 	"slices"
 	"testing"
 
+	"github.com/TechDufus/dash/internal/auth"
 	"github.com/TechDufus/dash/internal/model"
+	"github.com/TechDufus/dash/internal/plugin"
 	"github.com/TechDufus/dash/internal/topics"
 	"github.com/TechDufus/dash/internal/upstream"
 )
@@ -33,12 +35,15 @@ func TestEveryErrorPathHasACodeThatMatchesItsStatus(t *testing.T) {
 	full := func(s *Server) { s.events = newStreamLimiter(10, 0) }
 	failProm := func(d *Deps) { d.Prom = &fakeProm{err: context.DeadlineExceeded} }
 	vmErr := func(err error) func(*Deps) { return func(d *Deps) { d.Data = fakeData{vmErr: err} } }
-	logsErr := func(err error) func(*Deps) { return func(d *Deps) { d.VLogs = &fakeLogs{err: err} } }
+	noHook := func(*harness) {}
+	fullTails := func(s *Server) { s.tails = newStreamLimiter(10, 0) }
 
 	for _, tc := range []struct {
 		name   string
 		req    req
 		mod    func(*Deps)
+		plug   func(*harness) // set: the request goes to a plugin harness (hopts) after plug adjusts it
+		hopts  []func(*harnessOpts)
 		srv    func(*Server)
 		status int
 		code   string
@@ -53,10 +58,22 @@ func TestEveryErrorPathHasACodeThatMatchesItsStatus(t *testing.T) {
 		{name: "vm upstream failure", req: req{path: "/api/vms/100"}, mod: vmErr(context.DeadlineExceeded), status: 502, code: "upstream_unavailable"},
 		{name: "invalid pod name", req: req{path: "/api/pods/apps/BAD_"}, status: 400, code: "invalid_input"},
 		{name: "pod not found", req: req{path: "/api/pods/apps/missing"}, status: 404, code: "not_found"},
-		{name: "invalid log query", req: req{path: "/api/logs?ns=media&pod=web"}, mod: logsErr(upstream.ErrInvalid), status: 400, code: "invalid_input"},
-		{name: "logs upstream failure", req: req{path: "/api/logs?ns=media&pod=web"}, mod: logsErr(context.DeadlineExceeded), status: 502, code: "upstream_unavailable"},
-		{name: "log tail without a target", req: req{path: "/api/logs/tail"}, status: 400, code: "invalid_input"},
-		{name: "log tail cap", req: req{path: "/api/logs/tail?ns=media&pod=web"}, srv: capped, status: 429, code: "too_many_streams"},
+		{name: "plugin route input error", req: req{path: "/api/v1/plugins/rt/items?ns=media"}, plug: func(h *harness) {
+			h.items = func(*http.Request) (any, error) { return nil, upstream.ErrInvalid }
+		}, status: 400, code: "invalid_input"},
+		{name: "plugin route upstream failure", req: req{path: "/api/v1/plugins/rt/items?ns=media"}, plug: func(h *harness) {
+			h.items = func(*http.Request) (any, error) { return nil, context.DeadlineExceeded }
+		}, status: 502, code: "upstream_unavailable"},
+		{name: "plugin route in a denied namespace", req: req{path: "/api/v1/plugins/rt/items?ns=kube-system"}, plug: noHook,
+			hopts: []func(*harnessOpts){harnessRT(plugin.InstanceConfig{ReadDenyNamespaces: []string{"kube-system"}})}, status: 403, code: "forbidden"},
+		{name: "plugin stream without a target", req: req{path: "/api/v1/plugins/rt/tail"}, plug: noHook, status: 400, code: "invalid_input"},
+		{name: "plugin stream upstream failure before it begins", req: req{path: "/api/v1/plugins/rt/tail?ns=media&pod=web"}, plug: func(h *harness) {
+			h.tail = func(context.Context, *http.Request, auth.Principal, plugin.Stream) error {
+				return context.DeadlineExceeded
+			}
+		}, status: 502, code: "upstream_unavailable"},
+		{name: "plugin stream cap per user", req: req{path: "/api/v1/plugins/rt/tail?ns=media&pod=web"}, plug: noHook, srv: capped, status: 429, code: "too_many_streams"},
+		{name: "plugin stream cap overall", req: req{path: "/api/v1/plugins/rt/tail?ns=media&pod=web"}, plug: noHook, srv: fullTails, status: 503, code: "too_many_streams"},
 		{name: "invalid topic name", req: req{path: "/api/v1/topics/BAD"}, status: 400, code: "invalid_input"},
 		{name: "unknown topic", req: req{path: "/api/v1/topics/vms"}, status: 404, code: "not_found"},
 		{name: "invalid stream filter", req: req{path: "/api/v1/stream?topics=BAD!"}, status: 400, code: "invalid_input"},
@@ -68,9 +85,16 @@ func TestEveryErrorPathHasACodeThatMatchesItsStatus(t *testing.T) {
 		{name: "restart in a missing namespace", req: req{method: "POST", path: "/api/actions/restart", body: model.RestartRequest{Kind: "Deployment", Namespace: "nope", Name: "web"}}, status: 404, code: "not_found"},
 		{name: "restart without the name typed", req: req{method: "POST", path: "/api/actions/restart", body: model.RestartRequest{Kind: "Deployment", Namespace: "platform", Name: "web"}}, status: 400, code: "invalid_input"},
 		{name: "reconcile kind", req: req{method: "POST", path: "/api/actions/reconcile", body: model.ReconcileRequest{Kind: "Pod", Namespace: "flux-system", Name: "app"}}, status: 400, code: "invalid_input"},
-		{name: "silence without matchers", req: req{method: "POST", path: "/api/silences", body: model.SilenceRequest{Duration: "1h", Comment: "x"}}, status: 400, code: "invalid_input"},
-		{name: "expire an invalid silence", req: req{method: "DELETE", path: "/api/silences/bad"}, status: 400, code: "invalid_input"},
-		{name: "csrf", req: req{method: "POST", path: "/api/silences", header: map[string]string{"X-Dash-Csrf": ""}}, status: 403, code: "csrf_failed"},
+		{name: "plugin action input", req: req{method: "POST", path: "/api/v1/plugins/aa/actions/restart", body: map[string]string{"namespace": "apps"}}, plug: noHook, status: 400, code: "invalid_input"},
+		{name: "plugin action refusal", req: req{method: "POST", path: "/api/v1/plugins/aa/actions/silence.expire", body: expireIn{ID: "bad"}}, plug: func(h *harness) {
+			h.act = func(string, any) (any, error) {
+				return nil, &plugin.ActionError{Status: 400, Code: model.ErrCodeInvalidInput, Message: "not a silence id"}
+			}
+		}, status: 400, code: "invalid_input"},
+		{name: "plugin action upstream failure", req: req{method: "POST", path: "/api/v1/plugins/aa/actions/ping"}, plug: func(h *harness) {
+			h.act = func(string, any) (any, error) { return nil, context.DeadlineExceeded }
+		}, status: 502, code: "upstream_unavailable"},
+		{name: "csrf", req: req{method: "POST", path: "/api/v1/plugins/aa/actions/ping", header: map[string]string{"X-Dash-Csrf": ""}}, plug: noHook, status: 403, code: "csrf_failed"},
 		{name: "unauthenticated", req: req{path: "/api/v1/me", header: map[string]string{"X-Forwarded-Preferred-Username": ""}}, status: 401, code: "unauthenticated"},
 		{name: "unknown host", req: req{path: "/api/v1/me", host: "evil.example"}, status: 421, code: "unknown_host"},
 		{name: "unknown API path", req: req{path: "/api/nope"}, status: 404, code: "not_found"},
@@ -79,8 +103,14 @@ func TestEveryErrorPathHasACodeThatMatchesItsStatus(t *testing.T) {
 		{name: "unknown plugin action", req: req{method: "POST", path: "/api/v1/plugins/ghost/actions/x"}, status: 404, code: "not_found"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			s, _, _, am := serverWithFakes(tc.mod)
-			am.err = nil
+			var s *Server
+			if tc.plug != nil {
+				h := newHarness(t, tc.hopts...)
+				tc.plug(h)
+				s = h.Server
+			} else {
+				s, _, _ = serverWithFakes(tc.mod)
+			}
 			if tc.srv != nil {
 				tc.srv(s)
 			}

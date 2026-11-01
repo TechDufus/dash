@@ -27,8 +27,18 @@ type Options struct {
 	ReadyTimeout  time.Duration // server.readyTimeout; default 60s
 	StopTimeout   time.Duration // default 10s (design B.6)
 	StatusEvery   time.Duration // default 1s
-	Now           func() time.Time
-	Log           *slog.Logger
+	// Transport wraps the RoundTripper of every client Host.HTTPClient builds, after the dial
+	// guard and the credentials, so what it records (the upstream metrics) is the real request.
+	// nil leaves the transport as it is.
+	Transport func(id ID, rt http.RoundTripper) http.RoundTripper
+	// ScrubLog is Host.ScrubLog: it removes every secret the core knows from a log line. nil
+	// returns the line unchanged.
+	ScrubLog func(string) string
+	// Demo makes the supervisor run the demo twin (the Demo interface) of every plugin that has
+	// one, with its actions enabled, and leaves the rest disabled (design 1.9).
+	Demo bool
+	Now  func() time.Time
+	Log  *slog.Logger
 }
 
 const (
@@ -57,6 +67,7 @@ type instance struct {
 	deps        []ID // Requires ∪ Uses, in declaration order, without duplicates
 	cfgType     reflect.Type
 	restartOnly bool
+	hasTwin     bool       // the plugin implements Demo
 	cfgZero     func() any // Manifest.Config, nil when the plugin has no configuration
 
 	mu          sync.RWMutex
@@ -223,6 +234,9 @@ func newInstance(f Factory, p Plugin, index int) (*instance, error) {
 	in := &instance{id: m.ID, index: index, factory: f, probe: p, state: StateStarting}
 	if _, ok := p.(RestartOnly); ok {
 		in.restartOnly = true
+	}
+	if _, ok := p.(Demo); ok {
+		in.hasTwin = true
 	}
 	if m.Config != nil {
 		c := m.Config()
@@ -573,6 +587,12 @@ func (s *Supervisor) configs() map[*instance]InstanceConfig {
 		if len(ic.DenyNamespaces) == 0 {
 			ic.DenyNamespaces = nil
 		}
+		if len(ic.ReadDenyNamespaces) == 0 {
+			ic.ReadDenyNamespaces = nil
+		}
+		if s.demoTwin(in) {
+			ic.Enabled, ic.ActionsEnabled = new(true), true
+		}
 		out[in] = ic
 	}
 	return out
@@ -599,6 +619,10 @@ func (s *Supervisor) evaluate(in *instance, ic InstanceConfig) plan {
 	case ic.Type != in.id || (in.cfgType != nil && reflect.TypeOf(ic.Config) != in.cfgType):
 		s.log().Error("plugin configuration has the wrong type", "plugin", in.id, "type", ic.Type)
 		pl.state, pl.msg = StateError, msgTypeMismatch
+		return pl
+	}
+	if s.demoTwin(in) { // the twin has no upstream to be configured for
+		pl.runnable = true
 		return pl
 	}
 	in.mu.RLock()
@@ -805,6 +829,7 @@ func (s *Supervisor) start(in *instance, ic InstanceConfig) bool {
 		p = in.factory()
 	}
 	in.probeUsed = true
+	p = s.twinOf(p)
 	in.gen++
 	gen := in.gen
 	ctx, cancel := context.WithCancel(s.baseCtx)
@@ -827,7 +852,7 @@ func (s *Supervisor) start(in *instance, ic InstanceConfig) bool {
 	if rec == nil && err == nil {
 		var mux *http.ServeMux
 		if rt, ok := p.(Router); ok {
-			mux, err = buildMux(rt)
+			mux, err = buildMux(in, rt)
 		}
 		if err == nil {
 			in.mu.Lock()
@@ -855,8 +880,9 @@ func (s *Supervisor) start(in *instance, ic InstanceConfig) bool {
 	return false
 }
 
-// buildMux registers a Router's routes. A pattern ServeMux rejects is a start failure.
-func buildMux(r Router) (mux *http.ServeMux, err error) {
+// buildMux registers a Router's routes, each behind the instance's guard (see RouteGuard). A
+// pattern ServeMux rejects is a start failure.
+func buildMux(in *instance, r Router) (mux *http.ServeMux, err error) {
 	mux = http.NewServeMux()
 	mux.HandleFunc("/", notFound)
 	defer func() {
@@ -865,10 +891,45 @@ func buildMux(r Router) (mux *http.ServeMux, err error) {
 		}
 	}()
 	for _, ri := range CollectRoutes(r) {
-		mux.HandleFunc("GET "+ri.Pattern, ri.Handler)
+		mux.HandleFunc("GET "+ri.Pattern, routeHandler(in, ri))
 	}
 	return mux, nil
 }
+
+// routeHandler serves one route: through the guard of the request when it has one, which applies
+// the core's policy and runs the handler; without one a GET route runs as registered and a
+// stream route, which the core serves, is refused.
+func routeHandler(in *instance, ri RouteInfo) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		g := guardFrom(r.Context()).guard
+		if g.Serve == nil {
+			if ri.Stream != nil {
+				WriteError(w, http.StatusInternalServerError, model.ErrCodeInternal, "stream routes are not served here")
+				return
+			}
+			ri.Handler(w, r)
+			return
+		}
+		in.mu.RLock()
+		deny := slices.Clone(in.cfg.ReadDenyNamespaces)
+		in.mu.RUnlock()
+		g.Serve(w, r, MountedRoute{Instance: in.id, Info: ri, ReadDenyNamespaces: deny}, ri.Handler)
+	}
+}
+
+// twinOf is the plugin an instance runs: in demo mode the twin of a plugin that has one, else p.
+func (s *Supervisor) twinOf(p Plugin) Plugin {
+	if s.opt.Demo {
+		if d, ok := p.(Demo); ok {
+			return d.Demo()
+		}
+	}
+	return p
+}
+
+// demoTwin reports whether the instance runs its twin: demo mode, and the plugin has one. Such an
+// instance is enabled and configured whatever the configuration says, with its actions mounted.
+func (s *Supervisor) demoTwin(in *instance) bool { return s.opt.Demo && in.hasTwin }
 
 // stop ends an instance: no more publishes, its context cancelled, Stop called within
 // StopTimeout (a Stop that outlives it is abandoned), then its topics removed, so that a viewer

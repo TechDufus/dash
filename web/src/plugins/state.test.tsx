@@ -152,7 +152,7 @@ describe("rows from a v0.5.0 server (rollback of an open tab)", () => {
     "draw the rail and the pages without throwing (%s)",
     async (source) => {
       stubFetch({
-        "GET /api/v1/me": { user: "dev", role: "admin", version: "test" },
+        "GET /api/v1/me": { user: "dev", role: "admin", version: "test", ui: { iconBaseUrl: "" } },
         "GET /api/v1/plugins": source === "REST" ? legacyRows() : () => new Promise(() => {}),
       });
       const es = connect();

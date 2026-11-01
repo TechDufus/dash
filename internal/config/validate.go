@@ -10,7 +10,7 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/TechDufus/dash/internal/model"
+	"github.com/TechDufus/dash/internal/pluginconf"
 )
 
 var metricNameRE = regexp.MustCompile(`^[a-zA-Z_:][a-zA-Z0-9_:]*$`)
@@ -21,8 +21,9 @@ var hostNameRE = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([
 // validator collects every problem, each named by its path and the layer that set it, so an
 // operator knows which variable or file to fix.
 type validator struct {
-	prov map[string]Provenance
-	errs []error
+	prov   map[string]Provenance
+	errs   []error
+	failed map[string]bool // the paths that already have a problem
 }
 
 // where says which layer set the value at path: " (env DASH_PLUGINS_PROMETHEUS_URL)", " (file /etc/dash/config.yaml)".
@@ -38,7 +39,25 @@ func where(prov map[string]Provenance, path string) string {
 }
 
 func (v *validator) fail(path, format string, args ...any) {
+	if v.failed == nil {
+		v.failed = map[string]bool{}
+	}
+	v.failed[path] = true
 	v.errs = append(v.errs, fmt.Errorf("%s%s: %s", path, where(v.prov, path), fmt.Sprintf(format, args...)))
+}
+
+// section reports what a pluginconf section's Validate found, each problem at its full path
+// under prefix. A setting the generic checks already rejected is not reported twice.
+func (v *validator) section(prefix string, err error) {
+	for _, fe := range pluginconf.Problems(err) {
+		path := prefix
+		if fe.Path != "" {
+			path += "." + fe.Path
+		}
+		if !v.failed[path] {
+			v.fail(path, "%s", fe.Msg)
+		}
+	}
 }
 
 // validate reports settings that are missing or unusable.
@@ -111,11 +130,13 @@ func validate(t Tree, dev, demo bool, prov map[string]Provenance) error {
 		}
 	}
 
-	if p.Launcher.File != "" && len(p.Launcher.Links) > 0 {
-		v.fail("plugins.launcher.links", "cannot be set together with plugins.launcher.file")
-	}
-	if err := validateLinks(p.Launcher.Links); err != nil {
-		v.fail("plugins.launcher.links", "%v", err)
+	// Every section that knows its own cross-field rules says so (auth, header names, launcher
+	// links, ...); the ones still in this package are checked above.
+	v.section("ui", t.UI.Validate())
+	for _, sec := range t.PluginSections() {
+		if val, ok := sec.Value.(interface{ Validate() error }); ok {
+			v.section("plugins."+sec.Name, val.Validate())
+		}
 	}
 	return errors.Join(v.errs...)
 }
@@ -148,17 +169,6 @@ func validateLimits(v *validator, l LimitsConfig) {
 func httpURL(s string) bool {
 	u, err := url.Parse(s)
 	return err == nil && (u.Scheme == "http" || u.Scheme == "https") && u.Hostname() != ""
-}
-
-// validateLinks checks launcher entries; the error counts from 1.
-func validateLinks(links []model.LauncherLink) error {
-	for i, l := range links {
-		u, err := url.Parse(l.Href)
-		if l.Name == "" || err != nil || (u.Scheme != "https" && u.Scheme != "http") {
-			return fmt.Errorf("entry %d needs a name and an http(s) href", i+1)
-		}
-	}
-	return nil
 }
 
 // splitHosts splits a comma-separated list, trimming and lowercasing entries and dropping empty ones.

@@ -5,6 +5,7 @@ import (
 	"cmp"
 	"context"
 	"encoding/json"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"sync"
@@ -15,9 +16,10 @@ import (
 	"github.com/TechDufus/dash/internal/config"
 	"github.com/TechDufus/dash/internal/hub"
 	"github.com/TechDufus/dash/internal/model"
+	"github.com/TechDufus/dash/internal/plugin"
+	"github.com/TechDufus/dash/internal/plugin/plugintest"
 	"github.com/TechDufus/dash/internal/queries"
 	"github.com/TechDufus/dash/internal/topics"
-	"github.com/TechDufus/dash/internal/upstream"
 )
 
 const testOrigin = "https://dash.example.com"
@@ -37,51 +39,6 @@ type fakeProm struct {
 func (f *fakeProm) Range(_ context.Context, expr string, start, end time.Time, step time.Duration) ([]model.SeriesLine, error) {
 	f.expr, f.start, f.end, f.step = expr, start, end, step
 	return nil, f.err
-}
-
-type fakeAM struct {
-	spec      upstream.SilenceSpec
-	created   int
-	expiredID string
-	err       error
-}
-
-func (f *fakeAM) CreateSilence(_ context.Context, s upstream.SilenceSpec) (string, error) {
-	f.spec = s
-	f.created++
-	return "sil-1234", f.err
-}
-
-func (f *fakeAM) ExpireSilence(_ context.Context, id string) error {
-	f.expiredID = id
-	if f.err != nil {
-		return f.err
-	}
-	if id == "bad" {
-		return upstream.ErrInvalid
-	}
-	return nil
-}
-
-type fakeLogs struct {
-	lines []model.LogLine
-	q     upstream.LogQuery
-	err   error
-	tail  func(emit func(model.LogLine) error) error
-}
-
-func (f *fakeLogs) Query(_ context.Context, q upstream.LogQuery) ([]model.LogLine, error) {
-	f.q = q
-	return f.lines, f.err
-}
-
-func (f *fakeLogs) Tail(ctx context.Context, q upstream.LogQuery, emit func(model.LogLine) error) error {
-	f.q = q
-	if f.tail != nil {
-		return f.tail(emit)
-	}
-	<-ctx.Done()
-	return nil
 }
 
 type fakeData struct {
@@ -105,6 +62,27 @@ func (f fakeData) VMDetail(_ context.Context, vmid int) (model.VMDetail, error) 
 	return model.VMDetail{}, f.vmErr
 }
 
+// promPlugin is a running supervisor with one fake plugin, "prometheus", whose service is the
+// same fake querier the test passes as Deps.Prom: when the series handler reads the querier
+// from Plugins.Service("prometheus") instead of Deps.Prom, the series tests pass unchanged. It
+// publishes into a recorder, so nothing reaches the hub the test serves. A test that wants no
+// plugins sets Deps.Prom to nil; one that runs plugins of its own sets Deps.Plugins.
+func promPlugin(q PromAPI) PluginsAPI {
+	f := plugintest.New("prometheus")
+	f.ServiceVal = q
+	sup := plugin.NewSupervisor(plugin.Options{
+		Publisher: &plugintest.Hub{}, Settings: &plugintest.Settings{}, StatusEvery: time.Hour,
+		StopTimeout: time.Second, Log: slog.New(slog.DiscardHandler),
+	})
+	if err := sup.Add(f.Factory()); err != nil {
+		panic(err)
+	}
+	if err := sup.Run(context.Background()); err != nil { // the supervisor lives as long as the test binary
+		panic(err)
+	}
+	return sup
+}
+
 // newServer builds a Server with fakes; mod may adjust the deps before construction.
 func newServer(mod func(*Deps)) *Server {
 	d := Deps{
@@ -118,6 +96,9 @@ func newServer(mod func(*Deps)) *Server {
 	}
 	if mod != nil {
 		mod(&d)
+	}
+	if d.Plugins == nil && d.Prom != nil {
+		d.Plugins = promPlugin(d.Prom)
 	}
 	s := New(d)
 	s.now = func() time.Time { return fixedNow }
@@ -313,10 +294,8 @@ func TestSeriesArgs(t *testing.T) {
 	})
 }
 
-func TestDetailsAndLogs(t *testing.T) {
-	logs := &fakeLogs{}
-	s := newServer(func(d *Deps) { d.VLogs = logs })
-	h := s.Handler()
+func TestDetails(t *testing.T) {
+	h := newServer(nil).Handler()
 
 	for _, tc := range []struct {
 		path string
@@ -327,39 +306,12 @@ func TestDetailsAndLogs(t *testing.T) {
 		{"/api/pods/media/plex-0", 200},
 		{"/api/pods/media/missing", 404},
 		{"/api/pods/Bad_NS/x", 400},
-		{"/api/logs?ns=media&pod=plex-0&since=1h&q=err", 200},
 		{"/api/v1/me", 200},
 	} {
 		if w := (req{path: tc.path}).do(h); w.Code != tc.code {
 			t.Errorf("%s: code = %d, want %d", tc.path, w.Code, tc.code)
 		}
 	}
-	if want := (upstream.LogQuery{Namespace: "media", Pod: "plex-0", Text: "err", Since: "1h"}); logs.q != want {
-		t.Errorf("log query = %+v, want %+v", logs.q, want)
-	}
-
-	t.Run("logs are always an array", func(t *testing.T) {
-		w := req{path: "/api/logs?namespace=media"}.do(h)
-		if w.Body.String() != "[]\n" {
-			t.Errorf("body = %q", w.Body.String())
-		}
-	})
-	t.Run("invalid logs query is 400, upstream failure 502", func(t *testing.T) {
-		logs.err = upstream.ErrInvalid
-		if w := (req{path: "/api/logs?ns=media"}).do(h); w.Code != 400 {
-			t.Errorf("code = %d, want 400", w.Code)
-		}
-		logs.err = context.DeadlineExceeded
-		if w := (req{path: "/api/logs?ns=media"}).do(h); w.Code != 502 {
-			t.Errorf("code = %d, want 502", w.Code)
-		}
-	})
-	t.Run("tail validates before streaming", func(t *testing.T) {
-		w := req{path: "/api/logs/tail?pod=x"}.do(h) // namespace missing
-		if w.Code != 400 || w.Header().Get("Content-Type") != "application/json" {
-			t.Errorf("code = %d type = %q", w.Code, w.Header().Get("Content-Type"))
-		}
-	})
 }
 
 func TestUIConfig(t *testing.T) {

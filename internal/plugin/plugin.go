@@ -185,19 +185,27 @@ type ActionError struct {
 
 func (e *ActionError) Error() string { return fmt.Sprintf("%s (%d %s)", e.Message, e.Status, e.Code) }
 
-// Routes is where a Router registers its GET routes.
+// Routes is where a Router registers its routes.
 type Routes interface {
 	// Get registers GET and HEAD under /api/v1/plugins/{instance}/. pattern is relative
 	// ("/vms/{vmid}"); the spec documents it in OpenAPI.
 	Get(pattern string, h http.HandlerFunc, spec RouteSpec)
+	// Stream registers a server-sent-events GET route. The core owns the connection: it checks
+	// the role and the namespace policy, takes a slot of the tail limiter, audits the open,
+	// applies the maximum duration, the write deadline and the heartbeat, and then calls h.
+	Stream(pattern string, h StreamHandler, spec StreamSpec)
 }
 
 // RouteSpec documents one route.
 type RouteSpec struct {
-	Summary  string
-	Scope    string // "read" or "logs" (M.3; documented now, enforced for tokens from P7.1)
-	Query    []Param
-	Response any // zero value of the 200 body; nil = none
+	Summary string
+	Scope   string // "read" or "logs" (M.3; documented now, enforced for tokens from P7.1)
+	Query   []Param
+	// Namespace names the namespace the request targets, "" for none. The core refuses the
+	// request with 403 when it is in the instance's ReadDenyNamespaces, before the handler runs
+	// and (for a stream) before a slot is taken. It is called with the path values set.
+	Namespace func(r *http.Request) string
+	Response  any // zero value of the 200 body; nil = none
 }
 
 // Param documents one query parameter.
@@ -210,11 +218,14 @@ type Param struct {
 // Router is a plugin with HTTP routes.
 type Router interface{ Routes(r Routes) }
 
-// RouteInfo is one route a Router registered.
+// RouteInfo is one route a Router registered. A stream route has Stream and StreamHandler and
+// no Handler; the core serves it.
 type RouteInfo struct {
-	Pattern string // relative, as registered
-	Spec    RouteSpec
-	Handler http.HandlerFunc
+	Pattern       string // relative, as registered
+	Spec          RouteSpec
+	Handler       http.HandlerFunc
+	Stream        *StreamSpec
+	StreamHandler StreamHandler
 }
 
 // CollectRoutes returns what r registers, in registration order. The OpenAPI generator reads
@@ -230,6 +241,19 @@ type routeCollector struct{ routes []RouteInfo }
 func (c *routeCollector) Get(pattern string, h http.HandlerFunc, spec RouteSpec) {
 	c.routes = append(c.routes, RouteInfo{Pattern: pattern, Spec: spec, Handler: h})
 }
+
+func (c *routeCollector) Stream(pattern string, h StreamHandler, spec StreamSpec) {
+	c.routes = append(c.routes, RouteInfo{
+		Pattern: pattern, Handler: nil, Stream: &spec, StreamHandler: h,
+		Spec: RouteSpec{Summary: spec.Summary, Scope: spec.Scope, Query: spec.Query, Namespace: spec.Namespace},
+	})
+}
+
+// Demo is implemented by a plugin that has a twin for demo mode (DASH_DEMO=true): a Plugin
+// with the same manifest that publishes synthetic data and fakes its actions, and contacts
+// nothing. With Options.Demo the supervisor runs the twin instead of the plugin, enabled and
+// configured, with its actions mounted.
+type Demo interface{ Demo() Plugin }
 
 // Contributors to core.overview (P2.5).
 type (
@@ -247,7 +271,16 @@ type Host interface {
 	Publish(topic string, data any, sources []model.SourceStatus)
 	// Logger is slog.Default().With("plugin", instance): already behind the redacting handler.
 	Logger() *slog.Logger
+	// HTTPClient builds the guarded client for the plugin's upstream: TLS and CA, credentials per
+	// request, the dial guard, redirects limited to the same host, and Options.Transport on top.
 	HTTPClient(c HTTPConfig) (*http.Client, error)
+	// ScrubLog removes every secret the core knows from a log line. A plugin scrubs a line's text
+	// before it builds the payload: scrubbing the encoded JSON would miss a secret that contains
+	// a character json.Marshal escapes.
+	ScrubLog(s string) string
+	// Links resolves the deep links the running link providers offer for an object (design A.9:
+	// a plugin never imports another). The providers are read when Links is called.
+	Links() LinkResolver
 	// Service returns what a Provider exports, only for ids in Requires/Uses whose instance is
 	// running.
 	Service(id ID) (any, bool)
@@ -265,11 +298,15 @@ type InstanceConfig struct {
 	// Config is a pointer to a copy of the struct Manifest.Config() returns for Type. A
 	// different type puts the instance in "error" ("configuration type mismatch").
 	Config any
-	// ActionsEnabled and DenyNamespaces are plugins.<Name>.actions.enabled / .denyNamespaces.
-	// No G2 section has them (G3 leaves add them as they migrate their actions), so in
-	// production they stay false/empty; tests set them.
+	// ActionsEnabled and DenyNamespaces are plugins.<Name>.actions.enabled / .denyNamespaces: a
+	// section value that implements ActionsConfig (cmd/dash) feeds them, one without leaves them
+	// false and empty. Either changing restarts the instance.
 	ActionsEnabled bool
 	DenyNamespaces []string
+	// ReadDenyNamespaces are the namespaces the instance's read routes refuse (a plugin's
+	// denyNamespaces, e.g. plugins.victorialogs.denyNamespaces): the core answers 403 for a
+	// route whose RouteSpec.Namespace names one of them.
+	ReadDenyNamespaces []string
 }
 
 // Settings is the configuration as the supervisor sees it.

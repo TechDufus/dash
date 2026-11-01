@@ -43,10 +43,22 @@ type client struct {
 	hc   *http.Client
 }
 
-// newClient builds a client for base; timeout 0 means no client timeout
-// (streaming requests end with their context).
-func newClient(base string, rt http.RoundTripper, timeout time.Duration) client {
-	return client{base: strings.TrimRight(base, "/"), hc: &http.Client{Transport: rt, Timeout: timeout}}
+// newClient builds a client for base; def is the default timeout of its requests, which opts may
+// replace. A timeout of 0 means none (streaming requests end with their context).
+func newClient(base string, rt http.RoundTripper, def time.Duration, opts ...Option) client {
+	cfg := clientConfig{timeout: def}
+	for _, o := range opts {
+		o(&cfg)
+	}
+	return client{base: strings.TrimRight(base, "/"), hc: &http.Client{Transport: rt, Timeout: cfg.timeout, CheckRedirect: cfg.checkRedirect}}
+}
+
+// newStreamClient is newClient for requests that end with their context: no timeout, whatever
+// opts say, so a Timeout option never cuts a stream short.
+func newStreamClient(base string, rt http.RoundTripper, opts ...Option) client {
+	c := newClient(base, rt, 0, opts...)
+	c.hc.Timeout = 0
+	return c
 }
 
 // open sends the request and returns the response with its body still open;

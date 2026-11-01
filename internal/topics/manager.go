@@ -38,6 +38,14 @@ type Deps struct {
 	// Contributors lists the running plugins that add to the overview (Supervisor.Contributors);
 	// nil means none do.
 	Contributors func() []plugin.Contributor
+	// Services is Supervisor.Service: what a running plugin exports (svc.Querier, svc.EndpointHealth,
+	// …), for the Manager, which is not a plugin and so cannot use Host.Service. It sits next to the
+	// concrete clients, which each plugin's migration replaces with an accessor over it. nil means
+	// no plugin exports anything.
+	Services func(id plugin.ID) (any, bool)
+	// LinkProviders is Supervisor.Links: the resolver over the running link providers, read once
+	// per rebuild. nil means none. Links stays the concrete builder until the providers take over.
+	LinkProviders func() plugin.LinkResolver
 	// Secrets scrubs logged upstream errors; nil only matches credential shapes.
 	Secrets *secret.Registry
 }
@@ -423,7 +431,8 @@ func (m *Manager) rebuild() {
 	m.mu.RLock()
 	b := m.built
 	m.mu.RUnlock()
-	m.publish(model.TopicOverview, m.buildOverview(b, contributors, now), m.sources(
+	srcs := m.sources(
 		"kubernetes", "host:proxmox", "host:victoriametrics", "vms:proxmox", "vms:victoriametrics",
-		"cluster:victoriametrics", "storage:victoriametrics", "alerts:alertmanager", "status:gatus"))
+		"cluster:victoriametrics", "storage:victoriametrics", "alerts:alertmanager", "status:gatus")
+	m.publish(model.TopicOverview, m.buildOverview(b, contributors, now), mergeSources(srcs, m.contributorSources(contributors)))
 }

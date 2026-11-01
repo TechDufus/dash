@@ -390,6 +390,9 @@ name wins), with no `_FILE` form because it is another tool's variable.
 | `internal/config` | layered configuration: defaults, config file, environment (`DASH_*`) |
 | `internal/jsonschema` | JSON Schema from Go structs, for `dash config schema` and plugin config |
 | `internal/plugin` | the plugin contract, registry and supervisor; `plugintest` has the fakes |
+| `internal/plugins` | the plugins dash ships, one package per plugin ID (G3 moves each integration here) |
+| `internal/svc` | the interfaces plugins export to each other and to the core: `Querier`, `EndpointHealth` |
+| `internal/pluginconf` | the configuration structs of the plugins, shared by `internal/config` and the plugins (which never import `internal/config`) |
 | `internal/auth` | who a request acts as: role and principal |
 | `internal/kube` | informers and the actions' Kubernetes patches |
 | `internal/upstream` | VictoriaMetrics, Alertmanager, VictoriaLogs, Gatus, Proxmox clients |
@@ -397,7 +400,7 @@ name wins), with no `_FILE` form because it is another tool's variable.
 | `internal/hub`, `internal/api` | SSE hub, REST, middleware |
 | `internal/obs` | dash's own Prometheus metrics (`server.metrics`), in a private registry |
 | `internal/links` | Headlamp, Proxmox and Grafana deep links |
-| `internal/demo` | fake data for `DASH_DEMO=true` |
+| `internal/demo` | fake data for `DASH_DEMO=true`; `internal/demo/world` is the fake homelab the plugins' demo twins publish from |
 | `web/` | React 19, Vite, Tailwind v4, shadcn/ui and Magic UI |
 | `web/src/plugins` | the SPA's plugin modules, registry, slots and generic panels; a module's directory name is its plugin ID |
 

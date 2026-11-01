@@ -19,6 +19,7 @@ import (
 	"github.com/TechDufus/dash/internal/model"
 	"github.com/TechDufus/dash/internal/plugin"
 	"github.com/TechDufus/dash/internal/plugin/plugintest"
+	"github.com/TechDufus/dash/internal/pluginconf"
 	"github.com/TechDufus/dash/internal/secret"
 	"github.com/TechDufus/dash/internal/topics"
 	"github.com/TechDufus/dash/internal/upstream"
@@ -88,7 +89,7 @@ func loadFramework(t *testing.T) (*framework, *config.Resolved) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = store.Close() })
-	return newFramework(res, store, config.ReloadOptions{Interval: time.Millisecond}), res
+	return newFramework(res, store, config.ReloadOptions{Interval: time.Millisecond}, nil, nil, false), res
 }
 
 // The framework as run starts it: Supervisor.Run returns before Manager.Run starts, so the
@@ -152,7 +153,7 @@ func TestFrameworkAppliesLiveSectionsAndReportsTheRest(t *testing.T) {
 	fw, _ := loadFramework(t)
 
 	// headlamp is a plugin that follows its section; grafana has no plugin in this framework.
-	headlamp := plugintest.New("headlamp", plugintest.Config(func() any { return &config.HeadlampConfig{} }))
+	headlamp := plugintest.New("headlamp", plugintest.Config(func() any { return &pluginconf.Headlamp{} }))
 	ctx, cancel := context.WithCancel(context.Background())
 	if err := fw.start(ctx, []plugin.Factory{headlamp.Factory()}, func() {}); err != nil {
 		t.Fatal(err)
@@ -164,7 +165,7 @@ func TestFrameworkAppliesLiveSectionsAndReportsTheRest(t *testing.T) {
 
 	writeTestFile(t, cfgPath, files("https://hl-b.example.com", "https://gf-b.example.com"))
 	waitFor(t, func() bool { return headlamp.Starts() == 2 })
-	if got := headlamp.Config().(*config.HeadlampConfig).URL; got != "https://hl-b.example.com" {
+	if got := headlamp.Config().(*pluginconf.Headlamp).URL; got != "https://hl-b.example.com" {
 		t.Errorf("the plugin restarted with %q, want the new section", got)
 	}
 	waitFor(t, func() bool { return len(fw.reloader.RestartRequired()) > 0 })

@@ -1003,7 +1003,7 @@ func TestRouterServesOnlyGetsAndFollowsReconfiguration(t *testing.T) {
 		r.Get("/{$}", func(w http.ResponseWriter, req *http.Request) { _, _ = w.Write([]byte(v + ":root")) }, plugin.RouteSpec{})
 	}
 	e := start(t, f.Factory())
-	h, ok := e.sup.Router("aa")
+	h, ok := e.sup.Router("aa", plugin.RouteGuard{})
 	if !ok {
 		t.Fatal("no router")
 	}
@@ -1046,11 +1046,11 @@ func TestRouterServesOnlyGetsAndFollowsReconfiguration(t *testing.T) {
 	eventually(t, "the new routes", func() bool { _, body := get("GET", "/api/v1/plugins/aa/vms/7"); return body == "v2:7" })
 	// A stopped instance has no router.
 	e.set.Set(plugin.InstanceConfig{Name: "aa", Enabled: new(false)})
-	e.reloadUntil(t, "stop", func() bool { _, ok := e.sup.Router("aa"); return !ok })
+	e.reloadUntil(t, "stop", func() bool { _, ok := e.sup.Router("aa", plugin.RouteGuard{}); return !ok })
 	if code, _ := get("GET", "/api/v1/plugins/aa/vms/7"); code != 404 {
 		t.Fatalf("a stopped instance answered %d", code)
 	}
-	if _, ok := e.sup.Router("ghost"); ok {
+	if _, ok := e.sup.Router("ghost", plugin.RouteGuard{}); ok {
 		t.Fatal("router for an unknown instance")
 	}
 }

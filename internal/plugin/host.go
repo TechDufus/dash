@@ -78,8 +78,19 @@ func (h *host) HTTPClient(c HTTPConfig) (*http.Client, error) {
 	if c.InsecureSkipVerify {
 		h.logger().Warn("TLS certificate verification is disabled for this plugin's upstream")
 	}
-	return newHTTPClient(c)
+	cl, err := newHTTPClient(c)
+	if err != nil {
+		return nil, err
+	}
+	if t := h.s.opt.Transport; t != nil && h.in != nil {
+		cl.Transport = t(h.in.id, cl.Transport)
+	}
+	return cl, nil
 }
+
+func (h *host) ScrubLog(s string) string { return h.s.scrubLog(s) }
+
+func (h *host) Links() LinkResolver { return h.s.Links() }
 
 // Service returns what the Provider instance id exports, to an instance that lists id in its
 // Requires or Uses while that instance is running.
@@ -87,7 +98,16 @@ func (h *host) Service(id ID) (any, bool) {
 	if h.in == nil || !slices.Contains(h.in.deps, id) {
 		return nil, false
 	}
-	dep := h.s.lookup(id)
+	return h.s.service(id, h.logger())
+}
+
+// Service returns what the Provider instance id exports while that instance runs, without the
+// declared-dependency check of Host.Service: it is for the core's own code (the topic Manager,
+// the API), which is not a plugin and so declares no Requires or Uses.
+func (s *Supervisor) Service(id ID) (any, bool) { return s.service(id, s.log()) }
+
+func (s *Supervisor) service(id ID, log *slog.Logger) (any, bool) {
+	dep := s.lookup(id)
 	if dep == nil {
 		return nil, false
 	}
@@ -103,10 +123,17 @@ func (h *host) Service(id ID) (any, bool) {
 	}
 	var svc any
 	if rec, stack := protect(func() { svc = prov.Service() }); rec != nil {
-		h.logger().Error("panic in Service", "provider", id, "panic", fmt.Sprint(rec), "stack", string(stack))
+		log.Error("panic in Service", "provider", id, "panic", fmt.Sprint(rec), "stack", string(stack))
 		return nil, false
 	}
 	return svc, svc != nil
+}
+
+func (s *Supervisor) scrubLog(line string) string {
+	if s.opt.ScrubLog == nil {
+		return line
+	}
+	return s.opt.ScrubLog(line)
 }
 
 func (h *host) Go(name string, fn func()) {
@@ -165,6 +192,10 @@ func (c coreHost) Now() time.Time       { return c.s.opt.Now() }
 func (c coreHost) HTTPClient(cfg HTTPConfig) (*http.Client, error) { return newHTTPClient(cfg) }
 
 func (c coreHost) Service(ID) (any, bool) { return nil, false }
+
+func (c coreHost) ScrubLog(s string) string { return c.s.scrubLog(s) }
+
+func (c coreHost) Links() LinkResolver { return c.s.Links() }
 
 func (c coreHost) Go(name string, fn func()) {
 	go func() {

@@ -80,13 +80,16 @@ func TestRequestIDRoundTrip(t *testing.T) {
 	logs := captureSlog(t)
 	dir := t.TempDir()
 	clk := newAuditClock()
-	s, _, _, am := serverWithFakes(func(d *Deps) { d.Audit = openAudit(t, dir, clk.now) })
-	am.err = errors.New(`Post "http://alertmanager.internal:9093/api/v2/silences": connection refused`)
+	pl := newHarness(t)
+	pl.act = func(string, any) (any, error) {
+		return nil, errors.New(`Post "http://alertmanager.internal:9093/api/v2/silences": connection refused`)
+	}
+	s, _, _ := serverWithFakes(func(d *Deps) { pl.attach(d); d.Audit = openAudit(t, dir, clk.now) })
 	h := s.Handler()
 
 	// An upstream failure: header, body and the WARN line name the same id, and only the log
 	// names the upstream.
-	w := req{method: "POST", path: "/api/silences", body: silenceBody(nil)}.do(h)
+	w := req{method: "POST", path: "/api/v1/plugins/aa/actions/silence.create", body: silenceIn{Alertname: "HighTemp"}}.do(h)
 	e := wantError(t, w, http.StatusBadGateway, model.ErrCodeUpstreamUnavailable)
 	id := w.Header().Get("X-Request-Id")
 	if id == "" || e.RequestID != id {
@@ -101,7 +104,7 @@ func TestRequestIDRoundTrip(t *testing.T) {
 	if len(recs) != 2 || recs[0].RequestID != id || recs[1].RequestID != id {
 		t.Errorf("records of the action = %+v, want requestId %q", recs, id)
 	}
-	w = req{method: "POST", path: "/api/silences", header: map[string]string{"X-Dash-Csrf": ""}}.do(h)
+	w = req{method: "POST", path: "/api/v1/plugins/aa/actions/silence.create", header: map[string]string{"X-Dash-Csrf": ""}}.do(h)
 	denied := w.Header().Get("X-Request-Id")
 	last := auditRecords(t, dir)
 	if got := last[len(last)-1]; got.Kind != audit.KindDenial || got.RequestID != denied || denied == "" || denied == id {
@@ -148,8 +151,8 @@ func TestCacheControlNoStoreOnV1AndPrivateNoCacheOnSnapshots(t *testing.T) {
 		t.Errorf("stream: Cache-Control = %q, want no-cache", got)
 	}
 
-	// The legacy routes keep what they had: no header of their own.
-	for _, path := range []string{"/api/config", "/api/vms/100", "/api/nope"} {
+	// What is not under /api/v1 keeps what it had: no header of its own.
+	for _, path := range []string{"/api/vms/100", "/api/nope"} {
 		if got := cacheControl(t, h, req{path: path}); got != "" {
 			t.Errorf("legacy %s: Cache-Control = %q, want none", path, got)
 		}
@@ -196,5 +199,5 @@ func TestMeCapabilitiesAndScopes(t *testing.T) {
 
 func equalMe(a, b model.Me) bool {
 	return a.User == b.User && a.Role == b.Role && a.AuthMode == b.AuthMode && a.Audience == b.Audience &&
-		a.Version == b.Version && a.Capabilities == b.Capabilities && strings.Join(a.Scopes, ",") == strings.Join(b.Scopes, ",")
+		a.Version == b.Version && a.Capabilities == b.Capabilities && a.UI == b.UI && strings.Join(a.Scopes, ",") == strings.Join(b.Scopes, ",")
 }

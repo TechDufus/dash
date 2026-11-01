@@ -74,7 +74,7 @@ func TestReloadedSecretReachesTheProxmoxClientWhileReadinessHolds(t *testing.T) 
 	// (server.readyRequires = [kubernetes]), not the reloader.
 	cfg := res.Config
 	pveClient := upstream.NewProxmox(cfg.ProxmoxURL, "", cfg.ProxmoxTokenID, cfg.ProxmoxTokenSecret, nil)
-	fw := newFramework(res, store, config.ReloadOptions{Interval: time.Millisecond})
+	fw := newFramework(res, store, config.ReloadOptions{Interval: time.Millisecond}, nil, nil, false)
 	sup, reloader := fw.sup, fw.reloader
 	mgr := topics.New(topics.Deps{
 		Cfg: cfg, Cluster: testCluster(), Prom: upstream.NewProm(cfg.VMURL, nil), AM: upstream.NewAlertmanager(cfg.AlertmanagerURL, nil),

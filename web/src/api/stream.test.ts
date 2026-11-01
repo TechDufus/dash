@@ -38,7 +38,9 @@ const fluxRow = (state = "healthy") => pluginInfo({ id: "flux", topics: ["flux"]
 
 beforeEach(() => {
   ES = installEventSource();
-  fetchStub = stubFetch({ "GET /api/v1/me": { user: "dev", role: "admin" } });
+  fetchStub = stubFetch({
+    "GET /api/v1/me": { user: "dev", role: "admin", ui: { iconBaseUrl: "" } },
+  });
 });
 
 afterEach(() => {
@@ -161,6 +163,21 @@ describe("stream.ts snapshot seeding", () => {
     await flush();
     expect(getEnvelope("vms")?.data).toEqual({ vms: ["back"] });
     expect(fetchStub.callsTo(topicRoute("vms"))).toHaveLength(0);
+  });
+
+  it("shows a topic event resent right after the core.plugins event that made its row visible", async () => {
+    const es = connect();
+    es.emit("core.plugins", pluginsEnvelope([vmsRow(), fluxRow("unconfigured")]));
+    expect(getEnvelope("flux")).toBeUndefined();
+
+    // The server re-publishes a plugin's latest events after the row turns visible (a restart or
+    // an enable); the topic already had a listener, so nothing seeds it and nothing needs to.
+    es.emit("core.plugins", pluginsEnvelope([vmsRow(), fluxRow("starting")]));
+    es.emit("flux", envelope("flux", { objects: ["resent"] }));
+    await flush();
+
+    expect(getEnvelope("flux")?.data).toEqual({ objects: ["resent"] });
+    expect(fetchStub.callsTo(topicRoute("flux"))).toHaveLength(0);
   });
 
   it("keeps a topic's first publish when it arrives before the event that makes it visible", async () => {

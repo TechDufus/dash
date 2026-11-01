@@ -76,6 +76,14 @@ func newActionEnvWith(t *testing.T, fn func(action string, in any) (any, error),
 // newActionEnvSpecs is newActionEnvWith with more actions on the fixture plugin "aa".
 func newActionEnvSpecs(t *testing.T, fn func(action string, in any) (any, error), ics []plugin.InstanceConfig, more []plugin.ActionSpec, extra ...factoryOf) *actionEnv {
 	t.Helper()
+	e := &actionEnv{}
+	f := e.fixture(fn, more)
+	e.pluginEnv = newPluginEnv(t, ics, append([]factoryOf{f}, extra...)...)
+	return e
+}
+
+// fixture is the plugin "aa" whose Act records every call in e and answers with fn.
+func (e *actionEnv) fixture(fn func(action string, in any) (any, error), more []plugin.ActionSpec) *plugintest.Fake {
 	f := plugintest.New("aa")
 	f.M.Actions = append([]plugin.ActionSpec{
 		{
@@ -86,7 +94,6 @@ func newActionEnvSpecs(t *testing.T, fn func(action string, in any) (any, error)
 		{Name: "scale", Title: "Scale", Input: func() any { return &scaleIn{} }},
 		{Name: "ping", Title: "Ping", Idempotent: true},
 	}, more...)
-	e := &actionEnv{}
 	f.ActionFn = func(_ context.Context, action string, p auth.Principal, in any) (any, error) {
 		e.mu.Lock()
 		e.calls = append(e.calls, actCall{action, p, in})
@@ -96,8 +103,7 @@ func newActionEnvSpecs(t *testing.T, fn func(action string, in any) (any, error)
 		}
 		return fn(action, in)
 	}
-	e.pluginEnv = newPluginEnv(t, ics, append([]factoryOf{f}, extra...)...)
-	return e
+	return f
 }
 
 // nonActor is a plugin that declares actions but has no Act.

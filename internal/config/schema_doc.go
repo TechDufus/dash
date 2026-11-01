@@ -3,8 +3,6 @@ package config
 import (
 	"encoding/json"
 	"io"
-	"strings"
-	"time"
 
 	"github.com/TechDufus/dash/internal/jsonschema"
 )
@@ -13,23 +11,6 @@ import (
 // that every other layer is applied to. The schema and the generated documentation take their
 // defaults from it.
 func DefaultTree() Tree { return defaults(false, false) }
-
-// JSONSchema makes a Duration a string with format "duration" in the generated schema.
-func (Duration) JSONSchema() jsonschema.Schema {
-	return jsonschema.Schema{"type": "string", "format": "duration", "examples": []string{"30s", "5m", "1h30m"}}
-}
-
-// compact writes d as an operator would: 30m, not 30m0s.
-func (d Duration) compact() string {
-	s := time.Duration(d).String()
-	if strings.HasSuffix(s, "m0s") {
-		s = strings.TrimSuffix(s, "0s")
-	}
-	if strings.HasSuffix(s, "h0m") {
-		s = strings.TrimSuffix(s, "0m")
-	}
-	return s
-}
 
 // SchemaDocument is the JSON Schema 2020-12 of the configuration file (config.yaml, and the
 // UI settings layer): every setting with its description, its default, whether it is a secret

@@ -3,17 +3,9 @@ package config
 import (
 	"reflect"
 	"strings"
-)
 
-// PluginBase is embedded in every plugin section. It adds the two settings every instance has,
-// plugins.<id>.type and plugins.<id>.enabled (design A.2, B.2), whatever else the section holds.
-type PluginBase struct {
-	// Type is the plugin type. dash runs one instance per type, so it is empty or the section
-	// name (design J.16).
-	Type string `json:"type" doc:"The plugin type. dash runs one instance per type, so this is empty or the section name."`
-	// Enabled turns the plugin on or off. Unset leaves it on; an unconfigured plugin reports itself unavailable.
-	Enabled *bool `json:"enabled" doc:"false turns the plugin off (a restart applies it): its topics are removed, and the web UI drops its rail entry, palette entries, overview tiles and panels and shows a switched-off page at its address. The Kubernetes connection is required whichever plugins are off. Unset leaves it on: a plugin without its settings reports itself unavailable (not configured), and the web UI hides its pages."`
-}
+	"github.com/TechDufus/dash/internal/pluginconf"
+)
 
 // PluginSection is one plugins.<Name> section as the plugin framework reads it.
 type PluginSection struct {
@@ -27,7 +19,7 @@ type PluginSection struct {
 	Value any
 }
 
-var pluginBaseType = reflect.TypeFor[PluginBase]()
+var pluginBaseType = reflect.TypeFor[pluginconf.PluginBase]()
 
 // PluginSections lists the sections of t.Plugins in declaration order.
 func (t Tree) PluginSections() []PluginSection {
@@ -41,7 +33,7 @@ func (t Tree) PluginSections() []PluginSection {
 		detach(sec.Elem())
 		ps := PluginSection{Name: name, Value: sec.Interface()}
 		if base := sec.Elem().FieldByName(pluginBaseType.Name()); base.IsValid() && base.Type() == pluginBaseType {
-			b := base.Interface().(PluginBase)
+			b := base.Interface().(pluginconf.PluginBase)
 			ps.Type, ps.Enabled = b.Type, b.Enabled
 		}
 		if ps.Type == "" {
@@ -52,7 +44,7 @@ func (t Tree) PluginSections() []PluginSection {
 	return out
 }
 
-// detach gives v its own copy of everything reachable through exported slice, pointer and
+// detach gives v its own copy of everything reachable through exported slice, map, pointer and
 // struct fields, so that a copy of a section shares no writable memory with the original.
 // Unexported fields (such as a secret.Value's handle) are shared on purpose.
 func detach(v reflect.Value) {
@@ -65,6 +57,18 @@ func detach(v reflect.Value) {
 		reflect.Copy(c, v)
 		for i := range c.Len() {
 			detach(c.Index(i))
+		}
+		v.Set(c)
+	case reflect.Map:
+		if v.IsNil() {
+			return
+		}
+		c := reflect.MakeMapWithSize(v.Type(), v.Len())
+		for it := v.MapRange(); it.Next(); {
+			e := reflect.New(v.Type().Elem()).Elem()
+			e.Set(it.Value())
+			detach(e)
+			c.SetMapIndex(it.Key(), e)
 		}
 		v.Set(c)
 	case reflect.Pointer:

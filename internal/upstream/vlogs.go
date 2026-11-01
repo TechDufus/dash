@@ -99,7 +99,7 @@ type VLogs struct{ short, stream client }
 func NewVLogs(baseURL string, rt http.RoundTripper) *VLogs {
 	return &VLogs{
 		short:  newClient(baseURL, rt, 10*time.Second),
-		stream: newClient(baseURL, rt, 0),
+		stream: newStreamClient(baseURL, rt),
 	}
 }
 

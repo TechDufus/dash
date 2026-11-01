@@ -8,6 +8,7 @@ import (
 	"io"
 	"io/fs"
 	"net/http"
+	"slices"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -16,6 +17,7 @@ import (
 	"k8s.io/client-go/kubernetes"
 
 	"github.com/TechDufus/dash/internal/audit"
+	"github.com/TechDufus/dash/internal/auth"
 	"github.com/TechDufus/dash/internal/config"
 	"github.com/TechDufus/dash/internal/hub"
 	"github.com/TechDufus/dash/internal/model"
@@ -55,7 +57,12 @@ type PluginsAPI interface {
 	Infos() []model.PluginInfo
 	Manifests() []plugin.Manifest
 	Action(instance plugin.ID, name string) (plugin.ActionRef, bool)
-	Router(instance plugin.ID) (http.Handler, bool)
+	// Router serves the routes of a running instance through g, the core's route policy.
+	Router(instance plugin.ID, g plugin.RouteGuard) (http.Handler, bool)
+	// Service is what a running instance's Provider exports, for the code that is not a plugin.
+	Service(id plugin.ID) (any, bool)
+	// Links resolves deep links through the running link providers.
+	Links() plugin.LinkResolver
 	Series(name string) (plugin.SeriesSpec, plugin.ID, bool)
 	Ready() bool
 }
@@ -197,10 +204,13 @@ func (s *Server) me(w http.ResponseWriter, r *http.Request) {
 	me := model.Me{
 		User: p.User, Role: string(p.Role), AuthMode: s.authMode(), Audience: "api", Version: s.d.Version,
 		Scopes: []string{"read", "logs"},
+		UI:     model.MeUI{IconBaseURL: s.d.Cfg.IconBaseURL},
 	}
 	if s.d.Plugins != nil {
 		for _, pi := range s.d.Plugins.Infos() {
-			if len(pi.Actions) > 0 {
+			// An action the principal's role cannot run grants neither its scope nor the capability:
+			// a viewer is not offered controls the server would refuse (design D5).
+			if slices.ContainsFunc(pi.Actions, func(a model.ActionInfo) bool { return p.Role.AtLeast(auth.Role(a.MinRole)) }) {
 				me.Scopes = append(me.Scopes, "actions:"+pi.ID)
 				me.Capabilities.Actions = true
 			}

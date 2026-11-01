@@ -6,6 +6,7 @@ import (
 	"github.com/TechDufus/dash/internal/config"
 	"github.com/TechDufus/dash/internal/model"
 	"github.com/TechDufus/dash/internal/plugin"
+	"github.com/TechDufus/dash/internal/pluginconf"
 	"github.com/TechDufus/dash/internal/upstream"
 )
 
@@ -73,17 +74,16 @@ func legacyManifests() []plugin.Manifest {
 	nav := func(path, label, title, icon string) plugin.UISpec {
 		return plugin.UISpec{Nav: []model.NavItem{{Path: path, Label: label, Title: title, Icon: icon}}}
 	}
-	endpoint := func() any { return &config.Endpoint{} }
 	return []plugin.Manifest{
 		{ID: "prometheus", Name: "Prometheus-compatible", Description: "VictoriaMetrics or Prometheus: the series behind charts, KPIs and host metrics.",
-			Version: "1.0.0", Config: endpoint},
-		{ID: "alertmanager", Name: "Alertmanager", Description: "Alerts and silences.", Version: "1.0.0", Config: endpoint,
+			Version: "1.0.0", Config: func() any { return &pluginconf.Prometheus{} }},
+		{ID: "alertmanager", Name: "Alertmanager", Description: "Alerts and silences.", Version: "1.0.0", Config: func() any { return &pluginconf.Alertmanager{} },
 			Topics: []plugin.TopicSpec{{Name: "alerts", Legacy: "alerts", Type: model.AlertsData{}, Doc: "Alerts and silences."}},
 			UI:     nav("/alerts", "Alerts", "Alerts and silences", "BellRing")},
-		{ID: "gatus", Name: "Gatus", Description: "Endpoint health.", Version: "1.0.0", Config: endpoint,
+		{ID: "gatus", Name: "Gatus", Description: "Endpoint health.", Version: "1.0.0", Config: func() any { return &pluginconf.Gatus{} },
 			Topics: []plugin.TopicSpec{{Name: "status", Legacy: "status", Type: model.StatusData{}, Doc: "Endpoint health checks."}},
 			UI:     nav("/status", "Status", "Service status", "Activity")},
-		{ID: "victorialogs", Name: "VictoriaLogs", Description: "The pod logs the UI shows.", Version: "1.0.0", Config: endpoint},
+		{ID: "victorialogs", Name: "VictoriaLogs", Description: "The pod logs the UI shows.", Version: "1.0.0", Config: func() any { return &pluginconf.VictoriaLogs{} }},
 		{ID: "proxmox", Name: "Proxmox VE", Description: "Virtual machines, containers and the hypervisor.", Version: "1.0.0",
 			Uses:   []plugin.ID{"kubernetes", "prometheus"},
 			Config: func() any { return &config.ProxmoxConfig{} },
@@ -108,11 +108,11 @@ func legacyManifests() []plugin.Manifest {
 			Config: func() any { return &config.FluxConfig{} },
 			Topics: []plugin.TopicSpec{{Name: "objects", Legacy: "flux", Type: model.FluxData{}, Doc: "Flux objects."}},
 			UI:     nav("/gitops", "GitOps", "GitOps (Flux)", "GitBranch")},
-		{ID: "grafana", Name: "Grafana", Description: "Links to dashboards.", Version: "1.0.0", Config: endpoint},
+		{ID: "grafana", Name: "Grafana", Description: "Links to dashboards.", Version: "1.0.0", Config: func() any { return &pluginconf.Grafana{} }},
 		{ID: "headlamp", Name: "Headlamp", Description: "Deep links into the Kubernetes UI.", Version: "1.0.0",
-			Config: func() any { return &config.HeadlampConfig{} }},
+			Config: func() any { return &pluginconf.Headlamp{} }},
 		{ID: "launcher", Name: "Launcher", Description: "Links to your infrastructure.", Version: "1.0.0",
-			Config: func() any { return &config.LauncherConfig{} }},
+			Config: func() any { return &pluginconf.Launcher{} }},
 	}
 }
 

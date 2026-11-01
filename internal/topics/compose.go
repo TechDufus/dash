@@ -71,6 +71,31 @@ func compose(cs []contribution, legacy legacyOverview) model.OverviewData {
 	}
 }
 
+// mergeSources appends extra to base without repeating a name: for a name in both, the failing
+// entry wins, as it does within the Manager's own sources. Base order is kept, and new names
+// follow in extra's order.
+func mergeSources(base, extra []model.SourceStatus) []model.SourceStatus {
+	out := slices.Clone(base)
+	if out == nil {
+		out = []model.SourceStatus{}
+	}
+	index := make(map[string]int, len(out))
+	for i, s := range out {
+		index[s.Name] = i
+	}
+	for _, s := range extra {
+		i, dup := index[s.Name]
+		switch {
+		case !dup:
+			index[s.Name] = len(out)
+			out = append(out, s)
+		case !s.OK && out[i].OK:
+			out[i] = s
+		}
+	}
+	return out
+}
+
 // mergeTopology merges the topologies the contributions describe, in contribution order.
 func mergeTopology(ts []model.Topology) model.Topology {
 	out := model.Topology{VMs: []model.TopologyVM{}, Groups: []model.TopologyGroup{}}

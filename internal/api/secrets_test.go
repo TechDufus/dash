@@ -1,15 +1,16 @@
 package api
 
 import (
+	"context"
 	"encoding/base64"
 	"errors"
 	"fmt"
 	"log/slog"
+	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"strings"
 	"testing"
-	"time"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -18,7 +19,9 @@ import (
 	"k8s.io/client-go/kubernetes/fake"
 	k8stesting "k8s.io/client-go/testing"
 
+	"github.com/TechDufus/dash/internal/auth"
 	"github.com/TechDufus/dash/internal/model"
+	"github.com/TechDufus/dash/internal/plugin"
 	"github.com/TechDufus/dash/internal/secret"
 	"github.com/TechDufus/dash/internal/upstream"
 )
@@ -66,19 +69,37 @@ func TestUpstreamErrorsReachClientsAsCategoryOnly(t *testing.T) {
 		name string
 		req  req
 		mod  func(*Deps)
+		plug func(*harness) // set: the request goes to a plugin harness instead of newServer
 		want string
 	}{
-		{"series", req{path: "/api/v1/series?name=host.cpu&range=1h"}, func(d *Deps) { d.Prom = &fakeProm{err: refused} }, "metrics unavailable: unreachable"},
-		{"logs", req{path: "/api/logs?ns=media"}, func(d *Deps) { d.VLogs = &fakeLogs{err: denied} }, "logs unavailable: auth"},
-		{"vm detail", req{path: "/api/vms/100"}, func(d *Deps) { d.Data = fakeData{vmErr: unavailable} }, "vm details unavailable: http_503"},
-		{"silence create", req{method: "POST", path: "/api/silences", body: silenceBody(nil)}, func(d *Deps) { d.AM = &fakeAM{err: refused} }, "alertmanager: unreachable"},
-		{"silence expire", req{method: "DELETE", path: "/api/silences/abc"}, func(d *Deps) { d.AM = &fakeAM{err: unavailable} }, "alertmanager: http_503"},
+		{name: "series", req: req{path: "/api/v1/series?name=host.cpu&range=1h"}, mod: func(d *Deps) { d.Prom = &fakeProm{err: refused} }, want: "metrics unavailable: unreachable"},
+		{name: "vm detail", req: req{path: "/api/vms/100"}, mod: func(d *Deps) { d.Data = fakeData{vmErr: unavailable} }, want: "vm details unavailable: http_503"},
+		{name: "plugin route", req: req{path: "/api/v1/plugins/rt/items?ns=media"}, plug: func(h *harness) {
+			h.items = func(*http.Request) (any, error) { return nil, denied }
+		}, want: "rt: auth"},
+		{name: "plugin stream before it begins", req: req{path: "/api/v1/plugins/rt/tail?ns=media&pod=p"}, plug: func(h *harness) {
+			h.tail = func(context.Context, *http.Request, auth.Principal, plugin.Stream) error { return denied }
+		}, want: "rt: auth"},
+		{name: "plugin action", req: req{method: "POST", path: "/api/v1/plugins/aa/actions/silence.create", body: silenceIn{Alertname: "HighTemp"}}, plug: func(h *harness) {
+			h.act = func(string, any) (any, error) { return nil, refused }
+		}, want: "aa: unreachable"},
+		{name: "plugin action 503", req: req{method: "POST", path: "/api/v1/plugins/aa/actions/silence.expire", body: expireIn{ID: "abc"}}, plug: func(h *harness) {
+			h.act = func(string, any) (any, error) { return nil, unavailable }
+		}, want: "aa: http_503"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			logged := captureLog(t, reg)
-			s := newServer(func(d *Deps) { tc.mod(d); d.Secrets = reg })
-			w := tc.req.do(s.Handler())
+			var handler http.Handler
+			if tc.plug != nil {
+				h := newHarness(t)
+				tc.plug(h)
+				h.d.Secrets = reg
+				handler = h.Handler()
+			} else {
+				handler = newServer(func(d *Deps) { tc.mod(d); d.Secrets = reg }).Handler()
+			}
+			w := tc.req.do(handler)
 			if w.Code != 502 {
 				t.Fatalf("code = %d, want 502 (%s)", w.Code, w.Body)
 			}
@@ -166,65 +187,4 @@ func TestKubePolicyMessagesAreScrubbedOnTheWayOut(t *testing.T) {
 			}
 		})
 	}
-}
-
-// Log lines are application output: whatever a pod prints, a credential never reaches the
-// browser, as an exact value, in an encoded form, or as a dash token (P1.4 acceptance).
-func TestLogsAPIScrubsSecretsAndTokens(t *testing.T) {
-	reg := canaryRegistry()
-	var msgs []string
-	for i, form := range canaryForms() {
-		msgs = append(msgs, fmt.Sprintf("line %d token=%s end", i, form))
-	}
-	msgs = append(msgs,
-		"pat dash_pat_abcDEF123_secretPART456 end",
-		"setup dash_setup_Zm9vYmFyYmF6 end",
-		"access dash_at_abc.def end",
-		"sealed enc:v1:1a2b3c4d:AAAAAAAAAAAAAAAA end",
-		"plain line stays",
-	)
-	var lines []model.LogLine
-	for i, m := range msgs {
-		lines = append(lines, model.LogLine{Time: fixedNow.Add(time.Duration(i) * time.Second), Pod: "p", Container: "c", Msg: m})
-	}
-	forbidden := append(canaryForms(), "dash_pat_abcDEF123", "secretPART456", "dash_setup_Zm9v", "dash_at_abc", "enc:v1:1a2b3c4d", "AAAAAAAAAAAAAAAA")
-
-	check := func(t *testing.T, name, out string) {
-		t.Helper()
-		for _, f := range forbidden {
-			if strings.Contains(out, f) {
-				t.Errorf("%s carries %q:\n%s", name, f, out)
-			}
-		}
-		if !strings.Contains(out, "plain line stays") || strings.Count(out, "[redacted]") < len(msgs)-1 {
-			t.Errorf("%s: want every secret line redacted and the plain one kept:\n%s", name, out)
-		}
-	}
-
-	t.Run("query", func(t *testing.T) {
-		logs := &fakeLogs{lines: lines}
-		s := newServer(func(d *Deps) { d.VLogs, d.Secrets = logs, reg })
-		w := req{path: "/api/logs?ns=media&pod=p"}.do(s.Handler())
-		if w.Code != 200 {
-			t.Fatalf("code = %d", w.Code)
-		}
-		check(t, "/api/logs", w.Body.String())
-	})
-	t.Run("tail", func(t *testing.T) {
-		logs := &fakeLogs{tail: func(emit func(model.LogLine) error) error {
-			for _, l := range lines {
-				if err := emit(l); err != nil {
-					return err
-				}
-			}
-			return nil
-		}}
-		s := newServer(func(d *Deps) { d.VLogs, d.Secrets = logs, reg })
-		_, stream := sseClient(t, s.Handler(), "/api/logs/tail?ns=media&pod=p")
-		var out strings.Builder
-		for l := range stream {
-			out.WriteString(l + "\n")
-		}
-		check(t, "/api/logs/tail", out.String())
-	})
 }

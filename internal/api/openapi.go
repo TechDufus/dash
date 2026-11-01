@@ -172,8 +172,8 @@ func (b *specBuilder) operation(r Route) object {
 	ok := object{"description": cmp.Or(r.Summary, "Success"), "headers": okHeaders()}
 	switch {
 	case r.SSE:
-		ok["description"] = "A stream of server-sent events. Each event is named after its topic and carries " +
-			"that topic's envelope as JSON; a comment line every 15 seconds keeps the connection alive."
+		ok["description"] = cmp.Or(r.SSEDoc, "A stream of server-sent events. Each event is named after its topic and carries "+
+			"that topic's envelope as JSON; a comment line every 15 seconds keeps the connection alive.")
 		ok["content"] = object{"text/event-stream": object{"schema": object{"type": "string"}}}
 	case r.TopicEnvelope:
 		ok["description"] = "The topic's current envelope."
@@ -265,6 +265,7 @@ func (b *specBuilder) addPlugins() {
 				ID:     id + "_get" + strings.NewReplacer("/", "_", "{", "", "}", "", "...", "", ".", "_").Replace(strings.TrimSuffix(path, "/")[len(base):]),
 				Method: "GET", Path: path, Summary: ri.Spec.Summary, Tag: id, Role: "viewer", Scope: ri.Spec.Scope,
 				Query: ri.Spec.Query, Response: ri.Spec.Response,
+				SSE: ri.Stream != nil, SSEDoc: pluginStreamDoc,
 			}
 			b.add(pathVarRE.ReplaceAllString(path, "{$1}"), "GET", b.operation(r), id, tagDoc)
 		}

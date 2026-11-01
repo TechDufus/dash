@@ -24,9 +24,8 @@ import (
 	"strings"
 	"time"
 
-	"sigs.k8s.io/yaml"
-
 	"github.com/TechDufus/dash/internal/model"
+	"github.com/TechDufus/dash/internal/pluginconf"
 	"github.com/TechDufus/dash/internal/secret"
 )
 
@@ -86,6 +85,10 @@ type Config struct {
 	LauncherFile string
 	Launcher     []model.LauncherLink
 
+	// IconBaseURL is ui.iconBaseURL: the origin icon names resolve against and the only origin an
+	// icon URL may come from; empty means no third-party icon request. The SPA reads it with /me.
+	IconBaseURL string
+
 	Conventions Conventions
 
 	// Kubeconfig is used outside the cluster (dev); empty means in-cluster config.
@@ -138,7 +141,7 @@ func (r *Resolved) LoadLauncherFile() error {
 	if c.LauncherFile == "" {
 		return nil
 	}
-	links, err := LoadLauncher(c.LauncherFile)
+	links, err := pluginconf.LoadLauncher(c.LauncherFile)
 	if err != nil {
 		return err
 	}
@@ -237,22 +240,6 @@ func loopbackAddr(addr string) bool {
 	}
 	ip := net.ParseIP(host)
 	return ip != nil && ip.IsLoopback()
-}
-
-// LoadLauncher reads a YAML or JSON list of launcher links.
-func LoadLauncher(path string) ([]model.LauncherLink, error) {
-	raw, err := os.ReadFile(path)
-	if err != nil {
-		return nil, fmt.Errorf("launcher file: %w", err)
-	}
-	var links []model.LauncherLink
-	if err := yaml.UnmarshalStrict(raw, &links); err != nil {
-		return nil, fmt.Errorf("launcher file %s: %w", path, err)
-	}
-	if err := validateLinks(links); err != nil {
-		return nil, fmt.Errorf("launcher file %s: %w", path, err)
-	}
-	return links, nil
 }
 
 // PublicOrigin is scheme://host[:port] of PublicURL, the only Origin accepted on writes. The

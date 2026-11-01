@@ -1,5 +1,107 @@
 {
   "$defs": {
+    "ActionsToggle": {
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "description": "Offer the plugin's actions. Off by default: without it the actions are not mounted and the web UI does not show their buttons.",
+          "type": "boolean"
+        }
+      },
+      "type": "object"
+    },
+    "Alertmanager": {
+      "additionalProperties": false,
+      "properties": {
+        "actions": {
+          "$ref": "#/$defs/ActionsToggle",
+          "description": "The silence actions."
+        },
+        "auth": {
+          "$ref": "#/$defs/Auth",
+          "description": "How dash authenticates to Alertmanager. Neither basic nor bearerToken sends no credentials."
+        },
+        "enabled": {
+          "description": "false turns the plugin off (a restart applies it): its topics are removed, and the web UI drops its rail entry, palette entries, overview tiles and panels and shows a switched-off page at its address. The Kubernetes connection is required whichever plugins are off. Unset leaves it on: a plugin without its settings reports itself unavailable (not configured), and the web UI hides its pages.",
+          "type": "boolean"
+        },
+        "ignoreAlerts": {
+          "default": [
+            "Watchdog",
+            "InfoInhibitor"
+          ],
+          "description": "Alert names dash drops everywhere: the alert list, the attention items and the firing count. A JSON list in the environment.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "protectedAlerts": {
+          "default": [
+            "Watchdog"
+          ],
+          "description": "Alert names nobody can silence through dash, whatever the role. A JSON list in the environment.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "severityMap": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "default": {
+            "critical": "crit",
+            "warning": "warn"
+          },
+          "description": "How an alert's severity label value becomes dash's severity (crit or warn), as {label value: severity}. A JSON object in the environment.",
+          "type": "object"
+        },
+        "silenceDurations": {
+          "default": [
+            "1h",
+            "4h",
+            "24h",
+            "7d"
+          ],
+          "description": "The silence lengths the dialog offers, from 1h, 4h, 24h and 7d. A JSON list in the environment.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "tls": {
+          "$ref": "#/$defs/TLS",
+          "description": "How dash verifies Alertmanager's certificate."
+        },
+        "type": {
+          "description": "The plugin type. dash runs one instance per type, so this is empty or the section name.",
+          "type": "string"
+        },
+        "url": {
+          "description": "Base URL of the service, e.g. http://host:9090. Empty turns the source off: dash makes no request and its panels show \"source not configured\".",
+          "format": "uri",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "Auth": {
+      "additionalProperties": false,
+      "properties": {
+        "basic": {
+          "$ref": "#/$defs/BasicAuth",
+          "description": "HTTP Basic authentication. Not together with bearerToken."
+        },
+        "bearerToken": {
+          "description": "Bearer token sent as Authorization: Bearer: a literal, env:NAME or file:/path. Not together with basic.",
+          "type": "string",
+          "writeOnly": true,
+          "x-dash-secret": true
+        }
+      },
+      "type": "object"
+    },
     "BackupJob": {
       "additionalProperties": false,
       "properties": {
@@ -14,20 +116,17 @@
       },
       "type": "object"
     },
-    "Endpoint": {
+    "BasicAuth": {
       "additionalProperties": false,
       "properties": {
-        "enabled": {
-          "description": "false turns the plugin off (a restart applies it): its topics are removed, and the web UI drops its rail entry, palette entries, overview tiles and panels and shows a switched-off page at its address. The Kubernetes connection is required whichever plugins are off. Unset leaves it on: a plugin without its settings reports itself unavailable (not configured), and the web UI hides its pages.",
-          "type": "boolean"
+        "password": {
+          "description": "Password: a literal, env:NAME or file:/path. Set together with username.",
+          "type": "string",
+          "writeOnly": true,
+          "x-dash-secret": true
         },
-        "type": {
-          "description": "The plugin type. dash runs one instance per type, so this is empty or the section name.",
-          "type": "string"
-        },
-        "url": {
-          "description": "Base URL of the service, e.g. http://host:9090. Empty turns the source off: dash makes no request and its panels show \"source not configured\".",
-          "format": "uri",
+        "username": {
+          "description": "User name.",
           "type": "string"
         }
       },
@@ -46,6 +145,64 @@
         },
         "type": {
           "description": "The plugin type. dash runs one instance per type, so this is empty or the section name.",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "Gatus": {
+      "additionalProperties": false,
+      "properties": {
+        "auth": {
+          "$ref": "#/$defs/Auth",
+          "description": "How dash authenticates to Gatus. Neither basic nor bearerToken sends no credentials."
+        },
+        "criticalGroups": {
+          "description": "Gatus groups whose failing checks are critical (compared without regard to case); a failing check in any other group is a warning. The Status page lists these groups first. Empty makes every failure a warning. A JSON list in the environment.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "enabled": {
+          "description": "false turns the plugin off (a restart applies it): its topics are removed, and the web UI drops its rail entry, palette entries, overview tiles and panels and shows a switched-off page at its address. The Kubernetes connection is required whichever plugins are off. Unset leaves it on: a plugin without its settings reports itself unavailable (not configured), and the web UI hides its pages.",
+          "type": "boolean"
+        },
+        "pageSize": {
+          "default": 30,
+          "description": "Endpoints requested from Gatus per page. Greater than zero.",
+          "type": "integer"
+        },
+        "tls": {
+          "$ref": "#/$defs/TLS",
+          "description": "How dash verifies Gatus's certificate."
+        },
+        "type": {
+          "description": "The plugin type. dash runs one instance per type, so this is empty or the section name.",
+          "type": "string"
+        },
+        "url": {
+          "description": "Base URL of the service, e.g. http://host:9090. Empty turns the source off: dash makes no request and its panels show \"source not configured\".",
+          "format": "uri",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "Grafana": {
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "description": "false turns the plugin off (a restart applies it): its topics are removed, and the web UI drops its rail entry, palette entries, overview tiles and panels and shows a switched-off page at its address. The Kubernetes connection is required whichever plugins are off. Unset leaves it on: a plugin without its settings reports itself unavailable (not configured), and the web UI hides its pages.",
+          "type": "boolean"
+        },
+        "type": {
+          "description": "The plugin type. dash runs one instance per type, so this is empty or the section name.",
+          "type": "string"
+        },
+        "url": {
+          "description": "Base URL of the service, e.g. http://host:9090. Empty turns the source off: dash makes no request and its panels show \"source not configured\".",
+          "format": "uri",
           "type": "string"
         }
       },
@@ -90,7 +247,7 @@
       },
       "type": "object"
     },
-    "HeadlampConfig": {
+    "Headlamp": {
       "additionalProperties": false,
       "properties": {
         "cluster": {
@@ -161,7 +318,7 @@
       },
       "type": "object"
     },
-    "LauncherConfig": {
+    "Launcher": {
       "additionalProperties": false,
       "properties": {
         "enabled": {
@@ -276,11 +433,32 @@
       },
       "type": "object"
     },
+    "LogFields": {
+      "additionalProperties": false,
+      "properties": {
+        "container": {
+          "default": "kubernetes.container_name",
+          "description": "Field holding the container's name.",
+          "type": "string"
+        },
+        "namespace": {
+          "default": "kubernetes.pod_namespace",
+          "description": "Field holding the pod's namespace.",
+          "type": "string"
+        },
+        "pod": {
+          "default": "kubernetes.pod_name",
+          "description": "Field holding the pod's name.",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
     "PluginsConfig": {
       "additionalProperties": false,
       "properties": {
         "alertmanager": {
-          "$ref": "#/$defs/Endpoint",
+          "$ref": "#/$defs/Alertmanager",
           "description": "Alertmanager: alerts and silences."
         },
         "flux": {
@@ -288,11 +466,11 @@
           "description": "Flux: how dash reads Flux objects."
         },
         "gatus": {
-          "$ref": "#/$defs/Endpoint",
+          "$ref": "#/$defs/Gatus",
           "description": "Gatus: endpoint health."
         },
         "grafana": {
-          "$ref": "#/$defs/Endpoint",
+          "$ref": "#/$defs/Grafana",
           "description": "Grafana: links to dashboards."
         },
         "hardware": {
@@ -300,7 +478,7 @@
           "description": "The physical host behind the cluster."
         },
         "headlamp": {
-          "$ref": "#/$defs/HeadlampConfig",
+          "$ref": "#/$defs/Headlamp",
           "description": "Headlamp: deep links into the Kubernetes UI."
         },
         "kubernetes": {
@@ -308,11 +486,11 @@
           "description": "Kubernetes: how dash reaches and reads the cluster."
         },
         "launcher": {
-          "$ref": "#/$defs/LauncherConfig",
+          "$ref": "#/$defs/Launcher",
           "description": "The launcher: links to your infrastructure."
         },
         "prometheus": {
-          "$ref": "#/$defs/Endpoint",
+          "$ref": "#/$defs/Prometheus",
           "description": "VictoriaMetrics or Prometheus: the series behind charts, KPIs and host metrics."
         },
         "proxmox": {
@@ -320,8 +498,53 @@
           "description": "Proxmox VE: virtual machines, containers and the hypervisor."
         },
         "victorialogs": {
-          "$ref": "#/$defs/Endpoint",
+          "$ref": "#/$defs/VictoriaLogs",
           "description": "VictoriaLogs: the pod logs the UI shows."
+        }
+      },
+      "type": "object"
+    },
+    "Prometheus": {
+      "additionalProperties": false,
+      "properties": {
+        "auth": {
+          "$ref": "#/$defs/Auth",
+          "description": "How dash authenticates to the service. Neither basic nor bearerToken sends no credentials."
+        },
+        "enabled": {
+          "description": "false turns the plugin off (a restart applies it): its topics are removed, and the web UI drops its rail entry, palette entries, overview tiles and panels and shows a switched-off page at its address. The Kubernetes connection is required whichever plugins are off. Unset leaves it on: a plugin without its settings reports itself unavailable (not configured), and the web UI hides its pages.",
+          "type": "boolean"
+        },
+        "headers": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "Extra headers sent with every request, as {name: value}. Plain configuration, not secrets: put credentials in auth. Authorization, Proxy-Authorization, Cookie and Host cannot be set. A JSON object in the environment.",
+          "type": "object"
+        },
+        "timeout": {
+          "default": "5s",
+          "description": "How long one query may take before dash gives up on it.",
+          "examples": [
+            "30s",
+            "5m",
+            "1h30m"
+          ],
+          "format": "duration",
+          "type": "string"
+        },
+        "tls": {
+          "$ref": "#/$defs/TLS",
+          "description": "How dash verifies the service's certificate."
+        },
+        "type": {
+          "description": "The plugin type. dash runs one instance per type, so this is empty or the section name.",
+          "type": "string"
+        },
+        "url": {
+          "description": "Base URL of the service, e.g. http://host:9090. Empty turns the source off: dash makes no request and its panels show \"source not configured\".",
+          "format": "uri",
+          "type": "string"
         }
       },
       "type": "object"
@@ -435,6 +658,75 @@
         }
       },
       "type": "object"
+    },
+    "TLS": {
+      "additionalProperties": false,
+      "properties": {
+        "caFile": {
+          "description": "Path of a PEM file with the certificate authority that signed the service's certificate, added to the system roots. Empty uses the system roots only.",
+          "type": "string"
+        },
+        "insecureSkipVerify": {
+          "description": "Skip verifying the service's certificate and host name. Anyone on the network path can then impersonate the service: prefer caFile.",
+          "type": "boolean"
+        }
+      },
+      "type": "object"
+    },
+    "UI": {
+      "additionalProperties": false,
+      "properties": {
+        "iconBaseURL": {
+          "description": "Where icon names resolve: an icon called proxmox is requested from <iconBaseURL>/proxmox.png, and an icon URL is only used when it lies under this URL. An http(s) URL with a host, without query or fragment, e.g. https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/png. Empty requests no icon from any third party: an icon name shows a letter tile.",
+          "format": "uri",
+          "type": "string",
+          "x-dash-restart": true
+        }
+      },
+      "type": "object"
+    },
+    "VictoriaLogs": {
+      "additionalProperties": false,
+      "properties": {
+        "auth": {
+          "$ref": "#/$defs/Auth",
+          "description": "How dash authenticates to VictoriaLogs. Neither basic nor bearerToken sends no credentials."
+        },
+        "denyNamespaces": {
+          "description": "Namespaces whose logs dash refuses to show, whatever the role. A JSON list in the environment.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "enabled": {
+          "description": "false turns the plugin off (a restart applies it): its topics are removed, and the web UI drops its rail entry, palette entries, overview tiles and panels and shows a switched-off page at its address. The Kubernetes connection is required whichever plugins are off. Unset leaves it on: a plugin without its settings reports itself unavailable (not configured), and the web UI hides its pages.",
+          "type": "boolean"
+        },
+        "fields": {
+          "$ref": "#/$defs/LogFields",
+          "description": "The field names of the log records that identify the pod. Letters, digits, underscores and dots, not starting with a digit or a dot."
+        },
+        "limit": {
+          "default": 500,
+          "description": "Most log lines one query returns. Greater than zero.",
+          "type": "integer"
+        },
+        "tls": {
+          "$ref": "#/$defs/TLS",
+          "description": "How dash verifies VictoriaLogs's certificate."
+        },
+        "type": {
+          "description": "The plugin type. dash runs one instance per type, so this is empty or the section name.",
+          "type": "string"
+        },
+        "url": {
+          "description": "Base URL of the service, e.g. http://host:9090. Empty turns the source off: dash makes no request and its panels show \"source not configured\".",
+          "format": "uri",
+          "type": "string"
+        }
+      },
+      "type": "object"
     }
   },
   "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -458,6 +750,10 @@
     "settings": {
       "$ref": "#/$defs/SettingsConfig",
       "description": "The settings store behind the settings page."
+    },
+    "ui": {
+      "$ref": "#/$defs/UI",
+      "description": "What the web UI is told by the server."
     }
   },
   "title": "dash configuration",

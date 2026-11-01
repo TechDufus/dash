@@ -69,7 +69,7 @@ func (s *Supervisor) info(in *instance) model.PluginInfo {
 	if running && enabled {
 		if _, ok := p.(Actor); ok {
 			for _, a := range m.Actions {
-				pi.Actions = append(pi.Actions, model.ActionInfo{Name: a.Name, Title: a.Title, Destructive: a.Destructive, Idempotent: a.Idempotent, Confirm: a.Confirm})
+				pi.Actions = append(pi.Actions, model.ActionInfo{Name: a.Name, Title: a.Title, Destructive: a.Destructive, Idempotent: a.Idempotent, Confirm: a.Confirm, MinRole: string(a.MinRole)})
 			}
 		}
 	}
@@ -143,11 +143,12 @@ func (s *Supervisor) Action(instance ID, name string) (ActionRef, bool) {
 	}, true
 }
 
-// Router returns the GET routes of a running Router plugin. The handler takes the full request
+// Router returns the routes of a running Router plugin. The handler takes the full request
 // path, /api/v1/plugins/<instance>/…, strips that prefix, and answers 404 for anything the
 // plugin did not register, including every method but GET and HEAD. It follows a
-// reconfiguration: the routes it serves are always the current instance's.
-func (s *Supervisor) Router(instance ID) (http.Handler, bool) {
+// reconfiguration: the routes it serves are always the current instance's. Every route runs
+// through g, the core's policy (see RouteGuard); the zero guard serves GET routes as they are.
+func (s *Supervisor) Router(instance ID, g RouteGuard) (http.Handler, bool) {
 	in := s.lookup(instance)
 	if in == nil {
 		return nil, false
@@ -171,8 +172,8 @@ func (s *Supervisor) Router(instance ID) (http.Handler, bool) {
 		// Not http.StripPrefix: it also strips RawPath, and a request that spells the instance
 		// with percent-escapes (/plugins/%63c/…) has a RawPath without the literal prefix, which
 		// would make it answer with its own plain-text 404.
-		r2 := new(http.Request)
-		*r2 = *r
+		// A shallow copy that carries the guard for the route handlers (Fail finds it there).
+		r2 := r.WithContext(withGuard(r.Context(), instance, g))
 		u := *r.URL
 		u.Path = rest
 		if u.RawPath != "" {

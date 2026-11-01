@@ -1,8 +1,6 @@
 package config
 
 import (
-	"os"
-	"path/filepath"
 	"reflect"
 	"slices"
 	"strings"
@@ -237,51 +235,5 @@ func TestDeploymentEnvCompat(t *testing.T) {
 	}
 	if c.ProxmoxNode != "" || c.HostNodename != "" {
 		t.Errorf("node = %q, nodename = %q, want both empty before discovery", c.ProxmoxNode, c.HostNodename)
-	}
-}
-
-func TestLoadLauncher(t *testing.T) {
-	dir := t.TempDir()
-	write := func(name, body string) string {
-		p := filepath.Join(dir, name)
-		if err := os.WriteFile(p, []byte(body), 0o600); err != nil {
-			t.Fatal(err)
-		}
-		return p
-	}
-	links, err := LoadLauncher(write("ok.yaml", `
-- name: Proxmox
-  href: https://pve.example.com:8006
-  icon: proxmox
-  description: Hypervisor
-- name: Router
-  href: http://192.0.2.1
-  icon: https://example.com/router.png
-`))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(links) != 2 || links[0].Icon != "proxmox" || links[1].Href != "http://192.0.2.1" || links[0].Description != "Hypervisor" {
-		t.Errorf("links = %+v", links)
-	}
-	for name, body := range map[string]string{
-		"unknown field": "- name: x\n  href: https://x\n  url: y\n",
-		"no name":       "- href: https://x\n",
-		"bad scheme":    "- name: x\n  href: javascript:alert(1)\n",
-		"not a list":    "name: x\n",
-	} {
-		if _, err := LoadLauncher(write(strings.ReplaceAll(name, " ", "-")+".yaml", body)); err == nil {
-			t.Errorf("%s: want an error", name)
-		}
-	}
-	if _, err := LoadLauncher(filepath.Join(dir, "missing.yaml")); err == nil {
-		t.Error("missing file: want an error")
-	}
-}
-
-func TestExampleLauncherParses(t *testing.T) {
-	links, err := LoadLauncher("../../docs/launcher.example.yaml")
-	if err != nil || len(links) == 0 {
-		t.Fatalf("docs/launcher.example.yaml: %v (%d links)", err, len(links))
 	}
 }

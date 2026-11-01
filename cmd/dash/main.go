@@ -20,6 +20,7 @@ import (
 	"github.com/TechDufus/dash/internal/kube"
 	"github.com/TechDufus/dash/internal/links"
 	"github.com/TechDufus/dash/internal/obs"
+	"github.com/TechDufus/dash/internal/plugin"
 	"github.com/TechDufus/dash/internal/secret"
 	"github.com/TechDufus/dash/internal/topics"
 	"github.com/TechDufus/dash/internal/upstream"
@@ -91,7 +92,20 @@ func run(reg *secret.Registry) error {
 	// Rotated secret files reach the running credentials, and a changed plugins.* section reaches
 	// the plugin supervisor (newFramework). The reloader's loop ends with ctx and is awaited
 	// before the audit log and the store close.
-	fw := newFramework(res, store, config.ReloadOptions{})
+	// metrics and devWrap are set below, before any plugin starts, and read by the transport hook
+	// when a plugin builds its HTTP client: the hook is what puts the upstream metrics (and, on a
+	// laptop, the API server proxy for in-cluster services) under every plugin's client.
+	var (
+		metrics *obs.Metrics
+		devWrap func(http.RoundTripper) http.RoundTripper
+	)
+	transport := func(id plugin.ID, rt http.RoundTripper) http.RoundTripper {
+		if devWrap != nil {
+			rt = devWrap(rt)
+		}
+		return metrics.Upstream(string(id), rt)
+	}
+	fw := newFramework(res, store, config.ReloadOptions{}, reg, transport, cfg.Demo)
 	h, sup, reloader := fw.hub, fw.sup, fw.reloader
 	reloaderDone := make(chan struct{})
 	go func() { defer close(reloaderDone); reloader.Run(ctx) }()
@@ -104,7 +118,6 @@ func run(reg *secret.Registry) error {
 	}()
 
 	// Metrics are opt-in (server.metrics); a nil *obs.Metrics is "off" everywhere it is used.
-	var metrics *obs.Metrics
 	if cfg.Metrics {
 		metrics = obs.New(version, api.RoutePatterns(), sup.Infos)
 	}
@@ -113,7 +126,8 @@ func run(reg *secret.Registry) error {
 	if cfg.Demo {
 		cfg = demo.Config(cfg)
 		src := demo.New(cfg)
-		if err := fw.start(ctx, src.Plugins(sup), func() { src.Run(ctx) }); err != nil {
+		src.HasReal = hasRealPlugin
+		if err := fw.start(ctx, registry(src.Plugins(sup)), func() { src.Run(ctx) }); err != nil {
 			return err
 		}
 		srv = api.New(api.Deps{
@@ -134,10 +148,15 @@ func run(reg *secret.Registry) error {
 			return err
 		}
 
-		// Outside the cluster the monitoring services are reached through the API server proxy.
+		// Outside the cluster the monitoring services are reached through the API server proxy:
+		// the legacy clients below get it as their transport, the plugins' clients through the
+		// transport hook of the framework.
 		var rt http.RoundTripper
 		if cfg.Dev {
 			if rt, err = upstream.DevTransport(rc); err != nil {
+				return err
+			}
+			if devWrap, err = upstream.DevWrap(rc); err != nil {
 				return err
 			}
 		}
@@ -149,10 +168,10 @@ func run(reg *secret.Registry) error {
 
 		mgr := topics.New(topics.Deps{
 			Cfg: cfg, Cluster: cluster, Prom: prom, AM: am, Gatus: gatus, PVE: pve, Hosts: sup, Contributors: sup.Contributors,
-			Links: links.New(cfg), Secrets: reg,
+			Services: sup.Service, LinkProviders: sup.Links, Links: links.New(cfg), Secrets: reg,
 		})
 		// The supervisor starts before the Manager so that no first publish is dropped.
-		if err := fw.start(ctx, mgr.Plugins(), func() { mgr.Run(ctx) }); err != nil {
+		if err := fw.start(ctx, registry(mgr.Plugins()), func() { mgr.Run(ctx) }); err != nil {
 			return err
 		}
 

@@ -7,6 +7,8 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/TechDufus/dash/internal/pluginconf"
 )
 
 // resolvePlugins resolves the environment (demo mode, so no public URL is needed) and an
@@ -216,7 +218,7 @@ func TestEnabledIsTriState(t *testing.T) {
 
 func TestSchemaWalkFlattensEmbeddedStruct(t *testing.T) {
 	type section struct {
-		PluginBase
+		pluginconf.PluginBase
 		URL string `json:"url" dash:"url"`
 	}
 	type root struct {

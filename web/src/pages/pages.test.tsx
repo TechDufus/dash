@@ -179,6 +179,37 @@ describe("pages built from slots", () => {
       expect(screen.queryByText("Queue depth")).toBeNull();
     });
 
+    it("draws a plugin that has its own tile once, and one without a tile as a generic tile", () => {
+      renderApp(<OverviewPage />);
+      stream.plugins([...shimRows(), pluginInfo({ id: "queue", name: "Queue" })]);
+      const entry = (plugin: string, key: string, label: string, value: number) => ({
+        key,
+        plugin,
+        label,
+        unit: "",
+        value,
+        health: "ok" as const,
+      });
+      stream.send(
+        "core.overview",
+        overview({
+          kpiList: [
+            entry("hardware", "power", "Published power", 240),
+            entry("hardware", "cpuTemp", "Published temperature", 62),
+            entry("queue", "depth", "Queue depth", 42),
+          ],
+        }),
+      );
+      // The hardware module draws Power and CPU temperature itself; its list entries stay unused.
+      expect(tileLabels()).toEqual(tiles);
+      expect(screen.queryByText("Published power")).toBeNull();
+      expect(screen.queryByText("Published temperature")).toBeNull();
+      // The queue plugin has no panel: its KPI is the one generic tile, after the six module tiles.
+      const tile = screen.getByText("Queue depth").closest("[data-slot=panel]");
+      expect(tile).toHaveTextContent("42");
+      expect(tile?.parentElement?.children).toHaveLength(7);
+    });
+
     it("shows the launcher row with its section counts but announces nothing", () => {
       renderApp(<OverviewPage />);
       stream.plugins(shimRows());

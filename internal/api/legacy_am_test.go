@@ -1,14 +1,61 @@
 package api
 
+// Tests that exist only for the legacy silence routes (POST /api/silences, DELETE
+// /api/silences/{id}). The alertmanager plugin replaces them in P3.3, which deletes this file
+// together with the routes (and the AM dep: fakeAM is what newServer and serverWithFakes put
+// there).
+
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/TechDufus/dash/internal/model"
+	"github.com/TechDufus/dash/internal/obs"
+	"github.com/TechDufus/dash/internal/upstream"
 )
+
+type fakeAM struct {
+	spec      upstream.SilenceSpec
+	created   int
+	expiredID string
+	err       error
+}
+
+func (f *fakeAM) CreateSilence(_ context.Context, s upstream.SilenceSpec) (string, error) {
+	f.spec = s
+	f.created++
+	return "sil-1234", f.err
+}
+
+func (f *fakeAM) ExpireSilence(_ context.Context, id string) error {
+	f.expiredID = id
+	if f.err != nil {
+		return f.err
+	}
+	if id == "bad" {
+		return upstream.ErrInvalid
+	}
+	return nil
+}
+
+// slowAM delays CreateSilence to model an action that outlasts the body deadline.
+type slowAM struct {
+	*fakeAM
+	delay time.Duration
+}
+
+func (a slowAM) CreateSilence(ctx context.Context, s upstream.SilenceSpec) (string, error) {
+	select {
+	case <-time.After(a.delay):
+	case <-ctx.Done():
+		return "", ctx.Err()
+	}
+	return a.fakeAM.CreateSilence(ctx, s)
+}
 
 func silenceBody(mod func(*model.SilenceRequest)) model.SilenceRequest {
 	r := model.SilenceRequest{
@@ -149,5 +196,42 @@ func TestExpireSilence(t *testing.T) {
 				t.Errorf("audit = %v", e)
 			}
 		})
+	}
+}
+
+// The legacy silence actions count under the plugin name and action they will have in P3.3, with
+// the outcome of what happened.
+func TestLegacySilencesAreCountedWithMetricsOn(t *testing.T) {
+	m := obs.New("test", RoutePatterns(), nil)
+	am := &fakeAM{}
+	s := newServer(func(d *Deps) { d.AM, d.Audit, d.Metrics = am, openAudit(t, "", nil), m })
+	h := s.Handler()
+	for _, c := range []struct {
+		r   req
+		err bool
+	}{
+		{req{method: "POST", path: "/api/silences", body: silenceBody(nil)}, false},
+		{req{method: "DELETE", path: "/api/silences/abc"}, true},
+		{req{method: "DELETE", path: "/api/silences/abc"}, false},
+	} {
+		am.err = nil
+		if c.err {
+			am.err = errors.New("boom")
+		}
+		c.r.do(h)
+	}
+	ss := scrapeMetrics(t, s)
+	for _, want := range []struct {
+		action, outcome string
+		n               float64
+	}{
+		{"silence.create", obs.ActionOK, 1},
+		{"silence.expire", obs.ActionError, 1},
+		{"silence.expire", obs.ActionOK, 1},
+	} {
+		got, ok := seriesValue(t, ss, "dash_actions_total", map[string]string{"plugin": "alertmanager", "action": want.action, "outcome": want.outcome})
+		if !ok || got != want.n {
+			t.Errorf("dash_actions_total %s/%s = %v (present %v), want %v", want.action, want.outcome, got, ok, want.n)
+		}
 	}
 }

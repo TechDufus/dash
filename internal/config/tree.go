@@ -1,14 +1,11 @@
 package config
 
 import (
-	"encoding/json"
-	"errors"
-	"fmt"
 	"reflect"
 	"strings"
 	"time"
 
-	"github.com/TechDufus/dash/internal/model"
+	"github.com/TechDufus/dash/internal/pluginconf"
 	"github.com/TechDufus/dash/internal/secret"
 )
 
@@ -20,59 +17,42 @@ import (
 //	restart  a change needs a restart (x-dash-restart, B.6)
 //	url      the value is a URL: validated as http(s) and stored without a trailing slash
 //
-// The auth and ui sections are not here yet: a section appears with its first field (G4, P4.6).
+// The auth section is not here yet: a section appears with its first field (G4, P4.6). The
+// plugin sections and ui are defined in internal/pluginconf, so the plugin packages share them.
 type Tree struct {
 	Server   ServerConfig   `json:"server" doc:"How dash listens and what it calls itself."`
 	Settings SettingsConfig `json:"settings" doc:"The settings store behind the settings page."`
 	DataDir  string         `json:"dataDir" dash:"restart" doc:"Where dash keeps its state (ui-settings.yaml, audit.jsonl) and looks for config.yaml. Demo mode uses none."`
+	UI       pluginconf.UI  `json:"ui" doc:"What the web UI is told by the server."`
 	Plugins  PluginsConfig  `json:"plugins" doc:"One section per plugin. An empty URL turns that source off."`
 }
 
 // ServerConfig is how dash listens and what it calls itself.
 type ServerConfig struct {
-	PublicURL     string       `json:"publicURL" dash:"url,restart" doc:"The URL people open, with scheme and host (https://dash.example.com). Required; the only Origin accepted on writes. In dev and demo mode it defaults to http://localhost:5173."`
-	Listen        string       `json:"listen" dash:"restart" doc:"Address of the API and the web UI, reached through the identity proxy. Dev mode only accepts a loopback address."`
-	HealthListen  string       `json:"healthListen" dash:"restart" doc:"Address of /healthz and /readyz. In dev and demo mode it defaults to 127.0.0.1:8081."`
-	AllowedHosts  []string     `json:"allowedHosts" dash:"restart" doc:"Host names the API answers besides the host of publicURL: names or IP addresses without scheme or port. [\"*\"] accepts any. A JSON list in the environment."`
-	ReadyRequires []string     `json:"readyRequires" dash:"restart" doc:"Plugins /readyz waits for: each listed plugin must have finished starting (its first poll or cache sync) before dash reports ready, up to readyTimeout. Empty: /readyz needs only that dash is serving and every plugin's start has returned. Names are plugins.<id> sections, e.g. [\"kubernetes\"]. A JSON list in the environment."`
-	ReadyTimeout  Duration     `json:"readyTimeout" dash:"restart" doc:"How long /readyz waits for the readyRequires plugins, counted from startup. After that dash reports ready anyway and logs a warning naming the plugins still starting."`
-	Metrics       bool         `json:"metrics" dash:"restart" doc:"Serve dash's own Prometheus metrics at /metrics on the health listener. Off by default. The listener is unauthenticated and the metrics name plugins and their states, so keep it cluster-internal."`
-	Limits        LimitsConfig `json:"limits" doc:"What one client, and all clients together, may hold open or send."`
+	PublicURL     string              `json:"publicURL" dash:"url,restart" doc:"The URL people open, with scheme and host (https://dash.example.com). Required; the only Origin accepted on writes. In dev and demo mode it defaults to http://localhost:5173."`
+	Listen        string              `json:"listen" dash:"restart" doc:"Address of the API and the web UI, reached through the identity proxy. Dev mode only accepts a loopback address."`
+	HealthListen  string              `json:"healthListen" dash:"restart" doc:"Address of /healthz and /readyz. In dev and demo mode it defaults to 127.0.0.1:8081."`
+	AllowedHosts  []string            `json:"allowedHosts" dash:"restart" doc:"Host names the API answers besides the host of publicURL: names or IP addresses without scheme or port. [\"*\"] accepts any. A JSON list in the environment."`
+	ReadyRequires []string            `json:"readyRequires" dash:"restart" doc:"Plugins /readyz waits for: each listed plugin must have finished starting (its first poll or cache sync) before dash reports ready, up to readyTimeout. Empty: /readyz needs only that dash is serving and every plugin's start has returned. Names are plugins.<id> sections, e.g. [\"kubernetes\"]. A JSON list in the environment."`
+	ReadyTimeout  pluginconf.Duration `json:"readyTimeout" dash:"restart" doc:"How long /readyz waits for the readyRequires plugins, counted from startup. After that dash reports ready anyway and logs a warning naming the plugins still starting."`
+	Metrics       bool                `json:"metrics" dash:"restart" doc:"Serve dash's own Prometheus metrics at /metrics on the health listener. Off by default. The listener is unauthenticated and the metrics name plugins and their states, so keep it cluster-internal."`
+	Limits        LimitsConfig        `json:"limits" doc:"What one client, and all clients together, may hold open or send."`
 }
 
 // LimitsConfig bounds what one client and all clients together may hold open or send (design
 // K.5, L.5). The counts are connections; the defaults suit a homelab.
 type LimitsConfig struct {
-	StreamsPerUser  int      `json:"streamsPerUser" dash:"restart" doc:"Open /api/v1/stream connections one user may hold; more get 429."`
-	Streams         int      `json:"streams" dash:"restart" doc:"Open /api/v1/stream connections in all; more get 503."`
-	TailsPerUser    int      `json:"tailsPerUser" dash:"restart" doc:"Open /api/logs/tail connections one user may hold; more get 429."`
-	Tails           int      `json:"tails" dash:"restart" doc:"Open /api/logs/tail connections in all; more get 503."`
-	TailMaxDuration Duration `json:"tailMaxDuration" dash:"restart" doc:"A log tail ends after this long and the browser reconnects."`
-	SSEWriteTimeout Duration `json:"sseWriteTimeout" dash:"restart" doc:"A stalled stream write fails after this long."`
-	BodyReadTimeout Duration `json:"bodyReadTimeout" dash:"restart" doc:"A request body must arrive within this long."`
-	MaxHeaderBytes  int      `json:"maxHeaderBytes" dash:"restart" doc:"Largest request header block the API listener accepts, in bytes."`
+	StreamsPerUser  int                 `json:"streamsPerUser" dash:"restart" doc:"Open /api/v1/stream connections one user may hold; more get 429."`
+	Streams         int                 `json:"streams" dash:"restart" doc:"Open /api/v1/stream connections in all; more get 503."`
+	TailsPerUser    int                 `json:"tailsPerUser" dash:"restart" doc:"Open /api/logs/tail connections one user may hold; more get 429."`
+	Tails           int                 `json:"tails" dash:"restart" doc:"Open /api/logs/tail connections in all; more get 503."`
+	TailMaxDuration pluginconf.Duration `json:"tailMaxDuration" dash:"restart" doc:"A log tail ends after this long and the browser reconnects."`
+	SSEWriteTimeout pluginconf.Duration `json:"sseWriteTimeout" dash:"restart" doc:"A stalled stream write fails after this long."`
+	BodyReadTimeout pluginconf.Duration `json:"bodyReadTimeout" dash:"restart" doc:"A request body must arrive within this long."`
+	MaxHeaderBytes  int                 `json:"maxHeaderBytes" dash:"restart" doc:"Largest request header block the API listener accepts, in bytes."`
 }
 
-// Duration is a time.Duration written as a Go duration string ("30m") in the config file and
-// the environment.
-type Duration time.Duration
-
-var durationType = reflect.TypeFor[Duration]()
-
-func (d *Duration) UnmarshalJSON(b []byte) error {
-	var s string
-	if err := json.Unmarshal(b, &s); err != nil {
-		return errors.New(`expected a duration string such as "30s"`)
-	}
-	v, err := time.ParseDuration(strings.TrimSpace(s))
-	if err != nil {
-		return fmt.Errorf("%q is not a duration such as 30s or 5m", s)
-	}
-	*d = Duration(v)
-	return nil
-}
-
-func (d Duration) MarshalJSON() ([]byte, error) { return json.Marshal(d.compact()) }
+var durationType = reflect.TypeFor[pluginconf.Duration]()
 
 // Values of SettingsConfig.UI.
 const (
@@ -90,29 +70,23 @@ type SettingsConfig struct {
 // .enabled). Until the plugins migrate (G3) the sections are the upstreams and cluster
 // conventions the flat Config already carried.
 type PluginsConfig struct {
-	Prometheus   Endpoint         `json:"prometheus" doc:"VictoriaMetrics or Prometheus: the series behind charts, KPIs and host metrics."`
-	Alertmanager Endpoint         `json:"alertmanager" doc:"Alertmanager: alerts and silences."`
-	VictoriaLogs Endpoint         `json:"victorialogs" doc:"VictoriaLogs: the pod logs the UI shows."`
-	Gatus        Endpoint         `json:"gatus" doc:"Gatus: endpoint health."`
-	Proxmox      ProxmoxConfig    `json:"proxmox" doc:"Proxmox VE: virtual machines, containers and the hypervisor."`
-	Hardware     HardwareConfig   `json:"hardware" doc:"The physical host behind the cluster."`
-	Headlamp     HeadlampConfig   `json:"headlamp" doc:"Headlamp: deep links into the Kubernetes UI."`
-	Grafana      Endpoint         `json:"grafana" doc:"Grafana: links to dashboards."`
-	Launcher     LauncherConfig   `json:"launcher" doc:"The launcher: links to your infrastructure."`
-	Kubernetes   KubernetesConfig `json:"kubernetes" doc:"Kubernetes: how dash reaches and reads the cluster."`
-	Flux         FluxConfig       `json:"flux" doc:"Flux: how dash reads Flux objects."`
-}
-
-// Endpoint is a plugin that only needs a base URL. Empty turns the source off.
-type Endpoint struct {
-	PluginBase
-	URL string `json:"url" dash:"url" doc:"Base URL of the service, e.g. http://host:9090. Empty turns the source off: dash makes no request and its panels show \"source not configured\"."`
+	Prometheus   pluginconf.Prometheus   `json:"prometheus" doc:"VictoriaMetrics or Prometheus: the series behind charts, KPIs and host metrics."`
+	Alertmanager pluginconf.Alertmanager `json:"alertmanager" doc:"Alertmanager: alerts and silences."`
+	VictoriaLogs pluginconf.VictoriaLogs `json:"victorialogs" doc:"VictoriaLogs: the pod logs the UI shows."`
+	Gatus        pluginconf.Gatus        `json:"gatus" doc:"Gatus: endpoint health."`
+	Proxmox      ProxmoxConfig           `json:"proxmox" doc:"Proxmox VE: virtual machines, containers and the hypervisor."`
+	Hardware     HardwareConfig          `json:"hardware" doc:"The physical host behind the cluster."`
+	Headlamp     pluginconf.Headlamp     `json:"headlamp" doc:"Headlamp: deep links into the Kubernetes UI."`
+	Grafana      pluginconf.Grafana      `json:"grafana" doc:"Grafana: links to dashboards."`
+	Launcher     pluginconf.Launcher     `json:"launcher" doc:"The launcher: links to your infrastructure."`
+	Kubernetes   KubernetesConfig        `json:"kubernetes" doc:"Kubernetes: how dash reaches and reads the cluster."`
+	Flux         FluxConfig              `json:"flux" doc:"Flux: how dash reads Flux objects."`
 }
 
 // ProxmoxConfig is the Proxmox API. TokenID and TokenSecret are the two halves of an API token
 // ("user@realm!name" and its secret), so that only the secret is secret.
 type ProxmoxConfig struct {
-	PluginBase
+	pluginconf.PluginBase
 	URL         string       `json:"url" dash:"url" doc:"Base URL of the Proxmox API, e.g. https://pve.example.com:8006. Required with a token."`
 	Node        string       `json:"node" doc:"The Proxmox node to read. Empty is discovered from the API when the cluster has exactly one node; set it for several nodes or to skip discovery."`
 	TokenID     string       `json:"tokenID" doc:"API token ID, user@realm!tokenname. Set together with tokenSecret. Empty turns Proxmox off."`
@@ -121,7 +95,7 @@ type ProxmoxConfig struct {
 
 // HardwareConfig is the physical host behind the cluster.
 type HardwareConfig struct {
-	PluginBase
+	pluginconf.PluginBase
 	// Hosts has at most one entry until the hardware plugin supports several (G3).
 	Hosts []HardwareHost `json:"hosts" doc:"The machine behind the cluster, as [{nodename, model}]. One entry is supported for now."`
 	// ZFSScrubMetricPrefix names the scrub series: <prefix>_last_end_timestamp_seconds,
@@ -137,23 +111,9 @@ type HardwareHost struct {
 	Model string `json:"model" doc:"Shown next to the host's name, e.g. Dell R730."`
 }
 
-// HeadlampConfig is the Headlamp deep-link target.
-type HeadlampConfig struct {
-	PluginBase
-	URL     string `json:"url" dash:"url" doc:"Base URL of Headlamp, e.g. https://headlamp.example.com. Empty turns the deep links off."`
-	Cluster string `json:"cluster" doc:"Name of the cluster in Headlamp's URLs."`
-}
-
-// LauncherConfig is the launcher's list of infrastructure links, from a file or inline, not both.
-type LauncherConfig struct {
-	PluginBase
-	File  string               `json:"file" doc:"Path of a YAML file with the launcher's links (see docs/launcher.example.yaml). Not together with links."`
-	Links []model.LauncherLink `json:"links" doc:"The launcher's links, inline: a list of {name, href, icon, description}. Not together with file."`
-}
-
 // KubernetesConfig is how dash reaches and reads the cluster.
 type KubernetesConfig struct {
-	PluginBase
+	pluginconf.PluginBase
 	// Kubeconfig is used outside the cluster (dev); empty means in-cluster config.
 	Kubeconfig  string                `json:"kubeconfig" doc:"Path of a kubeconfig file, used outside the cluster (development). Empty means the in-cluster configuration. The standard KUBECONFIG variable fills it too; this setting's own variable wins."`
 	Conventions KubernetesConventions `json:"conventions" doc:"Labels dash reads from namespaces. None has a default: while one is empty the feature that depends on it is off."`
@@ -179,7 +139,7 @@ type BackupJob struct {
 
 // FluxConfig is how dash reads Flux objects.
 type FluxConfig struct {
-	PluginBase
+	pluginconf.PluginBase
 	// SuspendReasonAnnotation on a Flux object is shown as the reason it is suspended.
 	SuspendReasonAnnotation string `json:"suspendReasonAnnotation" doc:"Flux object annotation whose value is shown as the reason the object is suspended. Empty hides the reason."`
 }
@@ -192,19 +152,25 @@ func defaults(dev, demo bool) Tree {
 		Server: ServerConfig{
 			Listen:       "127.0.0.1:8080",
 			HealthListen: "0.0.0.0:8081",
-			ReadyTimeout: Duration(60 * time.Second),
+			ReadyTimeout: pluginconf.Duration(60 * time.Second),
 			Limits: LimitsConfig{
 				StreamsPerUser: 16, Streams: 256,
 				TailsPerUser: 4, Tails: 32,
-				TailMaxDuration: Duration(30 * time.Minute),
-				SSEWriteTimeout: Duration(10 * time.Second),
-				BodyReadTimeout: Duration(10 * time.Second),
+				TailMaxDuration: pluginconf.Duration(30 * time.Minute),
+				SSEWriteTimeout: pluginconf.Duration(10 * time.Second),
+				BodyReadTimeout: pluginconf.Duration(10 * time.Second),
 				MaxHeaderBytes:  64 << 10,
 			},
 		},
 		Settings: SettingsConfig{UI: SettingsEditable},
 		DataDir:  "/data",
-		Plugins:  PluginsConfig{Headlamp: HeadlampConfig{Cluster: "main"}},
+		Plugins: PluginsConfig{
+			Prometheus:   pluginconf.DefaultPrometheus(),
+			Alertmanager: pluginconf.DefaultAlertmanager(),
+			VictoriaLogs: pluginconf.DefaultVictoriaLogs(),
+			Gatus:        pluginconf.DefaultGatus(),
+			Headlamp:     pluginconf.DefaultHeadlamp(),
+		},
 	}
 	if dev || demo {
 		t.Server.HealthListen, t.Server.PublicURL = "127.0.0.1:8081", "http://localhost:5173"
@@ -271,6 +237,7 @@ func (t Tree) config(dev, demo bool) Config {
 		GrafanaURL:      p.Grafana.URL,
 		LauncherFile:    p.Launcher.File,
 		Launcher:        p.Launcher.Links,
+		IconBaseURL:     t.UI.IconBaseURL,
 		Kubeconfig:      p.Kubernetes.Kubeconfig,
 		Conventions: Conventions{
 			ProtectedLabel:          p.Kubernetes.Conventions.ProtectedLabel,

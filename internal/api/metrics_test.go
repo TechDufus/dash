@@ -186,11 +186,15 @@ func TestMetricsOnHasEverySeries(t *testing.T) {
 	}
 }
 
-// The four legacy actions are the only ones production can count in 0.5.0, and the log tail
-// has its own gauge: with metrics on each shows up under the name and outcome of what happened.
+// The two legacy Kubernetes actions are counted under the plugin and action they will have, a
+// plugin action under its own, and a plugin stream has the tail gauge: with metrics on each
+// shows up under the name and outcome of what happened.
 func TestLegacyActionsAndTailAreCountedWithMetricsOn(t *testing.T) {
-	m := obs.New("test", RoutePatterns(), nil)
-	s, _, _, am := serverWithFakes(func(d *Deps) { d.Audit, d.Metrics = openAudit(t, "", nil), m })
+	var fail error
+	pl := newHarness(t)
+	m := obs.New("test", RoutePatterns(), pl.sup.Infos)
+	pl.act = func(string, any) (any, error) { return nil, fail }
+	s, _, _ := serverWithFakes(func(d *Deps) { pl.attach(d); d.Audit, d.Metrics = openAudit(t, "", nil), m })
 	h := s.Handler()
 	type call struct {
 		plugin, action string
@@ -201,19 +205,19 @@ func TestLegacyActionsAndTailAreCountedWithMetricsOn(t *testing.T) {
 	for _, c := range []call{
 		{"kubernetes", "restart", req{method: "POST", path: "/api/actions/restart", body: model.RestartRequest{Kind: "Deployment", Namespace: "apps", Name: "web"}}, false},
 		{"flux", "reconcile", req{method: "POST", path: "/api/actions/reconcile", body: model.ReconcileRequest{Kind: "Kustomization", Namespace: "flux-system", Name: "ghost"}}, false},
-		{"alertmanager", "silence.create", req{method: "POST", path: "/api/silences", body: silenceBody(nil)}, false},
-		{"alertmanager", "silence.expire", req{method: "DELETE", path: "/api/silences/abc"}, true},
-		{"alertmanager", "silence.expire", req{method: "DELETE", path: "/api/silences/abc"}, false},
+		{"aa", "silence.create", req{method: "POST", path: "/api/v1/plugins/aa/actions/silence.create", body: silenceIn{Alertname: "HighTemp"}}, false},
+		{"aa", "silence.expire", req{method: "POST", path: "/api/v1/plugins/aa/actions/silence.expire", body: expireIn{ID: "abc"}}, true},
+		{"aa", "silence.expire", req{method: "POST", path: "/api/v1/plugins/aa/actions/silence.expire", body: expireIn{ID: "abc"}}, false},
 	} {
-		am.err = nil
+		fail = nil
 		if c.err {
-			am.err = errors.New("boom")
+			fail = errors.New("boom")
 		}
 		w := c.r.do(h)
 		want = append(want, struct{ plugin, action, outcome string }{c.plugin, c.action, obs.ActionOutcomeOf(w.Code)})
 	}
 
-	_, lines := sseClient(t, h, "/api/logs/tail?ns=media&pod=plex-0")
+	_, lines := sseClient(t, h, "/api/v1/plugins/rt/tail?ns=media&pod=plex-0")
 	expect(t, lines, "retry: 3000")
 
 	ss := scrapeMetrics(t, s)
@@ -228,11 +232,11 @@ func TestLegacyActionsAndTailAreCountedWithMetricsOn(t *testing.T) {
 			t.Errorf("dash_actions_total %s = %v (present %v), want %v", key, got, ok, n)
 		}
 	}
-	if got, ok := seriesValue(t, ss, "dash_actions_total", map[string]string{"plugin": "alertmanager", "action": "silence.expire", "outcome": obs.ActionOK}); !ok || got != 1 {
+	if got, ok := seriesValue(t, ss, "dash_actions_total", map[string]string{"plugin": "aa", "action": "silence.expire", "outcome": obs.ActionOK}); !ok || got != 1 {
 		t.Errorf("the expire that succeeded is counted %v (present %v), want 1 under ok", got, ok)
 	}
 	if got, ok := seriesValue(t, ss, "dash_sse_streams", map[string]string{"kind": obs.StreamTail}); !ok || got != 1 {
-		t.Errorf("open log tails = %v (present %v), want 1", got, ok)
+		t.Errorf("open plugin tails = %v (present %v), want 1", got, ok)
 	}
 	if got, _ := seriesValue(t, ss, "dash_sse_streams", map[string]string{"kind": obs.StreamEvents}); got != 0 {
 		t.Errorf("open event streams = %v, want 0", got)

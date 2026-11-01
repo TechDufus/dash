@@ -80,6 +80,18 @@ func (m *Manager) contribution(c plugin.Contributor, now time.Time) (out contrib
 	return out
 }
 
+// contributorSources is the source health of the running plugins that contribute to the overview
+// (Contributor.Sources), so a plugin's failing upstream shows on the Overview panels.
+func (m *Manager) contributorSources(cs []plugin.Contributor) []model.SourceStatus {
+	var out []model.SourceStatus
+	for _, c := range cs {
+		if c.Sources != nil {
+			out = append(out, c.Sources()...)
+		}
+	}
+	return out
+}
+
 func kpis(in AttentionInput) model.Kpis {
 	k := model.Kpis{PowerWatts: in.Host.PowerWatts}
 	for _, a := range in.Alerts {

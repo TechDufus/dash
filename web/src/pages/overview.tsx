@@ -10,20 +10,26 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { formatPercent } from "@/lib/format";
 import { HEALTH_TEXT, ratioHealth } from "@/lib/health";
 import { cn } from "@/lib/utils";
-import { Slot } from "@/plugins/slots";
+import { contributesPanel, Slot } from "@/plugins/slots";
 import { isVisible, usePluginsState } from "@/plugins/state";
 import { AttentionPanel } from "./attention";
 import { TopologyPanel } from "./topology";
 
 const KPI_GRID = "grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6";
 
-/** The KPIs plugins publish in `kpiList`, after the tiles the modules draw; hidden with their plugin. */
+/**
+ * The KPIs plugins publish in `kpiList`, after the tiles the modules draw; hidden with their plugin.
+ * A plugin that contributes an `overview.kpis` panel owns the presentation of all its KPIs, so its
+ * list entries are not drawn a second time here.
+ */
 function PublishedKpis({ data }: { data: OverviewData }) {
   const { byId } = usePluginsState();
   return data.kpiList
     .filter((k) => {
       const info = byId.get(k.plugin);
-      return info !== undefined && isVisible(info.state);
+      return (
+        info !== undefined && isVisible(info.state) && !contributesPanel(k.plugin, "overview.kpis")
+      );
     })
     .map((k) => (
       <Kpi

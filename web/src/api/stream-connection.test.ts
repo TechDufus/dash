@@ -22,7 +22,9 @@ describe("stream.ts connection handling", () => {
 
   beforeEach(() => {
     ES = installEventSource();
-    fetchStub = stubFetch({ "GET /api/v1/me": { user: "dev", role: "admin" } });
+    fetchStub = stubFetch({
+      "GET /api/v1/me": { user: "dev", role: "admin", ui: { iconBaseUrl: "" } },
+    });
     vi.useFakeTimers();
   });
 

@@ -19,7 +19,7 @@ let ES: typeof FakeEventSource;
 beforeEach(() => {
   ES = installEventSource();
   stubFetch({
-    "GET /api/v1/me": { user: "dev", role: "admin", version: "test" },
+    "GET /api/v1/me": { user: "dev", role: "admin", version: "test", ui: { iconBaseUrl: "" } },
     "GET /api/v1/plugins": () => new Promise(() => {}),
   });
 });

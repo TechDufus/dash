@@ -84,6 +84,14 @@ func (s *Server) runAction(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	out, err := ref.Run(r.Context(), p, input)
+	if err == nil {
+		// An action whose audit target exists only after it ran says so; the record is re-targeted
+		// before its outcome is written, on success only.
+		var t *plugin.ActionTarget
+		if out, t = unwrapOutcome(out); t != nil {
+			pending = pending.WithTarget(audit.Target{Kind: t.Kind, Namespace: t.Namespace, Name: t.Name})
+		}
+	}
 	pending.Outcome(err)
 	switch {
 	case err == nil && out == nil:
@@ -98,6 +106,21 @@ func (s *Server) runAction(w http.ResponseWriter, r *http.Request) {
 		}
 		s.badGateway(w, string(id), err)
 	}
+}
+
+// unwrapOutcome splits a plugin.Outcome (or a pointer to one) into its body and its audit target;
+// any other result is its own body with no target.
+func unwrapOutcome(out any) (any, *plugin.ActionTarget) {
+	switch o := out.(type) {
+	case plugin.Outcome:
+		return o.Body, o.Target
+	case *plugin.Outcome:
+		if o != nil {
+			return o.Body, o.Target
+		}
+		return nil, nil
+	}
+	return out, nil
 }
 
 // actionInput reads and checks the request body of an action into a pointer to a fresh copy of

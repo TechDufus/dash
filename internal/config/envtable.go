@@ -8,6 +8,8 @@ import (
 	"strconv"
 	"strings"
 	"text/tabwriter"
+
+	"github.com/TechDufus/dash/internal/pluginconf"
 )
 
 // EnvVar describes one setting and the variable that sets it, for `dash config env`.
@@ -41,6 +43,8 @@ func EnvVars() []EnvVar {
 			t = "integer"
 		case elem.Kind() == reflect.Slice && elem.Elem().Kind() == reflect.String:
 			t = "list of strings (JSON)"
+		case elem.Kind() == reflect.Map:
+			t = "object (JSON)"
 		case elem.Kind() == reflect.Slice:
 			t = "list of objects (JSON)"
 		}
@@ -62,7 +66,7 @@ func defaultText(v reflect.Value) string {
 	case v.Type() == secretType || v.IsZero():
 		return ""
 	case v.Type() == durationType:
-		return Duration(v.Int()).compact()
+		return pluginconf.Duration(v.Int()).String()
 	case v.Kind() == reflect.String:
 		return v.String()
 	case v.Kind() == reflect.Int:

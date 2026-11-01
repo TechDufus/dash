@@ -82,13 +82,13 @@ func inputType(spec plugin.ActionSpec) reflect.Type {
 	return t
 }
 
-// pluginRoute serves the GET routes a running plugin registered, under
-// /api/v1/plugins/{id}/. The handler Router returns takes the full request path and answers
-// 404 itself for a path the plugin did not register; a stopped, disabled or unknown instance
-// has no routes.
+// pluginRoute serves the routes a running plugin registered, under /api/v1/plugins/{id}/, through
+// the core's route policy (routeGuard). The handler Router returns takes the full request path
+// and answers 404 itself for a path the plugin did not register; a stopped, disabled or unknown
+// instance has no routes.
 func (s *Server) pluginRoute(w http.ResponseWriter, r *http.Request) {
 	if id := plugin.ID(r.PathValue("id")); s.d.Plugins != nil && id.Valid() {
-		if h, ok := s.d.Plugins.Router(id); ok {
+		if h, ok := s.d.Plugins.Router(id, s.routeGuard()); ok {
 			h.ServeHTTP(w, r)
 			return
 		}

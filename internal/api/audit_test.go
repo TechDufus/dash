@@ -20,6 +20,7 @@ import (
 
 	"github.com/TechDufus/dash/internal/audit"
 	"github.com/TechDufus/dash/internal/model"
+	"github.com/TechDufus/dash/internal/plugin"
 )
 
 // auditClock is a settable clock for the audit log's records and denial rate limit.
@@ -79,6 +80,17 @@ func legacyAudit(user, action, kind, ns, name string, err error) {
 		"namespace", ns, "name", name, "result", result, "error", msg)
 }
 
+// pluginAudit is legacyAudit for a framework action: the same record, and the plugin instance
+// behind the action as the last attribute.
+func pluginAudit(user, action, kind, ns, name string, err error) {
+	result, msg := "ok", ""
+	if err != nil {
+		result, msg = "error", err.Error()
+	}
+	slog.Info("audit", "user", user, "action", action, "kind", kind,
+		"namespace", ns, "name", name, "result", result, "error", msg, "plugin", "aa")
+}
+
 func auditRecords(t *testing.T, dir string) []audit.Record {
 	t.Helper()
 	b, err := os.ReadFile(filepath.Join(dir, audit.FileName))
@@ -114,24 +126,23 @@ func actionCases() []actionCase {
 	return []actionCase{
 		{"restart", "/api/actions/restart", "POST", model.RestartRequest{Kind: "Deployment", Namespace: "apps", Name: "web"}, "restart", "Deployment", "apps", "web"},
 		{"reconcile", "/api/actions/reconcile", "POST", model.ReconcileRequest{Kind: "Kustomization", Namespace: "flux-system", Name: "app"}, "reconcile", "Kustomization", "flux-system", "app"},
-		{"silence create", "/api/silences", "POST", silenceBody(nil), "silence.create", "Silence", "", "sil-1234"},
-		{"silence expire", "/api/silences/sil-1234", "DELETE", nil, "silence.expire", "Silence", "", "sil-1234"},
+		{"silence create", "/api/v1/plugins/aa/actions/silence.create", "POST", silenceIn{Alertname: "HighTemp"}, "silence.create", "Silence", "", silenceID},
+		{"silence expire", "/api/v1/plugins/aa/actions/silence.expire", "POST", expireIn{ID: silenceID}, "silence.expire", "Silence", "", silenceID},
 	}
 }
 
-// serverWithFakes returns a server whose Kubernetes, Flux and Alertmanager clients record
-// every call, so a test can assert none happened.
-func serverWithFakes(mod func(*Deps)) (*Server, *fake.Clientset, *dynfake.FakeDynamicClient, *fakeAM) {
+// serverWithFakes returns a server whose Kubernetes and Flux clients record every call, so a
+// test can assert none happened.
+func serverWithFakes(mod func(*Deps)) (*Server, *fake.Clientset, *dynfake.FakeDynamicClient) {
 	kc := fake.NewClientset(workloadObjects()...)
 	dyn := dynfake.NewSimpleDynamicClientWithCustomListKinds(runtime.NewScheme(), nil)
-	am := &fakeAM{}
 	s := newServer(func(d *Deps) {
-		d.Kube, d.Dyn, d.AM = kc, dyn, am
+		d.Kube, d.Dyn = kc, dyn
 		if mod != nil {
 			mod(d)
 		}
 	})
-	return s, kc, dyn, am
+	return s, kc, dyn
 }
 
 func TestActionsWriteIntentThenOutcome(t *testing.T) {
@@ -142,7 +153,9 @@ func TestActionsWriteIntentThenOutcome(t *testing.T) {
 		t.Run(mode.name, func(t *testing.T) {
 			dir := t.TempDir()
 			al := openAudit(t, dir, newAuditClock().now)
-			s, _, _, _ := serverWithFakes(func(d *Deps) {
+			pl := newHarness(t)
+			s, _, _ := serverWithFakes(func(d *Deps) {
+				pl.attach(d)
 				d.Audit = al
 				d.Cfg.Dev, d.Cfg.Demo = mode.dev, mode.demo
 			})
@@ -203,7 +216,18 @@ func TestAuditSlogMatchesLegacyHelper(t *testing.T) {
 			}
 			al := openAudit(t, dir, nil)
 			got := captureSlog(t)
-			s, _, _, am := serverWithFakes(func(d *Deps) { d.Audit = al })
+			var fail error
+			pl := newHarness(t)
+			pl.act = func(action string, in any) (any, error) {
+				if fail != nil {
+					return nil, fail
+				}
+				if action == "silence.create" {
+					return plugin.Outcome{Body: map[string]string{"silenceId": silenceID}, Target: &plugin.ActionTarget{Kind: "Silence", Name: silenceID}}, nil
+				}
+				return nil, nil
+			}
+			s, _, _ := serverWithFakes(func(d *Deps) { pl.attach(d); d.Audit = al })
 			h := s.Handler()
 			boom := errors.New("boom")
 
@@ -241,19 +265,19 @@ func TestAuditSlogMatchesLegacyHelper(t *testing.T) {
 				legacyAudit("alice", "reconcile", "Kustomization", "flux-system", "ghost", errors.New(decodeErr(t, w)))
 			})
 
-			do(req{method: "POST", path: "/api/silences", body: silenceBody(nil)})
-			replay(func() { legacyAudit("alice", "silence.create", "Silence", "", "sil-1234", nil) })
+			do(req{method: "POST", path: "/api/v1/plugins/aa/actions/silence.create", body: silenceIn{Alertname: "HighTemp"}})
+			replay(func() { pluginAudit("alice", "silence.create", "Silence", "", silenceID, nil) })
 
-			am.err = boom
-			do(req{method: "POST", path: "/api/silences", body: silenceBody(nil)})
-			replay(func() { legacyAudit("alice", "silence.create", "Silence", "", "HighTemp", boom) })
+			fail = boom
+			do(req{method: "POST", path: "/api/v1/plugins/aa/actions/silence.create", body: silenceIn{Alertname: "HighTemp"}})
+			replay(func() { pluginAudit("alice", "silence.create", "Silence", "", "HighTemp", boom) })
 
-			do(req{method: "DELETE", path: "/api/silences/abc"})
-			replay(func() { legacyAudit("alice", "silence.expire", "Silence", "", "abc", boom) })
+			do(req{method: "POST", path: "/api/v1/plugins/aa/actions/silence.expire", body: expireIn{ID: "abc"}})
+			replay(func() { pluginAudit("alice", "silence.expire", "Silence", "", "abc", boom) })
 
-			am.err = nil
-			do(req{method: "DELETE", path: "/api/silences/abc"})
-			replay(func() { legacyAudit("alice", "silence.expire", "Silence", "", "abc", nil) })
+			fail = nil
+			do(req{method: "POST", path: "/api/v1/plugins/aa/actions/silence.expire", body: expireIn{ID: "abc"}})
+			replay(func() { pluginAudit("alice", "silence.expire", "Silence", "", "abc", nil) })
 
 			// Other records (the WARN naming an upstream failure) are not the audit record's business.
 			// Each audit line also carries the request's id, which the old helper had no way to
@@ -297,13 +321,14 @@ func TestIntentWriteFailureBlocksTheAction(t *testing.T) {
 				t.Fatal(err)
 			}
 
-			s, kc, dyn, am := serverWithFakes(func(d *Deps) { d.Audit = al })
+			pl := newHarness(t)
+			s, kc, dyn := serverWithFakes(func(d *Deps) { pl.attach(d); d.Audit = al })
 			w := req{method: tc.method, path: tc.path, body: tc.body}.do(s.Handler())
 			if w.Code != http.StatusServiceUnavailable || decodeErr(t, w) != "audit log unavailable" {
 				t.Fatalf("code = %d body = %s, want 503 audit log unavailable", w.Code, w.Body)
 			}
-			if n := len(kc.Actions()) + len(dyn.Actions()); n != 0 || am.created != 0 || am.expiredID != "" {
-				t.Errorf("upstream called: kube %d, flux %d, silences created %d, expired %q", len(kc.Actions()), len(dyn.Actions()), am.created, am.expiredID)
+			if n := len(kc.Actions()) + len(dyn.Actions()) + len(pl.acts()); n != 0 {
+				t.Errorf("upstream called: kube %d, flux %d, plugin actions %d", len(kc.Actions()), len(dyn.Actions()), len(pl.acts()))
 			}
 		})
 	}
@@ -330,12 +355,15 @@ func TestDenialsAreAuditedOncePerPeerAndMinute(t *testing.T) {
 		{"csrf with the fallback header", csrfFallbackHeader, "csrf", "bob", 403, nil},
 		{"unauthenticated", noUser, "unauthenticated", "", 401, nil},
 		{"event stream cap", req{path: "/api/v1/stream"}, "stream_limit", "alice", 429, capped},
-		{"log tail cap", req{path: "/api/logs/tail?namespace=apps&pod=web"}, "stream_limit", "alice", 429, capped},
+		{"plugin stream cap", req{path: "/api/v1/plugins/rt/tail?namespace=apps&pod=web"}, "stream_limit", "alice", 429, capped},
+		{"plugin stream in a denied namespace", req{path: "/api/v1/plugins/rt/tail?namespace=kube-system&pod=web"}, "namespace_denied", "alice", 403, capped},
+		{"plugin route in a denied namespace", req{path: "/api/v1/plugins/rt/items?ns=kube-system"}, "namespace_denied", "alice", 403, nil},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			dir := t.TempDir()
 			clk := newAuditClock()
-			s, _, _, _ := serverWithFakes(func(d *Deps) { d.Audit = openAudit(t, dir, clk.now) })
+			pl := newHarness(t, harnessRT(plugin.InstanceConfig{ReadDenyNamespaces: []string{"kube-system"}}))
+			s, _, _ := serverWithFakes(func(d *Deps) { pl.attach(d); d.Audit = openAudit(t, dir, clk.now) })
 			if tc.mod != nil {
 				tc.mod(s)
 			}
@@ -369,7 +397,7 @@ func TestDenialsAreAuditedOncePerPeerAndMinute(t *testing.T) {
 // A path the client chooses must not let one denial write an unbounded record.
 func TestDenialRecordCapsTheRequestLine(t *testing.T) {
 	dir := t.TempDir()
-	s, _, _, _ := serverWithFakes(func(d *Deps) { d.Audit = openAudit(t, dir, newAuditClock().now) })
+	s, _, _ := serverWithFakes(func(d *Deps) { d.Audit = openAudit(t, dir, newAuditClock().now) })
 	long := "/api/" + string(bytes.Repeat([]byte("a"), 5000))
 	req{method: "POST", path: long, header: map[string]string{"X-Dash-Csrf": ""}}.do(s.Handler())
 	recs := auditRecords(t, dir)

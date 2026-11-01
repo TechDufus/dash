@@ -37,6 +37,7 @@ type Fake struct {
 	ConfiguredFn func(cfg any) bool
 	ValidateFn   func(cfg any) error
 	ServiceVal   any
+	LinksFn      func(req plugin.LinkRequest) []model.Link
 
 	starts, stops atomic.Int32
 	mu            sync.Mutex
@@ -348,6 +349,8 @@ func (h runningHost) HTTPClient(c plugin.HTTPConfig) (*http.Client, error) {
 	return &http.Client{Timeout: c.Timeout}, nil
 }
 func (h runningHost) Service(plugin.ID) (any, bool) { return nil, false }
+func (h runningHost) ScrubLog(s string) string      { return s }
+func (h runningHost) Links() plugin.LinkResolver    { return plugin.NoLinks }
 func (h runningHost) Now() time.Time                { return time.Now() }
 func (h runningHost) Go(_ string, fn func()) {
 	go func() {

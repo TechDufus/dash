@@ -66,11 +66,14 @@ type GenericView struct {
 
 // ActionInfo describes one action a plugin mounts.
 type ActionInfo struct {
-	Name        string          `json:"name"`
-	Title       string          `json:"title"`
-	Destructive bool            `json:"destructive"`
-	Idempotent  bool            `json:"idempotent"`
-	Confirm     Confirm         `json:"confirm"`
+	Name        string  `json:"name"`
+	Title       string  `json:"title"`
+	Destructive bool    `json:"destructive"`
+	Idempotent  bool    `json:"idempotent"`
+	Confirm     Confirm `json:"confirm"`
+	// MinRole is the lowest role that may run the action (admin or viewer). The SPA shows the
+	// action's controls only to a role that meets it.
+	MinRole     string          `json:"minRole"`
 	InputSchema json.RawMessage `json:"inputSchema" tstype:"unknown"` // filled by P2.10; null before
 }
 

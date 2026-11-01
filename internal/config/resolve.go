@@ -362,6 +362,8 @@ func humanType(t reflect.Type) string {
 		return "a list of strings"
 	case t.Kind() == reflect.Slice:
 		return "a list of objects"
+	case t.Kind() == reflect.Map:
+		return "an object of strings"
 	}
 	return t.String()
 }

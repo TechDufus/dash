@@ -93,6 +93,9 @@ type AttentionItem struct {
 	// Route is an in-app path, e.g. /cluster/pods/<ns>/<name>.
 	Route string `json:"route"`
 	Links []Link `json:"links"`
+	// Ref is the plugin:Kind/id reference of the object the item points at (design L.6); empty
+	// for items of code that has not migrated to plugins yet.
+	Ref string `json:"ref,omitempty"`
 }
 
 type WorstPVC struct {
@@ -208,6 +211,9 @@ type Disk struct {
 }
 
 type HostData struct {
+	// Model is shown next to the host's name, e.g. "Dell R730"; empty shows nothing. It replaces
+	// UIConfig.HostModel.
+	Model         string    `json:"model"`
 	Name          string    `json:"name"`
 	UptimeSeconds int64     `json:"uptimeSeconds"`
 	PVEVersion    string    `json:"pveVersion"`
@@ -545,6 +551,10 @@ type StorageData struct {
 // ---- alerts ----
 
 type Alert struct {
+	Ref string `json:"ref"` // alertmanager:Alert/<fingerprint>
+	// Protected is set when the alert's name is in plugins.alertmanager.protectedAlerts: it cannot
+	// be silenced through dash.
+	Protected   bool   `json:"protected"`
 	Fingerprint string `json:"fingerprint"`
 	Name        string `json:"name"`
 	Severity    string `json:"severity"`
@@ -566,6 +576,10 @@ type Matcher struct {
 }
 
 type Silence struct {
+	Ref string `json:"ref"` // alertmanager:Silence/<id>
+	// Dash is set when dash created the silence (createdBy starts with "dash:"): only those can
+	// be expired through dash.
+	Dash      bool      `json:"dash"`
 	ID        string    `json:"id"`
 	Matchers  []Matcher `json:"matchers"`
 	CreatedBy string    `json:"createdBy"`
@@ -578,6 +592,9 @@ type Silence struct {
 type AlertsData struct {
 	Alerts   []Alert   `json:"alerts"`
 	Silences []Silence `json:"silences"`
+	// SilenceDurations are the durations the silence dialog offers (plugins.alertmanager.
+	// silenceDurations).
+	SilenceDurations []string `json:"silenceDurations,omitempty"`
 }
 
 // ---- status (Gatus) ----
@@ -589,6 +606,7 @@ type CheckResult struct {
 }
 
 type Endpoint struct {
+	Ref     string        `json:"ref"` // gatus:Endpoint/<Key>
 	Group   string        `json:"group"`
 	Name    string        `json:"name"`
 	Key     string        `json:"key"`
@@ -599,6 +617,9 @@ type Endpoint struct {
 
 type StatusData struct {
 	Endpoints []Endpoint `json:"endpoints"`
+	// CriticalGroups are the groups whose failing checks are critical and that the Status page
+	// lists first (plugins.gatus.criticalGroups).
+	CriticalGroups []string `json:"criticalGroups,omitempty"`
 }
 
 // ---- apps ----
@@ -649,6 +670,14 @@ type Me struct {
 	Audience     string         `json:"audience"` // api
 	Version      string         `json:"version"`
 	Capabilities MeCapabilities `json:"capabilities"`
+	UI           MeUI           `json:"ui"`
+}
+
+// MeUI is the site configuration the SPA reads once with /me.
+type MeUI struct {
+	// IconBaseURL resolves icon names and is the only origin icon URLs may come from
+	// (ui.iconBaseURL). The JSON key is iconBaseUrl: the API document is linted for camelCase.
+	IconBaseURL string `json:"iconBaseUrl"`
 }
 
 // MeCapabilities says which optional parts of the API this dash serves.
@@ -657,6 +686,11 @@ type MeCapabilities struct {
 	MCP     bool `json:"mcp"`
 	Push    bool `json:"push"`
 	OAuth   bool `json:"oauth"`
+}
+
+// LauncherData is the payload of the launcher.links topic.
+type LauncherData struct {
+	Links []LauncherLink `json:"links"`
 }
 
 // LauncherLink is one infrastructure link in the launcher (DASH_LAUNCHER_FILE).
