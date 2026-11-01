@@ -114,7 +114,9 @@ func (s *Source) publish() {
 		{model.TopicApps, w.apps, src("kubernetes", "gatus")},
 	} {
 		if id, local, ok := topics.Owner(p.topic); ok {
-			s.hosts.HostFor(id).Publish(local, p.data, p.srcs)
+			if s.hosts.Running(id) { // a disabled plugin publishes nothing
+				s.hosts.HostFor(id).Publish(local, p.data, p.srcs)
+			}
 		} else {
 			s.hosts.HostFor(plugin.Core).Publish(strings.TrimPrefix(string(p.topic), string(plugin.Core)+"."), p.data, p.srcs)
 		}

@@ -289,7 +289,7 @@
     "vms": [
       {
         "vmid": 100,
-        "name": "talos-cp-1",
+        "name": "k8s-node-1",
         "health": "ok",
         "cpuRatio": 0.4,
         "memRatio": 0.75,
@@ -298,7 +298,7 @@
       },
       {
         "vmid": 101,
-        "name": "talos-cp-2",
+        "name": "k8s-node-2",
         "health": "warn",
         "cpuRatio": 0.9,
         "memRatio": 0.875,

@@ -334,3 +334,50 @@ func (h runningHost) Go(_ string, fn func()) {
 		fn()
 	}()
 }
+
+// Without wraps p so the listed instances do not run, and counts the Publish calls each instance
+// receives, running or not. A non-running instance's Host drops them, as the supervisor's does.
+func Without(p plugin.HostProvider, off ...plugin.ID) *Partial {
+	pt := &Partial{p: p, off: map[plugin.ID]bool{}, calls: map[plugin.ID]int{}}
+	for _, id := range off {
+		pt.off[id] = true
+	}
+	return pt
+}
+
+// Partial is the HostProvider Without returns.
+type Partial struct {
+	p     plugin.HostProvider
+	off   map[plugin.ID]bool
+	mu    sync.Mutex
+	calls map[plugin.ID]int
+}
+
+func (p *Partial) Running(id plugin.ID) bool { return !p.off[id] && p.p.Running(id) }
+
+func (p *Partial) HostFor(id plugin.ID) plugin.Host {
+	return countingHost{Host: p.p.HostFor(id), p: p, id: id}
+}
+
+// Publishes is how many times a Publish was attempted on id's Host.
+func (p *Partial) Publishes(id plugin.ID) int {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.calls[id]
+}
+
+type countingHost struct {
+	plugin.Host
+	p  *Partial
+	id plugin.ID
+}
+
+func (h countingHost) Publish(topic string, data any, sources []model.SourceStatus) {
+	h.p.mu.Lock()
+	h.p.calls[h.id]++
+	h.p.mu.Unlock()
+	if h.p.off[h.id] {
+		return
+	}
+	h.Host.Publish(topic, data, sources)
+}

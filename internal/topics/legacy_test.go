@@ -134,27 +134,9 @@ func TestManagerPublishesLegacyTopicsThroughHosts(t *testing.T) {
 	}
 }
 
-// hosts is a HostProvider in which the listed plugins do not run: their Host drops every publish.
-type hosts struct {
-	plugin.HostProvider
-	off map[plugin.ID]bool
-}
-
-func (h hosts) Running(id plugin.ID) bool { return !h.off[id] }
-
-func (h hosts) HostFor(id plugin.ID) plugin.Host {
-	if h.off[id] {
-		return dropHost{h.HostProvider.HostFor(id)}
-	}
-	return h.HostProvider.HostFor(id)
-}
-
-type dropHost struct{ plugin.Host }
-
-func (dropHost) Publish(string, any, []model.SourceStatus) {}
-
 // A plugin that does not run publishes nothing, the overview does not wait for it, and a poller
-// whose every reader is off makes no request.
+// whose every reader is off makes no request. The recording host proves the Manager never even
+// calls the disabled owner's Host (a Host that drops the call would hide a missing skip).
 func TestDisabledOwnerPublishesNothingAndItsPollerIsSkipped(t *testing.T) {
 	var requests atomic.Int32
 	am := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -163,39 +145,84 @@ func TestDisabledOwnerPublishesNothingAndItsPollerIsSkipped(t *testing.T) {
 	}))
 	defer am.Close()
 
-	run := func(off ...plugin.ID) (*hub.Hub, *Manager) {
+	run := func(off ...plugin.ID) (*hub.Hub, *Manager, *plugintest.Partial) {
 		h := hub.New()
-		hp := hosts{plugintest.AllRunning(h, LegacyManifests()...), map[plugin.ID]bool{}}
-		for _, id := range off {
-			hp.off[id] = true
-		}
+		hp := plugintest.Without(plugintest.AllRunning(h, LegacyManifests()...), off...)
 		m := testManager(config.Defaults(), am.URL, hp)
 		ctx, cancel := context.WithCancel(context.Background())
 		t.Cleanup(cancel)
 		m.Run(ctx)
-		return h, m
+		return h, m, hp
 	}
 
 	// Alertmanager on: it is polled and its topic published.
-	h, _ := run()
+	h, _, hp := run()
 	eventually(t, "the alerts topic", func() bool { _, ok := h.Latest("", model.TopicAlerts); return ok })
 	if requests.Load() == 0 {
 		t.Fatal("alertmanager is running but was not polled")
 	}
+	if hp.Publishes("alertmanager") == 0 {
+		t.Fatal("the recording host saw no publish for a running alertmanager")
+	}
 
 	// Off: not polled, nothing published, and the overview still comes.
 	requests.Store(0)
-	h, m := run("alertmanager")
+	h, m, hp := run("alertmanager")
 	eventually(t, "the overview", func() bool { _, ok := h.Latest("", model.TopicOverview); return ok })
 	eventually(t, "the status poller's first round", func() bool { return m.pollDone("status", "alerts") })
+	eventually(t, "the status topic", func() bool { _, ok := h.Latest("", model.TopicStatus); return ok })
 	if n := requests.Load(); n != 0 {
 		t.Errorf("a disabled alertmanager was polled %d times", n)
+	}
+	if n := hp.Publishes("alertmanager"); n != 0 {
+		t.Errorf("the Manager called the disabled alertmanager's Host %d times", n)
 	}
 	if _, ok := h.Latest("", model.TopicAlerts); ok {
 		t.Error("the alerts topic is published although alertmanager does not run")
 	}
-	if _, ok := h.Latest("", model.TopicStatus); !ok {
-		t.Error("the status topic of a running plugin is missing")
+}
+
+// A source whose poller is skipped (nothing that reads it runs) is not waited for: the shims
+// that own other keys of it reach their real state instead of staying in "starting", and the
+// overview's source list leaves it out.
+func TestSkippedPollersDoNotStickShimsInStarting(t *testing.T) {
+	at := time.Unix(100, 0)
+	okSrc := srcState{ok: true, at: at}
+	// Without hardware the host poller is skipped (host:victoriametrics never gets polled), and
+	// without proxmox neither is the vms poller (vms:victoriametrics).
+	hp := plugintest.Without(plugintest.AllRunning(hub.New(), LegacyManifests()...), "hardware", "proxmox")
+	m := New(Deps{Cfg: config.Defaults(), Cluster: fakeCluster(), Hosts: hp})
+	m.srcs["cluster:victoriametrics"], m.srcs["storage:victoriametrics"] = okSrc, okSrc
+
+	st := m.legacyStatus("prometheus")
+	if st.State != plugin.StateHealthy || st.Message != "" {
+		t.Errorf("prometheus = %s %q, want healthy", st.State, st.Message)
+	}
+	for _, s := range st.Sources {
+		if s.Error == "not polled yet" {
+			t.Errorf("source %q is still reported as not polled", s.Name)
+		}
+	}
+
+	// Overview: only the polled source is listed; the skipped ones would read "not polled yet".
+	for _, s := range m.sources("host:victoriametrics", "vms:proxmox", "vms:victoriametrics", "cluster:victoriametrics") {
+		if !s.OK {
+			t.Errorf("overview source %q = %q, want only polled sources", s.Name, s.Error)
+		}
+	}
+
+	// Nothing that reads the source runs at all: a message instead of a wait that never ends.
+	hp = plugintest.Without(plugintest.AllRunning(hub.New(), LegacyManifests()...), "hardware", "proxmox", "kubernetes")
+	m = New(Deps{Cfg: config.Defaults(), Cluster: fakeCluster(), Hosts: hp})
+	if st := m.legacyStatus("prometheus"); st.State != plugin.StateUnavailable {
+		t.Errorf("prometheus with every reader off = %s %q, want unavailable", st.State, st.Message)
+	}
+
+	// A key of a running poller still counts: not polled yet means starting.
+	hp = plugintest.Without(plugintest.AllRunning(hub.New(), LegacyManifests()...))
+	m = New(Deps{Cfg: config.Defaults(), Cluster: fakeCluster(), Hosts: hp})
+	if st := m.legacyStatus("prometheus"); st.State != plugin.StateStarting {
+		t.Errorf("prometheus before its first poll = %s, want starting", st.State)
 	}
 }
 

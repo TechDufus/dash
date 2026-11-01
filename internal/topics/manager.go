@@ -215,7 +215,10 @@ func (m *Manager) setSource(key string, err error) {
 }
 
 // sources lists SourceStatus for keys; a plain name without ':' is the Kubernetes informers.
+// Keys written by a poller that is not running (see polled) are left out: they would stay "not
+// polled yet" forever.
 func (m *Manager) sources(keys ...string) []model.SourceStatus {
+	keys = m.polledKeys(keys)
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	out := make([]model.SourceStatus, 0, len(keys))
@@ -290,9 +293,10 @@ func (m *Manager) publish(topic model.Topic, data any, srcs []model.SourceStatus
 	m.d.Hosts.HostFor(plugin.Core).Publish(strings.TrimPrefix(string(topic), string(plugin.Core)+"."), data, srcs)
 }
 
-// anyRunning reports whether at least one of ids runs; an empty list means "always".
+// anyRunning reports whether at least one of ids runs; an empty list means "always", and so does
+// a Manager without a supervisor (Hosts nil).
 func (m *Manager) anyRunning(ids []plugin.ID) bool {
-	if len(ids) == 0 {
+	if len(ids) == 0 || m.d.Hosts == nil {
 		return true
 	}
 	for _, id := range ids {
@@ -301,6 +305,31 @@ func (m *Manager) anyRunning(ids []plugin.ID) bool {
 		}
 	}
 	return false
+}
+
+// keyPoller names the poller (the name Run and pollUsers use) that writes the source keys with
+// a given scope. Keys outside it, the informers' "kubernetes", are always live.
+var keyPoller = map[string]string{
+	"host": "host", "vms": "vms", "cluster": "usage", "storage": "storage", "alerts": "alerts", "status": "status",
+}
+
+// polled reports whether source key k is being written: its poller runs only while a plugin that
+// reads it does. A key whose poller is skipped never gets a first poll.
+func (m *Manager) polled(k string) bool {
+	scope, _, _ := strings.Cut(k, ":")
+	poller, ok := keyPoller[scope]
+	return !ok || m.anyRunning(pollUsers[poller])
+}
+
+// polledKeys is keys without the ones nothing polls. It takes no lock: Hosts has its own.
+func (m *Manager) polledKeys(keys []string) []string {
+	out := make([]string, 0, len(keys))
+	for _, k := range keys {
+		if m.polled(k) {
+			out = append(out, k)
+		}
+	}
+	return out
 }
 
 // rebuild rebuilds every dirty topic whose prerequisites are ready, then composes the overview

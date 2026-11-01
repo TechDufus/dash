@@ -28,8 +28,8 @@ func goldenSnapshots() built {
 			Disks: []model.Disk{{Bay: "4", Serial: "S1", Device: "sdd", Healthy: false}, {Bay: "5", Healthy: true}},
 		},
 		vms: &model.VMsData{VMs: []model.VM{
-			{VMID: 100, Name: "talos-cp-1", Status: "running", Health: model.HealthOK, CPURatio: 0.4, MemBytes: 6 << 30, MaxMemBytes: 8 << 30, K8sNode: &model.K8sNodeRef{Name: "cp-1", Ready: true}},
-			{VMID: 101, Name: "talos-cp-2", Status: "running", Health: model.HealthWarn, CPURatio: 0.9, MemBytes: 7 << 30, MaxMemBytes: 8 << 30, K8sNode: &model.K8sNodeRef{Name: "cp-2", Ready: false}},
+			{VMID: 100, Name: "k8s-node-1", Status: "running", Health: model.HealthOK, CPURatio: 0.4, MemBytes: 6 << 30, MaxMemBytes: 8 << 30, K8sNode: &model.K8sNodeRef{Name: "cp-1", Ready: true}},
+			{VMID: 101, Name: "k8s-node-2", Status: "running", Health: model.HealthWarn, CPURatio: 0.9, MemBytes: 7 << 30, MaxMemBytes: 8 << 30, K8sNode: &model.K8sNodeRef{Name: "cp-2", Ready: false}},
 			{VMID: 3000, Name: "scratch", Status: "stopped", Health: model.HealthWarn},
 			{VMID: 9000, Name: "template", Status: "stopped", Template: true},
 		}},

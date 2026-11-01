@@ -165,9 +165,14 @@ func (m *Manager) legacyStatus(id plugin.ID) plugin.Status {
 		}
 		return plugin.Status{State: plugin.StateStarting, Message: "informers syncing", Sources: m.sources("kubernetes")}
 	}
-	keys, polled := pollKeys[id]
+	all, polled := pollKeys[id]
 	if !polled {
 		return m.pollerlessStatus(id)
+	}
+	// A key whose poller is skipped (nothing that reads it runs) would stay "not polled yet".
+	keys := m.polledKeys(all)
+	if len(keys) == 0 {
+		return plugin.Status{State: plugin.StateUnavailable, Message: "no enabled plugin reads this source"}
 	}
 
 	m.mu.RLock()

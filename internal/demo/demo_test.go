@@ -181,3 +181,22 @@ func TestDemoDisabledPluginPublishesNothing(t *testing.T) {
 		t.Error("the vms topic is missing")
 	}
 }
+
+// Demo does not even ask a plugin that does not run to publish (each ask would log a WARN on
+// every tick), and still publishes the rest and the core topics.
+func TestDemoSkipsOwnersThatAreNotRunning(t *testing.T) {
+	h := hub.New()
+	hp := plugintest.Without(plugintest.AllRunning(h, topics.LegacyManifests()...), "proxmox")
+	s := New(Config(config.Defaults()))
+	s.Plugins(hp)
+	s.publish()
+	if n := hp.Publishes("proxmox"); n != 0 {
+		t.Errorf("demo called a stopped proxmox's Host %d times", n)
+	}
+	if hp.Publishes("hardware") == 0 {
+		t.Error("demo did not publish the topics of a running plugin")
+	}
+	if _, ok := h.Latest("", model.TopicOverview); !ok {
+		t.Error("the overview is missing")
+	}
+}
