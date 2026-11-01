@@ -55,11 +55,12 @@ func configEnv(args []string, out io.Writer) error {
 }
 
 // configValidate resolves the configuration exactly as startup does (the defaults, the file,
-// the environment and the checks that follow) without opening the data directory, the settings
-// store or any network connection, and prints every problem with its path and the layer that
-// set the value. The file is the argument, or by default the one startup would read
-// (DASH_CONFIG, else config.yaml in the data directory). The env: and file: references of
-// secrets are not read unless asked: they often point at files that exist only where dash runs.
+// the environment and the checks that follow, the secret keys among them) without opening the
+// data directory, the settings store or any network connection, and prints every problem with
+// its path and the layer that set the value. The file is the argument, or by default the one
+// startup would read (DASH_CONFIG, else config.yaml in the data directory). The env: and file:
+// references of secrets, the key files and the launcher file are not read unless asked: they
+// often point at files that exist only where dash runs.
 func configValidate(args []string, out io.Writer) error {
 	const usage = "usage: dash config validate [file] [--resolve-secrets]"
 	var file string
@@ -100,7 +101,20 @@ func configValidate(args []string, out io.Writer) error {
 		},
 	}))
 
-	if _, err := config.Resolve(src); err != nil {
+	// The checks startup adds around Resolve (loadConfig): the secret keys, and the launcher file.
+	// A key file and the launcher file are files that may exist only where dash runs, so they
+	// are read only with --resolve-secrets; the rest of the key rules apply either way.
+	var keyErr error
+	if resolveSecrets {
+		_, keyErr = config.SecretKeys(src.Environ, nil)
+	} else {
+		keyErr = config.CheckSecretKeys(src.Environ)
+	}
+	res, resErr := config.Resolve(src)
+	if resErr == nil && resolveSecrets {
+		resErr = res.LoadLauncherFile()
+	}
+	if err := errors.Join(keyErr, resErr); err != nil {
 		printWarnings(out, &warnings)
 		return reportInvalid(out, err)
 	}

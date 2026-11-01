@@ -199,3 +199,41 @@ func TestValidateTouchesNoStateAndLeaksNothing(t *testing.T) {
 		t.Error("validate created the data directory")
 	}
 }
+
+// validate runs the checks startup adds after resolving: a malformed secret key (never echoed)
+// fails at once; a key file and the launcher file are read only with --resolve-secrets.
+func TestValidateRunsTheStartupChecksAfterResolve(t *testing.T) {
+	cleanEnv(t)
+	t.Setenv("DASH_SECRET_KEY", "bad-but-secret-text")
+	out, err := validate(t)
+	if !errors.Is(err, errConfigInvalid) || !strings.Contains(out, "DASH_SECRET_KEY") {
+		t.Errorf("bad key: %v\n%s", err, out)
+	}
+	if strings.Contains(out, "bad-but-secret-text") {
+		t.Errorf("the key text was echoed:\n%s", out)
+	}
+
+	cleanEnv(t)
+	t.Setenv("DASH_SECRET_KEY_PREVIOUS", strings.Repeat("A", 43)+"=")
+	if out, err := validate(t); !errors.Is(err, errConfigInvalid) || !strings.Contains(out, "DASH_SECRET_KEY is not") {
+		t.Errorf("previous key without a current one: %v\n%s", err, out)
+	}
+
+	cleanEnv(t)
+	t.Setenv("DASH_SECRET_KEY_FILE", filepath.Join(t.TempDir(), "absent"))
+	if out, err := validate(t); err != nil {
+		t.Errorf("a key file is not read by default: %v\n%s", err, out)
+	}
+	if out, err := validate(t, "--resolve-secrets"); !errors.Is(err, errConfigInvalid) || !strings.Contains(out, "DASH_SECRET_KEY_FILE") {
+		t.Errorf("key file with --resolve-secrets: %v\n%s", err, out)
+	}
+
+	cleanEnv(t)
+	t.Setenv("DASH_PLUGINS_LAUNCHER_FILE", filepath.Join(t.TempDir(), "absent.yaml"))
+	if out, err := validate(t); err != nil {
+		t.Errorf("the launcher file is not read by default: %v\n%s", err, out)
+	}
+	if out, err := validate(t, "--resolve-secrets"); !errors.Is(err, errConfigInvalid) || !strings.Contains(out, "launcher file") {
+		t.Errorf("launcher file with --resolve-secrets: %v\n%s", err, out)
+	}
+}

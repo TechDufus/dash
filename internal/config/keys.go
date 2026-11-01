@@ -22,9 +22,22 @@ const (
 // dash otherwise runs as usual. The key text is registered with reg so it can never reach a
 // log line or an API response; nothing here echoes it.
 func SecretKeys(environ []string, reg *secret.Registry) (*secret.Keyring, error) {
+	return secretKeys(environ, reg, true)
+}
+
+// CheckSecretKeys applies the rules of SecretKeys that need no key file: a key given directly
+// must parse, a name and its _FILE form are not both set, and a previous key needs a current
+// one. A _FILE form counts as set without being read (`dash config validate` does not read
+// files unless asked).
+func CheckSecretKeys(environ []string) error {
+	_, err := secretKeys(environ, nil, false)
+	return err
+}
+
+func secretKeys(environ []string, reg *secret.Registry, readFiles bool) (*secret.Keyring, error) {
 	env := envMap(environ)
-	cur, curSet, curErr := readKey(env, envSecretKey, reg)
-	prev, prevSet, prevErr := readKey(env, envSecretKeyPrevious, reg)
+	cur, curSet, curErr := readKey(env, envSecretKey, reg, readFiles)
+	prev, prevSet, prevErr := readKey(env, envSecretKeyPrevious, reg, readFiles)
 	if err := errors.Join(curErr, prevErr); err != nil {
 		return nil, err
 	}
@@ -38,13 +51,16 @@ func SecretKeys(environ []string, reg *secret.Registry) (*secret.Keyring, error)
 }
 
 // readKey parses the key NAME or NAME_FILE holds and reports whether there is one. Empty counts
-// as unset, as for every other variable; both set is an error naming both.
-func readKey(env map[string]string, name string, reg *secret.Registry) (k secret.Key, set bool, err error) {
+// as unset, as for every other variable; both set is an error naming both. Without readFiles a
+// NAME_FILE is reported as set and not opened.
+func readKey(env map[string]string, name string, reg *secret.Registry, readFiles bool) (k secret.Key, set bool, err error) {
 	direct, file := strings.TrimSpace(env[name]), strings.TrimSpace(env[name+"_FILE"])
 	src := name
 	switch {
 	case direct != "" && file != "":
 		return k, false, fmt.Errorf("%s and %s_FILE are both set; set only one", name, name)
+	case file != "" && !readFiles:
+		return k, true, nil
 	case file != "":
 		b, err := os.ReadFile(file)
 		if err != nil {
