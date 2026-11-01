@@ -391,6 +391,26 @@
           "format": "uri",
           "type": "string",
           "x-dash-restart": true
+        },
+        "readyRequires": {
+          "description": "Plugins /readyz waits for: each listed plugin must have finished starting (its first poll or cache sync) before dash reports ready, up to readyTimeout. Empty: /readyz needs only that dash is serving and every plugin's start has returned. Names are plugins.<id> sections, e.g. [\"kubernetes\"]. A JSON list in the environment.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array",
+          "x-dash-restart": true
+        },
+        "readyTimeout": {
+          "default": "1m",
+          "description": "How long /readyz waits for the readyRequires plugins, counted from startup. After that dash reports ready anyway and logs a warning naming the plugins still starting.",
+          "examples": [
+            "30s",
+            "5m",
+            "1h30m"
+          ],
+          "format": "duration",
+          "type": "string",
+          "x-dash-restart": true
         }
       },
       "type": "object"

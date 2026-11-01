@@ -78,7 +78,7 @@ func TestStreamEndpointNeverCarriesUpstreamDetail(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
 		t.Cleanup(cancel)
 		m.Run(ctx)
-		d.Data, d.Ready = m, m.Ready
+		d.Data = m
 	})
 	s.heartbeat = 20 * time.Millisecond
 

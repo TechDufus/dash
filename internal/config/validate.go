@@ -3,9 +3,11 @@ package config
 import (
 	"errors"
 	"fmt"
+	"maps"
 	"net"
 	"net/url"
 	"regexp"
+	"slices"
 	"strings"
 
 	"github.com/TechDufus/dash/internal/model"
@@ -61,6 +63,18 @@ func validate(t Tree, dev, demo bool, prov map[string]Provenance) error {
 	for _, h := range s.AllowedHosts {
 		if h != "*" && net.ParseIP(h) == nil && !hostNameRE.MatchString(h) {
 			v.fail("server.allowedHosts", "entry %q is not a host name or IP address (no scheme or port)", h)
+		}
+	}
+	if s.ReadyTimeout <= 0 {
+		v.fail("server.readyTimeout", "must be greater than zero")
+	}
+	known := map[string]bool{}
+	for _, sec := range t.PluginSections() {
+		known[sec.Name] = true
+	}
+	for _, id := range s.ReadyRequires {
+		if !known[id] {
+			v.fail("server.readyRequires", "entry %q is not a plugin (one of: %s)", id, strings.Join(slices.Sorted(maps.Keys(known)), ", "))
 		}
 	}
 	validateLimits(v, s.Limits)

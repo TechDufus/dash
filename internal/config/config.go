@@ -45,6 +45,10 @@ type Config struct {
 	// AllowedHosts are extra Host names the API answers besides PublicURL's host
 	// (server.allowedHosts); "*" accepts any. See HostAllowed.
 	AllowedHosts []string
+	// ReadyRequires are the plugins /readyz waits for, and ReadyTimeout how long it waits
+	// (server.readyRequires, server.readyTimeout); ReadyTimeout is positive once resolved.
+	ReadyRequires []string
+	ReadyTimeout  time.Duration
 	// Limits bound open streams and request reads (server.limits); always positive once resolved.
 	Limits Limits
 

@@ -30,11 +30,13 @@ type Tree struct {
 
 // ServerConfig is how dash listens and what it calls itself.
 type ServerConfig struct {
-	PublicURL    string       `json:"publicURL" dash:"url,restart" doc:"The URL people open, with scheme and host (https://dash.example.com). Required; the only Origin accepted on writes. In dev and demo mode it defaults to http://localhost:5173."`
-	Listen       string       `json:"listen" dash:"restart" doc:"Address of the API and the web UI, reached through the identity proxy. Dev mode only accepts a loopback address."`
-	HealthListen string       `json:"healthListen" dash:"restart" doc:"Address of /healthz and /readyz. In dev and demo mode it defaults to 127.0.0.1:8081."`
-	AllowedHosts []string     `json:"allowedHosts" dash:"restart" doc:"Host names the API answers besides the host of publicURL: names or IP addresses without scheme or port. [\"*\"] accepts any. A JSON list in the environment."`
-	Limits       LimitsConfig `json:"limits" doc:"What one client, and all clients together, may hold open or send."`
+	PublicURL     string       `json:"publicURL" dash:"url,restart" doc:"The URL people open, with scheme and host (https://dash.example.com). Required; the only Origin accepted on writes. In dev and demo mode it defaults to http://localhost:5173."`
+	Listen        string       `json:"listen" dash:"restart" doc:"Address of the API and the web UI, reached through the identity proxy. Dev mode only accepts a loopback address."`
+	HealthListen  string       `json:"healthListen" dash:"restart" doc:"Address of /healthz and /readyz. In dev and demo mode it defaults to 127.0.0.1:8081."`
+	AllowedHosts  []string     `json:"allowedHosts" dash:"restart" doc:"Host names the API answers besides the host of publicURL: names or IP addresses without scheme or port. [\"*\"] accepts any. A JSON list in the environment."`
+	ReadyRequires []string     `json:"readyRequires" dash:"restart" doc:"Plugins /readyz waits for: each listed plugin must have finished starting (its first poll or cache sync) before dash reports ready, up to readyTimeout. Empty: /readyz needs only that dash is serving and every plugin's start has returned. Names are plugins.<id> sections, e.g. [\"kubernetes\"]. A JSON list in the environment."`
+	ReadyTimeout  Duration     `json:"readyTimeout" dash:"restart" doc:"How long /readyz waits for the readyRequires plugins, counted from startup. After that dash reports ready anyway and logs a warning naming the plugins still starting."`
+	Limits        LimitsConfig `json:"limits" doc:"What one client, and all clients together, may hold open or send."`
 }
 
 // LimitsConfig bounds what one client and all clients together may hold open or send (design
@@ -189,6 +191,7 @@ func defaults(dev, demo bool) Tree {
 		Server: ServerConfig{
 			Listen:       "127.0.0.1:8080",
 			HealthListen: "0.0.0.0:8081",
+			ReadyTimeout: Duration(60 * time.Second),
 			Limits: LimitsConfig{
 				StreamsPerUser: 16, Streams: 256,
 				TailsPerUser: 4, Tails: 32,
@@ -221,6 +224,7 @@ func (t *Tree) normalize() {
 		}
 	}
 	t.Server.AllowedHosts = splitHosts(strings.Join(t.Server.AllowedHosts, ","))
+	t.Server.ReadyRequires = splitHosts(strings.Join(t.Server.ReadyRequires, ","))
 	for i := range t.Plugins.Hardware.Hosts {
 		h := &t.Plugins.Hardware.Hosts[i]
 		h.Nodename, h.Model = strings.TrimSpace(h.Nodename), strings.TrimSpace(h.Model)
@@ -235,12 +239,14 @@ func (t *Tree) normalize() {
 func (t Tree) config(dev, demo bool) Config {
 	p := t.Plugins
 	c := Config{
-		Dev:          dev,
-		Demo:         demo,
-		Listen:       t.Server.Listen,
-		HealthListen: t.Server.HealthListen,
-		PublicURL:    t.Server.PublicURL,
-		AllowedHosts: t.Server.AllowedHosts,
+		Dev:           dev,
+		Demo:          demo,
+		Listen:        t.Server.Listen,
+		HealthListen:  t.Server.HealthListen,
+		PublicURL:     t.Server.PublicURL,
+		AllowedHosts:  t.Server.AllowedHosts,
+		ReadyRequires: t.Server.ReadyRequires,
+		ReadyTimeout:  time.Duration(t.Server.ReadyTimeout),
 		Limits: Limits{
 			StreamsPerUser: t.Server.Limits.StreamsPerUser, Streams: t.Server.Limits.Streams,
 			TailsPerUser: t.Server.Limits.TailsPerUser, Tails: t.Server.Limits.Tails,

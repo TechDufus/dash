@@ -8,6 +8,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/TechDufus/dash/internal/model"
 	"github.com/TechDufus/dash/internal/secret"
@@ -25,6 +26,8 @@ server:
   listen: 0.0.0.0:9090
   healthListen: 127.0.0.1:9091
   allowedHosts: [Media.Example.com, 192.0.2.10]
+  readyRequires: [Kubernetes, flux]
+  readyTimeout: 2m
 settings:
   ui: readonly
 dataDir: /var/lib/dash
@@ -60,8 +63,8 @@ func TestFileLoadsIntoConfig(t *testing.T) {
 	}
 	want := Config{
 		Listen: "0.0.0.0:9090", HealthListen: "127.0.0.1:9091", PublicURL: "https://dash.example.com",
-		AllowedHosts: []string{"media.example.com", "192.0.2.10"},
-		DataDir:      "/var/lib/dash", SettingsUI: SettingsReadOnly, Limits: defaultLimits,
+		AllowedHosts: []string{"media.example.com", "192.0.2.10"}, ReadyRequires: []string{"kubernetes", "flux"}, ReadyTimeout: 2 * time.Minute,
+		DataDir: "/var/lib/dash", SettingsUI: SettingsReadOnly, Limits: defaultLimits,
 		VMURL: "http://prometheus.example.com:9090", AlertmanagerURL: "http://alertmanager.example.com:9093",
 		VLogsURL: "http://vlogs.example.com:9428", GatusURL: "http://gatus.example.com:8080",
 		ProxmoxURL: "https://pve.example.com:8006", ProxmoxNode: "pve", ProxmoxTokenID: "dash@pve!dash", ProxmoxTokenSecret: secret.New("s3cret", ""),

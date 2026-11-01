@@ -115,7 +115,6 @@ func newServer(mod func(*Deps)) *Server {
 		AM:      &fakeAM{},
 		VLogs:   &fakeLogs{},
 		Data:    fakeData{nodes: map[string]string{"cp1": "10.0.0.5"}},
-		Ready:   func() bool { return true },
 	}
 	if mod != nil {
 		mod(&d)
@@ -246,30 +245,6 @@ func TestStaticSPA(t *testing.T) {
 			t.Fatalf("code = %d, want 404", w.Code)
 		}
 	})
-}
-
-func TestHealthHandler(t *testing.T) {
-	ready := false
-	s := newServer(func(d *Deps) { d.Ready = func() bool { return ready } })
-	h := s.HealthHandler()
-	for _, tc := range []struct {
-		path  string
-		ready bool
-		code  int
-	}{
-		{"/healthz", false, 200},
-		{"/healthz", true, 200},
-		{"/readyz", false, 503},
-		{"/readyz", true, 200},
-		{"/api/me", true, 404},
-		{"/", true, 404},
-	} {
-		ready = tc.ready
-		w := req{path: tc.path}.do(h)
-		if w.Code != tc.code {
-			t.Errorf("%s ready=%v: code = %d, want %d", tc.path, tc.ready, w.Code, tc.code)
-		}
-	}
 }
 
 func TestSeriesArgs(t *testing.T) {

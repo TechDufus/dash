@@ -69,8 +69,8 @@ type Deps struct {
 	AM      AlertmanagerAPI
 	VLogs   VLogsAPI
 	Data    DataAPI
-	Plugins PluginsAPI // nil = no plugins
-	Ready   func() bool
+	Plugins PluginsAPI   // nil = no plugins
+	Health  HealthSource // readiness; see health.go
 	// Secrets scrubs upstream errors and log lines; nil only matches credential shapes.
 	Secrets *secret.Registry
 	Audit   *audit.Log // nil logs to slog only
@@ -89,6 +89,7 @@ type Server struct {
 	bodyTimeout time.Duration  // longest a request body may take to arrive
 	actionLimit *rateLimiter   // framework actions per principal
 	hostWarn    atomic.Int64   // unix nanos of the last unknown-host warning
+	serving     atomic.Bool    // the listeners are bound (MarkServing)
 }
 
 // New builds a Server serving the embedded SPA.
@@ -132,25 +133,6 @@ func (s *Server) Handler() http.Handler {
 	})
 	mux.HandleFunc("/", s.serveStatic)
 	return s.hosts(s.csrf(s.auth(mux)))
-}
-
-// HealthHandler serves only /healthz and /readyz, for the unauthenticated health listener.
-func (s *Server) HealthHandler() http.Handler {
-	mux := http.NewServeMux()
-	mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) {
-		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-		_, _ = w.Write([]byte("ok"))
-	})
-	mux.HandleFunc("/readyz", func(w http.ResponseWriter, _ *http.Request) {
-		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-		if s.d.Ready != nil && s.d.Ready() {
-			_, _ = w.Write([]byte("ok"))
-			return
-		}
-		w.WriteHeader(http.StatusServiceUnavailable)
-		_, _ = w.Write([]byte("not ready"))
-	})
-	return mux
 }
 
 func writeJSON(w http.ResponseWriter, code int, v any) {

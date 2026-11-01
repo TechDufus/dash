@@ -18,7 +18,7 @@ import (
 	"github.com/TechDufus/dash/internal/hub"
 	"github.com/TechDufus/dash/internal/kube"
 	"github.com/TechDufus/dash/internal/links"
-	"github.com/TechDufus/dash/internal/plugin/plugintest"
+	"github.com/TechDufus/dash/internal/plugin"
 	"github.com/TechDufus/dash/internal/secret"
 	"github.com/TechDufus/dash/internal/topics"
 	"github.com/TechDufus/dash/internal/upstream"
@@ -77,7 +77,8 @@ func TestReloadedSecretReachesTheProxmoxClientWhileReadinessHolds(t *testing.T) 
 		t.Fatal(err)
 	}
 	defer store.Close()
-	// Readiness as main wires it: the topic manager over the cluster's informers, not the reloader.
+	// Readiness as main wires it: the supervisor, waiting for the informers of the topic manager
+	// (server.readyRequires = [kubernetes]), not the reloader.
 	cfg := res.Config
 	pveClient := upstream.NewProxmox(cfg.ProxmoxURL, "", cfg.ProxmoxTokenID, cfg.ProxmoxTokenSecret, nil)
 	listKinds := map[schema.GroupVersionResource]string{}
@@ -89,14 +90,27 @@ func TestReloadedSecretReachesTheProxmoxClientWhileReadinessHolds(t *testing.T) 
 	}
 	cluster := kube.NewFromClients(kubefake.NewClientset(), dynfake.NewSimpleDynamicClientWithCustomListKinds(runtime.NewScheme(), listKinds))
 	h := hub.New()
+	sup := plugin.NewSupervisor(plugin.Options{
+		Publisher: h, Settings: treeSettings{func() config.Tree { return res.Tree }},
+		ReadyRequires: []plugin.ID{"kubernetes"}, ReadyTimeout: time.Minute,
+	})
 	mgr := topics.New(topics.Deps{
 		Cfg: cfg, Cluster: cluster, Prom: upstream.NewProm(cfg.VMURL, nil), AM: upstream.NewAlertmanager(cfg.AlertmanagerURL, nil),
-		Gatus: upstream.NewGatus(cfg.GatusURL, nil), PVE: pveClient, Hosts: plugintest.AllRunning(h, topics.LegacyManifests()...),
+		Gatus: upstream.NewGatus(cfg.GatusURL, nil), PVE: pveClient, Hosts: sup,
 		Links: links.New(cfg), Secrets: reg,
 	})
 	ctx, cancel := context.WithCancel(context.Background())
+	if err := sup.Add(mgr.Plugins()...); err != nil {
+		t.Fatal(err)
+	}
+	if err := sup.Run(ctx); err != nil {
+		t.Fatal(err)
+	}
+	defer sup.Shutdown(context.Background())
 	mgr.Run(ctx)
-	health := api.New(api.Deps{Cfg: cfg, Hub: hub.New(), Secrets: reg, Ready: mgr.Ready}).HealthHandler()
+	srv := api.New(api.Deps{Cfg: cfg, Hub: hub.New(), Secrets: reg, Health: sup})
+	srv.MarkServing()
+	health := srv.HealthHandler()
 	ready := func() int {
 		rec := httptest.NewRecorder()
 		health.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/readyz", nil))

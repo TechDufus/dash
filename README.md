@@ -160,6 +160,8 @@ restart with `DASH_PLUGINS_PROXMOX_TOKEN_SECRET_FILE`.
 | `server.listen` | `127.0.0.1:8080` | API and SPA, reached through oauth2-proxy |
 | `server.allowedHosts` | empty | extra Host names the API answers besides the `server.publicURL` host (a JSON list in the environment; `["*"]` accepts any) |
 | `server.healthListen` | `0.0.0.0:8081` | `/healthz` and `/readyz` |
+| `server.readyRequires` | empty | plugins `/readyz` waits for, e.g. `["kubernetes"]` for the informer sync (a JSON list in the environment); each must have left `starting` |
+| `server.readyTimeout` | `60s` | how long `/readyz` waits for `server.readyRequires`; after that it reports ready anyway and logs one WARN naming the plugins still starting |
 | `server.limits.streamsPerUser`, `.streams` | 16, 256 | open `/api/stream` connections per user and in all; more get 429 or 503 |
 | `server.limits.tailsPerUser`, `.tails` | 4, 32 | the same for `/api/logs/tail` |
 | `server.limits.tailMaxDuration` | `30m` | a log tail ends after this; the browser reconnects (a duration string, also in the environment) |
@@ -179,6 +181,13 @@ restart with `DASH_PLUGINS_PROXMOX_TOKEN_SECRET_FILE`.
 | `plugins.grafana.url` | empty | Grafana links |
 | `plugins.launcher.file`, `.links` | empty | the launcher's links, from a YAML file or inline (not both) |
 | `plugins.kubernetes.kubeconfig` | in-cluster | used outside the cluster; `KUBECONFIG` is honoured too, as it is, with no `_FILE` form |
+
+`/healthz` answers `ok` while dash runs. `/readyz` answers `ok` once both listeners are bound and
+every plugin's start has returned; a plugin in `error`, or an upstream that is down, never makes
+dash unready. It no longer waits for the Kubernetes caches to fill: list `kubernetes` in
+`server.readyRequires` to keep that, so a rollout holds the old pod until the new one has data.
+`GET /readyz?verbose=1` adds one `<plugin> <state> [message]` line per plugin, but only for a
+loopback peer (`kubectl port-forward`, a shell in the pod); any other peer gets the plain body.
 
 The launcher is a list of `name`, `href`, `icon` and `description`; `icon` is a
 [dashboard-icons](https://github.com/homarr-labs/dashboard-icons) name or an image URL. Mount a

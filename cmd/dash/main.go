@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
-	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -82,6 +81,7 @@ func run(reg *secret.Registry) error {
 
 	defer alog.Close()
 	cfg := res.Config
+	warnSettledRequirements(res.Tree, cfg.ReadyRequires)
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
@@ -94,7 +94,13 @@ func run(reg *secret.Registry) error {
 	var sup *plugin.Supervisor
 	reloader := config.NewReloader(res, store, config.ReloadOptions{Live: func(s string) bool { return sup.Live(s) }})
 	h := hub.New()
-	sup = plugin.NewSupervisor(plugin.Options{Publisher: h, Settings: treeSettings{reloader.Tree}})
+	ready := make([]plugin.ID, len(cfg.ReadyRequires))
+	for i, id := range cfg.ReadyRequires {
+		ready[i] = plugin.ID(id)
+	}
+	sup = plugin.NewSupervisor(plugin.Options{
+		Publisher: h, Settings: treeSettings{reloader.Tree}, ReadyRequires: ready, ReadyTimeout: cfg.ReadyTimeout,
+	})
 	h.SetOrder(sup.TopicOrder)
 	reloader.Subscribe(func(c config.Change) {
 		if strings.HasPrefix(c.Section, "plugins.") {
@@ -124,7 +130,7 @@ func run(reg *secret.Registry) error {
 		}
 		src.Run(ctx)
 		srv = api.New(api.Deps{
-			Cfg: cfg, Version: version, Hub: h, Plugins: sup, Prom: src, AM: src, VLogs: src, Data: src, Ready: sup.Ready, Secrets: reg, Audit: alog,
+			Cfg: cfg, Version: version, Hub: h, Plugins: sup, Prom: src, AM: src, VLogs: src, Data: src, Health: sup, Secrets: reg, Audit: alog,
 		})
 		handler = demo.Wrap(srv.Handler())
 		slog.Info("demo mode: serving fake data, no cluster or upstreams are contacted")
@@ -169,7 +175,7 @@ func run(reg *secret.Registry) error {
 
 		srv = api.New(api.Deps{
 			Cfg: cfg, Version: version, Hub: h, Plugins: sup, Kube: cluster.Client, Dyn: cluster.Dynamic,
-			Prom: prom, AM: am, VLogs: vlogs, Data: mgr, Ready: mgr.Ready, Secrets: reg, Audit: alog,
+			Prom: prom, AM: am, VLogs: vlogs, Data: mgr, Health: sup, Secrets: reg, Audit: alog,
 		})
 		handler = srv.Handler()
 	}
@@ -177,46 +183,6 @@ func run(reg *secret.Registry) error {
 	// Long-lived SSE requests derive their context from baseCtx, cancelled on shutdown.
 	baseCtx, cancelStreams := context.WithCancel(context.Background())
 	defer cancelStreams()
-	apiSrv := &http.Server{
-		Addr:              cfg.Listen,
-		Handler:           handler,
-		ReadHeaderTimeout: 10 * time.Second,
-		MaxHeaderBytes:    cfg.Limits.MaxHeaderBytes,
-		IdleTimeout:       120 * time.Second, // no WriteTimeout: SSE streams are open-ended; each SSE write has its own deadline (internal/api/sse.go)
-		BaseContext:       func(net.Listener) context.Context { return baseCtx },
-	}
-	apiSrv.RegisterOnShutdown(cancelStreams)
-	healthSrv := &http.Server{
-		Addr:              cfg.HealthListen,
-		Handler:           srv.HealthHandler(),
-		ReadHeaderTimeout: 5 * time.Second,
-		ReadTimeout:       5 * time.Second,
-		MaxHeaderBytes:    8 << 10,
-		WriteTimeout:      5 * time.Second,
-		IdleTimeout:       30 * time.Second,
-	}
-
-	errc := make(chan error, 2)
-	serve := func(s *http.Server, role string) {
-		slog.Info("listening", "addr", s.Addr, "role", role)
-		errc <- s.ListenAndServe()
-	}
-	go serve(apiSrv, "api")
-	go serve(healthSrv, "health")
-
-	select {
-	case err := <-errc:
-		if !errors.Is(err, http.ErrServerClosed) {
-			cancelStreams()
-			return err
-		}
-	case <-ctx.Done():
-	}
-
-	slog.Info("shutting down")
-	sctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	_ = apiSrv.Shutdown(sctx)
-	_ = healthSrv.Shutdown(sctx)
-	return nil
+	apiSrv, healthSrv := newServers(cfg, handler, srv.HealthHandler(), baseCtx, cancelStreams)
+	return serve(ctx, apiSrv, healthSrv, srv.MarkServing, cancelStreams)
 }
