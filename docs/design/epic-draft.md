@@ -489,6 +489,7 @@ These hold for the one existing package. For a plugin package the same checks ap
 **Body:** make the HTTP API a stable, documented surface for non-browser clients (design L.1 to L.4, L.8).
 
 - Move the core routes under `/api/v1`. `me`, `stream` and `series` join `/api/v1/plugins...` (P2.3) and `/api/v1/topics/{topic}` (P2.4). The SPA uses the same paths. Unversioned paths return 404 once moved; there are no aliases. The integration routes still served by `topics.Manager` (`/api/config`, `/api/vms`, `/api/pods`, `/api/logs`, `/api/logs/tail`, `/api/actions/*`, `/api/silences`) keep their unversioned paths until their plugin migrates in G3; P3.13 deletes them. They get the error envelope and request IDs, but they are not in the OpenAPI document. The API is stable from 1.0, and breaking changes in 0.x are called out in the release notes (J.19).
+- **As shipped (G3 PR-1, v0.7.0):** `/api/config`, `/api/logs`, `/api/logs/tail` and `/api/silences` are gone and answer 404 `not_found`. The log routes are `/api/v1/plugins/victorialogs/logs` and `.../logs/tail`, and the silences are the alertmanager actions `silence.create` and `silence.expire`. `/api/vms`, `/api/pods` and `/api/actions/*` stay until P3.6, P3.8 and P3.11.
 - Errors are `{"error", "code", "requestId", "details?"}`. The codes are `ErrCode*` constants in `internal/model/errors.go`: `unauthenticated`, `forbidden`, `insufficient_scope`, `invalid_token`, `ambiguous_credentials`, `csrf_failed`, `not_found`, `invalid_input`, `locked_field`, `readonly_settings`, `rate_limited`, `too_many_streams`, `upstream_unavailable`, `audit_unavailable`, `approval_required`, `approval_denied`, `approval_expired`, `conflict`, `precondition_failed`, `unknown_host` and `internal`.
 - Every response has an `X-Request-Id` header: 128-bit random hex, taken from the inbound header only when the peer is a trusted proxy. It appears in logs and audit records.
 - `dash api openapi` generates OpenAPI 3.1 into `docs/api/openapi.json`, and drift fails `make check`; vacuum lints it (pinned in `tools/go.mod`). Every route registers its method, path, summary, scope, request type and response type in one typed route table. Schemas come from the P2.2 reflector (`internal/jsonschema`), and topic envelopes are typed per topic.
@@ -550,11 +551,11 @@ These hold for the one existing package. For a plugin package the same checks ap
 
 No aliases survive the phase.
 
-- [ ] P3.1 feat(plugins): prometheus plugin with Querier service and series registry
-- [ ] P3.2 feat(plugins): link providers for grafana, headlamp and launcher
-- [ ] P3.3 feat(plugins): alertmanager plugin with silence actions
-- [ ] P3.4 feat(plugins): gatus plugin with configurable critical groups
-- [ ] P3.5 feat(plugins): victorialogs plugin with configurable field mapping
+- [x] P3.1 feat(plugins): prometheus plugin with Querier service and series registry
+- [x] P3.2 feat(plugins): link providers for grafana, headlamp and launcher
+- [x] P3.3 feat(plugins): alertmanager plugin with silence actions
+- [x] P3.4 feat(plugins): gatus plugin with configurable critical groups
+- [x] P3.5 feat(plugins): victorialogs plugin with configurable field mapping
 - [ ] P3.6 feat(plugins): proxmox plugin with TLS options and critical VMs
 - [ ] P3.7 feat(plugins): hardware plugin for host metrics and machines
 - [ ] P3.8 feat(plugins): kubernetes plugin with optional cluster and discovery-gated informers
@@ -583,6 +584,8 @@ No aliases survive the phase.
 - `/api/series` dispatches to the `SeriesSpec`s registered by plugins; the existing names are registered by the legacy code until it migrates.
 - The legacy `DASH_VM_URL` maps here.
 
+**As shipped (G3 PR-1, v0.7.0):** `internal/plugins/prometheus` exports the `Querier` as `svc.Querier` (`internal/svc`, design A.5) and has no topics or actions. The client is `upstream.NewProm(url, hc.Transport, opts...)`: the new `upstream.Option` (`Timeout`, `CheckRedirect`) carries the section's timeout and the same-host redirect policy that passing only `hc.Transport` would lose, and every upstream constructor takes the options. `headers` values are plain configuration; credentials belong in `auth`. `GET /api/v1/series` validates its arguments first (400), then asks `Supervisor.Service("prometheus")` and answers 404 `unknown series` when the plugin does not run; `Deps.Prom` is gone, and a series a plugin registered is served only while that plugin runs. The row is `healthy` once started and never `degraded` or `error`: a failing query shows on the pages that ran it. The legacy `DASH_VM_URL` alias was removed with the alias layer in v0.5.0, so it now fails startup naming `DASH_PLUGINS_PROMETHEUS_URL`. Design F.1 has the details.
+
 **Acceptance criteria**
 - Series API tests pass unchanged.
 - Basic and bearer auth are sent as headers.
@@ -598,6 +601,8 @@ No aliases survive the phase.
 - Replace `links.Builder` (`internal/links/links.go`) with a `links.Registry`. Providers: `grafana` (`url`), `headlamp` (`url`, `cluster`) and `proxmox` (registered later in P3.6; until then the builder's Proxmox methods stay).
 - The `launcher` plugin takes `file` or inline `links`, with the validation from `config.go:170-174`.
 - The launcher's links travel in the `/api/plugins` payload, and `GET /api/config` is removed.
+
+**As shipped (G3 PR-1, v0.7.0):** the launcher's links do **not** travel in the `/api/plugins` payload. The launcher publishes them as the topic `launcher.links` (`model.LauncherData`), and `GET /api/config` is removed (deviation D8: `PluginInfo` is republished on every status tick to every viewer, and a topic is typed, has a snapshot and an ETag, and follows the visibility rule). `links.Registry` is a `plugin.LinkResolver` over the running `plugin.LinkProvider`s (grafana: `Alerts` and `Host`; headlamp: the Kubernetes kinds); `Host.Links()` and `Supervisor.Links()` return it, and the Proxmox methods stay on `links.Builder` until P3.6. Validation is split: file-xor-links and the link shape stay at load (`pluginconf.Launcher.Validate`, so an invalid inline link still rejects a load or reload), while the file is read in `Start` and an unreadable file makes the row `error` instead of aborting startup. The launcher's icons resolve in the SPA through `iconSrc(token, iconBaseURL)` and the new `ui.iconBaseURL` (`DASH_UI_ICON_BASE_URL`); app icons are unchanged until P3.9. Design F.2 and A.9 have the details.
 
 **Acceptance criteria**
 - The `links_test.go` cases pass against the providers.
@@ -617,6 +622,8 @@ No aliases survive the phase.
 - `protectedAlerts` (default `[Watchdog]`): silencing a matching alert is refused with 403 (design F.3, K.6).
 - `silence.expire` works only for silences whose `createdBy` starts with `dash:`; expiring any other silence is refused with 403.
 
+**As shipped (G3 PR-1, v0.7.0):** `internal/plugins/alertmanager` publishes `alertmanager.alerts` (polled every 15 s) with `ref` on alerts and silences, `Alert.protected`, `Silence.dash` and `AlertsData.silenceDurations`, and contributes one KPI (`firing`), the attention items and its source status. The silence actions are the first production actions: `actions.enabled` is read from the section (`pluginconf.ActionsToggle`, through `ActionsConfig()`), `ActionInfo.minRole` and the `me` role filter limit who is offered them, and the SPA hides the buttons with `useActionAvailable`. There is **no** `denyNamespaces` (a silence has no namespace), and `silence.create` returns `plugin.Outcome` so the audit record names the silence once it exists. Expire answers 202. The legacy `/api/silences` routes are gone. Design A.8 and F.3 have the details.
+
 **Acceptance criteria**
 - `silences_test.go` cases pass through the action framework.
 - Actions are hidden and return 404 when disabled.
@@ -633,6 +640,8 @@ No aliases survive the phase.
 - Config: `url`, `auth`, `tls`, `criticalGroups` (replaces `"infrastructure"` at `internal/topics/health.go:105` and the ordering at `web/src/pages/status.tsx:31-35`), `pageSize`.
 - Service: `EndpointHealth`.
 
+**As shipped (G3 PR-1, v0.7.0):** `internal/plugins/gatus` publishes `gatus.status` (polled every 30 s; `Endpoint.ref` is `gatus:Endpoint/<Key>`) and exports `svc.EndpointHealth` with `Revision` and `SourceStatuses`, which the Manager's apps and VMs poll on their own tick (A.5). `criticalGroups` replaces the `infrastructure` literal and the Status page's ordering, compared case-insensitively. `pageSize` is the number of check results per endpoint. `gatus.EndpointHealth` is exported for the later consumers. Design F.4 has the details.
+
 **Acceptance criteria**
 - With `criticalGroups: []`, every failing check warns.
 - With `[infrastructure]`, behaviour matches today's.
@@ -642,12 +651,14 @@ No aliases survive the phase.
 
 ### P3.5 feat(plugins): victorialogs plugin with configurable field mapping
 
-**Body:** move `internal/upstream/vlogs.go` and the `/api/logs` and `/api/logs/tail` handlers under `/api/plugins/victorialogs/`.
+**Body:** move `internal/upstream/vlogs.go` and the `/api/logs` and `/api/logs/tail` handlers under `/api/v1/plugins/victorialogs/`.
 
 - Config: `url`, `auth`, `tls`, `fields` (defaults `kubernetes.pod_namespace`, `kubernetes.pod_name`, `kubernetes.container_name`; today hard-coded at `vlogs.go:60-67`), `limit`.
 - Service: `Logs`.
 - A standalone logs page is deferred to post-v1 (J.13); the kubernetes pod sheet stays the only entry point.
 - `denyNamespaces` (default `[]`): a log query or tail for a listed namespace returns 403. Opening a tail is audited (design F.5, K.4). The size, duration and concurrency limits are in the hardening PR, and the settings are in P2.11.
+
+**As shipped (G3 PR-1, v0.7.0):** `internal/plugins/victorialogs` serves `GET /api/v1/plugins/victorialogs/logs` and the stream `logs/tail` (`Routes.Stream`); `/api/logs` and `/api/logs/tail` answer 404. **The `Logs` service is deferred to P7.3**, its first Go consumer: the pod sheet uses the HTTP routes, so G3 has no caller for it. `fields` is validated, `NewVLogs(url, rt, limit, opts...)` keeps its signature and `WithFields` sets the mapping, and `Query` trims the answer to `limit`. The core enforces and audits `denyNamespaces` (403 before any slot) and audits every tail open; `StreamSpec.Validate` makes a bad query a 400 before a slot or a record. The pod sheet shows its Logs tab only while the plugin is visible. Design A.8 and F.5 have the details.
 
 **Acceptance criteria**
 - `vlogs_test.go` passes with the default mapping.
@@ -784,6 +795,63 @@ Icons: replace the hard-coded jsDelivr base (`feeds.go:77`, `web/src/config/link
 - `DASH_DEMO=true` renders every page, with the demo test's identifier denylist still enforced.
 
 **Dependencies:** P3.1 to P3.12.
+
+### G3 PR-1 deviations
+
+Where PR-1 (branch `feat/g3-sources`, v0.7.0: P3.1 to P3.5, with the framework commits before them) differs from the draft or from the plan it was built from. Design A.3 to A.9 and F.1 to F.5 carry the same facts as `As shipped (G3 PR-1)` notes.
+
+| Item | The draft or plan said | Shipped | Why |
+|---|---|---|---|
+| Launcher data (P3.2, F.2) | The links ship in the `/api/plugins` payload | The topic `launcher.links` (`model.LauncherData`); no route | `PluginInfo` goes to every viewer on every status tick; a topic is typed, has a snapshot and an ETag, and follows the visibility rule |
+| Launcher validation | Validate when the configuration loads, file included | Static rules at load (`pluginconf.Launcher.Validate`); the file is read in `Start`; an unreadable file is an `error` row | A missing file no longer aborts startup; an invalid inline link still rejects a load or reload |
+| `Logs` service (P3.5, A.5, F.5) | A `Logs{Query, Tail}` service | Deferred to P7.3 | No Go caller exists in G3: the pod sheet uses the HTTP routes |
+| Alertmanager `denyNamespaces` (P3.3) | The action chain's `denyNamespaces`, as for every plugin with actions | Not offered; only `actions.enabled` (`ActionsToggle`) | A silence's target has no namespace, so the field would do nothing |
+| Prometheus row health (A.6) | `degraded` when queries fail | `healthy` once started; a failing query shows on the pages that ran it | The plugin runs no queries of its own, and the consumers own their sources |
+| Visibility rule (A.9, every leaf) | Each leaf picks (a) the supervisor re-publishes or (b) the plugin does not publish while hidden | (a) for every plugin: `Hub.Resend` plus a transition detector in the supervisor (`plugin.Visible`), tested per plugin with `plugintest.AssertTopicsReachOpenStream` | One mechanism instead of one per plugin; (b) does not cover a row that turns visible with an identical last payload |
+| Config structs (A.4) | In each plugin package | One package, `internal/pluginconf`; `PluginBase`, `Duration`, the shared types and the launcher loader moved there | `internal/kube` imports `internal/config`, so a tree that embedded a kubernetes plugin's struct would be an import cycle |
+| Topic names (A.7) | Renamed in Go and web together | The Go `model.Topic*` constants and `TopicTypes()` are the registry: every published topic keeps both, tied to the web by three guards (the generated `Topic` union, `TestTopicsAgreeInGoAndWeb`, the types of `PaletteCtx` and `PanelContribution.reads`) | Nothing generates a namespaced name; a topic without a constant fails `npm run check` |
+| KPIs and sources (A.7, A.9) | KPIs render from `kpiList` | A plugin with an `overview.kpis` tile owns all its KPIs (the generic tile skips it); a KPI carries its own health; `Contributor.Sources` feeds `core.overview.sources` | Otherwise a KPI is drawn twice and a dead source shows no chip |
+| Actions (A.8) | `actions.enabled` read by the action chain | Fed through the section's `ActionsConfig()` and `ReadDenyConfig()`; `ActionInfo.minRole`, the `me` role filter and the SPA gate `useActionAvailable`; `plugin.Outcome` for a target that exists only after the action | G2 shipped the chain without the configuration that feeds it |
+| Series arguments (F.1) | `node` handled as before | Unchanged: the series handler validates every argument (including `node`) before it asks for the querier | A bad request is a 400 or a 404 without touching a querier |
+| Services (A.5) | `EndpointHealth(host) (bool, bool)` | `ByHost` returns the `model.Health` value, plus `ByName`, `Revision` and `SourceStatuses`; `gatus.EndpointHealth` is exported | A callback would not survive `Supervisor.Reload`; consumers poll `Revision`; the Manager maps any health but `ok` to an unhealthy dot |
+| Link registry (A.3) | `Host.Links() links.Registry` | `plugin.LinkResolver` and `plugin.LinkProvider`; `Supervisor.Links()` for core code | `links.Builder` imports `config`; the interface keeps providers from importing each other |
+| Route error hook | `Options.Fail` | `plugin.Fail` calls `RouteGuard.Fail`, which the API passes to `Supervisor.Router` | The supervisor cannot import the API; the guard carries the core's policy per request |
+| Stream step order (A.8) | Role, namespace, slot, audit record, handler | Role, namespace, `StreamSpec.Validate`, slot, audit record, handler | A request that can never succeed (a missing pod) must not cost a slot or an audit record |
+| Audit record of a stream open (S2) | One record per open | Texts cut to 200 bytes; one record per user and target per minute; 30 per user per minute; a record that is not written never refuses the stream | A client chooses what it opens, so an unbounded record would let one user fill the audit log |
+| Plugin streams and their instance (S1) | Not specified | A stream ends when its plugin instance stops (reconfiguration, disable, shutdown); the slot comes back | A tail would otherwise run on for `tailMaxDuration` against a plugin that has stopped, with an old deny list |
+| Demo mode (N2) | A twin is forced enabled | A twin runs unless `enabled: false` is explicit; a plugin without a twin stays `disabled` ("no demo data"), even when configured and enabled | Demo mode keeps switching a plugin off live, and a plugin without demo data must never contact an upstream |
+| Configuration errors (N1) | Not specified | A plugin section reports every problem it has; only a path that had already failed before the section ran is skipped | Two problems under `plugins.launcher.links` were reported once instead of twice |
+| Test timing (N4) | A fixed 30 ms sleep | The visibility test waits for the hub to record the hidden row | Removes a timing race |
+| Plugin action OpenAPI | Not specified | An action operation describes its `requestBody` | `vacuum` fails as soon as a real plugin has actions |
+| `dash api openapi` | Plugin routes skipped | The routes of the shipped plugins are documented, streams as SSE operations, and a test compares every plugin route with the spec | The public document must match what is mounted |
+| `server.limits.tails*` docs | The legacy log tail | They describe plugin streams (the open streams of the log tail) | The legacy tail is gone |
+| `upstream.DevTransport` | Stays until P3.8 | Deleted; `upstream.DevWrap` wraps a plugin's transport through `Options.Transport`, only with `DASH_DEV` | The hook puts the upstream metrics and the dev proxy under every plugin's client in one place |
+| `NewVLogs` (P3.5) | The constructor takes the mapping | `NewVLogs(url, rt, limit, opts...)` is unchanged; `(*VLogs).WithFields` returns a copy with the mapping | Existing call sites keep compiling |
+| `VLogs.Query` | Honours the upstream's `limit` | Also trims the answer to `limit` | An upstream that ignores the limit cannot make dash return more lines |
+| Launcher demo twin | Six links | Five (`world.Launcher()` unchanged) | The fixture already had five |
+| Demo fixtures | Unchanged shape | The gatus twin gains an `infrastructure` group (12 endpoints), and the seeded silence has a hex-shaped ID | The ID must pass the expire action's own check |
+| `iconSrc` (D9) | Same-origin path, name with a base, or a URL under the base | Also letter tiles for a protocol-relative URL, a path with a backslash, a relative path, an off-base URL, `data:` and `javascript:` | Stricter than the draft: nothing is requested from a host the operator did not name |
+| Silence button | Hidden for protected alerts and without the action | Also hidden when `silenceDurations` is empty | A dialog with no duration cannot submit |
+| Logs tab | Hidden while the plugin is disabled | Also hidden until the plugin list has loaded | No flash of a tab that may not exist |
+| `plugintest` helpers | `AssertRefs(t, pluginID, payload)` | `AssertRefs(t, sup, pluginID, payload, mustHave...)`; `AssertTopicsReachOpenStream` runs on the real `hub.Hub` | The registered check and the must-have types need the supervisor |
+| Overview golden | `kpis` only | The golden gains `kpiList` and the `plugin` field of its attention items | A migrated plugin's attention items and KPIs name their plugin |
+| Local helpers | One shared Basic/Bearer helper | The alertmanager, gatus, prometheus and victorialogs plugins each keep a small credential helper | `pluginconf` is scaffold-owned; a later leaf can share one |
+| Known leftover | Neutral fixtures everywhere (G.2, P6.2) | `internal/upstream/prom_test.go` still has fixture identifiers from before this leaf | The G6 denylist test owns them |
+
+#### PR-1 release notes (v0.7.0)
+
+- **Actions are off until `plugins.<id>.actions.enabled` is set.** Silence and Expire vanish without `DASH_PLUGINS_ALERTMANAGER_ACTIONS_ENABLED=true`. Changing it by a reload restarts the alertmanager plugin.
+- **Expiring a silence dash did not create is refused (403).** A silence made by dash has `createdBy` starting `dash:`; silences made in the Alertmanager UI or API cannot be expired from dash. **Alertmanager down makes expire fail** (502): the action reads the silence list first. Expire answers 202 `{"status":"accepted"}` (it was 200 `{"status":"expired"}`), and request bodies are decoded strictly: an unknown field is a 400.
+- **`Watchdog` cannot be silenced** (`plugins.alertmanager.protectedAlerts`, default `[Watchdog]`; 403). The Silence button is hidden for protected alerts.
+- **Action calls are limited to 10 per minute per user** (429 `rate_limited`) and audited with the plugin ID. Audit action names are unchanged (`silence.create`, `silence.expire`), and a created silence's audit target is the silence ID.
+- **Log tail opens are audited** (`logs.tail`, with the plugin and the pod: one record per user and target per minute), and `plugins.victorialogs.denyNamespaces` answers 403 for queries and tails. Neither existed before.
+- **Retired routes and renamed topics.** `/api/config`, `/api/logs`, `/api/logs/tail` and `/api/silences` are gone (404 `not_found`): the log routes are `/api/v1/plugins/victorialogs/logs` and `.../logs/tail`, and the silences are the alertmanager actions. Tabs opened before the deploy must be reloaded. An operator or client that used the legacy `alerts` or `status` topic names or routes must switch to `alertmanager.alerts` and `gatus.status` (and read the launcher links from `launcher.links`).
+- **Launcher:** a missing or unreadable `plugins.launcher.file` no longer stops startup (the launcher row shows `error`); an invalid inline `plugins.launcher.links` still rejects the configuration at load and on reload and keeps the last good one; the file is read when the launcher starts. `dash config validate --resolve-secrets` still checks the file.
+- **Icons: no third-party request by default.** `ui.iconBaseURL` (`DASH_UI_ICON_BASE_URL`) resolves icon *names*; a launcher icon given as an absolute URL renders only when it is under that base, and anything else is a letter tile. There is no bundled icon set. App icons are unchanged in this release.
+- **Status page:** groups sort by `plugins.gatus.criticalGroups` exactly (case-insensitive match, then alphabetical); "Infra" no longer sorts first unless it is listed. With `criticalGroups: []` every failing check is a warning.
+- **A plugin whose URL is unset is `disabled`** (hidden), not `unavailable`; `enabled: true` with no URL gives `unconfigured`. The Overview no longer shows a source chip for a hidden alertmanager; Apps and VMs keep the gatus chip.
+- **Prometheus failures show on the pages that ran the queries** (their sources); the prometheus row no longer turns `degraded` or `error`.
+- **Rollback needs the image and the environment together:** v0.6.0 rejects an unknown `DASH_PLUGINS_*` variable, so going back to it with `DASH_PLUGINS_ALERTMANAGER_ACTIONS_ENABLED` or `DASH_PLUGINS_GATUS_CRITICAL_GROUPS` still set stops it from starting.
 
 ---
 
