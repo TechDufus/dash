@@ -144,34 +144,41 @@ that stay restart-only once the plugin framework applies the rest live. A rotate
 applies live.
 `)
 	docs := sectionDocs()
-	var group string
-	started := false
+	// A section that holds both fields and sub-sections (plugins.kubernetes and its conventions)
+	// is split in schema order; gather its rows under one heading, sections in first-seen order.
+	var groups []string
+	rows := map[string][]EnvVar{}
 	for _, v := range EnvVars() {
 		g := v.Path[:max(strings.LastIndex(v.Path, "."), 0)]
-		if !started || g != group {
-			started, group = true, g
-			title := "`" + g + "`"
-			if g == "" {
-				title = "Top level"
+		if _, ok := rows[g]; !ok {
+			groups = append(groups, g)
+		}
+		rows[g] = append(rows[g], v)
+	}
+	for _, g := range groups {
+		title := "`" + g + "`"
+		if g == "" {
+			title = "Top level"
+		}
+		fmt.Fprintf(&b, "\n## %s\n\n", title)
+		if d := docs[g]; d != "" {
+			fmt.Fprintf(&b, "%s\n\n", d)
+		}
+		b.WriteString("| Setting | Variable | Type | Default | Description |\n|---|---|---|---|---|\n")
+		for _, v := range rows[g] {
+			def := "-"
+			if v.Default != "" {
+				def = "`" + v.Default + "`"
 			}
-			fmt.Fprintf(&b, "\n## %s\n\n", title)
-			if d := docs[g]; d != "" {
-				fmt.Fprintf(&b, "%s\n\n", d)
+			desc := v.Description
+			if v.Secret {
+				desc += " _Secret._"
 			}
-			b.WriteString("| Setting | Variable | Type | Default | Description |\n|---|---|---|---|---|\n")
+			if v.Restart {
+				desc += " _Restart-only._"
+			}
+			fmt.Fprintf(&b, "| `%s` | `%s` | %s | %s | %s |\n", v.Path, v.Name, v.Type, def, mdCell(desc))
 		}
-		def := "-"
-		if v.Default != "" {
-			def = "`" + v.Default + "`"
-		}
-		desc := v.Description
-		if v.Secret {
-			desc += " _Secret._"
-		}
-		if v.Restart {
-			desc += " _Restart-only._"
-		}
-		fmt.Fprintf(&b, "| `%s` | `%s` | %s | %s | %s |\n", v.Path, v.Name, v.Type, def, mdCell(desc))
 	}
 	b.WriteString(`
 ## Process variables

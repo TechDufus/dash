@@ -66,7 +66,7 @@ VictoriaMetrics or Prometheus: the series behind charts, KPIs and host metrics.
 | Setting | Variable | Type | Default | Description |
 |---|---|---|---|---|
 | `plugins.prometheus.type` | `DASH_PLUGINS_PROMETHEUS_TYPE` | string | - | The plugin type. dash runs one instance per type, so this is empty or the section name. |
-| `plugins.prometheus.enabled` | `DASH_PLUGINS_PROMETHEUS_ENABLED` | boolean | - | Turns the plugin on or off. Unset means automatic: on when it is configured. false removes its pages and topics. |
+| `plugins.prometheus.enabled` | `DASH_PLUGINS_PROMETHEUS_ENABLED` | boolean | - | false stops the plugin and removes its topics; its pages stay until the web UI follows core.plugins (P2.7), and the Kubernetes connection is still required. Unset leaves it on; a plugin without its settings reports itself unavailable. |
 | `plugins.prometheus.url` | `DASH_PLUGINS_PROMETHEUS_URL` | string | - | Base URL of the service, e.g. http://host:9090. Empty turns the source off: dash makes no request and its panels show "source not configured". |
 
 ## `plugins.alertmanager`
@@ -76,7 +76,7 @@ Alertmanager: alerts and silences.
 | Setting | Variable | Type | Default | Description |
 |---|---|---|---|---|
 | `plugins.alertmanager.type` | `DASH_PLUGINS_ALERTMANAGER_TYPE` | string | - | The plugin type. dash runs one instance per type, so this is empty or the section name. |
-| `plugins.alertmanager.enabled` | `DASH_PLUGINS_ALERTMANAGER_ENABLED` | boolean | - | Turns the plugin on or off. Unset means automatic: on when it is configured. false removes its pages and topics. |
+| `plugins.alertmanager.enabled` | `DASH_PLUGINS_ALERTMANAGER_ENABLED` | boolean | - | false stops the plugin and removes its topics; its pages stay until the web UI follows core.plugins (P2.7), and the Kubernetes connection is still required. Unset leaves it on; a plugin without its settings reports itself unavailable. |
 | `plugins.alertmanager.url` | `DASH_PLUGINS_ALERTMANAGER_URL` | string | - | Base URL of the service, e.g. http://host:9090. Empty turns the source off: dash makes no request and its panels show "source not configured". |
 
 ## `plugins.victorialogs`
@@ -86,7 +86,7 @@ VictoriaLogs: the pod logs the UI shows.
 | Setting | Variable | Type | Default | Description |
 |---|---|---|---|---|
 | `plugins.victorialogs.type` | `DASH_PLUGINS_VICTORIALOGS_TYPE` | string | - | The plugin type. dash runs one instance per type, so this is empty or the section name. |
-| `plugins.victorialogs.enabled` | `DASH_PLUGINS_VICTORIALOGS_ENABLED` | boolean | - | Turns the plugin on or off. Unset means automatic: on when it is configured. false removes its pages and topics. |
+| `plugins.victorialogs.enabled` | `DASH_PLUGINS_VICTORIALOGS_ENABLED` | boolean | - | false stops the plugin and removes its topics; its pages stay until the web UI follows core.plugins (P2.7), and the Kubernetes connection is still required. Unset leaves it on; a plugin without its settings reports itself unavailable. |
 | `plugins.victorialogs.url` | `DASH_PLUGINS_VICTORIALOGS_URL` | string | - | Base URL of the service, e.g. http://host:9090. Empty turns the source off: dash makes no request and its panels show "source not configured". |
 
 ## `plugins.gatus`
@@ -96,7 +96,7 @@ Gatus: endpoint health.
 | Setting | Variable | Type | Default | Description |
 |---|---|---|---|---|
 | `plugins.gatus.type` | `DASH_PLUGINS_GATUS_TYPE` | string | - | The plugin type. dash runs one instance per type, so this is empty or the section name. |
-| `plugins.gatus.enabled` | `DASH_PLUGINS_GATUS_ENABLED` | boolean | - | Turns the plugin on or off. Unset means automatic: on when it is configured. false removes its pages and topics. |
+| `plugins.gatus.enabled` | `DASH_PLUGINS_GATUS_ENABLED` | boolean | - | false stops the plugin and removes its topics; its pages stay until the web UI follows core.plugins (P2.7), and the Kubernetes connection is still required. Unset leaves it on; a plugin without its settings reports itself unavailable. |
 | `plugins.gatus.url` | `DASH_PLUGINS_GATUS_URL` | string | - | Base URL of the service, e.g. http://host:9090. Empty turns the source off: dash makes no request and its panels show "source not configured". |
 
 ## `plugins.proxmox`
@@ -106,7 +106,7 @@ Proxmox VE: virtual machines, containers and the hypervisor.
 | Setting | Variable | Type | Default | Description |
 |---|---|---|---|---|
 | `plugins.proxmox.type` | `DASH_PLUGINS_PROXMOX_TYPE` | string | - | The plugin type. dash runs one instance per type, so this is empty or the section name. |
-| `plugins.proxmox.enabled` | `DASH_PLUGINS_PROXMOX_ENABLED` | boolean | - | Turns the plugin on or off. Unset means automatic: on when it is configured. false removes its pages and topics. |
+| `plugins.proxmox.enabled` | `DASH_PLUGINS_PROXMOX_ENABLED` | boolean | - | false stops the plugin and removes its topics; its pages stay until the web UI follows core.plugins (P2.7), and the Kubernetes connection is still required. Unset leaves it on; a plugin without its settings reports itself unavailable. |
 | `plugins.proxmox.url` | `DASH_PLUGINS_PROXMOX_URL` | string | - | Base URL of the Proxmox API, e.g. https://pve.example.com:8006. Required with a token. |
 | `plugins.proxmox.node` | `DASH_PLUGINS_PROXMOX_NODE` | string | - | The Proxmox node to read. Empty is discovered from the API when the cluster has exactly one node; set it for several nodes or to skip discovery. |
 | `plugins.proxmox.tokenID` | `DASH_PLUGINS_PROXMOX_TOKEN_ID` | string | - | API token ID, user@realm!tokenname. Set together with tokenSecret. Empty turns Proxmox off. |
@@ -119,7 +119,7 @@ The physical host behind the cluster.
 | Setting | Variable | Type | Default | Description |
 |---|---|---|---|---|
 | `plugins.hardware.type` | `DASH_PLUGINS_HARDWARE_TYPE` | string | - | The plugin type. dash runs one instance per type, so this is empty or the section name. |
-| `plugins.hardware.enabled` | `DASH_PLUGINS_HARDWARE_ENABLED` | boolean | - | Turns the plugin on or off. Unset means automatic: on when it is configured. false removes its pages and topics. |
+| `plugins.hardware.enabled` | `DASH_PLUGINS_HARDWARE_ENABLED` | boolean | - | false stops the plugin and removes its topics; its pages stay until the web UI follows core.plugins (P2.7), and the Kubernetes connection is still required. Unset leaves it on; a plugin without its settings reports itself unavailable. |
 | `plugins.hardware.hosts` | `DASH_PLUGINS_HARDWARE_HOSTS` | list of objects (JSON) | - | The machine behind the cluster, as [{nodename, model}]. One entry is supported for now. |
 | `plugins.hardware.zfsScrubMetricPrefix` | `DASH_PLUGINS_HARDWARE_ZFS_SCRUB_METRIC_PREFIX` | string | - | Prefix of the ZFS scrub series: <prefix>_last_end_timestamp_seconds, <prefix>_last_errors and <prefix>_in_progress. Must be a valid metric name. Empty queries no scrub data and the pool cards show none. |
 
@@ -130,7 +130,7 @@ Headlamp: deep links into the Kubernetes UI.
 | Setting | Variable | Type | Default | Description |
 |---|---|---|---|---|
 | `plugins.headlamp.type` | `DASH_PLUGINS_HEADLAMP_TYPE` | string | - | The plugin type. dash runs one instance per type, so this is empty or the section name. |
-| `plugins.headlamp.enabled` | `DASH_PLUGINS_HEADLAMP_ENABLED` | boolean | - | Turns the plugin on or off. Unset means automatic: on when it is configured. false removes its pages and topics. |
+| `plugins.headlamp.enabled` | `DASH_PLUGINS_HEADLAMP_ENABLED` | boolean | - | false stops the plugin and removes its topics; its pages stay until the web UI follows core.plugins (P2.7), and the Kubernetes connection is still required. Unset leaves it on; a plugin without its settings reports itself unavailable. |
 | `plugins.headlamp.url` | `DASH_PLUGINS_HEADLAMP_URL` | string | - | Base URL of Headlamp, e.g. https://headlamp.example.com. Empty turns the deep links off. |
 | `plugins.headlamp.cluster` | `DASH_PLUGINS_HEADLAMP_CLUSTER` | string | `main` | Name of the cluster in Headlamp's URLs. |
 
@@ -141,7 +141,7 @@ Grafana: links to dashboards.
 | Setting | Variable | Type | Default | Description |
 |---|---|---|---|---|
 | `plugins.grafana.type` | `DASH_PLUGINS_GRAFANA_TYPE` | string | - | The plugin type. dash runs one instance per type, so this is empty or the section name. |
-| `plugins.grafana.enabled` | `DASH_PLUGINS_GRAFANA_ENABLED` | boolean | - | Turns the plugin on or off. Unset means automatic: on when it is configured. false removes its pages and topics. |
+| `plugins.grafana.enabled` | `DASH_PLUGINS_GRAFANA_ENABLED` | boolean | - | false stops the plugin and removes its topics; its pages stay until the web UI follows core.plugins (P2.7), and the Kubernetes connection is still required. Unset leaves it on; a plugin without its settings reports itself unavailable. |
 | `plugins.grafana.url` | `DASH_PLUGINS_GRAFANA_URL` | string | - | Base URL of the service, e.g. http://host:9090. Empty turns the source off: dash makes no request and its panels show "source not configured". |
 
 ## `plugins.launcher`
@@ -151,7 +151,7 @@ The launcher: links to your infrastructure.
 | Setting | Variable | Type | Default | Description |
 |---|---|---|---|---|
 | `plugins.launcher.type` | `DASH_PLUGINS_LAUNCHER_TYPE` | string | - | The plugin type. dash runs one instance per type, so this is empty or the section name. |
-| `plugins.launcher.enabled` | `DASH_PLUGINS_LAUNCHER_ENABLED` | boolean | - | Turns the plugin on or off. Unset means automatic: on when it is configured. false removes its pages and topics. |
+| `plugins.launcher.enabled` | `DASH_PLUGINS_LAUNCHER_ENABLED` | boolean | - | false stops the plugin and removes its topics; its pages stay until the web UI follows core.plugins (P2.7), and the Kubernetes connection is still required. Unset leaves it on; a plugin without its settings reports itself unavailable. |
 | `plugins.launcher.file` | `DASH_PLUGINS_LAUNCHER_FILE` | string | - | Path of a YAML file with the launcher's links (see docs/launcher.example.yaml). Not together with links. |
 | `plugins.launcher.links` | `DASH_PLUGINS_LAUNCHER_LINKS` | list of objects (JSON) | - | The launcher's links, inline: a list of {name, href, icon, description}. Not together with file. |
 
@@ -162,8 +162,9 @@ Kubernetes: how dash reaches and reads the cluster.
 | Setting | Variable | Type | Default | Description |
 |---|---|---|---|---|
 | `plugins.kubernetes.type` | `DASH_PLUGINS_KUBERNETES_TYPE` | string | - | The plugin type. dash runs one instance per type, so this is empty or the section name. |
-| `plugins.kubernetes.enabled` | `DASH_PLUGINS_KUBERNETES_ENABLED` | boolean | - | Turns the plugin on or off. Unset means automatic: on when it is configured. false removes its pages and topics. |
+| `plugins.kubernetes.enabled` | `DASH_PLUGINS_KUBERNETES_ENABLED` | boolean | - | false stops the plugin and removes its topics; its pages stay until the web UI follows core.plugins (P2.7), and the Kubernetes connection is still required. Unset leaves it on; a plugin without its settings reports itself unavailable. |
 | `plugins.kubernetes.kubeconfig` | `DASH_PLUGINS_KUBERNETES_KUBECONFIG` | string | - | Path of a kubeconfig file, used outside the cluster (development). Empty means the in-cluster configuration. The standard KUBECONFIG variable fills it too; this setting's own variable wins. |
+| `plugins.kubernetes.backupJobs` | `DASH_PLUGINS_KUBERNETES_BACKUP_JOBS` | list of objects (JSON) | - | The CronJob behind the NAS backup age, as [{namespace, cronjob}]. One entry is supported for now. Empty hides the NAS backup row. |
 
 ## `plugins.kubernetes.conventions`
 
@@ -175,14 +176,6 @@ Labels dash reads from namespaces. None has a default: while one is empty the fe
 | `plugins.kubernetes.conventions.tenantLabel` | `DASH_PLUGINS_KUBERNETES_CONVENTIONS_TENANT_LABEL` | string | - | Namespace label that puts the namespace under Tenants; its value is the tenant. Empty turns the grouping off. |
 | `plugins.kubernetes.conventions.appsFluxPrefix` | `DASH_PLUGINS_KUBERNETES_CONVENTIONS_APPS_FLUX_PREFIX` | string | - | Namespaces applied by a Flux Kustomization whose name starts with this prefix are listed under Apps. Empty turns the grouping off. |
 
-## `plugins.kubernetes`
-
-Kubernetes: how dash reaches and reads the cluster.
-
-| Setting | Variable | Type | Default | Description |
-|---|---|---|---|---|
-| `plugins.kubernetes.backupJobs` | `DASH_PLUGINS_KUBERNETES_BACKUP_JOBS` | list of objects (JSON) | - | The CronJob behind the NAS backup age, as [{namespace, cronjob}]. One entry is supported for now. Empty hides the NAS backup row. |
-
 ## `plugins.flux`
 
 Flux: how dash reads Flux objects.
@@ -190,7 +183,7 @@ Flux: how dash reads Flux objects.
 | Setting | Variable | Type | Default | Description |
 |---|---|---|---|---|
 | `plugins.flux.type` | `DASH_PLUGINS_FLUX_TYPE` | string | - | The plugin type. dash runs one instance per type, so this is empty or the section name. |
-| `plugins.flux.enabled` | `DASH_PLUGINS_FLUX_ENABLED` | boolean | - | Turns the plugin on or off. Unset means automatic: on when it is configured. false removes its pages and topics. |
+| `plugins.flux.enabled` | `DASH_PLUGINS_FLUX_ENABLED` | boolean | - | false stops the plugin and removes its topics; its pages stay until the web UI follows core.plugins (P2.7), and the Kubernetes connection is still required. Unset leaves it on; a plugin without its settings reports itself unavailable. |
 | `plugins.flux.suspendReasonAnnotation` | `DASH_PLUGINS_FLUX_SUSPEND_REASON_ANNOTATION` | string | - | Flux object annotation whose value is shown as the reason the object is suspended. Empty hides the reason. |
 
 ## Process variables

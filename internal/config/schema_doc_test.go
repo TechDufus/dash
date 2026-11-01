@@ -258,3 +258,35 @@ func TestConfigurationDocIsCurrent(t *testing.T) {
 		t.Error("an empty table cell")
 	}
 }
+
+// A section with both fields and sub-sections (plugins.kubernetes) is one heading, with all its
+// settings under it.
+func TestConfigurationDocHasOneHeadingPerSection(t *testing.T) {
+	var buf bytes.Buffer
+	if err := WriteEnvMarkdown(&buf); err != nil {
+		t.Fatal(err)
+	}
+	seen := map[string]bool{}
+	var current string
+	section := map[string]string{} // setting path -> the heading it sits under
+	for line := range strings.SplitSeq(buf.String(), "\n") {
+		if h, ok := strings.CutPrefix(line, "## "); ok {
+			if seen[h] {
+				t.Errorf("heading %q appears twice", h)
+			}
+			seen[h], current = true, h
+		} else if strings.HasPrefix(line, "| `") && current != "" {
+			path, _, _ := strings.Cut(strings.TrimPrefix(line, "| `"), "`")
+			section[path] = current
+		}
+	}
+	for _, v := range EnvVars() {
+		want := "`" + v.Path[:max(strings.LastIndex(v.Path, "."), 0)] + "`"
+		if want == "``" {
+			want = "Top level"
+		}
+		if section[v.Path] != want {
+			t.Errorf("%s is under %q, want %q", v.Path, section[v.Path], want)
+		}
+	}
+}

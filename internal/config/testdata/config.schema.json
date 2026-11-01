@@ -18,7 +18,7 @@
       "additionalProperties": false,
       "properties": {
         "enabled": {
-          "description": "Turns the plugin on or off. Unset means automatic: on when it is configured. false removes its pages and topics.",
+          "description": "false stops the plugin and removes its topics; its pages stay until the web UI follows core.plugins (P2.7), and the Kubernetes connection is still required. Unset leaves it on; a plugin without its settings reports itself unavailable.",
           "type": "boolean"
         },
         "type": {
@@ -37,7 +37,7 @@
       "additionalProperties": false,
       "properties": {
         "enabled": {
-          "description": "Turns the plugin on or off. Unset means automatic: on when it is configured. false removes its pages and topics.",
+          "description": "false stops the plugin and removes its topics; its pages stay until the web UI follows core.plugins (P2.7), and the Kubernetes connection is still required. Unset leaves it on; a plugin without its settings reports itself unavailable.",
           "type": "boolean"
         },
         "suspendReasonAnnotation": {
@@ -55,7 +55,7 @@
       "additionalProperties": false,
       "properties": {
         "enabled": {
-          "description": "Turns the plugin on or off. Unset means automatic: on when it is configured. false removes its pages and topics.",
+          "description": "false stops the plugin and removes its topics; its pages stay until the web UI follows core.plugins (P2.7), and the Kubernetes connection is still required. Unset leaves it on; a plugin without its settings reports itself unavailable.",
           "type": "boolean"
         },
         "hosts": {
@@ -99,7 +99,7 @@
           "type": "string"
         },
         "enabled": {
-          "description": "Turns the plugin on or off. Unset means automatic: on when it is configured. false removes its pages and topics.",
+          "description": "false stops the plugin and removes its topics; its pages stay until the web UI follows core.plugins (P2.7), and the Kubernetes connection is still required. Unset leaves it on; a plugin without its settings reports itself unavailable.",
           "type": "boolean"
         },
         "type": {
@@ -129,7 +129,7 @@
           "description": "Labels dash reads from namespaces. None has a default: while one is empty the feature that depends on it is off."
         },
         "enabled": {
-          "description": "Turns the plugin on or off. Unset means automatic: on when it is configured. false removes its pages and topics.",
+          "description": "false stops the plugin and removes its topics; its pages stay until the web UI follows core.plugins (P2.7), and the Kubernetes connection is still required. Unset leaves it on; a plugin without its settings reports itself unavailable.",
           "type": "boolean"
         },
         "kubeconfig": {
@@ -165,7 +165,7 @@
       "additionalProperties": false,
       "properties": {
         "enabled": {
-          "description": "Turns the plugin on or off. Unset means automatic: on when it is configured. false removes its pages and topics.",
+          "description": "false stops the plugin and removes its topics; its pages stay until the web UI follows core.plugins (P2.7), and the Kubernetes connection is still required. Unset leaves it on; a plugin without its settings reports itself unavailable.",
           "type": "boolean"
         },
         "file": {
@@ -330,7 +330,7 @@
       "additionalProperties": false,
       "properties": {
         "enabled": {
-          "description": "Turns the plugin on or off. Unset means automatic: on when it is configured. false removes its pages and topics.",
+          "description": "false stops the plugin and removes its topics; its pages stay until the web UI follows core.plugins (P2.7), and the Kubernetes connection is still required. Unset leaves it on; a plugin without its settings reports itself unavailable.",
           "type": "boolean"
         },
         "node": {
