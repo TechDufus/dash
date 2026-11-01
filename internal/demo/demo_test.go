@@ -18,7 +18,7 @@ import (
 
 func TestPublishesEveryTopic(t *testing.T) {
 	h := hub.New()
-	New(Config(config.Load(func(string) string { return "" }))).publish(h)
+	New(Config(config.Defaults())).publish(h)
 	for _, topic := range []model.Topic{
 		model.TopicOverview, model.TopicHost, model.TopicVMs, model.TopicCluster, model.TopicFlux,
 		model.TopicStorage, model.TopicAlerts, model.TopicStatus, model.TopicApps,
@@ -36,7 +36,7 @@ func TestPublishesEveryTopic(t *testing.T) {
 
 func TestFixturesStayFake(t *testing.T) {
 	h := hub.New()
-	New(Config(config.Load(func(string) string { return "" }))).publish(h)
+	New(Config(config.Defaults())).publish(h)
 	snap, _, cancel := h.Subscribe()
 	defer cancel()
 	for _, ev := range snap {
@@ -50,7 +50,7 @@ func TestFixturesStayFake(t *testing.T) {
 }
 
 func TestDetailsResolve(t *testing.T) {
-	s := New(Config(config.Load(func(string) string { return "" })))
+	s := New(Config(config.Defaults()))
 	ctx := context.Background()
 	w := s.build()
 	p := w.cluster.Pods[0]

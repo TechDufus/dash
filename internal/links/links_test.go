@@ -8,13 +8,17 @@ import (
 )
 
 func testBuilder() *Builder {
-	env := map[string]string{
-		"DASH_PROXMOX_URL":  "https://pve.example.com:8006",
-		"DASH_PROXMOX_NODE": "pve-1",
-		"DASH_HEADLAMP_URL": "https://headlamp.example.com",
-		"DASH_GRAFANA_URL":  "https://grafana.example.com",
+	cfg, err := config.Load([]string{
+		"DASH_PROXMOX_URL=https://pve.example.com:8006",
+		"DASH_PROXMOX_NODE=pve-1",
+		"DASH_HEADLAMP_URL=https://headlamp.example.com",
+		"DASH_GRAFANA_URL=https://grafana.example.com",
+		"DASH_PUBLIC_URL=https://dash.example.com",
+	})
+	if err != nil {
+		panic(err)
 	}
-	return New(config.Load(func(k string) string { return env[k] }))
+	return New(cfg)
 }
 
 func TestHeadlampKinds(t *testing.T) {
@@ -83,7 +87,7 @@ func TestProxmoxLinks(t *testing.T) {
 }
 
 func TestUnconfiguredToolsGiveNoLinks(t *testing.T) {
-	b := New(config.Load(func(string) string { return "" }))
+	b := New(config.Defaults())
 	for name, got := range map[string][]model.Link{
 		"console": b.VMConsole(1, "x"), "shell": b.HostShell(), "ui": b.ProxmoxUI(),
 		"grafana alerts": b.GrafanaAlerts(), "grafana": b.Grafana(), "headlamp": b.Headlamp("Pod", "a", "b"),

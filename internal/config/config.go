@@ -1,22 +1,25 @@
-// Package config reads dash's environment. Defaults are the in-cluster values. DASH_DEV=true
-// signs every request in as "dev" without authentication, so it only runs on a loopback
-// DASH_LISTEN, and switches the dev defaults (health listener on loopback, public URL of the
-// Vite dev server). DASH_DEMO=true serves built-in fake data instead of a cluster with the
-// same defaults but never signs in as "dev" (internal/demo injects the "demo" user).
+// Package config resolves dash's configuration from layers (design B.2): built-in defaults, the
+// UI settings store, a YAML file (DASH_CONFIG) and the environment, the later layer winning per
+// field, into a typed Tree and the flat Config the rest of dash reads. DASH_DEV=true signs every
+// request in as "dev" without authentication, so it only runs on a loopback listen address, and
+// switches the dev defaults (health listener on loopback, public URL of the Vite dev server).
+// DASH_DEMO=true serves built-in fake data instead of a cluster with the same defaults but never
+// signs in as "dev" (internal/demo injects the "demo" user).
 //
-// Nothing site-specific has a default: DASH_PUBLIC_URL is required outside dev and demo, Proxmox needs
-// DASH_PROXMOX_URL once a token is set (DASH_PROXMOX_NODE is optional: with one node in the
-// cluster dash discovers it from the API at startup), and an empty Headlamp or Grafana URL
+// Nothing site-specific has a default: server.publicURL is required outside dev and demo, Proxmox
+// needs plugins.proxmox.url once a token is set (plugins.proxmox.node is optional: with one node
+// in the cluster dash discovers it from the API at startup), and an empty Headlamp or Grafana URL
 // drops those links.
 package config
 
 import (
 	"errors"
 	"fmt"
+	"io/fs"
 	"net"
 	"net/url"
 	"os"
-	"regexp"
+	"path/filepath"
 	"slices"
 	"strings"
 
@@ -38,8 +41,13 @@ type Config struct {
 	HealthListen string // /healthz and /readyz only.
 	PublicURL    string
 	// AllowedHosts are extra Host names the API answers besides PublicURL's host
-	// (DASH_ALLOWED_HOSTS); "*" accepts any. See HostAllowed.
+	// (server.allowedHosts); "*" accepts any. See HostAllowed.
 	AllowedHosts []string
+
+	// DataDir holds dash's state (settings.ui store, credentials); SettingsUI is SettingsEditable
+	// or SettingsReadOnly.
+	DataDir    string
+	SettingsUI string
 
 	VMURL           string
 	AlertmanagerURL string
@@ -90,112 +98,63 @@ type Conventions struct {
 	NASBackupCronJob   string
 }
 
-// Load reads the environment through getenv (os.Getenv in production).
-func Load(getenv func(string) string) Config {
-	demo := strings.EqualFold(strings.TrimSpace(getenv("DASH_DEMO")), "true")
-	dev := strings.EqualFold(strings.TrimSpace(getenv("DASH_DEV")), "true")
-	str := func(key, def string) string {
-		if v := strings.TrimSpace(getenv(key)); v != "" {
-			return v
+// FromEnv resolves the process environment and the config file, and reads the launcher file.
+func FromEnv() (*Resolved, error) {
+	environ := os.Environ()
+	f, err := readConfigFile(environ)
+	if err != nil {
+		return nil, err
+	}
+	res, err := Resolve(Sources{Environ: environ, File: f})
+	if err != nil {
+		return nil, err
+	}
+	if c := &res.Config; c.LauncherFile != "" {
+		if c.Launcher, err = LoadLauncher(c.LauncherFile); err != nil {
+			return nil, err
 		}
-		return def
 	}
-	healthDef, publicDef := "0.0.0.0:8081", ""
-	if dev || demo {
-		healthDef, publicDef = "127.0.0.1:8081", "http://localhost:5173"
-	}
-	node := str("DASH_PROXMOX_NODE", "")
-	return Config{
-		Dev:             dev,
-		Demo:            demo,
-		Listen:          str("DASH_LISTEN", "127.0.0.1:8080"),
-		HealthListen:    str("DASH_HEALTH_LISTEN", healthDef),
-		PublicURL:       strings.TrimRight(str("DASH_PUBLIC_URL", publicDef), "/"),
-		AllowedHosts:    splitHosts(getenv("DASH_ALLOWED_HOSTS")),
-		VMURL:           strings.TrimRight(str("DASH_VM_URL", "http://vmsingle-vm.monitoring.svc:8428"), "/"),
-		AlertmanagerURL: strings.TrimRight(str("DASH_ALERTMANAGER_URL", "http://vmalertmanager-vm.monitoring.svc:9093"), "/"),
-		VLogsURL:        strings.TrimRight(str("DASH_VLOGS_URL", "http://vl-server.monitoring.svc:9428"), "/"),
-		GatusURL:        strings.TrimRight(str("DASH_GATUS_URL", "http://gatus.gatus.svc:8080"), "/"),
-		ProxmoxURL:      strings.TrimRight(str("DASH_PROXMOX_URL", ""), "/"),
-		ProxmoxNode:     node,
-		ProxmoxToken:    strings.TrimSpace(getenv("DASH_PROXMOX_TOKEN")),
-		HostNodename:    str("DASH_HOST_NODENAME", node),
-		HostModel:       str("DASH_HOST_MODEL", ""),
-		HeadlampURL:     strings.TrimRight(str("DASH_HEADLAMP_URL", ""), "/"),
-		HeadlampCluster: str("DASH_HEADLAMP_CLUSTER", "main"),
-		GrafanaURL:      strings.TrimRight(str("DASH_GRAFANA_URL", ""), "/"),
-		LauncherFile:    str("DASH_LAUNCHER_FILE", ""),
-		Conventions: Conventions{
-			ProtectedLabel:          str("DASH_LABEL_PROTECTED", "homelab.io/protected"),
-			TenantLabel:             str("DASH_LABEL_TENANT", "homelab.io/tenant"),
-			SuspendReasonAnnotation: str("DASH_ANNOTATION_SUSPEND_REASON", "homelab.io/suspended"),
-			AppsFluxPrefix:          str("DASH_APPS_FLUX_PREFIX", "app-"),
-			ZFSScrubMetricPrefix:    str("DASH_ZFS_SCRUB_METRIC_PREFIX", "homelab_zfs_scrub"),
-			NASBackupNamespace:      str("DASH_NAS_BACKUP_NAMESPACE", "rustfs"),
-			NASBackupCronJob:        str("DASH_NAS_BACKUP_CRONJOB", "nas-backup"),
-		},
-		Kubeconfig: strings.TrimSpace(getenv("KUBECONFIG")),
-	}
+	return res, nil
 }
 
-// FromEnv is Load(os.Getenv) plus the launcher file, validated.
-func FromEnv() (Config, error) {
-	c := Load(os.Getenv)
-	if err := c.Validate(); err != nil {
-		return c, err
+// Load resolves defaults and the given os.Environ-style variables, with no config file and no UI
+// settings.
+func Load(environ []string) (Config, error) {
+	res, err := Resolve(Sources{Environ: environ})
+	if err != nil {
+		return Config{}, err
 	}
-	if c.LauncherFile != "" {
-		links, err := LoadLauncher(c.LauncherFile)
+	return res.Config, nil
+}
+
+// Defaults is the configuration with nothing set, outside dev and demo. It is not startable
+// (server.publicURL is required): it is the baseline for tests.
+func Defaults() Config { return defaults(false, false).config(false, false) }
+
+// readConfigFile finds the config file: DASH_CONFIG when set (it must exist), otherwise
+// config.yaml in the data directory (DASH_DATA_DIR, default /data) when that exists.
+func readConfigFile(environ []string) (*File, error) {
+	env := envMap(environ)
+	if p := strings.TrimSpace(env["DASH_CONFIG"]); p != "" {
+		data, err := os.ReadFile(p)
 		if err != nil {
-			return c, err
+			return nil, fmt.Errorf("DASH_CONFIG: %w", err)
 		}
-		c.Launcher = links
+		return &File{Path: p, Data: data}, nil
 	}
-	return c, nil
-}
-
-var metricNameRE = regexp.MustCompile(`^[a-zA-Z_:][a-zA-Z0-9_:]*$`)
-
-// Validate reports settings that are missing or unusable.
-func (c Config) Validate() error {
-	var errs []error
-	if c.PublicURL == "" && !c.Dev && !c.Demo {
-		errs = append(errs, errors.New("DASH_PUBLIC_URL is required (the URL users open, e.g. https://dash.example.com)"))
+	dir := strings.TrimSpace(env["DASH_DATA_DIR"])
+	if dir == "" {
+		dir = defaults(false, false).DataDir
 	}
-	if c.PublicURL != "" {
-		if u, err := url.Parse(c.PublicURL); err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Hostname() == "" {
-			errs = append(errs, fmt.Errorf("DASH_PUBLIC_URL %q must be an http(s) URL with a host, e.g. https://dash.example.com", c.PublicURL))
-		}
+	p := filepath.Join(dir, "config.yaml")
+	data, err := os.ReadFile(p)
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil, nil
 	}
-	if c.Dev && !loopbackAddr(c.Listen) {
-		errs = append(errs, fmt.Errorf("DASH_DEV=true signs requests in as %q without authentication, so DASH_LISTEN must be a loopback address such as 127.0.0.1:8080, not %q", "dev", c.Listen))
+	if err != nil {
+		return nil, fmt.Errorf("config file: %w", err)
 	}
-	if c.ProxmoxToken != "" && c.ProxmoxURL == "" {
-		errs = append(errs, errors.New("DASH_PROXMOX_URL is required with DASH_PROXMOX_TOKEN"))
-	}
-	if !metricNameRE.MatchString(c.Conventions.ZFSScrubMetricPrefix) {
-		errs = append(errs, fmt.Errorf("DASH_ZFS_SCRUB_METRIC_PREFIX %q is not a metric name", c.Conventions.ZFSScrubMetricPrefix))
-	}
-	for _, h := range c.AllowedHosts {
-		if h != "*" && net.ParseIP(h) == nil && !hostNameRE.MatchString(h) {
-			errs = append(errs, fmt.Errorf("DASH_ALLOWED_HOSTS entry %q is not a host name or IP address (no scheme or port)", h))
-		}
-	}
-	return errors.Join(errs...)
-}
-
-// hostNameRE matches a DNS host name: dot-separated labels of lowercase letters, digits and hyphens.
-var hostNameRE = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*$`)
-
-// splitHosts splits a comma-separated list, trimming and lowercasing entries and dropping empty ones.
-func splitHosts(s string) []string {
-	var out []string
-	for _, h := range strings.Split(s, ",") {
-		if h = strings.ToLower(strings.TrimSpace(h)); h != "" {
-			out = append(out, h)
-		}
-	}
-	return out
+	return &File{Path: p, Data: data}, nil
 }
 
 // HostAllowed reports whether the API answers requests addressed to host (a Host header value,
@@ -258,11 +217,8 @@ func LoadLauncher(path string) ([]model.LauncherLink, error) {
 	if err := yaml.UnmarshalStrict(raw, &links); err != nil {
 		return nil, fmt.Errorf("launcher file %s: %w", path, err)
 	}
-	for i, l := range links {
-		u, err := url.Parse(l.Href)
-		if l.Name == "" || err != nil || (u.Scheme != "https" && u.Scheme != "http") {
-			return nil, fmt.Errorf("launcher file %s: entry %d needs a name and an http(s) href", path, i+1)
-		}
+	if err := validateLinks(links); err != nil {
+		return nil, fmt.Errorf("launcher file %s: %w", path, err)
 	}
 	return links, nil
 }

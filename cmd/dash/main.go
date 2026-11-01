@@ -35,10 +35,11 @@ func main() {
 }
 
 func run() error {
-	cfg, err := config.FromEnv()
+	res, err := config.FromEnv()
 	if err != nil {
 		return err
 	}
+	cfg := res.Config
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()

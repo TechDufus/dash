@@ -3,14 +3,34 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 )
 
-func env(m map[string]string) func(string) string { return func(k string) string { return m[k] } }
+// environ turns a map into os.Environ form, sorted so a test's input is the same on every run.
+func environ(m map[string]string) []string {
+	var out []string
+	for k, v := range m {
+		out = append(out, k+"="+v)
+	}
+	slices.Sort(out)
+	return out
+}
+
+func load(m map[string]string) (Config, error) { return Load(environ(m)) }
+
+func mustLoad(t *testing.T, m map[string]string) Config {
+	t.Helper()
+	c, err := load(m)
+	if err != nil {
+		t.Fatalf("Load(%v): %v", m, err)
+	}
+	return c
+}
 
 func TestNoSiteDefaults(t *testing.T) {
-	c := Load(env(nil))
+	c := Defaults()
 	if c.PublicURL != "" || c.ProxmoxURL != "" || c.ProxmoxNode != "" || c.HeadlampURL != "" ||
 		c.GrafanaURL != "" || c.HostModel != "" || c.HostNodename != "" {
 		t.Errorf("site-specific default leaked: %+v", c)
@@ -21,18 +41,19 @@ func TestNoSiteDefaults(t *testing.T) {
 }
 
 func TestHostNodenameFollowsProxmoxNode(t *testing.T) {
-	if c := Load(env(map[string]string{"DASH_PROXMOX_NODE": "pve-1"})); c.HostNodename != "pve-1" {
+	base := map[string]string{"DASH_DEV": "true", "DASH_PROXMOX_NODE": "pve-1"}
+	if c := mustLoad(t, base); c.HostNodename != "pve-1" {
 		t.Errorf("HostNodename = %q", c.HostNodename)
 	}
-	c := Load(env(map[string]string{"DASH_PROXMOX_NODE": "pve-1", "DASH_HOST_NODENAME": "box"}))
-	if c.HostNodename != "box" {
+	base["DASH_HOST_NODENAME"] = "box"
+	if c := mustLoad(t, base); c.HostNodename != "box" {
 		t.Errorf("HostNodename = %q", c.HostNodename)
 	}
 }
 
 // A demo server may bind every interface; it never signs requests in as "dev".
 func TestDemoDoesNotImplyDev(t *testing.T) {
-	c := Load(env(map[string]string{"DASH_DEMO": "true"}))
+	c := mustLoad(t, map[string]string{"DASH_DEMO": "true"})
 	if !c.Demo || c.Dev {
 		t.Errorf("Demo = %v, Dev = %v; want demo without dev", c.Demo, c.Dev)
 	}
@@ -57,7 +78,7 @@ func TestValidate(t *testing.T) {
 		{"demo may bind every interface", map[string]string{"DASH_DEMO": "true", "DASH_LISTEN": "0.0.0.0:8080"}, ""},
 		{"minimal prod", map[string]string{"DASH_PUBLIC_URL": "https://dash.example.com"}, ""},
 		{"token needs proxmox url",
-			map[string]string{"DASH_PUBLIC_URL": "https://d", "DASH_PROXMOX_TOKEN": "u!t=s"}, "DASH_PROXMOX_URL"},
+			map[string]string{"DASH_PUBLIC_URL": "https://d", "DASH_PROXMOX_TOKEN": "u!t=s"}, "plugins.proxmox.url"},
 		{"token with proxmox url, node left for discovery",
 			map[string]string{"DASH_PUBLIC_URL": "https://d", "DASH_PROXMOX_TOKEN": "u!t=s",
 				"DASH_PROXMOX_URL": "https://pve:8006"}, ""},
@@ -79,7 +100,7 @@ func TestValidate(t *testing.T) {
 		{"public url with a bad scheme in demo", map[string]string{"DASH_DEMO": "true", "DASH_PUBLIC_URL": "localhost:5173"}, "DASH_PUBLIC_URL"},
 	}
 	for _, tc := range tests {
-		err := Load(env(tc.env)).Validate()
+		_, err := load(tc.env)
 		switch {
 		case tc.want == "" && err != nil:
 			t.Errorf("%s: unexpected error %v", tc.name, err)
@@ -124,7 +145,7 @@ func TestHostAllowed(t *testing.T) {
 		}
 	}
 
-	c := Load(env(map[string]string{"DASH_ALLOWED_HOSTS": " Media.Example.com, ,192.0.2.10"}))
+	c := mustLoad(t, map[string]string{"DASH_DEV": "true", "DASH_ALLOWED_HOSTS": " Media.Example.com, ,192.0.2.10"})
 	if got := strings.Join(c.AllowedHosts, "|"); got != "media.example.com|192.0.2.10" {
 		t.Errorf("AllowedHosts = %q", got)
 	}
@@ -160,10 +181,7 @@ func TestDeploymentEnvCompat(t *testing.T) {
 		"DASH_GRAFANA_URL":      "https://grafana.example.com",
 		"DASH_PROXMOX_TOKEN":    "dash@pve!ci=00000000-0000-0000-0000-000000000000",
 	}
-	c := Load(env(e))
-	if err := c.Validate(); err != nil {
-		t.Fatalf("Validate: %v", err)
-	}
+	c := mustLoad(t, e)
 	fields := map[string]string{
 		"DASH_PUBLIC_URL":       c.PublicURL,
 		"DASH_VM_URL":           c.VMURL,

@@ -12,7 +12,7 @@ import (
 var testNow = time.Date(2026, 10, 30, 12, 0, 0, 0, time.UTC)
 
 func input() AttentionInput {
-	return AttentionInput{Links: links.New(config.Load(func(string) string { return "" })), Now: testNow}
+	return AttentionInput{Links: links.New(config.Defaults()), Now: testNow}
 }
 
 // severityOf returns the severity of the item with id, or "" when there is none.
@@ -371,7 +371,7 @@ func TestTrackerKeepsFirstSeen(t *testing.T) {
 }
 
 func TestClassifyNamespace(t *testing.T) {
-	conv := config.Load(func(string) string { return "" }).Conventions
+	conv := config.Defaults().Conventions
 	tests := []struct {
 		name   string
 		labels map[string]string

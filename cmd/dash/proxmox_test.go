@@ -162,14 +162,19 @@ func TestResolveProxmoxNode(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			f := newFakePVE(t, tc.reply)
-			e := map[string]string{}
-			for k, v := range tc.env {
-				e[k] = v
-			}
+			// A token without a URL is not a valid configuration (Load refuses it), but the
+			// no-op must hold for a Config built by hand.
+			cfg := config.Config{ProxmoxToken: testToken}
 			if !tc.noURL {
-				e["DASH_PROXMOX_URL"] = f.URL
+				env := []string{"DASH_PUBLIC_URL=https://dash.example.com", "DASH_PROXMOX_URL=" + f.URL}
+				for k, v := range tc.env {
+					env = append(env, k+"="+v)
+				}
+				var err error
+				if cfg, err = config.Load(env); err != nil {
+					t.Fatal(err)
+				}
 			}
-			cfg := config.Load(func(k string) string { return e[k] })
 
 			start := time.Now()
 			err := resolveProxmoxNode(context.Background(), &cfg, upstream.NewProxmox(cfg.ProxmoxURL, "", cfg.ProxmoxToken, nil).Nodes, tc.budget)
@@ -201,10 +206,11 @@ func TestResolveProxmoxNode(t *testing.T) {
 
 func TestResolveProxmoxNodeSeveralListsNames(t *testing.T) {
 	f := newFakePVE(t, always(200, nodesBody("pve-b", "pve-a")))
-	cfg := config.Load(func(k string) string {
-		return map[string]string{"DASH_PROXMOX_TOKEN": testToken, "DASH_PROXMOX_URL": f.URL}[k]
-	})
-	err := resolveProxmoxNode(context.Background(), &cfg, upstream.NewProxmox(cfg.ProxmoxURL, "", cfg.ProxmoxToken, nil).Nodes, time.Second)
+	cfg, err := config.Load([]string{"DASH_PUBLIC_URL=https://dash.example.com", "DASH_PROXMOX_TOKEN=" + testToken, "DASH_PROXMOX_URL=" + f.URL})
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = resolveProxmoxNode(context.Background(), &cfg, upstream.NewProxmox(cfg.ProxmoxURL, "", cfg.ProxmoxToken, nil).Nodes, time.Second)
 	if err == nil || !strings.Contains(err.Error(), "pve-a, pve-b") {
 		t.Fatalf("error %v, want the sorted node names", err)
 	}

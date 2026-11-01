@@ -91,9 +91,26 @@ then open http://localhost:5173.
 
 ## Configuration
 
-dash reads `DASH_*` environment variables and refuses to start when a required one is missing.
-Nothing about a particular lab is compiled in: an unset Headlamp, Grafana or Proxmox URL simply
-drops those links.
+dash reads a YAML config file and `DASH_*` environment variables, and refuses to start when a
+required setting is missing or invalid. Nothing about a particular lab is compiled in: an unset
+Headlamp, Grafana or Proxmox URL simply drops those links.
+
+The file is `DASH_CONFIG`, or `config.yaml` in the data directory (`DASH_DATA_DIR`, default
+`/data`) when it exists. Unknown keys are an error that names the full path
+(`plugins.proxmox.urll: unknown field`), and the environment overrides the file. The tables below
+use the environment names; each maps to a path in the file:
+
+```yaml
+server:
+  publicURL: https://dash.example.com
+plugins:
+  proxmox:
+    url: https://pve.example.com:8006
+    tokenID: dash@pve!dash
+    tokenSecret: <secret>
+  hardware:
+    hosts: [{nodename: pve, model: Dell R730}]
+```
 
 | Variable | Default | What |
 |---|---|---|
