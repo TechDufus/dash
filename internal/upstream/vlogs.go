@@ -34,8 +34,9 @@ var (
 	logEscaper = strings.NewReplacer(`\`, `\\`, `"`, `\"`)
 )
 
-// LogQuery selects container logs. Namespace is required. StartOffset applies to tails only: when
-// positive the tail starts that far in the past instead of at now; BuildQuery ignores it.
+// LogQuery selects container logs. Namespace is required. StartOffset applies to tails only:
+// VictoriaLogs replays the last 5s by default (v1.52 start_offset default), and a positive
+// StartOffset widens that replay window to this far back; BuildQuery ignores it.
 type LogQuery struct {
 	Namespace, Pod, Container, Text, Since string
 	StartOffset                            time.Duration

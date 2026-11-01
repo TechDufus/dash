@@ -125,12 +125,14 @@ func (s *Server) logsTail(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	// A reconnecting EventSource sends the id of the last line it saw. Replay from just before
-	// it, never further back than maxTailResume, and drop what the client already has.
-	last, resumed := time.Time{}, false
-	if t, err := time.Parse(time.RFC3339Nano, r.Header.Get("Last-Event-ID")); err == nil {
-		last, resumed = t, true
-		q.StartOffset = min(max(s.now().Sub(t)+5*time.Second, 0), maxTailResume)
+	// A reconnecting EventSource sends the id of the last line it saw: one resume point per
+	// container. Replay from just before the oldest, never further back than maxTailResume,
+	// and drop only what the client already has from each container. A malformed id means a
+	// plain tail.
+	resume, seen := resumePoints{}, resumePoints{}
+	if p, ok := parseResumePoints(r.Header.Get("Last-Event-ID")); ok {
+		resume, seen = p, p.clone() // seen starts from the points so quiet containers survive the next reconnect
+		q.StartOffset = min(max(s.now().Sub(p.oldest())+5*time.Second, 0), maxTailResume)
 	}
 	release, ok := s.tails.acquire(w, userFrom(r.Context()))
 	if !ok {
@@ -155,7 +157,7 @@ func (s *Server) logsTail(w http.ResponseWriter, r *http.Request) {
 		<-pingsDone
 	}()
 	err = s.d.VLogs.Tail(ctx, q, func(l model.LogLine) error {
-		if resumed && !l.Time.After(last) { // already delivered before the reconnect
+		if at, ok := resume[l.Container]; ok && !l.Time.After(at) { // already delivered before the reconnect
 			return nil
 		}
 		b, err := json.Marshal(l)
@@ -165,7 +167,8 @@ func (s *Server) logsTail(w http.ResponseWriter, r *http.Request) {
 		if l.Time.IsZero() {
 			return e.event("line", b)
 		}
-		return e.eventID("line", l.Time.UTC().Format(time.RFC3339Nano), b)
+		seen.note(l.Container, l.Time)
+		return e.eventID("line", seen.String(), b)
 	})
 	if err != nil && ctx.Err() == nil {
 		slog.Warn("log tail ended", "error", err)

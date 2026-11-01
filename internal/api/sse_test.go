@@ -324,25 +324,86 @@ func TestDecodeBodyDeadline(t *testing.T) {
 }
 
 func TestLogsTailResume(t *testing.T) {
-	t0 := fixedNow.Add(-30 * time.Second)
-	at := func(d time.Duration) string { return t0.Add(d).UTC().Format(time.RFC3339Nano) }
+	t0 := fixedNow.Add(-30 * time.Second) // T, the newest time the client saw from container A
+	type line struct {
+		container string
+		at        time.Duration // relative to T
+		msg       string
+	}
+	// ids builds the expected Last-Event-ID/id value.
+	ids := func(m map[string]time.Duration) string {
+		p := resumePoints{}
+		for c, d := range m {
+			p[c] = t0.Add(d)
+		}
+		return p.String()
+	}
+	a1 := line{"A", -time.Second, "a1"}
+	plain := []string{"a1"}
 	tests := []struct {
 		name       string
-		lastID     string // Last-Event-ID header; empty = not sent
+		header     string // Last-Event-ID; empty = not sent
+		lines      []line
+		wantMsgs   []string
+		wantLastID string
 		wantOffset time.Duration
-		wantIDs    []string // ids of the delivered lines, in order
 	}{
-		{"no header is unchanged", "", 0, []string{at(-time.Second), at(0), at(time.Second), at(2 * time.Second)}},
-		{"resume after t0", at(0), 35 * time.Second, []string{at(time.Second), at(2 * time.Second)}},
-		{"resume window is capped", fixedNow.Add(-time.Hour).Format(time.RFC3339Nano), time.Minute, []string{at(-time.Second), at(0), at(time.Second), at(2 * time.Second)}},
-		{"unparseable header is ignored", "garbage", 0, []string{at(-time.Second), at(0), at(time.Second), at(2 * time.Second)}},
+		{"no header is a plain tail", "", []line{a1, {"B", 0, "b1"}},
+			[]string{"a1", "b1"}, ids(map[string]time.Duration{"A": -time.Second, "B": 0}), 0},
+		{"each container resumes from its own point",
+			ids(map[string]time.Duration{"A": 0, "B": -10 * time.Second}),
+			[]line{{"B", -5 * time.Second, "b-late"}, {"A", -time.Second, "a-old"}, {"A", time.Second, "a-new"}, {"C", -20 * time.Second, "c-new"}},
+			[]string{"b-late", "a-new", "c-new"},
+			ids(map[string]time.Duration{"A": time.Second, "B": -5 * time.Second, "C": -20 * time.Second}),
+			45 * time.Second}, // from B, the oldest point: 40s + 5s
+		{"a quiet container keeps its point in later ids",
+			ids(map[string]time.Duration{"A": 0, "Q": -3 * time.Second}),
+			[]line{{"A", time.Second, "a-new"}},
+			[]string{"a-new"},
+			ids(map[string]time.Duration{"A": time.Second, "Q": -3 * time.Second}),
+			38 * time.Second},
+		{"the empty container name is a valid key",
+			ids(map[string]time.Duration{"": 0}),
+			[]line{{"", -time.Second, "old"}, {"", time.Second, "new"}},
+			[]string{"new"}, ids(map[string]time.Duration{"": time.Second}), 35 * time.Second},
+		{"container names are escaped",
+			ids(map[string]time.Duration{"a b,c=d": 0}),
+			[]line{{"a b,c=d", -time.Second, "old"}, {"a b,c=d", time.Second, "new"}},
+			[]string{"new"}, ids(map[string]time.Duration{"a b,c=d": time.Second}), 35 * time.Second},
+		{"the resume window is capped",
+			ids(map[string]time.Duration{"A": -time.Hour}),
+			[]line{a1}, plain, ids(map[string]time.Duration{"A": -time.Second}), time.Minute},
+	}
+	var tooMany []string // one entry past the cap is never written by dash, so it is not a valid id
+	for i := 0; i <= maxResumePoints; i++ {
+		tooMany = append(tooMany, fmt.Sprintf("c%02d=%s", i, t0.Format(time.RFC3339Nano)))
+	}
+	// Anything malformed means no resume at all: no filter and no start offset.
+	for _, bad := range []string{
+		strings.Join(tooMany, ","),
+		"garbage",
+		t0.Format(time.RFC3339Nano), // a bare timestamp, no container
+		"A=garbage",
+		"A=" + t0.Format(time.RFC3339Nano) + ",B=garbage", // one bad entry spoils the id
+		"A=" + t0.Format(time.RFC3339Nano) + ",,B=" + t0.Format(time.RFC3339Nano),
+		"A=" + t0.Format(time.RFC3339Nano) + ",A=" + t0.Format(time.RFC3339Nano),
+		"%zz=" + t0.Format(time.RFC3339Nano),
+	} {
+		tests = append(tests, struct {
+			name       string
+			header     string
+			lines      []line
+			wantMsgs   []string
+			wantLastID string
+			wantOffset time.Duration
+		}{"malformed id " + bad, bad, []line{{"A", -time.Second, "a1"}}, plain, ids(map[string]time.Duration{"A": -time.Second}), 0})
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			logs := &fakeLogs{}
 			logs.tail = func(emit func(model.LogLine) error) error {
-				for _, d := range []time.Duration{-time.Second, 0, time.Second, 2 * time.Second} {
-					if err := emit(model.LogLine{Time: t0.Add(d), Pod: "plex-0", Msg: "m"}); err != nil {
+				for _, l := range tc.lines {
+					if err := emit(model.LogLine{Time: t0.Add(l.at), Pod: "plex-0", Container: l.container, Msg: l.msg}); err != nil {
 						return err
 					}
 				}
@@ -350,22 +411,103 @@ func TestLogsTailResume(t *testing.T) {
 			}
 			s := newServer(func(d *Deps) { d.VLogs = logs })
 			hdr := map[string]string{}
-			if tc.lastID != "" {
-				hdr["Last-Event-ID"] = tc.lastID
+			if tc.header != "" {
+				hdr["Last-Event-ID"] = tc.header
 			}
 			_, lines := sseClientWith(t, s.Handler(), "/api/logs/tail?ns=media&pod=plex-0", hdr)
-			var ids []string
+			var msgs []string
+			var lastID string
 			for l := range lines {
 				if id, ok := strings.CutPrefix(l, "id: "); ok {
-					ids = append(ids, id)
+					lastID = id
+				}
+				if d, ok := strings.CutPrefix(l, "data: "); ok {
+					var ll model.LogLine
+					if err := json.Unmarshal([]byte(d), &ll); err != nil {
+						t.Fatal(err)
+					}
+					msgs = append(msgs, ll.Msg)
 				}
 			}
-			if strings.Join(ids, ",") != strings.Join(tc.wantIDs, ",") {
-				t.Errorf("ids = %v, want %v", ids, tc.wantIDs)
+			if strings.Join(msgs, ",") != strings.Join(tc.wantMsgs, ",") {
+				t.Errorf("delivered %v, want %v", msgs, tc.wantMsgs)
+			}
+			if lastID != tc.wantLastID {
+				t.Errorf("last id = %q, want %q", lastID, tc.wantLastID)
 			}
 			if logs.q.StartOffset != tc.wantOffset {
 				t.Errorf("start offset = %v, want %v", logs.q.StartOffset, tc.wantOffset)
 			}
 		})
+	}
+}
+
+// A tail remembers at most maxResumePoints containers; the oldest point is evicted first.
+func TestLogsTailResumeCapsPoints(t *testing.T) {
+	t0 := fixedNow.Add(-30 * time.Second)
+	seed := resumePoints{}
+	for i := range maxResumePoints {
+		seed[fmt.Sprintf("c%02d", i)] = t0.Add(time.Duration(i-20) * time.Second) // c00 is the oldest
+	}
+	logs := &fakeLogs{}
+	logs.tail = func(emit func(model.LogLine) error) error {
+		return emit(model.LogLine{Time: t0.Add(time.Second), Container: "x", Msg: "new"})
+	}
+	s := newServer(func(d *Deps) { d.VLogs = logs })
+	_, lines := sseClientWith(t, s.Handler(), "/api/logs/tail?ns=media&pod=plex-0", map[string]string{"Last-Event-ID": seed.String()})
+	var lastID string
+	for l := range lines {
+		if id, ok := strings.CutPrefix(l, "id: "); ok {
+			lastID = id
+		}
+	}
+	got, ok := parseResumePoints(lastID)
+	if !ok {
+		t.Fatalf("id %q does not parse", lastID)
+	}
+	if len(got) != maxResumePoints {
+		t.Errorf("%d points in the id, want %d", len(got), maxResumePoints)
+	}
+	if _, ok := got["c00"]; ok {
+		t.Error("the oldest point c00 was kept")
+	}
+	if _, ok := got["x"]; !ok {
+		t.Error("the new container x is missing")
+	}
+	if want := 55 * time.Second; logs.q.StartOffset != want { // from c00: 50s + 5s
+		t.Errorf("start offset = %v, want %v", logs.q.StartOffset, want)
+	}
+}
+
+func TestResumePoints(t *testing.T) {
+	ts := time.Date(2026, 10, 30, 12, 0, 0, 5, time.UTC)
+	p := resumePoints{"b": ts, "": ts.Add(time.Second), "a b": ts}
+	const want = "=2026-10-30T12:00:01.000000005Z,a+b=2026-10-30T12:00:00.000000005Z,b=2026-10-30T12:00:00.000000005Z"
+	if got := p.String(); got != want {
+		t.Errorf("String = %q, want %q", got, want)
+	}
+	back, ok := parseResumePoints(want)
+	if !ok || len(back) != 3 || !back["a b"].Equal(ts) || !back[""].Equal(ts.Add(time.Second)) {
+		t.Errorf("round trip = %v, %v", back, ok)
+	}
+	// note keeps the newest time per container and never goes backwards.
+	q := resumePoints{}
+	q.note("a", ts)
+	q.note("a", ts.Add(-time.Second))
+	if !q["a"].Equal(ts) {
+		t.Errorf("note moved a back to %v", q["a"])
+	}
+	// Over the cap, the entry with the oldest time goes, whichever container it is.
+	for i := range maxResumePoints {
+		q.note(fmt.Sprintf("c%02d", i), ts.Add(time.Duration(i+1)*time.Second))
+	}
+	if len(q) != maxResumePoints {
+		t.Fatalf("%d points, want %d", len(q), maxResumePoints)
+	}
+	if _, ok := q["a"]; ok {
+		t.Error("the oldest point a was kept")
+	}
+	if _, ok := q["c15"]; !ok {
+		t.Error("the newest point c15 was evicted")
 	}
 }
