@@ -46,6 +46,10 @@ describe("iconSrc", () => {
     ["another scheme on the same host", "http://cdn.example.com/icons/png/a.png", CDN, ""],
     ["a protocol-relative URL", "//cdn.example.com/icons/png/a.png", CDN, ""],
     ["a backslash path", "/\\evil.example.net/a.png", CDN, ""],
+    ["a tab hides a second slash", "/\t/evil.example.net/a.png", CDN, ""],
+    ["a newline hides a second slash", "/\n/evil.example.net/a.png", CDN, ""],
+    ["a carriage return hides a second slash", "/\r/evil.example.net/a.png", CDN, ""],
+    ["a tab inside a path", "/icons/\tnas.png", "", ""],
     ["a relative path", "icons/a.png", CDN, ""],
     ["a javascript: URL", "javascript:alert(1)", CDN, ""],
     ["a data: URL", "data:image/png;base64,AAAA", CDN, ""],
@@ -194,5 +198,18 @@ describe("the launcher.links topic in the SPA", () => {
     await waitFor(() => expect(result.current).toBe("off"));
     const { result: infra } = renderHook(() => useInfraLinks(), { wrapper });
     expect(infra.current.pending).toBe(true); // the envelope left with the row
+  });
+
+  it("a launcher that failed to start is not pending forever: it is off", async () => {
+    connect("");
+    const { result } = renderHook(() => ({ status: useLauncherStatus(), infra: useInfraLinks() }), {
+      wrapper,
+    });
+    sendRow("starting");
+    await waitFor(() => expect(result.current.status).toBe("loading"));
+    expect(result.current.infra.pending).toBe(true);
+    sendRow("error"); // a failed start publishes nothing, and the supervisor drops the topics
+    await waitFor(() => expect(result.current.status).toBe("off"));
+    expect(result.current.infra).toEqual({ links: [], pending: false });
   });
 });

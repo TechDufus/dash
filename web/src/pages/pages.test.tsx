@@ -661,6 +661,28 @@ describe("pages built from slots", () => {
       });
     });
 
+    describe("with a launcher that failed to start", () => {
+      // A failed start publishes nothing and the topic never arrives: that is an answer.
+      it("still says No apps match when the apps are listed", async () => {
+        const user = userEvent.setup();
+        renderApp(<AppsPage />);
+        stream.plugins(withState(shimRows(), "launcher", "error"));
+        stream.send("apps", apps());
+        await user.type(screen.getByRole("searchbox"), "zzz");
+        expect(screen.getByText("No apps match “zzz”.")).toBeInTheDocument();
+      });
+
+      it("says Nothing to launch, naming the error, instead of staying blank", () => {
+        renderApp(<AppsPage />);
+        stream.plugins(
+          withState(withState(shimRows(), "launcher", "error"), "kubernetes", "disabled"),
+        );
+        expect(screen.getByText(/Nothing to launch/)).toHaveTextContent(
+          "and the launcher plugin (the infrastructure links) is error.",
+        );
+      });
+    });
+
     it("shows placeholder tiles until the apps topic arrives", () => {
       renderApp(<AppsPage />);
       stream.plugins(shimRows());

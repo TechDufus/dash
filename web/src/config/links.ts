@@ -2,6 +2,7 @@ import { useMemo } from "react";
 import { useMe } from "@/api/queries";
 import { useTopicData } from "@/api/stream";
 import type { LauncherLink } from "@/api/types";
+import { usePluginsState } from "@/plugins/state";
 
 /** A launcher entry with its icon resolved to an image URL ("" when it has none to show). */
 export type InfraLink = LauncherLink;
@@ -40,8 +41,9 @@ export function iconSrc(token: string, iconBaseURL: string): string {
   if (t === "") return "";
   const base = parseBase(iconBaseURL);
   if (t.startsWith("/")) {
-    // "//host/x" and "/\host/x" are protocol-relative to a browser, not same-origin paths.
-    return t[1] === "/" || t.includes("\\") ? "" : t;
+    // "//host/x" and "/\host/x" are protocol-relative to a browser, not same-origin paths, and the
+    // URL parser drops a tab, LF or CR anywhere: "/\t/host/x" is "//host/x" by the time it is used.
+    return t[1] === "/" || /[\t\n\r\\]/.test(t) ? "" : t;
   }
   if (ICON_NAME.test(t)) {
     return base ? `${base.href.replace(/\/+$/, "")}/${encodeURIComponent(t)}.png` : "";
@@ -74,11 +76,14 @@ export function useInfraLinks(): InfraLinks {
   const data = useTopicData("launcher.links");
   // The icon base arrives with /me; until then every icon is a letter tile.
   const base = useMe().data?.ui?.iconBaseUrl ?? "";
+  // A launcher that failed to start never publishes (the supervisor drops its topics): its
+  // missing envelope is an answer, not something still on its way.
+  const failed = usePluginsState().byId.get("launcher")?.state === "error";
   return useMemo(
     () =>
       data === undefined
-        ? { links: NO_LINKS, pending: true }
+        ? { links: NO_LINKS, pending: !failed }
         : { links: data.links.map((l) => ({ ...l, icon: iconSrc(l.icon, base) })), pending: false },
-    [data, base],
+    [data, base, failed],
   );
 }

@@ -43,7 +43,7 @@ export function AppsPage() {
               Nothing to launch: the kubernetes plugin (the apps) is{" "}
               {byId.get("kubernetes")?.state ?? "not available"}, and the launcher plugin (the
               infrastructure links){" "}
-              {launcherVisible
+              {launcherVisible && byId.get("launcher")?.state !== "error"
                 ? "lists no links"
                 : `is ${byId.get("launcher")?.state ?? "not available"}`}
               .
