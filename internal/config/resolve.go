@@ -72,14 +72,51 @@ type Resolved struct {
 // file or environment is an error; stale or UI-ineligible UI values are ignored with a warning
 // so that a stored setting can never keep dash from starting.
 func Resolve(src Sources) (*Resolved, error) {
+	r, dev, demo, err := layer(src)
+	if err != nil {
+		return nil, err
+	}
+	if err := r.resolveSecrets(src.Registry); err != nil {
+		return nil, err
+	}
+	if err := validate(r.tree, dev, demo, r.prov); err != nil {
+		return nil, err
+	}
+	return &Resolved{Tree: r.tree, Provenance: r.prov, Config: r.tree.config(dev, demo)}, nil
+}
+
+// Bootstrap is what the file and the environment alone say about the settings store. The store
+// is opened before the UI layer can be read, and it is located by dataDir and settings.ui,
+// which the UI may not set (S.14), so these two cannot depend on it.
+type Bootstrap struct {
+	DataDir    string
+	SettingsUI string
+	Demo       bool // demo mode has no data directory and opens no store
+}
+
+// BootstrapOf layers the file and the environment of src, ignoring src.UI. It reads no secret
+// and validates nothing beyond what layering rejects, and it stays silent: Resolve reports
+// the warnings once the UI layer is there.
+func BootstrapOf(src Sources) (Bootstrap, error) {
+	src.UI, src.Log = nil, slog.New(slog.DiscardHandler)
+	r, _, demo, err := layer(src)
+	if err != nil {
+		return Bootstrap{}, err
+	}
+	return Bootstrap{DataDir: r.tree.DataDir, SettingsUI: r.tree.Settings.UI, Demo: demo}, nil
+}
+
+// layer applies defaults, the UI store, the file and the environment, in that order, to a tree
+// whose secret leaves still hold their raw references.
+func layer(src Sources) (r *resolver, dev, demo bool, err error) {
 	log := src.Log
 	if log == nil {
 		log = slog.Default()
 	}
 	env := envMap(src.Environ)
-	dev, demo := envTrue(env["DASH_DEV"]), envTrue(env["DASH_DEMO"])
+	dev, demo = envTrue(env["DASH_DEV"]), envTrue(env["DASH_DEMO"])
 
-	r := &resolver{tree: defaults(dev, demo), prov: map[string]Provenance{}, raw: map[string]string{}, log: log}
+	r = &resolver{tree: defaults(dev, demo), prov: map[string]Provenance{}, raw: map[string]string{}, log: log}
 	for _, l := range schema.leaves {
 		r.prov[l.path] = Provenance{Source: SourceDefault}
 	}
@@ -88,7 +125,7 @@ func Resolve(src Sources) (*Resolved, error) {
 	}
 	if src.File != nil {
 		if err := r.applyFile(src.File); err != nil {
-			return nil, err
+			return nil, false, false, err
 		}
 	}
 	entries, envErr := envLayer(env, log)
@@ -99,17 +136,10 @@ func Resolve(src Sources) (*Resolved, error) {
 		}
 	}
 	if err := errors.Join(errs...); err != nil {
-		return nil, err
+		return nil, false, false, err
 	}
-
 	r.tree.normalize()
-	if err := r.resolveSecrets(src.Registry); err != nil {
-		return nil, err
-	}
-	if err := validate(r.tree, dev, demo, r.prov); err != nil {
-		return nil, err
-	}
-	return &Resolved{Tree: r.tree, Provenance: r.prov, Config: r.tree.config(dev, demo)}, nil
+	return r, dev, demo, nil
 }
 
 type resolver struct {

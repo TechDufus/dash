@@ -58,16 +58,12 @@ func command(args []string, out io.Writer) error {
 }
 
 func run(reg *secret.Registry) error {
-	src, err := config.ProcessSources(reg)
+	res, store, err := loadConfig(reg)
 	if err != nil {
 		return err
 	}
-	res, err := config.Resolve(src)
-	if err != nil {
-		return err
-	}
-	if err := res.LoadLauncherFile(); err != nil {
-		return err
+	if store != nil {
+		defer store.Close()
 	}
 	cfg := res.Config
 

@@ -127,6 +127,13 @@ scrubs every secret it has read, in its encoded forms too, and credential-shaped
 A failing upstream is reported to viewers as one category only (`unreachable`, `timeout`, `tls`,
 `auth`, `http_<code>`, `invalid_response`); the detail, with URLs, is in dash's log.
 
+The data directory holds `ui-settings.yaml`, the values saved from the UI. It is a sparse layer
+below the file and the environment: whatever they set wins, and removing it from them shows the
+saved value again. `server.*`, `settings.ui` and `dataDir` cannot be saved from the UI. dash
+locks the directory, so a second instance on it exits with a message. When the directory is
+missing or not writable, or `settings.ui` is `readonly`, the store is read-only: dash logs one
+INFO line and runs on the file and the environment alone. Demo mode uses no data directory.
+
 | Setting (file path) | Default | What |
 |---|---|---|
 | `server.publicURL` | required (dev and demo: `http://localhost:5173`) | the URL people open, with scheme and host (`https://dash.example.com`); the only `Origin` accepted on writes |
