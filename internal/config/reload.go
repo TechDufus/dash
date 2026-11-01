@@ -6,7 +6,6 @@ import (
 	"log/slog"
 	"maps"
 	"os"
-	"path/filepath"
 	"reflect"
 	"slices"
 	"strings"
@@ -162,7 +161,7 @@ func (r *Reloader) check() ([]Change, []func(Change)) {
 
 	changed := false
 	for p, old := range r.watch {
-		now := fingerprint(p, old)
+		now := fingerprint(p)
 		changed = changed || now.ok != old.ok || now.sum != old.sum
 		r.watch[p] = now
 	}
@@ -301,33 +300,20 @@ func (r *Reloader) watchedPaths(t *Tree) []string {
 	return paths
 }
 
-// fileState identifies the content of a watched file. The cheap part (real path after
-// symlinks, modification time, size) says whether the content is worth hashing again; the
-// SHA-256 says whether it changed. The real path is part of it because a ConfigMap update swaps
-// a symlink to a new directory, which can leave size and time alike.
+// fileState identifies the content of a watched file by its SHA-256. Every poll hashes the
+// file again: modification times tick coarsely (a same-size edit can keep the previous mtime),
+// and the watched files are a config file and a few secret files, so reading them every
+// interval is cheap. A ConfigMap update swaps a symlink to a new directory; the hash follows
+// the content, so an identical swap is not a change.
 type fileState struct {
-	real  string
-	mtime time.Time
-	size  int64
-	sum   [sha256.Size]byte
-	ok    bool // false: the file cannot be read (missing, mid-swap)
+	sum [sha256.Size]byte
+	ok  bool // false: the file cannot be read (missing, mid-swap)
 }
 
-func fingerprint(path string, old fileState) fileState {
-	real, err := filepath.EvalSymlinks(path)
+func fingerprint(path string) fileState {
+	data, err := os.ReadFile(path) // follows symlinks
 	if err != nil {
 		return fileState{}
 	}
-	fi, err := os.Stat(path) // follows symlinks
-	if err != nil {
-		return fileState{}
-	}
-	if old.ok && old.real == real && old.mtime.Equal(fi.ModTime()) && old.size == fi.Size() {
-		return old
-	}
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return fileState{}
-	}
-	return fileState{real: real, mtime: fi.ModTime(), size: fi.Size(), sum: sha256.Sum256(data), ok: true}
+	return fileState{sum: sha256.Sum256(data), ok: true}
 }

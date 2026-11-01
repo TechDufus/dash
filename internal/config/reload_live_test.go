@@ -130,3 +130,26 @@ func TestReloaderTreeTracksLastValidResolution(t *testing.T) {
 		t.Fatal("Tree handed out the reloader's own copy")
 	}
 }
+
+// File timestamps tick coarsely, so an edit can keep the previous modification time; with the
+// same size, only the content tells the change apart. This pins mtime and size and expects the
+// reload anyway (the case a CI runner hit when a test wrote twice within one timestamp tick).
+func TestSameSizeEditWithAnUnchangedModTimeIsReloaded(t *testing.T) {
+	g := newLiveRig(t, headlamp("https://hl-a.example.com"), nil)
+	g.rl.poll()
+	fi, err := os.Stat(g.path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	g.write(t, headlamp("https://hl-b.example.com"))
+	if err := os.Chtimes(g.path, fi.ModTime(), fi.ModTime()); err != nil {
+		t.Fatal(err)
+	}
+	if after, err := os.Stat(g.path); err != nil || after.Size() != fi.Size() || !after.ModTime().Equal(fi.ModTime()) {
+		t.Fatalf("setup: stat must look unchanged (err %v)", err)
+	}
+	g.rl.poll()
+	if got := g.rl.Tree().Plugins.Headlamp.URL; got != "https://hl-b.example.com" {
+		t.Fatalf("an edit with the same size and modification time was missed: %q", got)
+	}
+}
