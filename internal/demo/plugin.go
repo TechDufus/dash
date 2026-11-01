@@ -17,3 +17,7 @@ func (p demoPlugin) Manifest() plugin.Manifest                   { return p.m }
 func (demoPlugin) Start(context.Context, plugin.Host, any) error { return nil }
 func (demoPlugin) Stop(context.Context) error                    { return nil }
 func (demoPlugin) Status() plugin.Status                         { return plugin.Status{State: plugin.StateHealthy} }
+
+// Demo makes the stand-in its own twin: in demo mode the supervisor keeps a plugin that has no demo
+// data disabled, and this one has (Source publishes it).
+func (p demoPlugin) Demo() plugin.Plugin { return p }

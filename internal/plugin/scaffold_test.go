@@ -204,13 +204,13 @@ func TestDemoModeRunsTheTwin(t *testing.T) {
 		return nil
 	}
 	twin.ActionFn = func(context.Context, string, auth.Principal, any) (any, error) { return "twin", nil }
-	plain := plugintest.New("bb", plugintest.Topics("t"))
-	plain.ConfiguredFn = func(any) bool { return false }
+	plain := plugintest.New("bb", plugintest.Topics("t")) // configured: ConfiguredFn is nil
 
 	off := false
 	mod := func(o *plugin.Options) { o.Demo = true }
 	e := newEnv(t, mod, plugintest.WithDemo(real, twin), plain.Factory())
-	e.set.Set(plugin.InstanceConfig{Name: "aa", Enabled: &off}) // an explicit disable does not stop the twin
+	on := true
+	e.set.Set(plugin.InstanceConfig{Name: "bb", Enabled: &on}) // explicitly enabled, too
 	e.run(t)
 
 	if twin.Starts() != 1 || real.Starts() != 0 {
@@ -229,9 +229,18 @@ func TestDemoModeRunsTheTwin(t *testing.T) {
 	if ev, ok := e.hub.Last("aa.t"); !ok || ev.Data.(map[string]int)["demo"] != 1 {
 		t.Errorf("the twin's topic was not published: %+v", ev)
 	}
-	if st, msg := e.state(t, "bb"); st != plugin.StateDisabled {
+	// A plugin without a twin stays off in demo mode however it is configured: it never contacts
+	// its upstream.
+	if st, msg := e.state(t, "bb"); st != plugin.StateDisabled || msg != "no demo data" {
 		t.Errorf("a plugin without a twin = %s (%s), want disabled (no demo data)", st, msg)
 	}
+	if plain.Starts() != 0 {
+		t.Errorf("the plugin without a twin was started %d times in demo mode", plain.Starts())
+	}
+
+	// Settings can still switch a twin off, so demo mode shows pages appearing and disappearing.
+	e.set.Set(plugin.InstanceConfig{Name: "aa", Enabled: &off})
+	e.reloadUntil(t, "the twin to stop", func() bool { st, _ := e.state(t, "aa"); return st == plugin.StateDisabled })
 
 	// Without demo mode the same registry runs the real plugin.
 	real2 := plugintest.New("aa", cfgFn)

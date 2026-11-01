@@ -48,6 +48,7 @@ const (
 
 	msgDisabled      = "disabled"
 	msgNotConfigured = "not configured"
+	msgNoDemoData    = "no demo data"
 	msgInvalidConfig = "invalid configuration"
 	msgTypeMismatch  = "configuration type mismatch"
 	msgStartFailed   = "failed to start (see the dash log)"
@@ -591,7 +592,12 @@ func (s *Supervisor) configs() map[*instance]InstanceConfig {
 			ic.ReadDenyNamespaces = nil
 		}
 		if s.demoTwin(in) {
-			ic.Enabled, ic.ActionsEnabled = new(true), true
+			// Enabled and with its actions mounted unless the settings switch it off: demo mode
+			// shows pages appearing and disappearing.
+			if ic.Enabled == nil {
+				ic.Enabled = new(true)
+			}
+			ic.ActionsEnabled = true
 		}
 		out[in] = ic
 	}
@@ -613,6 +619,11 @@ func protect(fn func()) (rec any, stack []byte) {
 func (s *Supervisor) evaluate(in *instance, ic InstanceConfig) plan {
 	pl := plan{ic: ic}
 	switch {
+	case s.opt.Demo && !in.hasTwin:
+		// Demo mode contacts no upstream: a plugin that has no demo data stays off, however it
+		// is configured.
+		pl.state, pl.msg = StateDisabled, msgNoDemoData
+		return pl
 	case ic.Enabled != nil && !*ic.Enabled:
 		pl.state, pl.msg = StateDisabled, msgDisabled
 		return pl
