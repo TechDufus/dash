@@ -244,7 +244,11 @@ func (b *specBuilder) addPlugins() {
 				"x-dash-destructive": a.Destructive,
 				"x-dash-idempotent":  a.Idempotent,
 				"description": "Runs only while the instance is running with actions.enabled set; otherwise 404. " +
-					"Every call is audited and counts against the principal's action rate limit.",
+					"A call that passes the role, rate-limit, input and namespace checks is recorded in the audit log " +
+					"before it runs and again with its outcome. A refusal for role, rate limit or denied namespace is " +
+					"recorded as a denial (at most one per peer and reason a minute); a request with an invalid body (400) " +
+					"or for an unknown or unavailable action (404) is not recorded. Every call by a principal with the " +
+					"required role counts against the principal's action rate limit.",
 			}
 			if t := inputType(a); t != nil {
 				op["requestBody"] = object{"required": true, "description": "The action's input.", "content": jsonContent(b.refl.Type(t))}

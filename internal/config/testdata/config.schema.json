@@ -22,7 +22,7 @@
           "description": "How dash authenticates to Alertmanager. Neither basic nor bearerToken sends no credentials."
         },
         "enabled": {
-          "description": "false turns the plugin off (a restart applies it): its topics are removed, and the web UI drops its rail entry, palette entries, overview tiles and panels and shows a switched-off page at its address. The Kubernetes connection is required whichever plugins are off. Unset leaves it on: a plugin without its settings reports itself unavailable (not configured), and the web UI hides its pages.",
+          "description": "false turns the plugin off: its topics are removed, and the web UI drops its rail entry, palette entries, overview tiles and panels and shows a switched-off page at its address. Unset turns it on when it has the settings it needs; a plugin without them is disabled (\"not configured\", with the setting to make) and the web UI hides its pages. true with settings missing or invalid makes it unconfigured, which hides its pages too. A change to this or any other setting of prometheus, alertmanager, gatus, victorialogs, grafana, headlamp or launcher applies live (that plugin restarts alone); proxmox, hardware, kubernetes and flux still need a restart. The Kubernetes connection is required whichever plugins are off.",
           "type": "boolean"
         },
         "ignoreAlerts": {
@@ -136,7 +136,7 @@
       "additionalProperties": false,
       "properties": {
         "enabled": {
-          "description": "false turns the plugin off (a restart applies it): its topics are removed, and the web UI drops its rail entry, palette entries, overview tiles and panels and shows a switched-off page at its address. The Kubernetes connection is required whichever plugins are off. Unset leaves it on: a plugin without its settings reports itself unavailable (not configured), and the web UI hides its pages.",
+          "description": "false turns the plugin off: its topics are removed, and the web UI drops its rail entry, palette entries, overview tiles and panels and shows a switched-off page at its address. Unset turns it on when it has the settings it needs; a plugin without them is disabled (\"not configured\", with the setting to make) and the web UI hides its pages. true with settings missing or invalid makes it unconfigured, which hides its pages too. A change to this or any other setting of prometheus, alertmanager, gatus, victorialogs, grafana, headlamp or launcher applies live (that plugin restarts alone); proxmox, hardware, kubernetes and flux still need a restart. The Kubernetes connection is required whichever plugins are off.",
           "type": "boolean"
         },
         "suspendReasonAnnotation": {
@@ -165,7 +165,7 @@
           "type": "array"
         },
         "enabled": {
-          "description": "false turns the plugin off (a restart applies it): its topics are removed, and the web UI drops its rail entry, palette entries, overview tiles and panels and shows a switched-off page at its address. The Kubernetes connection is required whichever plugins are off. Unset leaves it on: a plugin without its settings reports itself unavailable (not configured), and the web UI hides its pages.",
+          "description": "false turns the plugin off: its topics are removed, and the web UI drops its rail entry, palette entries, overview tiles and panels and shows a switched-off page at its address. Unset turns it on when it has the settings it needs; a plugin without them is disabled (\"not configured\", with the setting to make) and the web UI hides its pages. true with settings missing or invalid makes it unconfigured, which hides its pages too. A change to this or any other setting of prometheus, alertmanager, gatus, victorialogs, grafana, headlamp or launcher applies live (that plugin restarts alone); proxmox, hardware, kubernetes and flux still need a restart. The Kubernetes connection is required whichever plugins are off.",
           "type": "boolean"
         },
         "pageSize": {
@@ -193,7 +193,7 @@
       "additionalProperties": false,
       "properties": {
         "enabled": {
-          "description": "false turns the plugin off (a restart applies it): its topics are removed, and the web UI drops its rail entry, palette entries, overview tiles and panels and shows a switched-off page at its address. The Kubernetes connection is required whichever plugins are off. Unset leaves it on: a plugin without its settings reports itself unavailable (not configured), and the web UI hides its pages.",
+          "description": "false turns the plugin off: its topics are removed, and the web UI drops its rail entry, palette entries, overview tiles and panels and shows a switched-off page at its address. Unset turns it on when it has the settings it needs; a plugin without them is disabled (\"not configured\", with the setting to make) and the web UI hides its pages. true with settings missing or invalid makes it unconfigured, which hides its pages too. A change to this or any other setting of prometheus, alertmanager, gatus, victorialogs, grafana, headlamp or launcher applies live (that plugin restarts alone); proxmox, hardware, kubernetes and flux still need a restart. The Kubernetes connection is required whichever plugins are off.",
           "type": "boolean"
         },
         "type": {
@@ -212,7 +212,7 @@
       "additionalProperties": false,
       "properties": {
         "enabled": {
-          "description": "false turns the plugin off (a restart applies it): its topics are removed, and the web UI drops its rail entry, palette entries, overview tiles and panels and shows a switched-off page at its address. The Kubernetes connection is required whichever plugins are off. Unset leaves it on: a plugin without its settings reports itself unavailable (not configured), and the web UI hides its pages.",
+          "description": "false turns the plugin off: its topics are removed, and the web UI drops its rail entry, palette entries, overview tiles and panels and shows a switched-off page at its address. Unset turns it on when it has the settings it needs; a plugin without them is disabled (\"not configured\", with the setting to make) and the web UI hides its pages. true with settings missing or invalid makes it unconfigured, which hides its pages too. A change to this or any other setting of prometheus, alertmanager, gatus, victorialogs, grafana, headlamp or launcher applies live (that plugin restarts alone); proxmox, hardware, kubernetes and flux still need a restart. The Kubernetes connection is required whichever plugins are off.",
           "type": "boolean"
         },
         "hosts": {
@@ -256,7 +256,7 @@
           "type": "string"
         },
         "enabled": {
-          "description": "false turns the plugin off (a restart applies it): its topics are removed, and the web UI drops its rail entry, palette entries, overview tiles and panels and shows a switched-off page at its address. The Kubernetes connection is required whichever plugins are off. Unset leaves it on: a plugin without its settings reports itself unavailable (not configured), and the web UI hides its pages.",
+          "description": "false turns the plugin off: its topics are removed, and the web UI drops its rail entry, palette entries, overview tiles and panels and shows a switched-off page at its address. Unset turns it on when it has the settings it needs; a plugin without them is disabled (\"not configured\", with the setting to make) and the web UI hides its pages. true with settings missing or invalid makes it unconfigured, which hides its pages too. A change to this or any other setting of prometheus, alertmanager, gatus, victorialogs, grafana, headlamp or launcher applies live (that plugin restarts alone); proxmox, hardware, kubernetes and flux still need a restart. The Kubernetes connection is required whichever plugins are off.",
           "type": "boolean"
         },
         "type": {
@@ -286,7 +286,7 @@
           "description": "Labels dash reads from namespaces. None has a default: while one is empty the feature that depends on it is off."
         },
         "enabled": {
-          "description": "false turns the plugin off (a restart applies it): its topics are removed, and the web UI drops its rail entry, palette entries, overview tiles and panels and shows a switched-off page at its address. The Kubernetes connection is required whichever plugins are off. Unset leaves it on: a plugin without its settings reports itself unavailable (not configured), and the web UI hides its pages.",
+          "description": "false turns the plugin off: its topics are removed, and the web UI drops its rail entry, palette entries, overview tiles and panels and shows a switched-off page at its address. Unset turns it on when it has the settings it needs; a plugin without them is disabled (\"not configured\", with the setting to make) and the web UI hides its pages. true with settings missing or invalid makes it unconfigured, which hides its pages too. A change to this or any other setting of prometheus, alertmanager, gatus, victorialogs, grafana, headlamp or launcher applies live (that plugin restarts alone); proxmox, hardware, kubernetes and flux still need a restart. The Kubernetes connection is required whichever plugins are off.",
           "type": "boolean"
         },
         "kubeconfig": {
@@ -322,7 +322,7 @@
       "additionalProperties": false,
       "properties": {
         "enabled": {
-          "description": "false turns the plugin off (a restart applies it): its topics are removed, and the web UI drops its rail entry, palette entries, overview tiles and panels and shows a switched-off page at its address. The Kubernetes connection is required whichever plugins are off. Unset leaves it on: a plugin without its settings reports itself unavailable (not configured), and the web UI hides its pages.",
+          "description": "false turns the plugin off: its topics are removed, and the web UI drops its rail entry, palette entries, overview tiles and panels and shows a switched-off page at its address. Unset turns it on when it has the settings it needs; a plugin without them is disabled (\"not configured\", with the setting to make) and the web UI hides its pages. true with settings missing or invalid makes it unconfigured, which hides its pages too. A change to this or any other setting of prometheus, alertmanager, gatus, victorialogs, grafana, headlamp or launcher applies live (that plugin restarts alone); proxmox, hardware, kubernetes and flux still need a restart. The Kubernetes connection is required whichever plugins are off.",
           "type": "boolean"
         },
         "file": {
@@ -512,7 +512,7 @@
           "description": "How dash authenticates to the service. Neither basic nor bearerToken sends no credentials."
         },
         "enabled": {
-          "description": "false turns the plugin off (a restart applies it): its topics are removed, and the web UI drops its rail entry, palette entries, overview tiles and panels and shows a switched-off page at its address. The Kubernetes connection is required whichever plugins are off. Unset leaves it on: a plugin without its settings reports itself unavailable (not configured), and the web UI hides its pages.",
+          "description": "false turns the plugin off: its topics are removed, and the web UI drops its rail entry, palette entries, overview tiles and panels and shows a switched-off page at its address. Unset turns it on when it has the settings it needs; a plugin without them is disabled (\"not configured\", with the setting to make) and the web UI hides its pages. true with settings missing or invalid makes it unconfigured, which hides its pages too. A change to this or any other setting of prometheus, alertmanager, gatus, victorialogs, grafana, headlamp or launcher applies live (that plugin restarts alone); proxmox, hardware, kubernetes and flux still need a restart. The Kubernetes connection is required whichever plugins are off.",
           "type": "boolean"
         },
         "headers": {
@@ -553,7 +553,7 @@
       "additionalProperties": false,
       "properties": {
         "enabled": {
-          "description": "false turns the plugin off (a restart applies it): its topics are removed, and the web UI drops its rail entry, palette entries, overview tiles and panels and shows a switched-off page at its address. The Kubernetes connection is required whichever plugins are off. Unset leaves it on: a plugin without its settings reports itself unavailable (not configured), and the web UI hides its pages.",
+          "description": "false turns the plugin off: its topics are removed, and the web UI drops its rail entry, palette entries, overview tiles and panels and shows a switched-off page at its address. Unset turns it on when it has the settings it needs; a plugin without them is disabled (\"not configured\", with the setting to make) and the web UI hides its pages. true with settings missing or invalid makes it unconfigured, which hides its pages too. A change to this or any other setting of prometheus, alertmanager, gatus, victorialogs, grafana, headlamp or launcher applies live (that plugin restarts alone); proxmox, hardware, kubernetes and flux still need a restart. The Kubernetes connection is required whichever plugins are off.",
           "type": "boolean"
         },
         "node": {
@@ -700,7 +700,7 @@
           "type": "array"
         },
         "enabled": {
-          "description": "false turns the plugin off (a restart applies it): its topics are removed, and the web UI drops its rail entry, palette entries, overview tiles and panels and shows a switched-off page at its address. The Kubernetes connection is required whichever plugins are off. Unset leaves it on: a plugin without its settings reports itself unavailable (not configured), and the web UI hides its pages.",
+          "description": "false turns the plugin off: its topics are removed, and the web UI drops its rail entry, palette entries, overview tiles and panels and shows a switched-off page at its address. Unset turns it on when it has the settings it needs; a plugin without them is disabled (\"not configured\", with the setting to make) and the web UI hides its pages. true with settings missing or invalid makes it unconfigured, which hides its pages too. A change to this or any other setting of prometheus, alertmanager, gatus, victorialogs, grafana, headlamp or launcher applies live (that plugin restarts alone); proxmox, hardware, kubernetes and flux still need a restart. The Kubernetes connection is required whichever plugins are off.",
           "type": "boolean"
         },
         "fields": {

@@ -31,8 +31,8 @@ type PluginBase struct {
 	// Type is the plugin type. dash runs one instance per type, so it is empty or the section
 	// name (design J.16).
 	Type string `json:"type" doc:"The plugin type. dash runs one instance per type, so this is empty or the section name."`
-	// Enabled turns the plugin on or off. Unset leaves it on; an unconfigured plugin reports itself unavailable.
-	Enabled *bool `json:"enabled" doc:"false turns the plugin off (a restart applies it): its topics are removed, and the web UI drops its rail entry, palette entries, overview tiles and panels and shows a switched-off page at its address. The Kubernetes connection is required whichever plugins are off. Unset leaves it on: a plugin without its settings reports itself unavailable (not configured), and the web UI hides its pages."`
+	// Enabled turns the plugin on or off. Unset turns it on when it has its settings: a plugin without them is disabled.
+	Enabled *bool `json:"enabled" doc:"false turns the plugin off: its topics are removed, and the web UI drops its rail entry, palette entries, overview tiles and panels and shows a switched-off page at its address. Unset turns it on when it has the settings it needs; a plugin without them is disabled (\"not configured\", with the setting to make) and the web UI hides its pages. true with settings missing or invalid makes it unconfigured, which hides its pages too. A change to this or any other setting of prometheus, alertmanager, gatus, victorialogs, grafana, headlamp or launcher applies live (that plugin restarts alone); proxmox, hardware, kubernetes and flux still need a restart. The Kubernetes connection is required whichever plugins are off."`
 }
 
 // FieldError is one invalid setting of a section. Path is relative to the section
