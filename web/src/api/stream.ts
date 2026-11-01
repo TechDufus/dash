@@ -1,4 +1,5 @@
 import { useSyncExternalStore } from "react";
+import { normalizePlugins } from "@/plugins/normalize";
 import { isVisible } from "@/plugins/visibility";
 import { api } from "./client";
 import type { TopicData, TypedEnvelope } from "./topics";
@@ -50,17 +51,21 @@ function parse(ev: Event): Envelope | undefined {
   }
 }
 
-function listen(es: EventSource, topic: string) {
-  if (listening.has(topic)) return;
+/** Attaches the topic's listener unless it has one; true when it was attached now. */
+function listen(es: EventSource, topic: string): boolean {
+  if (listening.has(topic)) return false;
   listening.add(topic);
   es.addEventListener(topic, (ev) => {
     const env = parse(ev);
     if (!env) return;
     if (topic === "core.plugins") {
-      if (!Array.isArray((env.data as PluginsData | undefined)?.plugins)) return;
-      envelopes.set(topic, env);
+      const plugins = (env.data as PluginsData | undefined)?.plugins;
+      if (!Array.isArray(plugins)) return;
+      // Rows enter the store complete: a v0.5.0 server sends none with `generic`.
+      const rows = normalizePlugins(plugins);
+      envelopes.set(topic, { ...env, data: { ...(env.data as PluginsData), plugins: rows } });
       setConnection("live");
-      syncTopics(es, (env.data as PluginsData).plugins);
+      syncTopics(es, rows);
       emit();
       return;
     }
@@ -68,19 +73,22 @@ function listen(es: EventSource, topic: string) {
     setConnection("live");
     emit();
   });
+  return true;
 }
 
 /**
  * core.plugins decides what the stream listens to and what the store keeps: it attaches a
  * listener for every topic any plugin lists (an EventSource accepts listeners at any time and
  * delivers in order, so the listener exists before the next snapshot event), drops the envelope
- * of every non-core topic no visible plugin lists, and seeds the topics that just became visible.
+ * of every non-core topic no visible plugin lists, and fetches the topics whose listener it
+ * attached just now.
  */
 function syncTopics(es: EventSource, plugins: PluginsData["plugins"]) {
   const next = new Set<string>();
+  const attached = new Set<string>();
   for (const p of plugins) {
     for (const t of p.topics) {
-      listen(es, t);
+      if (listen(es, t)) attached.add(t);
       if (isVisible(p.state)) next.add(t);
     }
   }
@@ -91,9 +99,11 @@ function syncTopics(es: EventSource, plugins: PluginsData["plugins"]) {
   const seed = !firstPlugins;
   visibleTopics = next;
   firstPlugins = false;
-  // On connect the snapshot follows core.plugins on the same stream. A plugin enabled while the
-  // page is open can publish before its listener exists, and the hub only publishes changes, so
-  // its first value is fetched once.
+  // On connect the snapshot follows core.plugins on the same stream. A plugin this page has not
+  // heard of can have published before its listener existed, and the hub only publishes changes,
+  // so its first value is fetched once. A topic that was already listened to needs no fetch: its
+  // publish reaches the listener whether the plugin row turned visible before it or after, and a
+  // fetch would race that publish (404 until the plugin has published).
   if (seed) for (const t of fresh) void seedTopic(es, t);
 }
 

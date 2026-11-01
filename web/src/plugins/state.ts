@@ -7,6 +7,7 @@ import { api } from "@/api/client";
 import { useEnvelope } from "@/api/stream";
 import type { PluginInfo, PluginsData } from "@/api/types";
 import { iconFor } from "./icons";
+import { normalizePlugins } from "./normalize";
 import { CORE_PAGES, moduleById, moduleOrder } from "./registry";
 import type { PluginModule } from "./types";
 import { isVisible } from "./visibility";
@@ -39,7 +40,8 @@ export function usePluginsState(): PluginsState {
   const query = useQuery({ ...pluginsQuery, enabled: fromStream === undefined });
   const plugins = fromStream ?? query.data;
   return useMemo(() => {
-    const list = plugins ?? NONE;
+    // Every reader gets rows through here, so a v0.5.0 row without `generic` is completed once.
+    const list = plugins ? normalizePlugins(plugins) : NONE;
     return {
       ready: plugins !== undefined,
       plugins: list,

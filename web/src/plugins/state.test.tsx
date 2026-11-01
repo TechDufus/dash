@@ -1,16 +1,21 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { act, renderHook, waitFor } from "@testing-library/react";
+import { act, renderHook, screen, waitFor, within } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { startStream, stopStream } from "@/api/stream";
+import { getEnvelope, startStream, stopStream } from "@/api/stream";
+import type { PluginInfo, PluginsData } from "@/api/types";
+import { Shell } from "@/shell/shell";
 import {
+  envelope,
   type FakeEventSource,
   installEventSource,
   pluginInfo,
   pluginsEnvelope,
+  renderApp,
   stubFetch,
 } from "@/test/harness";
 import { shimRows, withState } from "@/test/shims";
+import { PluginRoutes } from "./routes";
 import { isVisible, usePluginsState, usePluginVisible, useTopicAvailable } from "./state";
 
 function wrapper({ children }: { children: ReactNode }) {
@@ -110,6 +115,73 @@ describe("usePluginsState", () => {
     const first = result.current;
     rerender();
     expect(result.current).toBe(first);
+  });
+});
+
+/** The rows of a v0.5.0 server: the plugin list had no `generic` field yet. */
+function legacyRows(): PluginInfo[] {
+  return shimRows().map((row) => {
+    const { generic: _generic, ...legacy } = row;
+    return legacy as PluginInfo;
+  });
+}
+
+describe("rows from a v0.5.0 server (rollback of an open tab)", () => {
+  it("get an empty generic list from the stream", () => {
+    stubFetch();
+    const es = connect();
+    es.emit("core.plugins", pluginsEnvelope(legacyRows()));
+    const { result } = renderHook(() => usePluginsState(), { wrapper });
+    expect(result.current.plugins).toHaveLength(shimRows().length);
+    expect(
+      result.current.plugins.every((p) => Array.isArray(p.generic) && p.generic.length === 0),
+    ).toBe(true);
+    // The store the stream keeps is complete too, for anything that reads it without the hook.
+    const stored = getEnvelope("core.plugins")?.data as PluginsData;
+    expect(stored.plugins.every((p) => Array.isArray(p.generic))).toBe(true);
+  });
+
+  it("get an empty generic list from GET /api/v1/plugins", async () => {
+    stubFetch({ "GET /api/v1/plugins": legacyRows() });
+    const { result } = renderHook(() => usePluginsState(), { wrapper });
+    await waitFor(() => expect(result.current.ready).toBe(true));
+    expect(result.current.plugins.every((p) => Array.isArray(p.generic))).toBe(true);
+  });
+
+  it.each(["stream", "REST"])(
+    "draw the rail and the pages without throwing (%s)",
+    async (source) => {
+      stubFetch({
+        "GET /api/v1/me": { user: "dev", role: "admin", version: "test" },
+        "GET /api/v1/plugins": source === "REST" ? legacyRows() : () => new Promise(() => {}),
+      });
+      const es = connect();
+      if (source === "stream") {
+        es.emit("core.plugins", pluginsEnvelope(legacyRows()));
+        es.emit("status", envelope("status", { endpoints: [] }));
+      }
+      renderApp(
+        <Shell>
+          <PluginRoutes />
+        </Shell>,
+        { path: "/status" },
+      );
+      const rail = await screen.findByRole("navigation", { name: "Primary" });
+      expect(await within(rail).findByRole("link", { name: "Status" })).toBeInTheDocument();
+      expect(within(rail).getByRole("link", { name: "Cluster" })).toBeInTheDocument();
+      if (source === "stream") {
+        expect(await screen.findByText("No endpoints reported.")).toBeInTheDocument();
+      }
+    },
+  );
+
+  it("render NotFound at /x/<id>, which a plugin without views has no page at", async () => {
+    stubFetch();
+    const es = connect();
+    es.emit("core.plugins", pluginsEnvelope(legacyRows()));
+    renderApp(<PluginRoutes />, { path: "/x/gatus" });
+    expect(await screen.findByText("Nothing here. Pick a page from the rail.")).toBeInTheDocument();
+    expect(screen.queryByRole("status")).toBeNull();
   });
 });
 
