@@ -47,6 +47,17 @@ func TestCSRF(t *testing.T) {
 	}
 }
 
+// Browsers send a lowercase Origin, so a PublicURL written with capitals must still accept it.
+func TestCSRFPublicURLCase(t *testing.T) {
+	s := newServer(func(d *Deps) { d.Cfg.PublicURL = "https://DASH.Example.com:8443/" })
+	body := model.ReconcileRequest{Kind: "Nope", Namespace: "flux-system", Name: "x"} // reaches the handler, answers 400
+	w := req{method: "POST", path: "/api/actions/reconcile", body: body,
+		header: map[string]string{"Origin": "https://dash.example.com:8443"}}.do(s.Handler())
+	if w.Code != 400 {
+		t.Fatalf("code = %d, want 400 (%s)", w.Code, w.Body)
+	}
+}
+
 func TestUserResolution(t *testing.T) {
 	tests := []struct {
 		name   string

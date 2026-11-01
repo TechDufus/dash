@@ -267,11 +267,12 @@ func LoadLauncher(path string) ([]model.LauncherLink, error) {
 	return links, nil
 }
 
-// PublicOrigin is scheme://host[:port] of PublicURL, the only Origin accepted on writes.
+// PublicOrigin is scheme://host[:port] of PublicURL, the only Origin accepted on writes. The
+// host is lowercased because browsers send a lowercase Origin.
 func (c Config) PublicOrigin() string {
 	u, err := url.Parse(c.PublicURL)
 	if err != nil || u.Scheme == "" || u.Host == "" {
 		return c.PublicURL
 	}
-	return u.Scheme + "://" + u.Host
+	return u.Scheme + "://" + strings.ToLower(u.Host)
 }

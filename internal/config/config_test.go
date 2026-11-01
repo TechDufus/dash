@@ -130,6 +130,21 @@ func TestHostAllowed(t *testing.T) {
 	}
 }
 
+func TestPublicOrigin(t *testing.T) {
+	tests := []struct{ url, want string }{
+		{"https://dash.example.com", "https://dash.example.com"},
+		{"https://DASH.Example.com/", "https://dash.example.com"},
+		{"HTTPS://Dash.Example.com:8443/some/path", "https://dash.example.com:8443"},
+		{"http://localhost:5173", "http://localhost:5173"},
+		{"dash.example.com", "dash.example.com"}, // not a URL: returned as is (Validate rejects it)
+	}
+	for _, tc := range tests {
+		if got := (Config{PublicURL: tc.url}).PublicOrigin(); got != tc.want {
+			t.Errorf("PublicOrigin(%q) = %q, want %q", tc.url, got, tc.want)
+		}
+	}
+}
+
 // TestDeploymentEnvCompat loads exactly the env names the homelab Kubernetes deployment sets
 // (with placeholder values). DASH_PROXMOX_NODE, DASH_HOST_NODENAME, DASH_HOST_MODEL and
 // DASH_LAUNCHER_FILE are deliberately absent: the node is left for discovery at startup.
