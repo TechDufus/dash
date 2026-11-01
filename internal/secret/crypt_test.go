@@ -165,13 +165,16 @@ func TestMalformedEncrypted(t *testing.T) {
 	good, _ := ring.Encrypt("p", "v")
 	_, b64, _ := strings.Cut(strings.TrimPrefix(good, "enc:v1:"), ":")
 	short := base64.StdEncoding.EncodeToString(make([]byte, 10))
+	// The key's own id, uppercased, with a final hex letter: a random id can be all digits,
+	// and then uppercasing it would leave a valid id.
+	upperKid := strings.ToUpper(k.kid[:len(k.kid)-1]) + "F"
 	for name, s := range map[string]string{
 		"no prefix":       "plain",
 		"wrong version":   "enc:v2:" + k.kid + ":" + b64,
 		"no kid":          "enc:v1:",
 		"no separator":    "enc:v1:" + k.kid,
 		"short kid":       "enc:v1:abc:" + b64,
-		"uppercase kid":   "enc:v1:" + strings.ToUpper(k.kid) + ":" + b64,
+		"uppercase kid":   "enc:v1:" + upperKid + ":" + b64,
 		"non-hex kid":     "enc:v1:zzzzzzzz:" + b64,
 		"bad base64":      "enc:v1:" + k.kid + ":***",
 		"truncated":       "enc:v1:" + k.kid + ":" + short,
