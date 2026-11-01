@@ -80,7 +80,7 @@ const (
 // SettingsConfig controls the UI settings store.
 type SettingsConfig struct {
 	// UI is SettingsEditable or SettingsReadOnly (fully managed, GitOps).
-	UI string `json:"ui"`
+	UI string `json:"ui" dash:"restart"`
 }
 
 // PluginsConfig holds one section per plugin. Until the plugin framework (G2) these are the

@@ -3,6 +3,7 @@ package main
 import (
 	"log/slog"
 
+	"github.com/TechDufus/dash/internal/audit"
 	"github.com/TechDufus/dash/internal/config"
 	"github.com/TechDufus/dash/internal/secret"
 	"github.com/TechDufus/dash/internal/settings"
@@ -43,6 +44,34 @@ func loadConfig(reg *secret.Registry) (*config.Resolved, *settings.Store, error)
 		return nil, nil, err
 	}
 	return res, store, nil
+}
+
+// openState is everything run needs before it serves: the resolved configuration, its settings
+// store (nil in demo mode), and the audit log, with a pending key rotation carried out and
+// audited. Demo has nothing to audit and no data dir: its actions go to slog only. Elsewhere a
+// missing or unwritable data dir also means slog only (audit.Open logs it at INFO). In a
+// writable dir a log that cannot be opened or continued, or that another dash instance holds,
+// is an error: dash refuses to start rather than run without the record the 503 rule relies
+// on. The file has no redacting handler in front of it, so error text is scrubbed here. The
+// caller closes the log, then the store.
+func openState(reg *secret.Registry) (*config.Resolved, *settings.Store, *audit.Log, error) {
+	res, store, err := loadConfig(reg)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	auditDir := res.Config.DataDir
+	if res.Config.Demo {
+		auditDir = ""
+	}
+	alog, err := audit.Open(auditDir, audit.Options{Scrub: reg.ScrubLogLine})
+	if err != nil {
+		if store != nil {
+			store.Close()
+		}
+		return nil, nil, nil, err
+	}
+	config.RekeyStore(store, res.Keys, alog, nil)
+	return res, store, alog, nil
 }
 
 // openSettings opens the settings store of the data directory. Another dash holding the

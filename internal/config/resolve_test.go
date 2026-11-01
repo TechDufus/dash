@@ -290,6 +290,7 @@ func TestSchemaMetadata(t *testing.T) {
 	check("plugins.proxmox.tokenID", false, false, false)
 	check("server.listen", false, true, false)
 	check("server.publicURL", false, true, true)
+	check("settings.ui", false, true, false)
 	check("plugins.prometheus.url", false, false, true)
 	if n := len(schema.leaves); n != len(schema.byPath) {
 		t.Errorf("%d leaves, %d paths: duplicate paths", n, len(schema.byPath))

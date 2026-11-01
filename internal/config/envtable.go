@@ -65,7 +65,11 @@ func WriteEnvTable(w io.Writer) error {
 Every name also takes a _FILE form (DASH_NAME_FILE=/path) that reads the value from a file; set
 one of the two. The environment overrides the config file. Lists and objects are JSON. LEGACY
 names still work and log a deprecation warning; KUBECONFIG is also honoured for
-plugins.kubernetes.kubeconfig, without one.
+plugins.kubernetes.kubeconfig, without one, and has no _FILE form.
+
+In this release every change to a setting other than a secret needs a restart, whatever the
+RESTART column says: the column marks the settings that stay restart-only once the plugin
+framework applies the rest live. A rotated secret (a changed file: reference) applies live.
 `)
 	return err
 }

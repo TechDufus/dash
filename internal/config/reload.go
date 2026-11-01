@@ -82,8 +82,10 @@ func NewReloader(res *Resolved, store *settings.Store, opts ReloadOptions) *Relo
 	if store != nil {
 		r.revision = store.Revision()
 	}
+	// Seeded unread, so the first poll re-resolves and compares with the startup tree: a file
+	// that changed between the startup reads and this point is not lost.
 	for _, p := range r.watchedPaths(&res.Tree) {
-		r.watch[p] = fingerprint(p, fileState{})
+		r.watch[p] = fileState{}
 	}
 	return r
 }
@@ -173,7 +175,7 @@ func (r *Reloader) check() ([]Change, []func(Change)) {
 	want := r.watchedPaths(&next.Tree)
 	for _, p := range want {
 		if _, ok := r.watch[p]; !ok {
-			r.watch[p] = fingerprint(p, fileState{})
+			r.watch[p] = fileState{} // read by this resolve; the next poll confirms it
 		}
 	}
 	maps.DeleteFunc(r.watch, func(p string, _ fileState) bool { return !slices.Contains(want, p) })

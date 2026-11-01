@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/TechDufus/dash/internal/secret"
+	"github.com/TechDufus/dash/internal/settings"
 	"github.com/TechDufus/dash/internal/upstream"
 )
 
@@ -195,6 +196,84 @@ func TestReloadRetriesAnInvalidStateWhoseCauseIsNotWatched(t *testing.T) {
 	rl.poll()
 	if strings.Count(buf.String(), "level=ERROR") != 1 || rl.lastErr != "" || len(got) != 1 {
 		t.Errorf("creating the file must recover: %+v\n%s", got, buf)
+	}
+}
+
+// A value saved through the settings store after startup is re-resolved on the next poll
+// (P1.6 "next reload"): it is flagged for a restart like any other change, a value the
+// environment sets stays hidden behind it, and deleting the saved value takes it back.
+func TestReloadReReadsTheSettingsStore(t *testing.T) {
+	dir := t.TempDir()
+	st, err := settings.Open(dir, settings.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	env := []string{"DASH_DEMO=true", "DASH_DATA_DIR=" + dir, "DASH_PLUGINS_HEADLAMP_URL=https://hl-env.example.com"}
+	log, buf := logBuf()
+	res, err := Resolve(Sources{Environ: env, UI: st.Values(), UIRef: st.Path(), Log: log})
+	if err != nil {
+		t.Fatal(err)
+	}
+	rl := NewReloader(res, st, ReloadOptions{Log: log})
+	var got []Change
+	rl.Subscribe(func(c Change) { got = append(got, c) })
+	rl.poll()
+	if len(got) != 0 {
+		t.Fatalf("nothing changed yet: %+v", got)
+	}
+
+	if err := st.Set("plugins.grafana.url", "https://grafana.ui.example.com"); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.Set("plugins.headlamp.url", "https://hl-ui.example.com"); err != nil { // the environment wins
+		t.Fatal(err)
+	}
+	rl.poll()
+	if len(got) != 1 || got[0].Section != "plugins.grafana" || !slices.Equal(got[0].Paths, []string{"plugins.grafana.url"}) {
+		t.Fatalf("changes = %+v\n%s", got, buf)
+	}
+	if !slices.Equal(rl.RestartRequired(), []string{"plugins.grafana.url"}) {
+		t.Errorf("restart required = %v", rl.RestartRequired())
+	}
+	if res.Config.GrafanaURL != "" {
+		t.Error("the running config must not change")
+	}
+	rl.poll()
+	if len(got) != 1 || strings.Count(buf.String(), "level=WARN") != 1 {
+		t.Errorf("an unchanged store must not repeat the event or the warning:\n%s", buf)
+	}
+
+	if err := st.Delete("plugins.grafana.url"); err != nil {
+		t.Fatal(err)
+	}
+	rl.poll()
+	if len(got) != 2 || len(rl.RestartRequired()) != 0 {
+		t.Errorf("deleting the saved value is back to the startup value: %+v, restart %v", got, rl.RestartRequired())
+	}
+}
+
+// A secret file that changes after the startup read and before the reloader exists is still
+// picked up by its first poll: the baseline is the startup tree, not the file as found later.
+func TestReloadFirstPollAppliesAChangeMadeBeforeTheReloaderExisted(t *testing.T) {
+	g := newReloadRig(t, headlampConfig("https://hl-a.example.com"))
+	held := g.res.Config.ProxmoxTokenSecret
+	writeFile(t, g.secretPath, "token-two-9876543210\n")
+	log, _ := logBuf()
+	rl := NewReloader(g.res, nil, ReloadOptions{Log: log})
+	var got []Change
+	rl.Subscribe(func(c Change) { got = append(got, c) })
+
+	rl.poll()
+	if held.Reveal() != "token-two-9876543210" {
+		t.Fatal("the first poll must apply the secret that changed before the reloader existed")
+	}
+	if len(got) != 1 || got[0].Section != "plugins.proxmox" {
+		t.Errorf("changes = %+v", got)
+	}
+	rl.poll()
+	if len(got) != 1 {
+		t.Errorf("an unchanged file must not repeat the event: %+v", got)
 	}
 }
 

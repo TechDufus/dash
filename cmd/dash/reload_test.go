@@ -16,8 +16,15 @@ import (
 	"github.com/TechDufus/dash/internal/api"
 	"github.com/TechDufus/dash/internal/config"
 	"github.com/TechDufus/dash/internal/hub"
+	"github.com/TechDufus/dash/internal/kube"
+	"github.com/TechDufus/dash/internal/links"
 	"github.com/TechDufus/dash/internal/secret"
+	"github.com/TechDufus/dash/internal/topics"
 	"github.com/TechDufus/dash/internal/upstream"
+	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
+	dynfake "k8s.io/client-go/dynamic/fake"
+	kubefake "k8s.io/client-go/kubernetes/fake"
 )
 
 // lockedBuf is a log sink the test can read while the reloader writes to it.
@@ -69,13 +76,29 @@ func TestReloadedSecretReachesTheProxmoxClientWhileReadinessHolds(t *testing.T) 
 		t.Fatal(err)
 	}
 	defer store.Close()
-	health := api.New(api.Deps{Cfg: res.Config, Hub: hub.New(), Secrets: reg, Ready: func() bool { return true }}).HealthHandler()
+	// Readiness as main wires it: the topic manager over the cluster's informers, not the reloader.
+	cfg := res.Config
+	pveClient := upstream.NewProxmox(cfg.ProxmoxURL, "", cfg.ProxmoxTokenID, cfg.ProxmoxTokenSecret, nil)
+	listKinds := map[schema.GroupVersionResource]string{}
+	for _, gvr := range []schema.GroupVersionResource{
+		kube.GVRKustomizations, kube.GVRHelmReleases, kube.GVRGitRepositories, kube.GVROCIRepositories, kube.GVRHelmRepositories,
+		kube.GVRCNPGClusters, kube.GVRCertificates, kube.GVRExternalSecrets, kube.GVRHTTPRoutes,
+	} {
+		listKinds[gvr] = gvr.Resource + "List"
+	}
+	cluster := kube.NewFromClients(kubefake.NewClientset(), dynfake.NewSimpleDynamicClientWithCustomListKinds(runtime.NewScheme(), listKinds))
+	mgr := topics.New(topics.Deps{
+		Cfg: cfg, Cluster: cluster, Prom: upstream.NewProm(cfg.VMURL, nil), AM: upstream.NewAlertmanager(cfg.AlertmanagerURL, nil),
+		Gatus: upstream.NewGatus(cfg.GatusURL, nil), PVE: pveClient, Hub: hub.New(), Links: links.New(cfg), Secrets: reg,
+	})
+	ctx, cancel := context.WithCancel(context.Background())
+	mgr.Run(ctx)
+	health := api.New(api.Deps{Cfg: cfg, Hub: hub.New(), Secrets: reg, Ready: mgr.Ready}).HealthHandler()
 	ready := func() int {
 		rec := httptest.NewRecorder()
 		health.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/readyz", nil))
 		return rec.Code
 	}
-	pveClient := upstream.NewProxmox(res.Config.ProxmoxURL, "", res.Config.ProxmoxTokenID, res.Config.ProxmoxTokenSecret, nil)
 	lastAuth := func() string {
 		if _, err := pveClient.Nodes(context.Background()); err != nil {
 			t.Fatal(err)
@@ -88,19 +111,23 @@ func TestReloadedSecretReachesTheProxmoxClientWhileReadinessHolds(t *testing.T) 
 	reloader := config.NewReloader(res, store, config.ReloadOptions{Interval: time.Millisecond})
 	events := make(chan config.Change, 8)
 	reloader.Subscribe(func(c config.Change) { events <- c })
-	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
 	go func() { defer close(done); reloader.Run(ctx) }()
 	defer func() { cancel(); <-done }()
+
+	waitFor(t, func() bool { return ready() == 200 })
 
 	if got := lastAuth(); !strings.HasSuffix(got, "=token-one-0123456789") || ready() != 200 {
 		t.Fatalf("before any change: %q, ready %d", got, ready())
 	}
 
-	// An invalid config file next to a rotated secret: the whole edit is refused.
-	writeTestFile(t, tokenPath, "token-two-9876543210\n")
+	// An invalid config file, then a rotated secret: while the file stays invalid, the rotation
+	// is refused with it. The token is rotated only once the reloader has seen the invalid
+	// file; a tick that read the old file before both writes could otherwise apply the rotation.
 	writeTestFile(t, cfgPath, "plugins:\n  headlamp:\n    urll: https://hl-b.example.com\n")
 	waitFor(t, func() bool { return strings.Contains(logs.String(), "configuration reload failed") })
+	writeTestFile(t, tokenPath, "token-two-9876543210\n")
+	time.Sleep(20 * time.Millisecond) // many ticks at 1 ms
 	if got := lastAuth(); !strings.HasSuffix(got, "=token-one-0123456789") || ready() != 200 {
 		t.Errorf("an invalid edit changes nothing: %q, ready %d", got, ready())
 	}

@@ -2,9 +2,11 @@ package config
 
 import (
 	"bytes"
+	"maps"
 	"os"
 	"path/filepath"
 	"reflect"
+	"regexp"
 	"slices"
 	"strings"
 	"testing"
@@ -37,17 +39,48 @@ func value(t *testing.T, res *Resolved, path string) any {
 
 // warned lists the legacy variables a log reports as deprecated, one entry per warning.
 func warned(log string) []string {
-	var out []string
-	for _, line := range strings.Split(log, "\n") {
-		if !strings.Contains(line, `msg="deprecated environment variable"`) {
-			continue
-		}
-		_, rest, _ := strings.Cut(line, " name=")
-		name, _, _ := strings.Cut(rest, " ")
-		out = append(out, name)
+	return slices.Sorted(maps.Keys(warnedUse(log)))
+}
+
+var deprecationRE = regexp.MustCompile(`msg="deprecated environment variable" name=(\S+) use=("[^"]*"|\S+)`)
+
+// warnedUse maps each legacy variable a log reports as deprecated to the replacement the
+// warning names. A variable warned about twice would collapse here, so warned counts lines.
+func warnedUse(log string) map[string]string {
+	out := map[string]string{}
+	for _, m := range deprecationRE.FindAllStringSubmatch(log, -1) {
+		out[m[1]] = strings.Trim(m[2], `"`)
 	}
-	slices.Sort(out)
 	return out
+}
+
+// replacements is design B.5 written out by hand, so the test does not derive its expectation
+// from the code that builds the warning.
+var replacements = map[string]string{
+	"DASH_PUBLIC_URL":                "DASH_SERVER_PUBLIC_URL",
+	"DASH_LISTEN":                    "DASH_SERVER_LISTEN",
+	"DASH_HEALTH_LISTEN":             "DASH_SERVER_HEALTH_LISTEN",
+	"DASH_ALLOWED_HOSTS":             "DASH_SERVER_ALLOWED_HOSTS (JSON)",
+	"DASH_VM_URL":                    "DASH_PLUGINS_PROMETHEUS_URL",
+	"DASH_ALERTMANAGER_URL":          "DASH_PLUGINS_ALERTMANAGER_URL",
+	"DASH_VLOGS_URL":                 "DASH_PLUGINS_VICTORIALOGS_URL",
+	"DASH_GATUS_URL":                 "DASH_PLUGINS_GATUS_URL",
+	"DASH_PROXMOX_URL":               "DASH_PLUGINS_PROXMOX_URL",
+	"DASH_PROXMOX_NODE":              "DASH_PLUGINS_PROXMOX_NODE",
+	"DASH_PROXMOX_TOKEN":             "DASH_PLUGINS_PROXMOX_TOKEN_ID and DASH_PLUGINS_PROXMOX_TOKEN_SECRET",
+	"DASH_HOST_NODENAME":             "DASH_PLUGINS_HARDWARE_HOSTS (JSON)",
+	"DASH_HOST_MODEL":                "DASH_PLUGINS_HARDWARE_HOSTS (JSON)",
+	"DASH_HEADLAMP_URL":              "DASH_PLUGINS_HEADLAMP_URL",
+	"DASH_HEADLAMP_CLUSTER":          "DASH_PLUGINS_HEADLAMP_CLUSTER",
+	"DASH_GRAFANA_URL":               "DASH_PLUGINS_GRAFANA_URL",
+	"DASH_LAUNCHER_FILE":             "DASH_PLUGINS_LAUNCHER_FILE",
+	"DASH_LABEL_PROTECTED":           "DASH_PLUGINS_KUBERNETES_CONVENTIONS_PROTECTED_LABEL",
+	"DASH_LABEL_TENANT":              "DASH_PLUGINS_KUBERNETES_CONVENTIONS_TENANT_LABEL",
+	"DASH_APPS_FLUX_PREFIX":          "DASH_PLUGINS_KUBERNETES_CONVENTIONS_APPS_FLUX_PREFIX",
+	"DASH_ANNOTATION_SUSPEND_REASON": "DASH_PLUGINS_FLUX_SUSPEND_REASON_ANNOTATION",
+	"DASH_ZFS_SCRUB_METRIC_PREFIX":   "DASH_PLUGINS_HARDWARE_ZFS_SCRUB_METRIC_PREFIX",
+	"DASH_NAS_BACKUP_NAMESPACE":      "DASH_PLUGINS_KUBERNETES_BACKUP_JOBS (JSON)",
+	"DASH_NAS_BACKUP_CRONJOB":        "DASH_PLUGINS_KUBERNETES_BACKUP_JOBS (JSON)",
 }
 
 // Every row of design B.5: the legacy variable sets the new path and warns exactly once.
@@ -78,6 +111,7 @@ func TestLegacyAliases(t *testing.T) {
 		{[]string{"DASH_ZFS_SCRUB_METRIC_PREFIX=example_scrub"}, map[string]any{"plugins.hardware.zfsScrubMetricPrefix": "example_scrub"}, "DASH_ZFS_SCRUB_METRIC_PREFIX"},
 		{[]string{"DASH_HOST_NODENAME=box"}, map[string]any{"plugins.hardware.hosts": []HardwareHost{{Nodename: "box"}}}, "DASH_HOST_NODENAME"},
 		{[]string{"DASH_HOST_MODEL=Dell R730"}, map[string]any{"plugins.hardware.hosts": []HardwareHost{{Model: "Dell R730"}}}, "DASH_HOST_MODEL"},
+		{[]string{"DASH_HOST_NODENAME=box", "DASH_HOST_MODEL=Dell R730"}, map[string]any{"plugins.hardware.hosts": []HardwareHost{{Nodename: "box", Model: "Dell R730"}}}, "DASH_HOST_NODENAME, DASH_HOST_MODEL"},
 		{[]string{"DASH_NAS_BACKUP_NAMESPACE=backup", "DASH_NAS_BACKUP_CRONJOB=nightly"},
 			map[string]any{"plugins.kubernetes.backupJobs": []BackupJob{{Namespace: "backup", CronJob: "nightly"}}}, "DASH_NAS_BACKUP_NAMESPACE, DASH_NAS_BACKUP_CRONJOB"},
 	}
@@ -103,8 +137,13 @@ func TestLegacyAliases(t *testing.T) {
 				covered[k] = true
 			}
 			slices.Sort(wantWarn)
-			if got := warned(log); !slices.Equal(got, wantWarn) {
+			if got := warned(log); !slices.Equal(got, wantWarn) || strings.Count(log, "deprecated environment variable") != len(wantWarn) {
 				t.Errorf("deprecation warnings = %v, want one per variable %v\n%s", got, wantWarn, log)
+			}
+			for name, use := range warnedUse(log) {
+				if use != replacements[name] {
+					t.Errorf("%s: the warning names %q, want %q", name, use, replacements[name])
+				}
 			}
 		})
 	}
@@ -165,6 +204,22 @@ func TestKubeconfigIsHonouredQuietly(t *testing.T) {
 	}
 }
 
+// KUBECONFIG belongs to kubectl and client-go, which have no _FILE form: KUBECONFIG_FILE is
+// not ours to interpret, alone or next to KUBECONFIG.
+func TestKubeconfigHasNoFileForm(t *testing.T) {
+	res, log, err := resolveEnv(t, "KUBECONFIG=/a", "KUBECONFIG_FILE=/never/read")
+	if err != nil || res.Config.Kubeconfig != "/a" {
+		t.Errorf("both set: kubeconfig %q, err %v", res.Config.Kubeconfig, err)
+	}
+	res, _, err = resolveEnv(t, "KUBECONFIG_FILE=/never/read")
+	if err != nil || res.Config.Kubeconfig != "" {
+		t.Errorf("KUBECONFIG_FILE alone: kubeconfig %q, err %v", res.Config.Kubeconfig, err)
+	}
+	if strings.Contains(log, "WARN") {
+		t.Errorf("unexpected warning:\n%s", log)
+	}
+}
+
 func TestGeneratedNames(t *testing.T) {
 	for path, want := range map[string]string{
 		"server.publicURL":                              "DASH_SERVER_PUBLIC_URL",
@@ -208,7 +263,9 @@ func TestEnvNamesDoNotCollide(t *testing.T) {
 	for _, a := range aliases {
 		for _, n := range a.names {
 			claim(n, "legacy "+n)
-			claim(n+"_FILE", "legacy "+n+" (file)")
+			if !a.keep {
+				claim(n+"_FILE", "legacy "+n+" (file)")
+			}
 		}
 	}
 }
@@ -326,6 +383,9 @@ func TestFileSuffixVariables(t *testing.T) {
 		if !strings.Contains(log, "name=DASH_PROXMOX_TOKEN_FILE") || strings.Contains(log, canary) {
 			t.Errorf("the legacy _FILE form warns by name and never logs the value:\n%s", log)
 		}
+		if !strings.Contains(log, "read once at startup") {
+			t.Errorf("the legacy token _FILE warning must say the file is not watched:\n%s", log)
+		}
 		if got := warned(log); !slices.Equal(got, []string{"DASH_PROXMOX_TOKEN_FILE", "DASH_PROXMOX_URL"}) {
 			t.Errorf("warnings = %v", got)
 		}
@@ -424,7 +484,10 @@ func TestEnvTable(t *testing.T) {
 		t.Fatal(err)
 	}
 	out := buf.String()
-	for _, want := range []string{"PATH", "DASH_PLUGINS_PROXMOX_TOKEN_SECRET", "DASH_DATA_DIR", "DASH_PROXMOX_TOKEN", "_FILE"} {
+	if v := byPath["settings.ui"]; !v.Restart {
+		t.Errorf("settings.ui is read once at startup: %+v", v)
+	}
+	for _, want := range []string{"PATH", "DASH_PLUGINS_PROXMOX_TOKEN_SECRET", "DASH_DATA_DIR", "DASH_PROXMOX_TOKEN", "_FILE", "every change to a setting other than a secret needs a restart"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("table lacks %q:\n%s", want, out)
 		}

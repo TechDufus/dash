@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"encoding/base64"
 	"log/slog"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -75,6 +77,55 @@ func TestStartupDecryptsStoredSecretsOrFailsListingThem(t *testing.T) {
 		t.Fatalf("the data directory must be free after a failed start: %v", err)
 	}
 	store.Close()
+}
+
+// Startup with the new key and the previous one re-encrypts what the previous key sealed and
+// records secrets.rekey in the audit log (P1.5 acceptance); afterwards only the new key opens it.
+func TestStartupRekeysStoredSecretsAndAuditsIt(t *testing.T) {
+	dir := t.TempDir()
+	storeWithSecret(t, dir, testKey(1), "stored-secret-0123456789")
+	startEnv(t, dir, "DASH_PLUGINS_PROXMOX_URL=https://pve.example.com:8006", "DASH_PLUGINS_PROXMOX_TOKEN_ID=u@pve!t",
+		"DASH_SECRET_KEY="+testKey(2), "DASH_SECRET_KEY_PREVIOUS="+testKey(1))
+	logs := captureLog(t)
+
+	res, store, alog, err := openState(secret.NewRegistry())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Config.ProxmoxTokenSecret.Reveal() != "stored-secret-0123456789" {
+		t.Error("both keys open the stored value during the rotation")
+	}
+	store.Close()
+	alog.Close()
+	if !strings.Contains(logs.String(), "secrets re-encrypted with the current key") {
+		t.Errorf("want the rekey INFO line:\n%s", logs)
+	}
+	data, err := os.ReadFile(filepath.Join(dir, "audit.jsonl"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Count(string(data), `"action":"secrets.rekey"`) != 2 { // intent and outcome
+		t.Errorf("want the rekey intent and outcome in the audit log:\n%s", data)
+	}
+	if strings.Contains(string(data), "stored-secret-0123456789") {
+		t.Errorf("the audit log shows the secret:\n%s", data)
+	}
+
+	// Rekeyed: the previous key alone no longer opens the store, the new key does.
+	t.Setenv("DASH_SECRET_KEY_PREVIOUS", "")
+	t.Setenv("DASH_SECRET_KEY", testKey(1))
+	if _, _, err := loadConfig(secret.NewRegistry()); err == nil {
+		t.Error("the old key must no longer open a rekeyed store")
+	}
+	t.Setenv("DASH_SECRET_KEY", testKey(2))
+	res, store, err = loadConfig(secret.NewRegistry())
+	if err != nil {
+		t.Fatal(err)
+	}
+	store.Close()
+	if res.Config.ProxmoxTokenSecret.Reveal() != "stored-secret-0123456789" {
+		t.Error("the new key opens the rekeyed value")
+	}
 }
 
 func TestStartupRefusesBothFormsOfTheKey(t *testing.T) {

@@ -16,7 +16,6 @@ import (
 	"time"
 
 	"github.com/TechDufus/dash/internal/api"
-	"github.com/TechDufus/dash/internal/audit"
 	"github.com/TechDufus/dash/internal/config"
 	"github.com/TechDufus/dash/internal/demo"
 	"github.com/TechDufus/dash/internal/hub"
@@ -65,31 +64,18 @@ func command(args []string, out io.Writer) error {
 }
 
 func run(reg *secret.Registry) error {
-	res, store, err := loadConfig(reg)
+	res, store, alog, err := openState(reg)
 	if err != nil {
 		return err
 	}
+	// The store and the audit log close after the servers stop, the log first (defers run
+	// last-in first-out).
 	if store != nil {
 		defer store.Close()
 	}
-	cfg := res.Config
 
-	// Demo has nothing to audit and no data dir: its actions go to slog only. Elsewhere a missing
-	// or unwritable data dir also means slog only (audit.Open logs it at INFO). In a writable dir
-	// a log that cannot be opened or continued, or that another dash instance holds, is an
-	// error: dash refuses to start rather than run without the record the 503 rule relies on.
-	// The file has no redacting handler in front of it, so error text is scrubbed here. The log
-	// closes after the servers stop (defers run last-in first-out).
-	auditDir := cfg.DataDir
-	if cfg.Demo {
-		auditDir = ""
-	}
-	alog, err := audit.Open(auditDir, audit.Options{Scrub: reg.ScrubLogLine})
-	if err != nil {
-		return err
-	}
 	defer alog.Close()
-	config.RekeyStore(store, res.Keys, alog, nil)
+	cfg := res.Config
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()

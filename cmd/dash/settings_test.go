@@ -2,13 +2,16 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/TechDufus/dash/internal/config"
 	"github.com/TechDufus/dash/internal/secret"
 	"github.com/TechDufus/dash/internal/settings"
 )
@@ -123,6 +126,46 @@ func TestSettingsUIReadonlyIsReadOnlyEvenWhenWritable(t *testing.T) {
 	other.Close()
 	if _, err := os.Stat(filepath.Join(dir, ".lock")); err == nil {
 		t.Error("a read-only store must not create the lock file")
+	}
+}
+
+// Startup resolves the layers more than once (the data directory comes from the first pass) and
+// the reloader resolves them again; a legacy variable still warns once, not once per pass.
+func TestStartupWarnsOncePerLegacyVariable(t *testing.T) {
+	startEnv(t, t.TempDir(), // DASH_PUBLIC_URL is legacy, too
+		"DASH_GRAFANA_URL=https://grafana.example.com", "DASH_HEADLAMP_URL=https://headlamp.example.com",
+		"DASH_PROXMOX_URL=https://pve.example.com:8006", "DASH_PROXMOX_TOKEN=u@pve!t=legacy-secret-0123456789")
+	log := captureLog(t)
+	res, store, err := loadConfig(secret.NewRegistry())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+
+	// The reloader's first poll resolves everything once more.
+	reloader := config.NewReloader(res, store, config.ReloadOptions{Interval: time.Millisecond})
+	events := make(chan config.Change, 8)
+	reloader.Subscribe(func(c config.Change) { events <- c })
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() { defer close(done); reloader.Run(ctx) }()
+	time.Sleep(50 * time.Millisecond)
+	cancel()
+	<-done
+	select {
+	case c := <-events:
+		t.Errorf("nothing changed, yet the reloader reported %+v", c)
+	default:
+	}
+
+	out := log.String()
+	for _, name := range []string{"DASH_PUBLIC_URL", "DASH_GRAFANA_URL", "DASH_HEADLAMP_URL", "DASH_PROXMOX_URL", "DASH_PROXMOX_TOKEN"} {
+		if n := strings.Count(out, "name="+name+" "); n != 1 {
+			t.Errorf("%s warned %d times, want once:\n%s", name, n, out)
+		}
+	}
+	if n := strings.Count(out, "deprecated environment variable"); n != 5 {
+		t.Errorf("%d deprecation warnings, want 5:\n%s", n, out)
 	}
 }
 

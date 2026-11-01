@@ -98,6 +98,11 @@ var aliases = []alias{
 	}},
 }
 
+// hasSecretTarget reports whether the alias sets a secret field.
+func (a alias) hasSecretTarget() bool {
+	return slices.ContainsFunc(a.targets, func(p string) bool { return schema.byPath[p].secret })
+}
+
 // replacement names the generated variable(s) that take over from an alias; file selects the
 // _FILE form.
 func (a alias) replacement(file bool) string {
@@ -132,8 +137,12 @@ type envValue struct{ val, ref string }
 
 // readEnvVar returns the value of name or of name_FILE. Empty counts as unset. Both set is an
 // error naming both; so is an unreadable file (the message carries the path, never contents).
+// A kept alias such as KUBECONFIG is a variable of another tool: it has no _FILE form.
 func readEnvVar(env map[string]string, name string) (envValue, error) {
 	direct, file := strings.TrimSpace(env[name]), strings.TrimSpace(env[name+"_FILE"])
+	if slices.ContainsFunc(aliases, func(a alias) bool { return a.keep && slices.Contains(a.names, name) }) {
+		return envValue{direct, name}, nil
+	}
 	switch {
 	case direct != "" && file != "":
 		return envValue{}, fmt.Errorf("%s and %s_FILE are both set; set only one", name, name)
@@ -192,7 +201,13 @@ func envLayer(env map[string]string, log *slog.Logger) ([]envEntry, error) {
 				got[n] = v.val
 				refs = append(refs, v.ref)
 				if !a.keep {
-					log.Warn("deprecated environment variable", "name", v.ref, "use", a.replacement(v.ref != n))
+					warn := []any{"name", v.ref, "use", a.replacement(v.ref != n)}
+					if v.ref != n && a.hasSecretTarget() {
+						// The legacy form is split into token id and secret once; only the generated
+						// <NAME>_FILE reference is watched for rotation (design B.6).
+						warn = append(warn, "note", "this file is read once at startup; rotating it needs a restart, the replacement is watched")
+					}
+					log.Warn("deprecated environment variable", warn...)
 				}
 			}
 		}
