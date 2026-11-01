@@ -157,9 +157,10 @@ const (
 // The read deadline bounds the whole body. On failure it is left set, so net/http's drain of
 // the unread remainder fails at once and closes the connection instead of waiting for a
 // client that stalled mid-body. On success the rest of the body is read while the deadline
-// still applies and only then is it cleared: the server's background read inherits the
-// deadline, and once it fires it cancels the request context, which would abort a handler
-// that outlasts the timeout.
+// still applies, then the deadline is cleared. On Go 1.27 net/http clears it itself when it
+// starts the background read after the body is drained; the explicit clear keeps a deadline
+// from outliving the body (and, once it fired, cancelling the request context of a handler
+// that outlasts the timeout) independent of the Go version.
 func (s *Server) decodeBody(w http.ResponseWriter, r *http.Request, v any) bool {
 	rc := http.NewResponseController(w)
 	armed := rc.SetReadDeadline(time.Now().Add(s.bodyTimeout)) == nil
