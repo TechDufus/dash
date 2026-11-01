@@ -58,4 +58,16 @@ describe("resolvePointer", () => {
   ])("does not resolve %j (%s)", (pointer) => {
     expect(resolvePointer(doc, pointer)).toEqual({ found: false });
   });
+
+  it.each(["/a~2b", "/a~", "/a~x", "/a~~0", "/~2/x"])(
+    "does not resolve the malformed pointer %j, even when the key exists literally",
+    (pointer) => {
+      const literal = { "a~2b": 1, "a~": 2, "a~x": 3, "a~~0": 4, "~2": { x: 5 } };
+      expect(resolvePointer(literal, pointer)).toEqual({ found: false });
+    },
+  );
+
+  it("still resolves the escapes ~0 and ~1 next to other text", () => {
+    expect(resolvePointer({ "a~b/c": 1 }, "/a~0b~1c")).toEqual({ found: true, value: 1 });
+  });
 });

@@ -52,5 +52,5 @@ const ICONS: Readonly<Record<string, LucideIcon>> = {
 
 /** The icon for a lucide name; an unknown or empty name gets Puzzle. */
 export function iconFor(name: string | undefined): LucideIcon {
-  return (name && ICONS[name]) || Puzzle;
+  return (name && Object.hasOwn(ICONS, name) && ICONS[name]) || Puzzle;
 }

@@ -20,7 +20,7 @@ export function PageLoading() {
   );
 }
 
-function NotFound() {
+export function NotFound() {
   return (
     <Page>
       <Panel className="p-10 text-center text-sm text-muted">
@@ -145,7 +145,13 @@ export function PluginRoutes() {
           </Route>
         )),
       )}
-      <Route path="/x/:id">{(params) => <GenericPluginPage id={params.id ?? ""} />}</Route>
+      <Route path="/x/:id">
+        {(params) => (
+          <RouteBoundary>
+            <GenericPluginPage id={params.id ?? ""} />
+          </RouteBoundary>
+        )}
+      </Route>
       <Route>
         <NotFound />
       </Route>

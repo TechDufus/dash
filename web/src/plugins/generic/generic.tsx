@@ -11,7 +11,8 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { PageLoading, PluginDisabledPage } from "@/plugins/routes";
+import { NotFound, PageLoading, PluginDisabledPage } from "@/plugins/routes";
+import { PanelBoundary } from "@/plugins/slots";
 import { isVisible, usePluginsState } from "@/plugins/state";
 import { Cell } from "./cell";
 import { resolvePointer } from "./pointer";
@@ -115,20 +116,25 @@ function Body({ view, data }: { view: GenericView; data: unknown }) {
   }
 }
 
-/** One declared view of a plugin, drawn from the plugin's topic. A bad path or shape shows "No data". */
+/**
+ * One declared view of a plugin, drawn from the plugin's topic. A bad path or shape shows "No
+ * data"; a view that still throws is replaced by a muted row until its next payload arrives.
+ */
 export function GenericPanel({ info, view }: { info: PluginInfo; view: GenericView }) {
   const env = useEnvelope(view.topic);
   return (
-    <Panel aria-label={`${info.name}: ${view.title}`}>
-      <PanelHeader title={view.title} sources={env?.sources} />
-      {env ? (
-        <Body view={view} data={env.data} />
-      ) : (
-        <div className="px-4 pb-4" aria-busy="true">
-          <Skeleton className="h-8 w-full" />
-        </div>
-      )}
-    </Panel>
+    <PanelBoundary name={`${info.id}/${view.id}`} resetKeys={[view, env]}>
+      <Panel>
+        <PanelHeader title={view.title} sources={env?.sources} />
+        {env ? (
+          <Body view={view} data={env.data} />
+        ) : (
+          <div className="px-4 pb-4" aria-busy="true">
+            <Skeleton className="h-8 w-full" />
+          </div>
+        )}
+      </Panel>
+    </PanelBoundary>
   );
 }
 
@@ -137,12 +143,13 @@ export function GenericPluginPage({ id }: { id: string }) {
   const { ready, byId } = usePluginsState();
   if (!ready) return <PageLoading />;
   const info = byId.get(id);
-  if (!info || !isVisible(info.state) || info.generic.length === 0) {
-    return <PluginDisabledPage id={id} info={info} />;
-  }
+  // A plugin that is off or unknown gets the explanation; a visible one with no views of its own
+  // (its pages are a module's) has no /x page at all.
+  if (!info || !isVisible(info.state)) return <PluginDisabledPage id={id} info={info} />;
+  if (info.generic.length === 0) return <NotFound />;
   return (
     <Page>
-      <h1 className="text-lg font-semibold text-fg">{info.name}</h1>
+      <h2 className="text-lg font-semibold text-fg">{info.name}</h2>
       {info.generic.map((view, i) => (
         <Reveal key={view.id} index={i}>
           <GenericPanel info={info} view={view} />

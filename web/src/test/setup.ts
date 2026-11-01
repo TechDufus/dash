@@ -4,6 +4,8 @@ import { afterEach, vi } from "vitest";
 
 afterEach(() => {
   cleanup();
+  // Spies (console.error, console.warn, vi.spyOn on module objects) never leak into the next test.
+  vi.restoreAllMocks();
   vi.unstubAllGlobals();
   vi.useRealTimers();
   sessionStorage.clear();

@@ -1,6 +1,6 @@
 import { screen, within } from "@testing-library/react";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import type { GenericView, PluginInfo } from "@/api/types";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { GenericColumn, GenericView, PluginInfo } from "@/api/types";
 import { pluginInfo, renderApp } from "@/test/harness";
 import { PluginRoutes } from "../routes";
 import { useNavEntries } from "../state";
@@ -213,5 +213,43 @@ describe("generic views", () => {
     stream.send("queue.stats", stats());
     expect(screen.getByRole("heading", { name: "Job queue" })).toBeInTheDocument();
     expect(screen.getByRole("table")).toBeInTheDocument();
+  });
+
+  it("renders NotFound, not the disabled page, for a visible plugin without views", () => {
+    renderApp(<PluginRoutes />, { path: "/x/queue" });
+    stream.plugins([{ ...queue, generic: [] }]);
+    expect(screen.getByText("Nothing here. Pick a page from the rail.")).toBeInTheDocument();
+    expect(screen.queryByRole("status")).toBeNull();
+    expect(screen.queryByText(/is healthy/)).toBeNull();
+  });
+
+  it("adds no second h1 and no aria-label on a plain div", () => {
+    renderApp(<GenericPluginPage id="queue" />);
+    stream.plugins([queue]);
+    stream.send("queue.stats", stats());
+    expect(screen.queryAllByRole("heading", { level: 1 })).toHaveLength(0);
+    expect(screen.getByRole("heading", { level: 2, name: "Job queue" })).toBeInTheDocument();
+    expect(document.querySelector("div[aria-label]")).toBeNull();
+  });
+
+  it("isolates a view that throws: a muted row replaces it and its siblings stay", () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    // columns: null is what a view without columns used to send.
+    const broken = view({ id: "broken", title: "Broken", kind: "table", path: "/jobs" });
+    broken.columns = null as unknown as GenericColumn[];
+    const page: PluginInfo = { ...queue, generic: [broken, queue.generic[1] as GenericView] };
+    renderApp(<GenericPluginPage id="queue" />);
+    stream.plugins([page]);
+    stream.send("queue.stats", stats());
+    expect(screen.getByTestId("panel-failed")).toHaveTextContent("This panel failed to render.");
+    expect(screen.getByRole("heading", { name: "Queue depth" })).toBeInTheDocument();
+  });
+
+  it("fails alone when the page itself throws: the route shows the reload prompt", () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    // A null view in the list: the page reads its id while mapping, outside any panel.
+    renderApp(<PluginRoutes />, { path: "/x/queue" });
+    stream.plugins([{ ...queue, generic: [null as unknown as GenericView] }]);
+    expect(screen.getByRole("alert")).toHaveTextContent("This page failed to load.");
   });
 });
