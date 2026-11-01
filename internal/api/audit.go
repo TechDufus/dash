@@ -30,10 +30,16 @@ func peerOf(r *http.Request) string {
 	return r.RemoteAddr
 }
 
+// auditRecord names the user auth stored; a refusal that happens before auth (CSRF) has none,
+// so it falls back to the forwarded user.
 func (s *Server) auditRecord(r *http.Request, action string, t audit.Target) audit.Record {
+	user := userFrom(r.Context())
+	if user == "" {
+		user = s.requestUser(r)
+	}
 	return audit.Record{
 		Action: action, Target: t, Peer: peerOf(r), AuthMode: s.authMode(),
-		Actor: audit.Actor{Type: s.authMode(), User: userFrom(r.Context()), Surface: "ui"},
+		Actor: audit.Actor{Type: s.authMode(), User: user, Surface: "ui"},
 	}
 }
 

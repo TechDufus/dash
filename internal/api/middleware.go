@@ -56,6 +56,26 @@ func (s *Server) csrf(next http.Handler) http.Handler {
 	})
 }
 
+// proxyUser is the user oauth2-proxy forwarded, or "" when it sent none.
+func proxyUser(r *http.Request) string {
+	if u := strings.TrimSpace(r.Header.Get("X-Forwarded-Preferred-Username")); u != "" {
+		return u
+	}
+	return strings.TrimSpace(r.Header.Get("X-Forwarded-User"))
+}
+
+// requestUser is the user a request acts as before auth has run: the forwarded user, or "dev"
+// in dev mode. csrf runs ahead of auth, and its denials still name who was refused.
+func (s *Server) requestUser(r *http.Request) string {
+	if u := proxyUser(r); u != "" {
+		return u
+	}
+	if s.d.Cfg.Dev {
+		return "dev"
+	}
+	return ""
+}
+
 // auth resolves the user behind oauth2-proxy for every /api request.
 func (s *Server) auth(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -63,13 +83,7 @@ func (s *Server) auth(next http.Handler) http.Handler {
 			next.ServeHTTP(w, r)
 			return
 		}
-		user := strings.TrimSpace(r.Header.Get("X-Forwarded-Preferred-Username"))
-		if user == "" {
-			user = strings.TrimSpace(r.Header.Get("X-Forwarded-User"))
-		}
-		if user == "" && s.d.Cfg.Dev {
-			user = "dev"
-		}
+		user := s.requestUser(r)
 		if user == "" {
 			s.deny(r, "unauthenticated")
 			writeErr(w, http.StatusUnauthorized, "unauthenticated")

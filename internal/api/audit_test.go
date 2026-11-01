@@ -304,6 +304,10 @@ func TestIntentWriteFailureBlocksTheAction(t *testing.T) {
 
 func TestDenialsAreAuditedOncePerPeerAndMinute(t *testing.T) {
 	csrfFail := req{method: "POST", path: "/api/actions/restart", header: map[string]string{"X-Dash-Csrf": ""}}
+	// csrf runs before auth, so its denial must take the user from the proxy headers itself.
+	csrfFallbackHeader := req{method: "POST", path: "/api/actions/restart", header: map[string]string{
+		"X-Dash-Csrf": "", "X-Forwarded-Preferred-Username": "", "X-Forwarded-User": "bob",
+	}}
 	noUser := req{path: "/api/me", header: map[string]string{"X-Forwarded-Preferred-Username": ""}}
 	capped := func(s *Server) { s.events, s.tails = newStreamLimiter(0, 10), newStreamLimiter(0, 10) }
 
@@ -311,13 +315,15 @@ func TestDenialsAreAuditedOncePerPeerAndMinute(t *testing.T) {
 		name   string
 		req    req
 		reason string
+		user   string
 		code   int
 		mod    func(*Server)
 	}{
-		{"csrf", csrfFail, "csrf", 403, nil},
-		{"unauthenticated", noUser, "unauthenticated", 401, nil},
-		{"event stream cap", req{path: "/api/stream"}, "stream_limit", 429, capped},
-		{"log tail cap", req{path: "/api/logs/tail?namespace=apps&pod=web"}, "stream_limit", 429, capped},
+		{"csrf", csrfFail, "csrf", "alice", 403, nil},
+		{"csrf with the fallback header", csrfFallbackHeader, "csrf", "bob", 403, nil},
+		{"unauthenticated", noUser, "unauthenticated", "", 401, nil},
+		{"event stream cap", req{path: "/api/stream"}, "stream_limit", "alice", 429, capped},
+		{"log tail cap", req{path: "/api/logs/tail?namespace=apps&pod=web"}, "stream_limit", "alice", 429, capped},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			dir := t.TempDir()
@@ -336,7 +342,7 @@ func TestDenialsAreAuditedOncePerPeerAndMinute(t *testing.T) {
 				t.Fatalf("records after one denial = %d: %+v", len(recs), recs)
 			}
 			r := recs[0]
-			if r.Kind != audit.KindDenial || r.Reason != tc.reason || r.Peer != "192.0.2.1" || r.AuthMode != "proxy" {
+			if r.Kind != audit.KindDenial || r.Reason != tc.reason || r.Peer != "192.0.2.1" || r.AuthMode != "proxy" || r.Actor.User != tc.user {
 				t.Errorf("denial = %+v", r)
 			}
 
