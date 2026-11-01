@@ -101,6 +101,11 @@ func newHTTPClient(c HTTPConfig) (*http.Client, error) {
 			if !strings.EqualFold(req.URL.Host, via[0].URL.Host) {
 				return errors.New("redirect to another host refused")
 			}
+			// The credentials are added to every hop, so a hop from https to plain http would send
+			// them in clear text.
+			if via[0].URL.Scheme == "https" && req.URL.Scheme != "https" {
+				return errors.New("redirect from https to http refused")
+			}
 			if ip, err := netip.ParseAddr(req.URL.Hostname()); err == nil {
 				return guardAddr(ip, c.FromUI)
 			}

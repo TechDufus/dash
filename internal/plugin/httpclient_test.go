@@ -189,3 +189,54 @@ func TestHTTPClientTimeout(t *testing.T) {
 		t.Fatalf("timeout = %v", c.Timeout)
 	}
 }
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
+
+// A redirect from https to plain http on the same host is refused, so the credentials that
+// Authorize adds to every hop never cross the network in clear text.
+func TestHTTPClientRefusesAnHTTPSToHTTPRedirect(t *testing.T) {
+	var plainAuth []string // Authorization of every request that reached the http hop
+	upstream := roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		if r.URL.Scheme == "http" {
+			plainAuth = append(plainAuth, r.Header.Get("Authorization"))
+		}
+		h := http.Header{}
+		if r.URL.Scheme == "https" && r.URL.Path == "/start" {
+			h.Set("Location", "http://prom.example.com/downgraded")
+			return &http.Response{StatusCode: http.StatusFound, Header: h, Body: http.NoBody, Request: r}, nil
+		}
+		return &http.Response{StatusCode: http.StatusOK, Header: h, Body: http.NoBody, Request: r}, nil
+	})
+	c, err := newHTTPClient(HTTPConfig{Authorize: func(r *http.Request) { r.Header.Set("Authorization", "Bearer s3cret") }})
+	if err != nil {
+		t.Fatal(err)
+	}
+	c.Transport = authorizing{rt: upstream, authorize: func(r *http.Request) { r.Header.Set("Authorization", "Bearer s3cret") }}
+
+	if _, err := c.Get("https://prom.example.com/start"); err == nil || !strings.Contains(err.Error(), "https to http") {
+		t.Fatalf("the downgrade was followed: err = %v", err)
+	}
+	if len(plainAuth) != 0 {
+		t.Fatalf("a request reached http: Authorization %q", plainAuth)
+	}
+
+	// A redirect that stays on https, and one on plain http from the start, still work.
+	secure := roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		h := http.Header{}
+		if r.URL.Path == "/start" {
+			h.Set("Location", "https://prom.example.com/next")
+			return &http.Response{StatusCode: http.StatusFound, Header: h, Body: http.NoBody, Request: r}, nil
+		}
+		return &http.Response{StatusCode: http.StatusOK, Header: h, Body: http.NoBody, Request: r}, nil
+	})
+	c.Transport = secure
+	for _, u := range []string{"https://prom.example.com/start", "http://prom.example.com/start"} {
+		resp, err := c.Get(u)
+		if err != nil {
+			t.Fatalf("%s: %v", u, err)
+		}
+		_ = resp.Body.Close()
+	}
+}
