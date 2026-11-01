@@ -116,6 +116,7 @@ type Supervisor struct {
 	lastPublished []model.PluginInfo
 	published     bool
 	shutdown      atomic.Bool
+	prevVisible   map[ID]bool // Visible(state) of each row in the last core.plugins event; guarded by pubMu
 }
 
 // NewSupervisor makes a Supervisor. Register plugins with Add, then call Run.
@@ -961,7 +962,8 @@ func (s *Supervisor) Live(section string) bool {
 	return in != nil && !in.restartOnly
 }
 
-// publishInfos publishes core.plugins when any PluginInfo changed (or force).
+// publishInfos publishes core.plugins when any PluginInfo changed (or force), then re-publishes
+// the topics of every running instance whose row just turned visible (design A.9, rule (a)).
 func (s *Supervisor) publishInfos(force bool) {
 	if s.opt.Publisher == nil || s.shutdown.Load() {
 		return
@@ -976,6 +978,30 @@ func (s *Supervisor) publishInfos(force bool) {
 	if _, err := s.opt.Publisher.Publish(model.TopicPlugins, model.PluginsData{Plugins: infos}, []model.SourceStatus{}); err != nil {
 		s.log().Error("publish failed", "topic", model.TopicPlugins, "error", err)
 	}
+	s.resendNewlyVisible(infos)
+}
+
+// resendNewlyVisible is the transition detector of rule (a). The SPA fetches a plugin's topics
+// only when it starts listening, and stops listening while the row is hidden, and the hub
+// deduplicates identical publishes: a plugin that turns visible without changing its payload
+// would leave its pages loading. So when a running instance's row goes from a hidden to a
+// visible state, the latest event of each of its topics is sent again, after the core.plugins
+// event that made the row visible. It reads and writes prevVisible under pubMu, from the infos
+// that were just published; the first call (Run's) only records.
+func (s *Supervisor) resendNewlyVisible(infos []model.PluginInfo) {
+	next := make(map[ID]bool, len(infos))
+	for _, pi := range infos {
+		id := ID(pi.ID)
+		vis := Visible(pi.State)
+		next[id] = vis
+		if was, seen := s.prevVisible[id]; !seen || was || !vis || !s.Running(id) {
+			continue
+		}
+		for _, t := range pi.Topics {
+			s.opt.Publisher.Resend(model.Topic(t))
+		}
+	}
+	s.prevVisible = next
 }
 
 // actionRun wraps Act so that a panic in a plugin is an ActionError, not a crashed request.

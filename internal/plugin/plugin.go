@@ -60,6 +60,17 @@ const (
 	ConfirmTypeName = model.ConfirmTypeName
 )
 
+// Visible reports whether a plugin in state s shows its pages: every state except disabled,
+// unavailable, unconfigured and blocked. An unknown state is visible, so a newer server never
+// hides a page an older client had. It mirrors isVisible in web/src/plugins/visibility.ts.
+func Visible(s State) bool {
+	switch s {
+	case StateDisabled, StateUnavailable, StateUnconfigured, StateBlocked:
+		return false
+	}
+	return true
+}
+
 // Manifest is everything a plugin declares about itself, readable without starting it.
 type Manifest struct {
 	ID          ID     // the plugin type; the default instance name
@@ -272,6 +283,9 @@ type Settings interface {
 type Publisher interface {
 	Publish(topic model.Topic, data any, sources []model.SourceStatus) (bool, error)
 	Remove(topic model.Topic)
+	// Resend delivers the stored latest event of topic to the current subscribers again, with
+	// the same data and ETag, and reports whether there was one (design A.9, rule (a)).
+	Resend(topic model.Topic) bool
 }
 
 // HostProvider hands out the Host of an instance to code that publishes on behalf of plugins

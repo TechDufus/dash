@@ -326,3 +326,101 @@ func TestSlowSubscriberIsDropped(t *testing.T) {
 	// A second cancel after the hub closed the channel must be harmless.
 	cancel()
 }
+
+func TestResendRedeliversTheLatestEventUnchanged(t *testing.T) {
+	h := New()
+	h.Publish("p.a", map[string]int{"a": 1}, nil)
+	before, _ := h.Latest("", "p.a")
+	_, ch, cancel := h.Subscribe("", nil)
+	defer cancel()
+	if !h.Resend("p.a") {
+		t.Fatal("Resend of a topic with a stored event must report true")
+	}
+	select {
+	case ev := <-ch:
+		if ev.Topic != "p.a" || ev.ETag != before.ETag || !bytes.Equal(ev.Data, before.Data) {
+			t.Errorf("resent %+v, want the stored event %+v", ev, before)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("nothing resent")
+	}
+	after, _ := h.Latest("", "p.a")
+	if after.ETag != before.ETag || !bytes.Equal(after.Data, before.Data) {
+		t.Errorf("Resend changed the stored event: %+v -> %+v", before, after)
+	}
+	// The digest is untouched too: an identical publish is still deduplicated.
+	if sent, _ := h.Publish("p.a", map[string]int{"a": 1}, nil); sent {
+		t.Error("an identical Publish after Resend must still be deduplicated")
+	}
+}
+
+func TestResendWithoutAStoredEvent(t *testing.T) {
+	h := New()
+	_, ch, cancel := h.Subscribe("", nil)
+	defer cancel()
+	if h.Resend("p.none") {
+		t.Error("Resend of an unknown topic must report false")
+	}
+	select {
+	case ev := <-ch:
+		t.Errorf("unexpected event %+v", ev)
+	default:
+	}
+}
+
+func TestResendHonoursTopicFilterAndUserScope(t *testing.T) {
+	h := New()
+	h.Publish("p.a", 1, nil)
+	h.Publish("p.b", 2, nil)
+	h.PublishFor("alice", "p.a", 3, nil)
+	h.PublishFor("bob", "p.a", 4, nil)
+
+	_, aliceCh, cancelA := h.Subscribe("alice", func(topic string) bool { return topic == "p.a" })
+	defer cancelA()
+	_, bobCh, cancelB := h.Subscribe("bob", func(topic string) bool { return topic == "p.a" })
+	defer cancelB()
+	_, otherCh, cancelO := h.Subscribe("carol", func(topic string) bool { return topic == "p.b" })
+	defer cancelO()
+
+	if !h.Resend("p.a") {
+		t.Fatal("Resend = false")
+	}
+	drain := func(ch <-chan Event) (out []string) {
+		for {
+			select {
+			case ev := <-ch:
+				out = append(out, ev.Topic+"/"+ev.User)
+			default:
+				return out
+			}
+		}
+	}
+	// The global copy and the subscriber's own copy; another user's copy never.
+	if got, want := drain(aliceCh), []string{"p.a/", "p.a/alice"}; !slices.Equal(got, want) {
+		t.Errorf("alice got %v, want %v", got, want)
+	}
+	if got, want := drain(bobCh), []string{"p.a/", "p.a/bob"}; !slices.Equal(got, want) {
+		t.Errorf("bob got %v, want %v", got, want)
+	}
+	// A subscriber that did not ask for the topic gets nothing.
+	if got := drain(otherCh); len(got) != 0 {
+		t.Errorf("carol got %v for a topic she did not ask for", got)
+	}
+}
+
+func TestResendDropsASlowSubscriber(t *testing.T) {
+	h := New()
+	h.Publish("p.a", 1, nil)
+	_, ch, cancel := h.Subscribe("", nil)
+	defer cancel()
+	for range subscriberBuffer + 1 {
+		h.Resend("p.a")
+	}
+	n := 0
+	for range ch {
+		n++
+	}
+	if n != subscriberBuffer {
+		t.Errorf("drained %d events, want %d", n, subscriberBuffer)
+	}
+}

@@ -243,6 +243,7 @@ type Hub struct {
 	mu      sync.Mutex
 	events  []Event
 	removed []model.Topic
+	resent  []model.Topic
 }
 
 func (h *Hub) Publish(topic model.Topic, data any, sources []model.SourceStatus) (bool, error) {
@@ -256,6 +257,26 @@ func (h *Hub) Remove(topic model.Topic) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	h.removed = append(h.removed, topic)
+}
+
+// Resend records the call and reports whether the topic has been published.
+func (h *Hub) Resend(topic model.Topic) bool {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.resent = append(h.resent, topic)
+	for _, e := range h.events {
+		if e.Topic == topic {
+			return true
+		}
+	}
+	return false
+}
+
+// Resent is every Resend so far, in order.
+func (h *Hub) Resent() []model.Topic {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return append([]model.Topic(nil), h.resent...)
 }
 
 // Published is every Publish so far, in order.

@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"slices"
+	"strings"
 	"sync"
 	"time"
 
@@ -131,6 +132,13 @@ func (h *Hub) publish(user string, topic model.Topic, data any, sources []model.
 	ev := Event{Topic: string(topic), Data: body, ETag: hex.EncodeToString(digest[:])[:etagLen], User: user}
 	h.hashes[k] = digest
 	h.latest[k] = ev
+	h.fanOut(ev)
+	return true, nil
+}
+
+// fanOut delivers ev to every subscriber that accepts it and drops the ones that fell behind. The
+// caller holds h.mu.
+func (h *Hub) fanOut(ev Event) {
 	for s := range h.subs {
 		if !s.accepts(ev) {
 			continue
@@ -143,7 +151,28 @@ func (h *Hub) publish(user string, topic model.Topic, data any, sources []model.
 			close(s.ch)
 		}
 	}
-	return true, nil
+}
+
+// Resend delivers the stored latest event of topic again to the current subscribers: the global
+// copy first, then every user's own copy, each only to the subscribers that accept it (their
+// topic filter and user scope). Data, digest and ETag are untouched and nothing is deduplicated,
+// so a client that dropped its listener for the topic gets the state it missed. It runs under
+// the hub's lock, so it cannot overtake a concurrent Publish. It reports false when the topic
+// has no stored event.
+func (h *Hub) Resend(topic model.Topic) bool {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	var evs []Event
+	for k, ev := range h.latest {
+		if k.topic == string(topic) {
+			evs = append(evs, ev)
+		}
+	}
+	slices.SortFunc(evs, func(a, b Event) int { return strings.Compare(a.User, b.User) })
+	for _, ev := range evs {
+		h.fanOut(ev)
+	}
+	return len(evs) > 0
 }
 
 // Remove forgets a topic: its global state, every user's copy and their dedup digests, so a new
