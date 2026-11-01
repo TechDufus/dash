@@ -18,7 +18,7 @@ type Legacy struct {
 	status func() plugin.Status
 }
 
-// NewLegacy returns the shim of manifest m whose Status is status. Demo mode uses it too.
+// NewLegacy returns the shim of manifest m whose Status is status.
 func NewLegacy(m plugin.Manifest, status func() plugin.Status) *Legacy {
 	return &Legacy{M: m, status: status}
 }

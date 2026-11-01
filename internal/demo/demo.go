@@ -55,17 +55,16 @@ func New(cfg config.Config) *Source {
 	return &Source{links: links.New(cfg), start: time.Now(), now: time.Now}
 }
 
-// Plugins returns the eleven legacy shims, all healthy: the demo has nothing to poll. Each topic
-// is published through the Host of its shim in hosts (the supervisor they are added to), so
+// Plugins returns the eleven plugins of the legacy manifests, all healthy: the demo has nothing
+// to poll. Unlike the production shims they can be switched off and on at runtime. Each topic
+// is published through the Host of its plugin in hosts (the supervisor they are added to), so
 // disabling a plugin in demo mode removes its topics like it does for real.
 func (s *Source) Plugins(hosts plugin.HostProvider) []plugin.Factory {
 	s.hosts = hosts
 	ms := topics.LegacyManifests()
 	out := make([]plugin.Factory, len(ms))
 	for i, m := range ms {
-		out[i] = func() plugin.Plugin {
-			return topics.NewLegacy(m, func() plugin.Status { return plugin.Status{State: plugin.StateHealthy} })
-		}
+		out[i] = func() plugin.Plugin { return demoPlugin{m} }
 	}
 	return out
 }

@@ -182,6 +182,56 @@ func TestDemoDisabledPluginPublishesNothing(t *testing.T) {
 	}
 }
 
+// The demo plugins, unlike the production shims, follow a config reload: disabling one removes
+// its topic and lists it as disabled, enabling it again brings the topic back on the next tick.
+func TestDemoPluginSwitchesOffAndOnWithoutRestart(t *testing.T) {
+	set := &plugintest.Settings{}
+	s, sup, h := demoSupervisor(t, set)
+	s.publish()
+	if _, ok := h.Latest("", model.TopicHost); !ok {
+		t.Fatal("the host topic is missing before hardware is disabled")
+	}
+	state := func() model.PluginState {
+		for _, in := range sup.Infos() {
+			if in.ID == "hardware" {
+				return in.State
+			}
+		}
+		t.Fatal("hardware is not listed")
+		return ""
+	}
+	waitFor := func(what string, ok func() bool) {
+		t.Helper()
+		for end := time.Now().Add(5 * time.Second); !ok(); time.Sleep(5 * time.Millisecond) {
+			if time.Now().After(end) {
+				t.Fatalf("timed out waiting for %s", what)
+			}
+		}
+	}
+
+	off := false
+	set.Set(plugin.InstanceConfig{Name: "hardware", Enabled: &off, Config: &config.HardwareConfig{}})
+	sup.Reload()
+	waitFor("hardware to be disabled", func() bool { return state() == model.PluginDisabled })
+	waitFor("the host topic to go", func() bool { _, ok := h.Latest("", model.TopicHost); return !ok })
+	s.publish()
+	if _, ok := h.Latest("", model.TopicHost); ok {
+		t.Error("the host topic is published although hardware is disabled")
+	}
+	if _, ok := h.Latest("", model.TopicVMs); !ok {
+		t.Error("another plugin's topic went with it")
+	}
+
+	on := true
+	set.Set(plugin.InstanceConfig{Name: "hardware", Enabled: &on, Config: &config.HardwareConfig{}})
+	sup.Reload()
+	waitFor("hardware to run again", func() bool { return state() == model.PluginHealthy })
+	s.publish() // what the next tick does
+	if _, ok := h.Latest("", model.TopicHost); !ok {
+		t.Error("the host topic did not come back after hardware was enabled")
+	}
+}
+
 // Demo does not even ask a plugin that does not run to publish (each ask would log a WARN on
 // every tick), and still publishes the rest and the core topics.
 func TestDemoSkipsOwnersThatAreNotRunning(t *testing.T) {
