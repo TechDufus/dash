@@ -449,6 +449,69 @@ describe("pages built from slots", () => {
         await user.type(screen.getByRole("searchbox"), "zzz");
         expect(screen.queryByText(/No apps match/)).toBeNull();
       });
+      it("stays silent while the apps topic is available but its data has not arrived", async () => {
+        const user = userEvent.setup();
+        renderApp(<AppsPage />);
+        stream.plugins(shimRows()); // kubernetes is on; no apps envelope yet
+        await user.type(screen.getByRole("searchbox"), "zzz"); // matches no infrastructure link
+        expect(screen.queryByText(/No apps match/)).toBeNull();
+
+        stream.send("apps", apps());
+        expect(screen.getByText("No apps match “zzz”.")).toBeInTheDocument();
+      });
+
+      it("stays silent while the UI config has not arrived", async () => {
+        const user = userEvent.setup();
+        stubFetch({ "GET /api/config": () => new Promise(() => {}) });
+        renderWith(<AppsPage />, {
+          queryClient: new QueryClient({ defaultOptions: { queries: { retry: false } } }),
+        });
+        stream.plugins(shimRows());
+        stream.send("apps", apps());
+        await user.type(screen.getByRole("searchbox"), "zzz");
+        expect(screen.queryByText(/No apps match/)).toBeNull();
+      });
+    });
+
+    describe("with no section on the page", () => {
+      const off = (rows = shimRows()) =>
+        withState(withState(rows, "launcher", "disabled"), "kubernetes", "unavailable");
+
+      it("explains why instead of showing only the heading and the search", () => {
+        renderApp(<AppsPage />);
+        stream.plugins(off());
+        expect(screen.getByRole("heading", { name: "Apps" })).toBeInTheDocument();
+        expect(screen.getByText(/Nothing to launch/)).toHaveTextContent(
+          "the kubernetes plugin (the apps) is unavailable, and the launcher plugin (the infrastructure links) is disabled.",
+        );
+      });
+
+      it("says the launcher file is empty when its plugin is on but lists no links", () => {
+        const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+        queryClient.setQueryData(["config"], { hostModel: "", launcher: [] });
+        renderWith(<AppsPage />, { queryClient });
+        stream.plugins(withState(shimRows(), "kubernetes", "disabled"));
+        expect(screen.getByText(/Nothing to launch/)).toHaveTextContent(
+          "and the launcher plugin (the infrastructure links) lists no links.",
+        );
+      });
+
+      it("says nothing while the plugin list is loading, and goes away when a plugin returns", () => {
+        stubFetch({
+          "GET /api/config": config,
+          "GET /api/v1/plugins": () => new Promise(() => {}),
+        });
+        renderApp(<AppsPage />);
+        expect(screen.queryByText(/Nothing to launch/)).toBeNull();
+
+        const rows = off();
+        stream.plugins(rows);
+        expect(screen.getByText(/Nothing to launch/)).toBeInTheDocument();
+
+        stream.plugins(withState(rows, "launcher", "healthy"));
+        expect(screen.queryByText(/Nothing to launch/)).toBeNull();
+        expect(screen.getByRole("heading", { name: /^Infrastructure/ })).toBeInTheDocument();
+      });
     });
 
     it("shows placeholder tiles until the apps topic arrives", () => {

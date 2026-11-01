@@ -1,12 +1,13 @@
 import { AppWindow } from "lucide-react";
 import { type ReactNode, useState } from "react";
+import { useUIConfig } from "@/api/queries";
 import { useTopic } from "@/api/stream";
 import type { App, Group } from "@/api/types";
 import { Panel, SourceChips } from "@/components/panel";
 import { Skeleton } from "@/components/ui/skeleton";
 import { type InfraLink, useInfraLinks } from "@/config/links";
 import { cn } from "@/lib/utils";
-import { usePluginVisible, useTopicAvailable } from "@/plugins/state";
+import { usePluginsState, usePluginVisible, useTopicAvailable } from "@/plugins/state";
 
 const GROUP_ORDER: Group[] = ["Platform", "Apps", "Tenants"];
 const GRID = "grid grid-cols-[repeat(auto-fill,minmax(210px,1fr))] gap-3";
@@ -255,27 +256,45 @@ export function InfraSection({ query, compact }: SectionsProps) {
   );
 }
 
-/** Whether either launcher section is on the page (the overview drops its heading when not). */
-export function useLauncherShown(): boolean {
+export type LauncherStatus = "loading" | "shown" | "off";
+
+/**
+ * Whether either launcher section is on the page. "loading" until the plugin list (and, for the
+ * infrastructure links, the UI config) is known, so nothing claims "off" while data is on its way.
+ */
+export function useLauncherStatus(): LauncherStatus {
+  const { ready } = usePluginsState();
   const apps = useTopicAvailable("apps");
   const launcher = usePluginVisible("launcher");
+  const config = useUIConfig();
   const infra = useInfraLinks();
-  return apps === true || (launcher === true && infra.length > 0);
+  if (apps === true || (launcher === true && infra.length > 0)) return "shown";
+  if (!ready || (launcher === true && config.isPending)) return "loading";
+  return "off";
+}
+
+/** Whether either launcher section is on the page (the overview drops its heading when not). */
+export function useLauncherShown(): boolean {
+  return useLauncherStatus() === "shown";
 }
 
 /**
  * The Apps page's empty state, decided from both sections: it speaks only when something is
- * listed and nothing matches. The status element is always mounted so that its text is announced
- * when it changes; an empty one takes no room.
+ * listed and nothing matches, and never while a section's data has yet to arrive. The status
+ * element is always mounted so that its text is announced when it changes; an empty one takes no
+ * room.
  */
 export function NoMatches({ query }: { query: string }) {
   const appsOn = useTopicAvailable("apps") === true;
   const launcherOn = usePluginVisible("launcher") === true;
   const apps = useTopic("apps")?.data.apps;
+  const config = useUIConfig();
   const infra = useInfraLinks();
+  const loading = (appsOn && apps === undefined) || (launcherOn && config.isPending);
   const listedApps = appsOn ? (apps ?? []) : [];
   const listedInfra = launcherOn ? infra : [];
   const nothing =
+    !loading &&
     listedApps.length + listedInfra.length > 0 &&
     !listedApps.some((a) => appMatches(a, query)) &&
     !listedInfra.some((l) => infraMatches(l, query));
