@@ -121,7 +121,7 @@ func TestHostCheck(t *testing.T) {
 	if w.Code != http.StatusMisdirectedRequest {
 		t.Errorf("unknown host: code = %d, want 421", w.Code)
 	}
-	if msg := decodeErr(t, w); !strings.Contains(msg, "DASH_ALLOWED_HOSTS") {
+	if msg := decodeErr(t, w); !strings.Contains(msg, "server.allowedHosts") || strings.Contains(msg, "DASH_") {
 		t.Errorf("unknown host: error = %q", msg)
 	}
 

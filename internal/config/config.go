@@ -68,7 +68,7 @@ type Config struct {
 	ProxmoxTokenSecret secret.Value
 
 	// HostNodename is the nodename label of the Proxmox host's node-exporter and IPMI series;
-	// it defaults to DASH_PROXMOX_NODE, or to the discovered node when that is empty.
+	// it defaults to plugins.proxmox.node, or to the discovered node when that is empty.
 	HostNodename string
 	// HostModel is shown next to the host's name, e.g. "Dell R730"; empty shows nothing.
 	HostModel string

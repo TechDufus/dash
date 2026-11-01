@@ -34,7 +34,7 @@ func (s *Server) hosts(next http.Handler) http.Handler {
 				}
 				slog.Warn("rejected request for unknown host", "host", host)
 			}
-			writeErr(w, http.StatusMisdirectedRequest, "unknown host; set DASH_PUBLIC_URL or DASH_ALLOWED_HOSTS")
+			writeErr(w, http.StatusMisdirectedRequest, "unknown host; set server.publicURL or server.allowedHosts")
 			return
 		}
 		next.ServeHTTP(w, r)
