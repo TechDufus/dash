@@ -1227,3 +1227,110 @@ func TestHostHTTPClientWarnsOnInsecureSkipVerify(t *testing.T) {
 		t.Fatalf("no WARN naming the plugin:\n%s", buf.String())
 	}
 }
+
+// genericPlugin is plugin id with the topics "items" and "other" and the given UI. Only aa gives
+// "items" a legacy name ("rows"): those are unique across plugins.
+func genericPlugin(id plugin.ID, ui plugin.UISpec) plugin.Factory {
+	return plugintest.New(id, func(f *plugintest.Fake) {
+		f.M.Name = "Generic " + string(id)
+		f.M.Topics = []plugin.TopicSpec{{Name: "items"}, {Name: "other"}}
+		if id == "aa" {
+			f.M.Topics[0].Legacy = "rows"
+		}
+		f.M.UI = ui
+	}).Factory()
+}
+
+func TestGenericViewsAreValidated(t *testing.T) {
+	cols := []model.GenericColumn{{Key: "name", Label: "Name"}, {Key: "size", Label: "Size", Format: "bytes"}}
+	table := func(mut func(*model.GenericView)) plugin.UISpec {
+		v := model.GenericView{ID: "t", Title: "Items", Kind: model.GenericTable, Topic: "items", Path: "/rows", Columns: cols}
+		mut(&v)
+		return plugin.UISpec{Generic: []model.GenericView{v}}
+	}
+	for name, ui := range map[string]plugin.UISpec{
+		"empty id":            table(func(v *model.GenericView) { v.ID = "" }),
+		"unknown kind":        table(func(v *model.GenericView) { v.Kind = "chart" }),
+		"undeclared topic":    table(func(v *model.GenericView) { v.Topic = "nope" }),
+		"full topic name":     table(func(v *model.GenericView) { v.Topic = "aa.items" }),
+		"empty topic":         table(func(v *model.GenericView) { v.Topic = "" }),
+		"pointer without /":   table(func(v *model.GenericView) { v.Path = "rows" }),
+		"pointer bad escape":  table(func(v *model.GenericView) { v.Path = "/a~2b" }),
+		"pointer trailing ~":  table(func(v *model.GenericView) { v.Path = "/a~" }),
+		"table without cols":  table(func(v *model.GenericView) { v.Columns = nil }),
+		"list without cols":   table(func(v *model.GenericView) { v.Kind, v.Columns = model.GenericList, nil }),
+		"column without key":  table(func(v *model.GenericView) { v.Columns = []model.GenericColumn{{Label: "x"}} }),
+		"unknown column fmt":  table(func(v *model.GenericView) { v.Columns = []model.GenericColumn{{Key: "a", Format: "hex"}} }),
+		"unknown stat format": table(func(v *model.GenericView) { v.Kind, v.Format = model.GenericStat, "hex" }),
+		"duplicate id":        {Generic: append(table(func(*model.GenericView) {}).Generic, table(func(v *model.GenericView) { v.Topic = "other" }).Generic...)},
+		"duplicate id (stat)": {Generic: []model.GenericView{{ID: "s", Kind: model.GenericStat, Topic: "items"}, {ID: "s", Kind: model.GenericStat, Topic: "items"}}},
+	} {
+		if err := plugin.NewSupervisor(plugin.Options{}).Add(genericPlugin("aa", ui)); err == nil {
+			t.Errorf("%s accepted", name)
+		}
+	}
+	for name, ui := range map[string]plugin.UISpec{
+		"whole payload":    table(func(v *model.GenericView) { v.Path = "" }),
+		"escaped pointer":  table(func(v *model.GenericView) { v.Path = "/a~0b/c~1d/0" }),
+		"list":             table(func(v *model.GenericView) { v.Kind = model.GenericList }),
+		"stat, no columns": {Generic: []model.GenericView{{ID: "s", Title: "Count", Kind: model.GenericStat, Topic: "other", Path: "/n", Label: "Items", Unit: "x", Format: "number"}}},
+		"two views":        {Generic: []model.GenericView{{ID: "a", Kind: model.GenericStat, Topic: "items"}, {ID: "b", Kind: model.GenericStat, Topic: "other"}}},
+	} {
+		if err := plugin.NewSupervisor(plugin.Options{}).Add(genericPlugin("aa", ui)); err != nil {
+			t.Errorf("%s rejected: %v", name, err)
+		}
+	}
+}
+
+func TestInfosResolveGenericTopics(t *testing.T) {
+	cols := []model.GenericColumn{{Key: "name", Label: "Name"}}
+	views := []model.GenericView{
+		{ID: "items", Title: "Items", Kind: model.GenericTable, Topic: "items", Path: "/rows", Columns: cols},
+		{ID: "count", Title: "Count", Kind: model.GenericStat, Topic: "other", Path: "/n"},
+	}
+	nav := []model.NavItem{{Path: "/own", Label: "Own", Title: "Own", Icon: "Server"}}
+	e := start(t,
+		genericPlugin("aa", plugin.UISpec{Generic: views}),
+		genericPlugin("bb", plugin.UISpec{Generic: views[1:], Icon: "Boxes"}),
+		genericPlugin("cc", plugin.UISpec{Generic: views[1:], Nav: nav}),
+		genericPlugin("dd", plugin.UISpec{}),
+	)
+
+	aa := e.info(t, "aa")
+	// The manifest names the topic "items"; the row carries the name it is published under (the
+	// legacy one when set) so the SPA can read the envelope with no lookup.
+	if len(aa.Generic) != 2 || aa.Generic[0].Topic != "rows" || aa.Generic[1].Topic != "aa.other" {
+		t.Fatalf("generic topics = %+v, want rows and aa.other", aa.Generic)
+	}
+	if !slices.Equal(aa.Topics, []string{"rows", "aa.other"}) {
+		t.Fatalf("topics = %v", aa.Topics)
+	}
+	if g := aa.Generic[0]; g.ID != "items" || g.Kind != model.GenericTable || g.Path != "/rows" || !slices.Equal(g.Columns, cols) {
+		t.Fatalf("view = %+v", g)
+	}
+	// No Nav and some views: one synthesised entry, with the default icon.
+	if want := []model.NavItem{{Path: "/x/aa", Label: "Generic aa", Title: "Generic aa", Icon: "Puzzle"}}; !slices.Equal(aa.Nav, want) {
+		t.Fatalf("nav = %+v, want %+v", aa.Nav, want)
+	}
+	if bb := e.info(t, "bb"); len(bb.Nav) != 1 || bb.Nav[0].Path != "/x/bb" || bb.Nav[0].Icon != "Boxes" || bb.Generic[0].Topic != "bb.other" {
+		t.Fatalf("bb = %+v", bb)
+	}
+	// A plugin that declares its own Nav keeps exactly that.
+	if cc := e.info(t, "cc"); !slices.Equal(cc.Nav, nav) || len(cc.Generic) != 1 {
+		t.Fatalf("cc = %+v", cc)
+	}
+	// No views: nothing is synthesised and the list is empty, not null.
+	if dd := e.info(t, "dd"); dd.Generic == nil || len(dd.Generic) != 0 || len(dd.Nav) != 0 {
+		t.Fatalf("dd = %+v", dd)
+	}
+
+	// What a plugin hands in at Add is copied: changing it afterwards changes nothing.
+	views[0].Columns[0].Label = "changed"
+	if got := e.info(t, "aa").Generic[0].Columns[0].Label; got != "Name" {
+		t.Fatalf("the manifest's columns are shared with the plugin: label %q", got)
+	}
+	aa.Generic[0].Columns[0].Label = "mutated by a reader"
+	if got := e.info(t, "aa").Generic[0].Columns[0].Label; got != "Name" {
+		t.Fatalf("a PluginInfo shares columns with the manifest: label %q", got)
+	}
+}

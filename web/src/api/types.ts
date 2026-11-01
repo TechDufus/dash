@@ -739,6 +739,37 @@ export interface NavItem {
   icon: string; // a lucide icon name; the SPA module maps it
 }
 /**
+ * GenericKind is how the SPA renders a GenericView.
+ */
+export type GenericKind = string;
+export const GenericTable: GenericKind = "table";
+export const GenericList: GenericKind = "list";
+export const GenericStat: GenericKind = "stat";
+/**
+ * GenericColumn is one column of a table or list view.
+ */
+export interface GenericColumn {
+  key: string; // field of each row object
+  label: string;
+  format?: string; // text | number | bytes | percent | time | health
+}
+/**
+ * GenericView is a view the SPA renders from a topic for a plugin that has no SPA module of its
+ * own. Path selects the data inside the topic's payload; the kind decides which of the other
+ * fields apply.
+ */
+export interface GenericView {
+  id: string; // unique within the plugin
+  title: string;
+  kind: GenericKind;
+  topic: string; // in a manifest: a declared TopicSpec.Name; in PluginInfo: the full SSE name
+  path: string; // RFC 6901 pointer into the topic's data; "" is the whole payload
+  columns: GenericColumn[]; // table and list
+  label?: string; // stat
+  unit?: string; // stat
+  format?: string; // stat: one of the column formats
+}
+/**
  * ActionInfo describes one action a plugin mounts.
  */
 export interface ActionInfo {
@@ -763,6 +794,7 @@ export interface PluginInfo {
   topics: string[]; // full SSE names: "proxmox.vms", or the un-namespaced legacy name ("vms") until the plugin's G3 leaf
   actions: ActionInfo[]; // only the ones mounted (actions.enabled)
   nav: NavItem[];
+  generic: GenericView[]; // views the SPA renders for this plugin; empty when it has a module of its own
   configurable: boolean;
 }
 /**

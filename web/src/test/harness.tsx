@@ -227,6 +227,7 @@ export function pluginInfo(partial: Partial<PluginInfo> = {}): PluginInfo {
     state: "healthy",
     message: "",
     topics: [],
+    generic: [],
     actions: [],
     nav: [],
     configurable: false,

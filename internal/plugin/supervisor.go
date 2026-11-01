@@ -287,6 +287,10 @@ func newInstance(f Factory, p Plugin, index int) (*instance, error) {
 	}
 	m.Series = slices.Clone(m.Series)
 	m.UI.Nav = slices.Clone(m.UI.Nav)
+	var err error
+	if m.UI.Generic, err = cloneGeneric(m.ID, m.UI.Generic, topics); err != nil {
+		return nil, err
+	}
 	for _, d := range slices.Concat(m.Requires, m.Uses) {
 		if !slices.Contains(in.deps, d) {
 			in.deps = append(in.deps, d)
@@ -294,6 +298,74 @@ func newInstance(f Factory, p Plugin, index int) (*instance, error) {
 	}
 	in.man = m
 	return in, nil
+}
+
+// genericFormats are the cell and stat formats the SPA knows.
+var genericFormats = map[string]bool{"text": true, "number": true, "bytes": true, "percent": true, "time": true, "health": true}
+
+// cloneGeneric checks the generic views of plugin id against the topics it declares (by
+// TopicSpec.Name) and returns a copy the plugin can no longer change.
+func cloneGeneric(id ID, views []model.GenericView, topics map[string]bool) ([]model.GenericView, error) {
+	out := make([]model.GenericView, len(views))
+	ids := map[string]bool{}
+	for i, v := range views {
+		bad := func(format string, a ...any) error {
+			return fmt.Errorf("plugin %s: generic view %q: %s", id, v.ID, fmt.Sprintf(format, a...))
+		}
+		if v.ID == "" {
+			return nil, fmt.Errorf("plugin %s: generic view %d has no id", id, i+1)
+		}
+		if ids[v.ID] {
+			return nil, bad("duplicate id")
+		}
+		ids[v.ID] = true
+		switch v.Kind {
+		case model.GenericTable, model.GenericList:
+			if len(v.Columns) == 0 {
+				return nil, bad("a %s needs columns", v.Kind)
+			}
+		case model.GenericStat:
+		default:
+			return nil, bad("unknown kind %q: want table, list or stat", v.Kind)
+		}
+		if !topics[v.Topic] {
+			return nil, bad("topic %q is not declared by the plugin", v.Topic)
+		}
+		if !validPointer(v.Path) {
+			return nil, bad("path %q is not an RFC 6901 JSON pointer", v.Path)
+		}
+		if v.Format != "" && !genericFormats[v.Format] {
+			return nil, bad("unknown format %q", v.Format)
+		}
+		for _, c := range v.Columns {
+			if c.Key == "" {
+				return nil, bad("a column has no key")
+			}
+			if c.Format != "" && !genericFormats[c.Format] {
+				return nil, bad("column %q has unknown format %q", c.Key, c.Format)
+			}
+		}
+		v.Columns = slices.Clone(v.Columns)
+		out[i] = v
+	}
+	return out, nil
+}
+
+// validPointer reports whether p is an RFC 6901 JSON pointer: empty, or '/'-separated tokens in
+// which '~' is only ever the start of "~0" or "~1".
+func validPointer(p string) bool {
+	if p == "" {
+		return true
+	}
+	if p[0] != '/' {
+		return false
+	}
+	for i := range len(p) {
+		if p[i] == '~' && (i+1 == len(p) || (p[i+1] != '0' && p[i+1] != '1')) {
+			return false
+		}
+	}
+	return true
 }
 
 // startOrder sorts instances so that every registered dependency comes first, ties by

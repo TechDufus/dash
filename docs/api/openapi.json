@@ -845,6 +845,57 @@
         },
         "type": "object"
       },
+      "GenericColumn": {
+        "additionalProperties": false,
+        "properties": {
+          "format": {
+            "type": "string"
+          },
+          "key": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "GenericView": {
+        "additionalProperties": false,
+        "properties": {
+          "columns": {
+            "items": {
+              "$ref": "#/components/schemas/GenericColumn"
+            },
+            "type": "array"
+          },
+          "format": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "path": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "topic": {
+            "type": "string"
+          },
+          "unit": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
       "HostData": {
         "additionalProperties": false,
         "properties": {
@@ -1344,6 +1395,12 @@
           },
           "configurable": {
             "type": "boolean"
+          },
+          "generic": {
+            "items": {
+              "$ref": "#/components/schemas/GenericView"
+            },
+            "type": "array"
           },
           "id": {
             "type": "string"

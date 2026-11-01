@@ -44,10 +44,27 @@ func (s *Supervisor) info(in *instance) model.PluginInfo {
 		Topics:       make([]string, 0, len(m.Topics)),
 		Actions:      []model.ActionInfo{},
 		Nav:          append([]model.NavItem{}, m.UI.Nav...),
+		Generic:      make([]model.GenericView, 0, len(m.UI.Generic)),
 		Configurable: in.cfgZero != nil,
 	}
 	for _, t := range m.Topics {
 		pi.Topics = append(pi.Topics, string(topicName(in.id, t)))
+	}
+	for _, v := range m.UI.Generic {
+		for _, t := range m.Topics {
+			if t.Name == v.Topic {
+				v.Topic = string(topicName(in.id, t))
+			}
+		}
+		v.Columns = slices.Clone(v.Columns)
+		pi.Generic = append(pi.Generic, v)
+	}
+	if len(pi.Generic) > 0 && len(pi.Nav) == 0 {
+		icon := m.UI.Icon
+		if icon == "" {
+			icon = "Puzzle"
+		}
+		pi.Nav = append(pi.Nav, model.NavItem{Path: "/x/" + string(in.id), Label: m.Name, Title: m.Name, Icon: icon})
 	}
 	if running && enabled {
 		if _, ok := p.(Actor); ok {

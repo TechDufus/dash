@@ -111,8 +111,14 @@ type SeriesSpec struct {
 	Expr func(a SeriesArgs) (string, error)
 }
 
-// UISpec is what a plugin adds to the SPA (P2.8 adds generic views).
-type UISpec struct{ Nav []model.NavItem }
+// UISpec is what a plugin adds to the SPA.
+type UISpec struct {
+	Nav []model.NavItem
+	// Generic are views the SPA renders from the plugin's topics when it has no module of its
+	// own. A plugin that declares them and no Nav gets one nav entry, /x/<instance>.
+	Generic []model.GenericView
+	Icon    string // lucide name of that synthesised nav entry; "Puzzle" when empty
+}
 
 // Status is what a running plugin reports about itself.
 type Status struct {
