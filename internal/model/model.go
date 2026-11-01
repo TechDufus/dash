@@ -214,8 +214,11 @@ type HostData struct {
 	PSUs          []PSU     `json:"psus"`
 	SELFreeBytes  int64     `json:"selFreeBytes"`
 	Pools         []Pool    `json:"pools"`
-	Disks         []Disk    `json:"disks"`
-	Links         []Link    `json:"links"`
+	// ScrubTracked is false when plugins.hardware.zfsScrubMetricPrefix is empty: no scrub series
+	// is read, so the pools carry no scrub data and the UI shows none.
+	ScrubTracked bool   `json:"scrubTracked"`
+	Disks        []Disk `json:"disks"`
+	Links        []Link `json:"links"`
 }
 
 // ---- vms ----

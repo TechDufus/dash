@@ -383,7 +383,7 @@ function poolHealth(state: string): Health {
   return "crit";
 }
 
-function PoolCard({ pool, now }: { pool: Pool; now: number }) {
+function PoolCard({ pool, now, scrubTracked }: { pool: Pool; now: number; scrubTracked: boolean }) {
   const age = ageSeconds(pool.lastScrubEnd, now);
   const stale = age == null || age > SCRUB_STALE_DAYS * 86400;
   return (
@@ -397,23 +397,27 @@ function PoolCard({ pool, now }: { pool: Pool; now: number }) {
           label={pool.state.toUpperCase()}
         />
       </div>
-      <dl className="grid grid-cols-2 gap-2 text-xs">
-        <div>
-          <dt className="text-muted">Last scrub</dt>
-          <dd className={cn("num inline-flex items-center gap-1", stale ? "text-warn" : "text-fg")}>
-            {stale && <TriangleAlert className="size-3" aria-hidden="true" />}
-            {pool.lastScrubEnd ? formatRelative(pool.lastScrubEnd, now) : "never"}
-            {stale && pool.lastScrubEnd && " · stale"}
-          </dd>
-        </div>
-        <div>
-          <dt className="text-muted">Scrub errors</dt>
-          <dd className={cn("num", pool.scrubErrors > 0 ? "font-medium text-crit" : "text-fg")}>
-            {pool.scrubErrors}
-          </dd>
-        </div>
-      </dl>
-      {pool.scrubInProgress && (
+      {scrubTracked && (
+        <dl className="grid grid-cols-2 gap-2 text-xs">
+          <div>
+            <dt className="text-muted">Last scrub</dt>
+            <dd
+              className={cn("num inline-flex items-center gap-1", stale ? "text-warn" : "text-fg")}
+            >
+              {stale && <TriangleAlert className="size-3" aria-hidden="true" />}
+              {pool.lastScrubEnd ? formatRelative(pool.lastScrubEnd, now) : "never"}
+              {stale && pool.lastScrubEnd && " · stale"}
+            </dd>
+          </div>
+          <div>
+            <dt className="text-muted">Scrub errors</dt>
+            <dd className={cn("num", pool.scrubErrors > 0 ? "font-medium text-crit" : "text-fg")}>
+              {pool.scrubErrors}
+            </dd>
+          </div>
+        </dl>
+      )}
+      {scrubTracked && pool.scrubInProgress && (
         <span className="inline-flex items-center gap-1 rounded-full border border-accent/30 bg-accent/10 px-2 py-0.5 text-xs text-accent">
           <LoaderCircle className="size-3 animate-spin" aria-hidden="true" />
           Scrub in progress
@@ -433,7 +437,9 @@ function SidePanels({ host, now }: { host: HostData; now: number }) {
           {host.pools.length === 0 ? (
             <Empty className="py-4">No pools reported.</Empty>
           ) : (
-            host.pools.map((p) => <PoolCard key={p.name} pool={p} now={now} />)
+            host.pools.map((p) => (
+              <PoolCard key={p.name} pool={p} now={now} scrubTracked={host.scrubTracked} />
+            ))
           )}
         </div>
       </Panel>

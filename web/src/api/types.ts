@@ -191,6 +191,11 @@ export interface HostData {
   psus: PSU[];
   selFreeBytes: number /* int64 */;
   pools: Pool[];
+  /**
+   * ScrubTracked is false when plugins.hardware.zfsScrubMetricPrefix is empty: no scrub series
+   * is read, so the pools carry no scrub data and the UI shows none.
+   */
+  scrubTracked: boolean;
   disks: Disk[];
   links: Link[];
 }

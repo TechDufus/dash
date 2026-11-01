@@ -269,6 +269,7 @@ func (s *Source) build() world {
 		PowerWatts: power, PackageTempsC: temps, Sensors: sensors,
 		PSUs:         []model.PSU{{Name: "PS1 Status", State: model.HealthOK}, {Name: "PS2 Status", State: model.HealthOK}},
 		SELFreeBytes: 14 << 10,
+		ScrubTracked: true,
 		Pools: []model.Pool{
 			{Name: "rpool", State: "ONLINE", LastScrubEnd: agoP(5 * 24 * time.Hour)},
 			{Name: "tank", State: "ONLINE", LastScrubEnd: agoP(5*24*time.Hour - 3*time.Hour)},

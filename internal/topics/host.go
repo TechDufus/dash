@@ -17,7 +17,7 @@ func (m *Manager) pollHost(ctx context.Context) {
 	m.mu.RLock()
 	d := m.host.data // last good values survive a failed query
 	m.mu.RUnlock()
-	d.Name = m.d.Cfg.ProxmoxNode
+	d.Name, d.ScrubTracked = m.d.Cfg.ProxmoxNode, scrub != ""
 
 	if m.d.PVE.Enabled() {
 		st, err := m.d.PVE.NodeStatus(ctx)
