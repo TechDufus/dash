@@ -16,7 +16,7 @@ func readSPA(t *testing.T, name string) string {
 	return string(b)
 }
 
-// The topic constants, TopicTypes, and the SPA's TopicData and TOPICS name the same topics, and
+// The topic constants, TopicTypes and the SPA's TopicData name the same topics, and
 // each one's payload type is the one the SPA reads (a rename lands in Go and web together).
 func TestTopicsAgreeInGoAndWeb(t *testing.T) {
 	var constants []string
@@ -39,16 +39,7 @@ func TestTopicsAgreeInGoAndWeb(t *testing.T) {
 		data = append(data, m[1])
 		payload = append(payload, m[1]+":"+m[2])
 	}
-	list := regexp.MustCompile(`(?s)export const TOPICS = \[(.*?)\] as const`).FindStringSubmatch(topicsTS)
-	if list == nil {
-		t.Fatal("topics.ts has no TOPICS list")
-	}
-	var listed []string
-	for _, m := range regexp.MustCompile(`"([^"]+)"`).FindAllStringSubmatch(list[1], -1) {
-		listed = append(listed, m[1])
-	}
-
-	for name, got := range map[string][]string{"TopicTypes": typed, "TopicData": data, "TOPICS": listed} {
+	for name, got := range map[string][]string{"TopicTypes": typed, "TopicData": data} {
 		a, b := slices.Clone(constants), slices.Clone(got)
 		slices.Sort(a)
 		slices.Sort(b)

@@ -1,17 +1,19 @@
 import { motion } from "motion/react";
 import { Link, useLocation } from "wouter";
 import { useMe } from "@/api/queries";
-import { useTopic } from "@/api/stream";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
-import { isActive, NAV } from "./nav";
+import { isActive, useNavEntries } from "@/plugins/state";
 
 /** Fixed 72 px icon rail (desktop). */
 export function Rail() {
   const [location] = useLocation();
   const me = useMe();
-  const overview = useTopic("core.overview")?.data;
-  const firing = overview?.kpis.alertsFiring ?? 0;
+  const { ready, entries } = useNavEntries();
+  // Until the plugin list arrives the plugin positions hold placeholders: no layout jump and no
+  // wrong entries. They sit after the first (Overview) entry, where the plugin entries start.
+  const placeholders = ready ? [] : ["a", "b", "c"];
   return (
     <nav
       aria-label="Primary"
@@ -28,12 +30,12 @@ export function Rail() {
         </span>
       </Link>
       <ul className="flex flex-1 flex-col items-center gap-1.5">
-        {NAV.map((item) => {
+        {entries.flatMap((item, i) => {
           const active = isActive(item, location);
           const Icon = item.icon;
-          const badge = item.to === "/alerts" && firing > 0 ? firing : 0;
-          return (
-            <li key={item.to} className="relative">
+          const Badge = item.badge;
+          const node = (
+            <li key={item.key} className="relative">
               {active && (
                 <motion.span
                   layoutId="rail-active"
@@ -44,7 +46,7 @@ export function Rail() {
               <Tooltip>
                 <TooltipTrigger asChild>
                   <Link
-                    href={item.to}
+                    href={item.path}
                     aria-label={item.label}
                     aria-current={active ? "page" : undefined}
                     className={cn(
@@ -53,11 +55,7 @@ export function Rail() {
                     )}
                   >
                     <Icon className="size-5" aria-hidden="true" />
-                    {badge > 0 && (
-                      <span className="num absolute -top-1 -right-1 flex min-w-4 items-center justify-center rounded-full bg-crit px-1 text-[10px] leading-4 font-semibold text-canvas">
-                        {badge}
-                      </span>
-                    )}
+                    {Badge && <Badge />}
                   </Link>
                 </TooltipTrigger>
                 <TooltipContent side="right" sideOffset={10}>
@@ -66,6 +64,15 @@ export function Rail() {
               </Tooltip>
             </li>
           );
+          if (i !== 0) return [node];
+          return [
+            node,
+            ...placeholders.map((p) => (
+              <li key={`placeholder:${p}`} aria-hidden="true" data-placeholder="">
+                <Skeleton className="size-10 rounded-xl" />
+              </li>
+            )),
+          ];
         })}
       </ul>
       <div className="flex w-full flex-col items-center gap-1 px-1 text-center">

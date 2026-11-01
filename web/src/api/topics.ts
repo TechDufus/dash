@@ -35,19 +35,6 @@ type _exact = [Topic] extends [keyof TopicData]
   : never;
 export const _topicsExact: _exact = true;
 
-export const TOPICS = [
-  "core.plugins",
-  "core.overview",
-  "host",
-  "vms",
-  "cluster",
-  "flux",
-  "storage",
-  "alerts",
-  "status",
-  "apps",
-] as const satisfies readonly Topic[];
-
 export type TypedEnvelope<T extends Topic> = Omit<Envelope, "data" | "topic"> & {
   topic: T;
   data: TopicData[T];

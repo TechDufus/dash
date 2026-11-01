@@ -1,17 +1,30 @@
 import { useSyncExternalStore } from "react";
+import { isVisible } from "@/plugins/visibility";
 import { api } from "./client";
-import { TOPICS, type TopicData, type TypedEnvelope } from "./topics";
-import type { Envelope, Topic } from "./types";
+import type { TopicData, TypedEnvelope } from "./topics";
+import type { Envelope, PluginsData, Topic } from "./types";
 
 export type ConnectionState = "connecting" | "live" | "reconnecting";
 
-const envelopes = new Map<Topic, Envelope>();
+// The stream starts with these two. Every other topic is named by a plugin row in core.plugins,
+// so a plugin this build has never heard of still gets its topics delivered (generic views).
+const BOOT = ["core.plugins", "core.overview"] as const;
+
+const envelopes = new Map<string, Envelope>();
 const listeners = new Set<() => void>();
+/** Topic names with an event listener on the current EventSource. */
+const listening = new Set<string>();
+/** Topics a visible plugin listed in the previous core.plugins event of this connection. */
+let visibleTopics = new Set<string>();
+/** True until the first core.plugins event of the connection: nothing is seeded on connect. */
+let firstPlugins = true;
+let version = 0;
 let connection: ConnectionState = "connecting";
 let source: EventSource | null = null;
 let retryTimer: ReturnType<typeof setTimeout> | undefined;
 
 function emit() {
+  version++;
   for (const l of listeners) l();
 }
 
@@ -28,8 +41,78 @@ function setConnection(next: ConnectionState) {
   emit();
 }
 
+function parse(ev: Event): Envelope | undefined {
+  try {
+    const env = JSON.parse((ev as MessageEvent<string>).data) as Envelope;
+    return env && typeof env === "object" ? env : undefined;
+  } catch {
+    return undefined; // a malformed event is ignored; the next one replaces it
+  }
+}
+
+function listen(es: EventSource, topic: string) {
+  if (listening.has(topic)) return;
+  listening.add(topic);
+  es.addEventListener(topic, (ev) => {
+    const env = parse(ev);
+    if (!env) return;
+    if (topic === "core.plugins") {
+      if (!Array.isArray((env.data as PluginsData | undefined)?.plugins)) return;
+      envelopes.set(topic, env);
+      setConnection("live");
+      syncTopics(es, (env.data as PluginsData).plugins);
+      emit();
+      return;
+    }
+    envelopes.set(topic, env);
+    setConnection("live");
+    emit();
+  });
+}
+
+/**
+ * core.plugins decides what the stream listens to and what the store keeps: it attaches a
+ * listener for every topic any plugin lists (an EventSource accepts listeners at any time and
+ * delivers in order, so the listener exists before the next snapshot event), drops the envelope
+ * of every non-core topic no visible plugin lists, and seeds the topics that just became visible.
+ */
+function syncTopics(es: EventSource, plugins: PluginsData["plugins"]) {
+  const next = new Set<string>();
+  for (const p of plugins) {
+    for (const t of p.topics) {
+      listen(es, t);
+      if (isVisible(p.state)) next.add(t);
+    }
+  }
+  for (const name of [...envelopes.keys()]) {
+    if (!name.startsWith("core.") && !next.has(name)) envelopes.delete(name);
+  }
+  const fresh = [...next].filter((t) => !visibleTopics.has(t) && !envelopes.has(t));
+  const seed = !firstPlugins;
+  visibleTopics = next;
+  firstPlugins = false;
+  // On connect the snapshot follows core.plugins on the same stream. A plugin enabled while the
+  // page is open can publish before its listener exists, and the hub only publishes changes, so
+  // its first value is fetched once.
+  if (seed) for (const t of fresh) void seedTopic(es, t);
+}
+
+async function seedTopic(es: EventSource, name: string) {
+  try {
+    const env = await api.get<Envelope>(`/api/v1/topics/${name}`);
+    if (source !== es || envelopes.has(name) || !visibleTopics.has(name) || !env) return;
+    envelopes.set(name, env);
+    emit();
+  } catch {
+    // 404: the plugin has not published yet; the stream delivers it when it does
+  }
+}
+
 function open() {
   source?.close();
+  listening.clear();
+  visibleTopics = new Set();
+  firstPlugins = true;
   const es = new EventSource("/api/v1/stream");
   source = es;
   es.onopen = () => setConnection("live");
@@ -46,23 +129,40 @@ function open() {
       retryTimer = setTimeout(open, 3000);
     }
   };
-  for (const topic of TOPICS) {
-    es.addEventListener(topic, (ev) => {
-      try {
-        const env = JSON.parse((ev as MessageEvent<string>).data) as Envelope;
-        envelopes.set(topic, env);
-        setConnection("live");
-        emit();
-      } catch {
-        // ignore a malformed event; the next one replaces it
-      }
-    });
-  }
+  for (const topic of BOOT) listen(es, topic);
 }
 
 /** Opens the single shared EventSource (idempotent). */
 export function startStream() {
   if (!source) open();
+}
+
+/** Closes the stream and forgets everything it delivered (tests; the app never calls it). */
+export function stopStream() {
+  clearTimeout(retryTimer);
+  source?.close();
+  source = null;
+  listening.clear();
+  visibleTopics = new Set();
+  firstPlugins = true;
+  envelopes.clear();
+  connection = "connecting";
+  emit();
+}
+
+/** The current envelope of a topic, by name; for code that is not a component (the palette). */
+export function getEnvelope(name: string): Envelope | undefined {
+  return envelopes.get(name);
+}
+
+/** A counter that changes with every stream change; lets a component re-read `getEnvelope`. */
+export function useStreamVersion(): number {
+  return useSyncExternalStore(subscribe, () => version);
+}
+
+/** The envelope of a topic the SPA has no static type for (generic plugins). */
+export function useEnvelope(name: string): Envelope | undefined {
+  return useSyncExternalStore(subscribe, () => envelopes.get(name));
 }
 
 export function useTopic<T extends Topic>(topic: T): TypedEnvelope<T> | undefined {

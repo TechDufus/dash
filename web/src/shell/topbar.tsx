@@ -17,7 +17,7 @@ import {
 import { formatClock } from "@/lib/format";
 import { useNow } from "@/lib/hooks";
 import { cn } from "@/lib/utils";
-import { isActive, NAV, titleFor } from "./nav";
+import { isActive, titleFor, useNavEntries } from "@/plugins/state";
 
 function StatusPill() {
   const overview = useTopic("core.overview")?.data;
@@ -87,6 +87,7 @@ export function TopBar() {
   const [location] = useLocation();
   const [menu, setMenu] = useState(false);
   const me = useMe();
+  const { entries } = useNavEntries();
   return (
     <header className="sticky top-0 z-20 flex h-14 items-center gap-3 border-b border-line bg-canvas/60 px-4 backdrop-blur-xl md:px-6">
       <Button
@@ -99,7 +100,7 @@ export function TopBar() {
         <Menu />
       </Button>
       <h1 className="truncate text-base font-semibold tracking-tight text-fg">
-        {titleFor(location)}
+        {titleFor(entries, location)}
       </h1>
       <div className="ml-auto flex items-center gap-3">
         <StatusPill />
@@ -125,13 +126,13 @@ export function TopBar() {
             <SheetDescription>Homelab mission control</SheetDescription>
           </SheetHeader>
           <nav aria-label="Mobile" className="flex-1 space-y-1 p-3">
-            {NAV.map((item) => {
+            {entries.map((item) => {
               const Icon = item.icon;
               const active = isActive(item, location);
               return (
                 <Link
-                  key={item.to}
-                  href={item.to}
+                  key={item.key}
+                  href={item.path}
                   onClick={() => setMenu(false)}
                   aria-current={active ? "page" : undefined}
                   className={cn(

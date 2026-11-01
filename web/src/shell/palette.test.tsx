@@ -1,0 +1,206 @@
+import { act, screen, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { startStream, stopStream } from "@/api/stream";
+import { ui } from "@/api/ui-store";
+import { moduleById } from "@/plugins/registry";
+import {
+  envelope,
+  type FakeEventSource,
+  installEventSource,
+  pluginsEnvelope,
+  renderApp,
+  stubFetch,
+} from "@/test/harness";
+import { shimRows, withState } from "@/test/shims";
+import { CommandPalette } from "./command-palette";
+
+let ES: typeof FakeEventSource;
+
+beforeEach(() => {
+  ES = installEventSource();
+  stubFetch({ "GET /api/v1/plugins": () => new Promise(() => {}) });
+});
+
+afterEach(() => {
+  act(() => ui.setPalette(false));
+  stopStream();
+});
+
+function connect(rows = shimRows()): FakeEventSource {
+  startStream();
+  const es = ES.instances.at(-1);
+  if (!es) throw new Error("no EventSource");
+  es.open();
+  es.emit("core.plugins", pluginsEnvelope(rows));
+  es.emit(
+    "vms",
+    envelope("vms", {
+      vms: [
+        { vmid: 101, name: "media", template: false },
+        { vmid: 9000, name: "base-image", template: true },
+      ],
+    }),
+  );
+  es.emit(
+    "cluster",
+    envelope("cluster", {
+      nodes: [{ name: "node-a", ip: "192.0.2.10" }],
+      workloads: [
+        {
+          kind: "Deployment",
+          namespace: "media",
+          name: "app",
+          restartable: true,
+          protected: false,
+        },
+        {
+          kind: "Deployment",
+          namespace: "kube-system",
+          name: "dns",
+          restartable: false,
+          protected: true,
+        },
+      ],
+      pods: [{ namespace: "media", name: "app-0" }],
+    }),
+  );
+  es.emit(
+    "apps",
+    envelope("apps", { apps: [{ name: "Wiki", href: "https://wiki.example.com", group: "docs" }] }),
+  );
+  es.emit(
+    "flux",
+    envelope("flux", {
+      kustomizations: [{ kind: "Kustomization", namespace: "flux-system", name: "apps" }],
+      helmReleases: [{ kind: "HelmRelease", namespace: "media", name: "player" }],
+    }),
+  );
+  return es;
+}
+
+function open() {
+  act(() => ui.setPalette(true));
+  return screen.findByRole("dialog");
+}
+
+function headings(dialog: HTMLElement): string[] {
+  return [...dialog.querySelectorAll("[cmdk-group-heading]")].map((h) => h.textContent ?? "");
+}
+
+function itemsOf(dialog: HTMLElement, heading: string): string[] {
+  const group = [...dialog.querySelectorAll("[cmdk-group]")].find(
+    (g) => g.querySelector("[cmdk-group-heading]")?.textContent === heading,
+  );
+  return [...(group?.querySelectorAll("[cmdk-item]") ?? [])].map((i) => i.textContent ?? "");
+}
+
+describe("command palette", () => {
+  it("shows the pages of visible entries and the groups of visible modules, in today's order", async () => {
+    connect();
+    renderApp(<CommandPalette />);
+    const dialog = await open();
+    expect(headings(dialog)).toEqual([
+      "Pages",
+      "Actions",
+      "VMs",
+      "Nodes",
+      "Workloads",
+      "Pods",
+      "Apps",
+      "Flux",
+      "Navigate",
+    ]);
+    expect(itemsOf(dialog, "Pages")).toEqual([
+      "Overview",
+      "VMs",
+      "Cluster",
+      "GitOps",
+      "Hardware",
+      "Storage",
+      "Alerts",
+      "Status",
+      "Apps",
+    ]);
+    expect(itemsOf(dialog, "VMs")).toEqual(["media101"]); // the template is left out
+    expect(itemsOf(dialog, "Nodes")).toEqual(["node-a192.0.2.10"]);
+    expect(itemsOf(dialog, "Pods")).toEqual(["media/app-0"]);
+  });
+
+  it("merges the restart and reconcile items of two modules into one Actions group", async () => {
+    connect();
+    renderApp(<CommandPalette />);
+    const dialog = await open();
+    expect(headings(dialog).filter((h) => h === "Actions")).toHaveLength(1);
+    expect(itemsOf(dialog, "Actions").sort()).toEqual([
+      "Reconcile flux-system",
+      "Restart media/app",
+    ]);
+  });
+
+  it("leaves out the groups, items and page of a plugin that is switched off", async () => {
+    connect(withState(withState(shimRows(), "proxmox", "disabled"), "flux", "disabled"));
+    renderApp(<CommandPalette />);
+    const dialog = await open();
+    expect(headings(dialog)).toEqual([
+      "Pages",
+      "Actions",
+      "Nodes",
+      "Workloads",
+      "Pods",
+      "Apps",
+      "Navigate",
+    ]);
+    expect(itemsOf(dialog, "Actions")).toEqual(["Restart media/app"]);
+    expect(itemsOf(dialog, "Pages")).not.toContain("VMs");
+    expect(itemsOf(dialog, "Pages")).not.toContain("GitOps");
+  });
+
+  it("drops a plugin's items the moment its row goes disabled, while open", async () => {
+    const es = connect();
+    renderApp(<CommandPalette />);
+    const dialog = await open();
+    expect(headings(dialog)).toContain("VMs");
+
+    act(() =>
+      es.emit("core.plugins", pluginsEnvelope(withState(shimRows(), "proxmox", "disabled"))),
+    );
+    expect(headings(dialog)).not.toContain("VMs");
+    expect(itemsOf(dialog, "Pages")).not.toContain("VMs");
+    expect(within(dialog).queryByText("media")).toBeNull();
+  });
+
+  it("opens with Ctrl+K and calls no module while closed", async () => {
+    connect();
+    const spies = ["proxmox", "kubernetes", "flux"].map((id) => {
+      const m = moduleById.get(id);
+      if (!m) throw new Error(`no module ${id}`);
+      return vi.spyOn(m, "palette");
+    });
+    renderApp(<CommandPalette />);
+    expect(screen.queryByRole("dialog")).toBeNull();
+    for (const s of spies) expect(s).not.toHaveBeenCalled();
+
+    await userEvent.keyboard("{Control>}k{/Control}");
+    await screen.findByRole("dialog");
+    for (const s of spies) expect(s).toHaveBeenCalled();
+    for (const s of spies) s.mockRestore();
+  });
+
+  it("navigates to a VM and closes", async () => {
+    connect();
+    const { history } = renderApp(<CommandPalette />);
+    const dialog = await open();
+    await userEvent.click(within(dialog).getByText("media"));
+    expect(history.at(-1)).toBe("/vms/101");
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
+  it("navigates to a page entry", async () => {
+    connect();
+    const { history } = renderApp(<CommandPalette />);
+    const dialog = await open();
+    await userEvent.click(within(dialog).getByText("GitOps"));
+    expect(history.at(-1)).toBe("/gitops");
+  });
+});

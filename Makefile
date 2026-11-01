@@ -17,7 +17,7 @@ check: generate
 	go tool -modfile=tools/go.mod vacuum lint -r docs/api/ruleset.yaml -n warn -q -b --no-update-check docs/api/openapi.json
 	go vet ./...
 	go test ./...
-	cd web && npm ci && npm run check && npm test && npm run build
+	cd web && npm ci && npm run check && npm test && npm run build && node scripts/check-chunks.mjs
 
 # dev/site.env (see dev/site.env.example) holds this lab's URLs; it is optional. dev/secrets.env
 # references the Proxmox token as one <user>!<token>=<secret> value, split here into the two

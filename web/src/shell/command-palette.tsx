@@ -1,18 +1,9 @@
-import {
-  Boxes,
-  Container,
-  ExternalLink,
-  GitMerge,
-  Layers,
-  Navigation,
-  RotateCw,
-  Server,
-  Zap,
-} from "lucide-react";
-import { useEffect } from "react";
+import { Navigation } from "lucide-react";
+import { Fragment, useEffect } from "react";
 import { useLocation } from "wouter";
-import { reconcileFlux } from "@/api/actions";
-import { useTopic } from "@/api/stream";
+import { getEnvelope, useStreamVersion } from "@/api/stream";
+import type { TopicData } from "@/api/topics";
+import type { Topic } from "@/api/types";
 import { ui, useUi } from "@/api/ui-store";
 import {
   Command,
@@ -24,16 +15,97 @@ import {
   CommandList,
   CommandSeparator,
 } from "@/components/ui/command";
-import { NAV } from "./nav";
+import { MODULES, moduleOrder } from "@/plugins/registry";
+import { isVisible, useNavEntries, usePluginsState } from "@/plugins/state";
+import type { PaletteCtx, PaletteGroup, PaletteItem } from "@/plugins/types";
 
-/** ⌘K / Ctrl+K palette: pages, VMs, nodes, workloads, pods, apps, flux and actions. */
+/**
+ * The groups of every visible module, merged by id (the first heading wins) in module order.
+ * "actions" always comes first, as it did when the palette was one component.
+ */
+function moduleGroups(ctx: PaletteCtx, visible: (id: string) => boolean): PaletteGroup[] {
+  const merged = new Map<string, { heading: string; items: PaletteItem[] }>();
+  for (const m of [...MODULES].sort((a, b) => moduleOrder(a) - moduleOrder(b))) {
+    if (!visible(m.id)) continue;
+    for (const g of m.palette?.(ctx) ?? []) {
+      const into = merged.get(g.id) ?? { heading: g.heading, items: [] };
+      into.items.push(...g.items);
+      merged.set(g.id, into);
+    }
+  }
+  const groups = [...merged].map(([id, g]) => ({ id, heading: g.heading, items: g.items }));
+  const actions = groups.filter((g) => g.id === "actions");
+  return [...actions, ...groups.filter((g) => g.id !== "actions")].filter(
+    (g) => g.items.length > 0,
+  );
+}
+
+/** Built only while the palette is open, so a closed palette calls no module. */
+function PaletteBody() {
+  useStreamVersion(); // re-render with the stream: modules read topics through getEnvelope
+  const [, navigate] = useLocation();
+  const { entries } = useNavEntries();
+  const { byId } = usePluginsState();
+
+  const ctx: PaletteCtx = {
+    topic: <T extends Topic>(name: T) => getEnvelope(name)?.data as TopicData[T] | undefined,
+    go: (to) => {
+      ui.setPalette(false);
+      navigate(to);
+    },
+    close: () => ui.setPalette(false),
+  };
+  const groups = moduleGroups(ctx, (id) => {
+    const info = byId.get(id);
+    return info !== undefined && isVisible(info.state);
+  });
+
+  return (
+    <Command loop>
+      <CommandInput placeholder="Search pages, VMs, workloads, pods, apps…" />
+      <CommandList className="max-h-[min(24rem,60vh)]">
+        <CommandEmpty>Nothing matches.</CommandEmpty>
+        <CommandGroup heading="Pages">
+          {entries.map((n) => (
+            <CommandItem
+              key={n.key}
+              value={`page ${n.label} ${n.title}`}
+              onSelect={() => ctx.go(n.path)}
+            >
+              <n.icon aria-hidden="true" />
+              {n.label}
+            </CommandItem>
+          ))}
+        </CommandGroup>
+        {groups.map((g) => (
+          <Fragment key={g.id}>
+            <CommandSeparator />
+            <CommandGroup heading={g.heading}>
+              {g.items.map((item) => (
+                <CommandItem key={item.id} value={item.value} onSelect={item.onSelect}>
+                  {item.icon && <item.icon aria-hidden="true" />}
+                  {item.label}
+                  {item.hint && <span className="num ml-auto text-xs text-faint">{item.hint}</span>}
+                </CommandItem>
+              ))}
+            </CommandGroup>
+          </Fragment>
+        ))}
+        <CommandSeparator />
+        <CommandGroup heading="Navigate">
+          <CommandItem value="navigate home" onSelect={() => ctx.go("/")}>
+            <Navigation aria-hidden="true" />
+            Back to Overview
+          </CommandItem>
+        </CommandGroup>
+      </CommandList>
+    </Command>
+  );
+}
+
+/** ⌘K / Ctrl+K palette: the visible pages, what each visible plugin contributes, and Navigate. */
 export function CommandPalette() {
   const { palette } = useUi();
-  const [, navigate] = useLocation();
-  const cluster = useTopic("cluster")?.data;
-  const vms = useTopic("vms")?.data;
-  const apps = useTopic("apps")?.data;
-  const flux = useTopic("flux")?.data;
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -46,11 +118,6 @@ export function CommandPalette() {
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
-  const go = (to: string) => {
-    ui.setPalette(false);
-    navigate(to);
-  };
-
   return (
     <CommandDialog
       open={palette}
@@ -59,171 +126,7 @@ export function CommandPalette() {
       description="Jump to pages, machines, workloads and run safe actions"
       className="sm:max-w-xl"
     >
-      <Command loop>
-        <CommandInput placeholder="Search pages, VMs, workloads, pods, apps…" />
-        <CommandList className="max-h-[min(24rem,60vh)]">
-          <CommandEmpty>Nothing matches.</CommandEmpty>
-          <CommandGroup heading="Pages">
-            {NAV.map((n) => (
-              <CommandItem
-                key={n.to}
-                value={`page ${n.label} ${n.title}`}
-                onSelect={() => go(n.to)}
-              >
-                <n.icon aria-hidden="true" />
-                {n.label}
-              </CommandItem>
-            ))}
-          </CommandGroup>
-          <CommandSeparator />
-          <CommandGroup heading="Actions">
-            <CommandItem
-              value="action reconcile flux-system"
-              onSelect={() => {
-                ui.setPalette(false);
-                void reconcileFlux("GitRepository", "flux-system", "flux-system");
-              }}
-            >
-              <Zap aria-hidden="true" />
-              Reconcile flux-system
-            </CommandItem>
-            {cluster?.workloads
-              .filter((w) => w.restartable)
-              .map((w) => (
-                <CommandItem
-                  key={`restart:${w.kind}/${w.namespace}/${w.name}`}
-                  value={`action restart ${w.namespace}/${w.name} ${w.kind}`}
-                  onSelect={() =>
-                    ui.openRestart({
-                      kind: w.kind,
-                      namespace: w.namespace,
-                      name: w.name,
-                      protected: w.protected,
-                    })
-                  }
-                >
-                  <RotateCw aria-hidden="true" />
-                  Restart {w.namespace}/{w.name}
-                </CommandItem>
-              ))}
-          </CommandGroup>
-          {vms && vms.vms.length > 0 && (
-            <>
-              <CommandSeparator />
-              <CommandGroup heading="VMs">
-                {vms.vms
-                  .filter((v) => !v.template)
-                  .map((v) => (
-                    <CommandItem
-                      key={v.vmid}
-                      value={`vm ${v.name} ${v.vmid}`}
-                      onSelect={() => go(`/vms/${v.vmid}`)}
-                    >
-                      <Server aria-hidden="true" />
-                      {v.name}
-                      <span className="num ml-auto text-xs text-faint">{v.vmid}</span>
-                    </CommandItem>
-                  ))}
-              </CommandGroup>
-            </>
-          )}
-          {cluster && (
-            <>
-              <CommandSeparator />
-              <CommandGroup heading="Nodes">
-                {cluster.nodes.map((n) => (
-                  <CommandItem
-                    key={n.name}
-                    value={`node ${n.name} ${n.ip}`}
-                    onSelect={() => go("/cluster?tab=nodes")}
-                  >
-                    <Boxes aria-hidden="true" />
-                    {n.name}
-                    <span className="num ml-auto text-xs text-faint">{n.ip}</span>
-                  </CommandItem>
-                ))}
-              </CommandGroup>
-              <CommandSeparator />
-              <CommandGroup heading="Workloads">
-                {cluster.workloads.map((w) => (
-                  <CommandItem
-                    key={`${w.kind}/${w.namespace}/${w.name}`}
-                    value={`workload ${w.namespace}/${w.name} ${w.kind}`}
-                    onSelect={() =>
-                      go(
-                        `/cluster?tab=workloads&q=${encodeURIComponent(w.name)}&ns=${encodeURIComponent(w.namespace)}`,
-                      )
-                    }
-                  >
-                    <Layers aria-hidden="true" />
-                    {w.namespace}/{w.name}
-                    <span className="ml-auto text-xs text-faint">{w.kind}</span>
-                  </CommandItem>
-                ))}
-              </CommandGroup>
-              <CommandSeparator />
-              <CommandGroup heading="Pods">
-                {cluster.pods.map((p) => (
-                  <CommandItem
-                    key={`${p.namespace}/${p.name}`}
-                    value={`pod ${p.namespace}/${p.name}`}
-                    onSelect={() => go(`/cluster/pods/${p.namespace}/${p.name}`)}
-                  >
-                    <Container aria-hidden="true" />
-                    {p.namespace}/{p.name}
-                  </CommandItem>
-                ))}
-              </CommandGroup>
-            </>
-          )}
-          {apps && apps.apps.length > 0 && (
-            <>
-              <CommandSeparator />
-              <CommandGroup heading="Apps">
-                {apps.apps.map((a) => (
-                  <CommandItem
-                    key={a.href}
-                    value={`app ${a.name} ${a.href}`}
-                    onSelect={() => {
-                      ui.setPalette(false);
-                      window.open(a.href, "_blank", "noopener,noreferrer");
-                    }}
-                  >
-                    <ExternalLink aria-hidden="true" />
-                    {a.name}
-                    <span className="ml-auto text-xs text-faint">{a.group}</span>
-                  </CommandItem>
-                ))}
-              </CommandGroup>
-            </>
-          )}
-          {flux && (
-            <>
-              <CommandSeparator />
-              <CommandGroup heading="Flux">
-                {[...flux.kustomizations, ...flux.helmReleases].map((f) => (
-                  <CommandItem
-                    key={`${f.kind}/${f.namespace}/${f.name}`}
-                    value={`flux ${f.kind} ${f.namespace}/${f.name}`}
-                    onSelect={() => go(`/gitops?q=${encodeURIComponent(f.name)}`)}
-                  >
-                    <GitMerge aria-hidden="true" />
-                    {f.name}
-                    <span className="ml-auto text-xs text-faint">{f.kind}</span>
-                  </CommandItem>
-                ))}
-              </CommandGroup>
-            </>
-          )}
-          <CommandSeparator />
-          <CommandGroup heading="Navigate">
-            <CommandItem value="navigate home" onSelect={() => go("/")}>
-              <Navigation aria-hidden="true" />
-              Back to Overview
-            </CommandItem>
-          </CommandGroup>
-        </CommandList>
-      </Command>
+      {palette && <PaletteBody />}
     </CommandDialog>
   );
 }
