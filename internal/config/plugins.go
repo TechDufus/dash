@@ -12,7 +12,7 @@ type PluginBase struct {
 	// name (design J.16).
 	Type string `json:"type" doc:"The plugin type. dash runs one instance per type, so this is empty or the section name."`
 	// Enabled turns the plugin on or off. Unset leaves it on; an unconfigured plugin reports itself unavailable.
-	Enabled *bool `json:"enabled" doc:"false stops the plugin and removes its topics; its pages stay until the web UI follows core.plugins (P2.7), and the Kubernetes connection is still required. Unset leaves it on; a plugin without its settings reports itself unavailable."`
+	Enabled *bool `json:"enabled" doc:"false turns the plugin off (a restart applies it): its topics are removed, and the web UI drops its rail entry, palette entries, overview tiles and panels and shows a switched-off page at its address. The Kubernetes connection is required whichever plugins are off. Unset leaves it on: a plugin without its settings reports itself unavailable (not configured), and the web UI hides its pages."`
 }
 
 // PluginSection is one plugins.<Name> section as the plugin framework reads it.
