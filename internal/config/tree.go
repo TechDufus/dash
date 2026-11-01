@@ -83,8 +83,9 @@ type SettingsConfig struct {
 	UI string `json:"ui" dash:"restart"`
 }
 
-// PluginsConfig holds one section per plugin. Until the plugin framework (G2) these are the
-// upstreams and cluster conventions the flat Config already carried.
+// PluginsConfig holds one section per plugin, each embedding PluginBase (plugins.<id>.type and
+// .enabled). Until the plugins migrate (G3) the sections are the upstreams and cluster
+// conventions the flat Config already carried.
 type PluginsConfig struct {
 	Prometheus   Endpoint         `json:"prometheus"`
 	Alertmanager Endpoint         `json:"alertmanager"`
@@ -101,12 +102,14 @@ type PluginsConfig struct {
 
 // Endpoint is a plugin that only needs a base URL. Empty turns the source off.
 type Endpoint struct {
+	PluginBase
 	URL string `json:"url" dash:"url"`
 }
 
 // ProxmoxConfig is the Proxmox API. TokenID and TokenSecret are the two halves of an API token
 // ("user@realm!name" and its secret), so that only the secret is secret.
 type ProxmoxConfig struct {
+	PluginBase
 	URL         string       `json:"url" dash:"url"`
 	Node        string       `json:"node"`
 	TokenID     string       `json:"tokenID"`
@@ -115,6 +118,7 @@ type ProxmoxConfig struct {
 
 // HardwareConfig is the physical host behind the cluster.
 type HardwareConfig struct {
+	PluginBase
 	// Hosts has at most one entry until the hardware plugin supports several (G3).
 	Hosts []HardwareHost `json:"hosts"`
 	// ZFSScrubMetricPrefix names the scrub series: <prefix>_last_end_timestamp_seconds,
@@ -132,18 +136,21 @@ type HardwareHost struct {
 
 // HeadlampConfig is the Headlamp deep-link target.
 type HeadlampConfig struct {
+	PluginBase
 	URL     string `json:"url" dash:"url"`
 	Cluster string `json:"cluster"`
 }
 
 // LauncherConfig is the launcher's list of infrastructure links, from a file or inline, not both.
 type LauncherConfig struct {
+	PluginBase
 	File  string               `json:"file"`
 	Links []model.LauncherLink `json:"links"`
 }
 
 // KubernetesConfig is how dash reaches and reads the cluster.
 type KubernetesConfig struct {
+	PluginBase
 	// Kubeconfig is used outside the cluster (dev); empty means in-cluster config.
 	Kubeconfig  string                `json:"kubeconfig"`
 	Conventions KubernetesConventions `json:"conventions"`
@@ -169,6 +176,7 @@ type BackupJob struct {
 
 // FluxConfig is how dash reads Flux objects.
 type FluxConfig struct {
+	PluginBase
 	// SuspendReasonAnnotation on a Flux object is shown as the reason it is suspended.
 	SuspendReasonAnnotation string `json:"suspendReasonAnnotation"`
 }

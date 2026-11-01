@@ -67,6 +67,11 @@ func validate(t Tree, dev, demo bool, prov map[string]Provenance) error {
 	if t.Settings.UI != SettingsEditable && t.Settings.UI != SettingsReadOnly {
 		v.fail("settings.ui", "%q must be %q or %q", t.Settings.UI, SettingsEditable, SettingsReadOnly)
 	}
+	for _, sec := range t.PluginSections() {
+		if sec.Type != sec.Name {
+			v.fail("plugins."+sec.Name+".type", "%q must be empty or %q: dash runs one instance per plugin type, and the instance name is the type (design J.16)", sec.Type, sec.Name)
+		}
+	}
 
 	px := p.Proxmox
 	if (px.TokenID == "") != !px.TokenSecret.IsSet() {

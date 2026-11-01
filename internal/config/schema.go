@@ -64,6 +64,12 @@ func buildSchema(root reflect.Type) *schemaT {
 func (s *schemaT) walk(n *node, t reflect.Type, index []int, prefix string) {
 	for i := range t.NumField() {
 		f := t.Field(i)
+		if f.Anonymous && f.Type.Kind() == reflect.Struct && f.Tag.Get("json") == "" {
+			// An embedded struct without a json name is flattened, as encoding/json does:
+			// its fields are settings of the section that embeds it (PluginBase).
+			s.walk(n, f.Type, append(append([]int(nil), index...), i), prefix)
+			continue
+		}
 		name, _, _ := strings.Cut(f.Tag.Get("json"), ",")
 		if name == "" || name == "-" {
 			panic(fmt.Sprintf("config: %s.%s has no json name", t.Name(), f.Name))

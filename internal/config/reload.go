@@ -21,8 +21,8 @@ import (
 const DefaultReloadInterval = 10 * time.Second
 
 // Change says that settings of one section changed on a reload: "plugins.<id>" for a plugin,
-// the first path segment ("server", "settings", "dataDir") for the rest. The plugin framework
-// (G2) reacts to these; until then the Reloader applies only rotated secrets (below).
+// the first path segment ("server", "settings", "dataDir") for the rest. The plugin supervisor
+// reacts to the plugin ones; the Reloader itself applies only rotated secrets (below).
 type Change struct {
 	Section string
 	Paths   []string // changed settings of the section, sorted
@@ -34,6 +34,10 @@ type ReloadOptions struct {
 	Interval time.Duration
 	// Log receives the reloader's messages; nil means slog.Default() at the time of the message.
 	Log *slog.Logger
+	// Live reports whether a change to a section ("plugins.<id>") is applied in-process by
+	// its subscriber, so that it is not listed as needing a restart. A setting tagged
+	// restart always is. Nil means no section is live. The plugin supervisor's Live.
+	Live func(section string) bool
 }
 
 // Reloader watches the config file and every file: secret reference (<NAME>_FILE ones too) of
@@ -46,8 +50,8 @@ type ReloadOptions struct {
 //   - updates every rotated secret in place (secret.Value.Update), so holders of the Value, such
 //     as the Proxmox client, use the new credential at their next request, and the registry
 //     keeps scrubbing the old one;
-//   - records every other changed setting in RestartRequired and logs it once, because nothing
-//     else applies live until the plugin framework (G2);
+//   - records every other changed setting in RestartRequired and logs it once, unless its
+//     section is live (ReloadOptions.Live): the plugin framework applies those in-process;
 //   - emits one Change per affected section to the subscribers.
 type Reloader struct {
 	base     Sources // environment and keys as at startup; the file and the store are read again
@@ -56,6 +60,7 @@ type Reloader struct {
 	startup  *Resolved // what the process runs on
 	interval time.Duration
 	logger   *slog.Logger
+	live     func(section string) bool
 
 	mu       sync.Mutex // guards the fields below
 	prev     Tree       // the last valid resolution, to tell what a reload changed
@@ -71,7 +76,7 @@ type Reloader struct {
 func NewReloader(res *Resolved, store *settings.Store, opts ReloadOptions) *Reloader {
 	r := &Reloader{
 		base: res.src, store: store, reg: res.src.Registry, startup: res,
-		interval: opts.Interval, logger: opts.Log, prev: res.Tree,
+		interval: opts.Interval, logger: opts.Log, live: opts.Live, prev: res.Tree,
 		watch: map[string]fileState{},
 	}
 	r.base.File, r.base.UI, r.base.Registry = nil, nil, nil
@@ -113,6 +118,17 @@ func (r *Reloader) RestartRequired() []string {
 	defer r.mu.Unlock()
 	return slices.Clone(r.restart)
 }
+
+// Tree is the last valid resolution: what a reload applied or noted, not necessarily what the
+// process started with. A Change only names sections; the plugin supervisor reads the
+// sections through this.
+func (r *Reloader) Tree() Tree {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.prev
+}
+
+func (r *Reloader) isLive(section string) bool { return r.live != nil && r.live(section) }
 
 // Run polls until ctx is done.
 func (r *Reloader) Run(ctx context.Context) {
@@ -229,7 +245,7 @@ func (r *Reloader) apply(next *Resolved) []Change {
 		if !reflect.DeepEqual(was.Interface(), now.Interface()) {
 			changed = append(changed, l.path)
 		}
-		if !reflect.DeepEqual(start.Interface(), now.Interface()) {
+		if !reflect.DeepEqual(start.Interface(), now.Interface()) && (l.restart || !r.isLive(sectionOf(l.path))) {
 			restart[l.path] = true
 		}
 	}

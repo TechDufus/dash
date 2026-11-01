@@ -637,3 +637,79 @@ export interface SilenceRequest {
 export interface SilenceResponse {
   silenceID: string;
 }
+
+//////////
+// source: plugins.go
+
+/**
+ * PluginState is where a plugin instance is in its life (design A.5, A.6).
+ */
+export type PluginState = string;
+export const PluginDisabled: PluginState = "disabled";
+export const PluginUnavailable: PluginState = "unavailable";
+export const PluginUnconfigured: PluginState = "unconfigured";
+export const PluginBlocked: PluginState = "blocked";
+export const PluginStarting: PluginState = "starting";
+export const PluginHealthy: PluginState = "healthy";
+export const PluginDegraded: PluginState = "degraded";
+export const PluginError: PluginState = "error";
+/**
+ * Confirm is how an action is confirmed before it runs.
+ */
+export const ConfirmNone = "none";
+export const ConfirmDialog = "dialog"; // UI-only
+export const ConfirmTypeName = "typeName"; // the plugin checks the typed name in Act
+export type Confirm = typeof ConfirmNone | typeof ConfirmDialog | typeof ConfirmTypeName;
+/**
+ * NavItem is one entry a plugin adds to the navigation.
+ */
+export interface NavItem {
+  path: string;
+  label: string;
+  title: string;
+  icon: string; // a lucide icon name; the SPA module maps it
+}
+/**
+ * ActionInfo describes one action a plugin mounts.
+ */
+export interface ActionInfo {
+  name: string;
+  title: string;
+  destructive: boolean;
+  idempotent: boolean;
+  confirm: Confirm;
+  inputSchema: unknown; // filled by P2.10; null before
+}
+/**
+ * PluginInfo is one row of GET /api/v1/plugins and of core.plugins. Message is viewer-visible:
+ * plugin authors write no URL, host or credential into Status.Message.
+ */
+export interface PluginInfo {
+  id: string; // instance name: topic, route and env prefix
+  type: string; // plugin type (= Manifest.ID); equals ID in v1
+  name: string;
+  version: string;
+  state: PluginState;
+  message: string;
+  topics: string[]; // full SSE names: "proxmox.vms", or the un-namespaced legacy name ("vms") until the plugin's G3 leaf
+  actions: ActionInfo[]; // only the ones mounted (actions.enabled)
+  nav: NavItem[];
+  configurable: boolean;
+}
+/**
+ * PluginsData is the payload of core.plugins.
+ */
+export interface PluginsData {
+  plugins: PluginInfo[];
+}
+/**
+ * KPI is one headline number a plugin contributes to the overview.
+ */
+export interface KPI {
+  key: string;
+  plugin: string;
+  label: string;
+  unit: string;
+  value: number /* float64 */;
+  health: Health;
+}
