@@ -73,7 +73,7 @@ go_dirs=() lint=()
 while read -r f; do
 	nfiles=$((nfiles + 1))
 	case "$f" in
-	tygo.yaml | internal/model/*.go | web/src/api/types.ts) tygo=1 ;;
+	tygo.yaml | internal/model/*.go | internal/plugins/*/model/*.go | web/src/api/types.ts | web/src/plugins/modules/*/model.gen.ts) tygo=1 ;;
 	esac
 	case "$f" in
 	docs/api/* | tools/* | cmd/dash/openapi.go | cmd/dash/plugins.go | internal/api/*.go | internal/plugin/*.go | internal/model/*.go | internal/jsonschema/*.go | internal/topics/*.go) openapi=1 ;;
@@ -121,8 +121,8 @@ fi
 
 if [ "$tygo" = 1 ]; then
 	# Same as `make generate` + the diff in `make check`, without needing make.
-	step "tygo drift (go tool tygo generate; git diff web/src/api/types.ts)" \
-		sh -c 'go tool tygo generate && git diff --exit-code web/src/api/types.ts'
+	step "tygo drift (go tool tygo generate; git diff generated files)" \
+		sh -c "go tool tygo generate && git diff --exit-code -- web/src/api/types.ts ':(glob)web/src/plugins/**/model.gen.ts'"
 fi
 
 if [ "$openapi" = 1 ]; then

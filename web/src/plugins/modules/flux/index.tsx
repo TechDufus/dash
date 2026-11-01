@@ -2,7 +2,7 @@ import { GitMerge, Zap } from "lucide-react";
 import { lazy } from "react";
 import { reconcileFlux } from "@/api/actions";
 import type { FluxData } from "@/api/types";
-import { definePlugin, topic } from "../../types";
+import { definePlugin, type PaletteGroup, topic } from "../../types";
 
 const GitOpsPage = lazy(() =>
   import("@/pages/gitops").then((m) => ({ default: () => <m.GitOpsPage /> })),
@@ -13,7 +13,7 @@ export default definePlugin({
   order: 30,
   topics: { flux: topic<FluxData>() },
   routes: [{ path: "/gitops", page: GitOpsPage }],
-  palette: (ctx) => {
+  palette: (ctx): readonly PaletteGroup[] => {
     const flux = ctx.topic("flux");
     return [
       {

@@ -1,39 +1,8 @@
-// Handwritten: maps each SSE topic (internal/model Topic*) to the type of its Envelope.data.
-import type {
-  AlertsData,
-  AppsData,
-  ClusterData,
-  Envelope,
-  FluxData,
-  HostData,
-  OverviewData,
-  PluginsData,
-  StatusData,
-  StorageData,
-  Topic,
-  VMsData,
-} from "./types";
+// Which payload each SSE topic carries is declared by the modules (plugins/topic-data.ts).
+import type { TopicData } from "@/plugins/topic-data";
+import type { Envelope, Topic } from "./types";
 
-export interface TopicData {
-  "core.plugins": PluginsData;
-  "core.overview": OverviewData;
-  host: HostData;
-  vms: VMsData;
-  cluster: ClusterData;
-  flux: FluxData;
-  storage: StorageData;
-  alerts: AlertsData;
-  status: StatusData;
-  apps: AppsData;
-}
-
-// Compile-time check that TopicData covers exactly the Go Topic union.
-type _exact = [Topic] extends [keyof TopicData]
-  ? [keyof TopicData] extends [Topic]
-    ? true
-    : never
-  : never;
-export const _topicsExact: _exact = true;
+export type { TopicData };
 
 export type TypedEnvelope<T extends Topic> = Omit<Envelope, "data" | "topic"> & {
   topic: T;

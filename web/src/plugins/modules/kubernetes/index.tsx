@@ -2,7 +2,7 @@ import { Boxes, Container, ExternalLink, Layers, RotateCw } from "lucide-react";
 import { lazy } from "react";
 import type { AppsData, ClusterData, StorageData } from "@/api/types";
 import { ui } from "@/api/ui-store";
-import { definePlugin, topic } from "../../types";
+import { definePlugin, type PaletteGroup, topic } from "../../types";
 
 const ClusterPage = lazy(() =>
   import("@/pages/cluster").then((m) => ({ default: () => <m.ClusterPage /> })),
@@ -17,7 +17,7 @@ export default definePlugin({
     apps: topic<AppsData>(),
   },
   routes: [{ path: "/cluster/*?", page: ClusterPage }],
-  palette: (ctx) => {
+  palette: (ctx): readonly PaletteGroup[] => {
     const cluster = ctx.topic("cluster");
     const apps = ctx.topic("apps");
     return [

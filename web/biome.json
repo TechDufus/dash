@@ -6,6 +6,7 @@
       "!node_modules",
       "!dist",
       "!src/api/types.ts",
+      "!src/plugins/**/model.gen.ts",
       "!src/components/ui",
       "!src/components/magicui"
     ]

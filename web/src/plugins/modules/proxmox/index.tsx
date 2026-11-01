@@ -1,7 +1,7 @@
 import { Server } from "lucide-react";
 import { lazy } from "react";
 import type { VMsData } from "@/api/types";
-import { definePlugin, type RouteProps, topic } from "../../types";
+import { definePlugin, type PaletteGroup, type RouteProps, topic } from "../../types";
 
 const VMsPage = lazy(() =>
   import("@/pages/vms").then((m) => ({
@@ -14,7 +14,7 @@ export default definePlugin({
   order: 10,
   topics: { vms: topic<VMsData>() },
   routes: [{ path: "/vms/:vmid?", page: VMsPage }],
-  palette: (ctx) => {
+  palette: (ctx): readonly PaletteGroup[] => {
     const vms = ctx.topic("vms")?.vms.filter((v) => !v.template) ?? [];
     return [
       {
