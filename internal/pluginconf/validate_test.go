@@ -117,6 +117,23 @@ func TestAlertmanagerSilenceDurations(t *testing.T) {
 	}
 }
 
+func TestAlertmanagerSeverityMap(t *testing.T) {
+	for _, ok := range []map[string]string{nil, {}, {"critical": "crit", "warning": "warn", "info": "warn"}} {
+		if err := (Alertmanager{SeverityMap: ok}).Validate(); err != nil {
+			t.Errorf("%v rejected: %v", ok, err)
+		}
+	}
+	for _, bad := range []string{"fatal", "critical", "warning", "info", "", "CRIT"} {
+		err := Alertmanager{SeverityMap: map[string]string{"critical": "crit", "x": bad}}.Validate()
+		if got := paths(err); !slices.Equal(got, []string{"severityMap"}) {
+			t.Errorf("value %q: problems at %v", bad, got)
+		}
+		if err != nil && !strings.Contains(err.Error(), `"x"`) {
+			t.Errorf("the message must name the label: %v", err)
+		}
+	}
+}
+
 func TestGatusPageSize(t *testing.T) {
 	if err := DefaultGatus().Validate(); err != nil {
 		t.Fatalf("defaults: %v", err)
