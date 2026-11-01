@@ -226,7 +226,19 @@ func TestResendFollowsTheRowNotTheOrderOfStart(t *testing.T) {
 		want := i
 		eventually(t, "a resend", func() bool { return countOf(e.hub.Resent(), "aa.t") == want })
 		flag.set(plugin.StateUnavailable)
-		eventually(t, "the row to hide", func() bool { st, _ := e.state(t, "aa"); return st == plugin.StateUnavailable })
-		time.Sleep(30 * time.Millisecond)
+		// The row is hidden for the detector only once core.plugins says so.
+		eventually(t, "core.plugins to publish the hidden row", func() bool { return publishedState(e, "aa") == plugin.StateUnavailable })
 	}
+}
+
+// publishedState is the state of id in the last core.plugins event the hub recorded.
+func publishedState(e *env, id string) plugin.State {
+	if ev, ok := e.hub.Last(model.TopicPlugins); ok {
+		for _, pi := range ev.Data.(model.PluginsData).Plugins {
+			if pi.ID == id {
+				return pi.State
+			}
+		}
+	}
+	return ""
 }
