@@ -82,7 +82,10 @@ export const TopicVMs = "vms";
 export const TopicCluster = "cluster";
 export const TopicFlux = "flux";
 export const TopicStorage = "storage";
-export const TopicAlerts = "alerts";
+/**
+ * TopicAlerts is the alerts and silences (AlertsData), published by the alertmanager plugin.
+ */
+export const TopicAlerts = "alertmanager.alerts";
 export const TopicStatus = "status";
 export const TopicApps = "apps";
 /**
@@ -150,7 +153,6 @@ export interface WorstPVC {
   usedRatio: number /* float64 */;
 }
 export interface Kpis {
-  alertsFiring: number /* int */;
   fluxReady: number /* int */;
   fluxTotal: number /* int */;
   fluxSuspended: number /* int */;
@@ -739,7 +741,7 @@ export interface SilenceMatcher {
   value: string;
 }
 /**
- * SilenceRequest is the body of POST /api/silences.
+ * SilenceRequest is the input of the alertmanager plugin's silence.create action.
  */
 export interface SilenceRequest {
   matchers: SilenceMatcher[];

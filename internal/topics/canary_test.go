@@ -61,10 +61,6 @@ func TestViewerStreamNeverCarriesUpstreamDetail(t *testing.T) {
 	// Prometheus is behind a certificate the client does not trust.
 	prom := httptest.NewTLSServer(http.NotFoundHandler())
 	t.Cleanup(prom.Close)
-	// Alertmanager is gone.
-	am := httptest.NewServer(http.NotFoundHandler())
-	amURL := am.URL
-	am.Close()
 	// Gatus wants credentials.
 	gatus := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { http.Error(w, "login at gatus", 401) }))
 	t.Cleanup(gatus.Close)
@@ -74,7 +70,6 @@ func TestViewerStreamNeverCarriesUpstreamDetail(t *testing.T) {
 	m := New(Deps{
 		Cfg:      cfg,
 		Services: promServices(upstream.NewProm(prom.URL, nil)),
-		AM:       upstream.NewAlertmanager(amURL, nil),
 		Gatus:    upstream.NewGatus(gatus.URL, nil),
 		PVE:      upstream.NewProxmox(pve.URL, "pve", "u@pve!t", token, nil),
 		Links:    links.New(cfg),
@@ -82,11 +77,10 @@ func TestViewerStreamNeverCarriesUpstreamDetail(t *testing.T) {
 	})
 	ctx := context.Background()
 	m.pollHost(ctx)
-	m.pollAlerts(ctx)
 	m.pollStatus(ctx)
 
-	keys := []string{"host:proxmox", "host:victoriametrics", "alerts:alertmanager", "status:gatus"}
-	want := map[string]string{"proxmox": "http_500", "victoriametrics": "tls", "alertmanager": "unreachable", "gatus": "auth"}
+	keys := []string{"host:proxmox", "host:victoriametrics", "status:gatus"}
+	want := map[string]string{"proxmox": "http_500", "victoriametrics": "tls", "gatus": "auth"}
 	sources := m.sources(keys...)
 	for _, s := range sources {
 		if s.OK || s.Error != want[s.Name] {

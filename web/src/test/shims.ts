@@ -13,7 +13,7 @@ export function shimRows(): PluginInfo[] {
     pluginInfo({
       id: "alertmanager",
       name: "Alertmanager",
-      topics: ["alerts"],
+      topics: ["alertmanager.alerts"],
       nav: nav("/alerts", "Alerts", "Alerts and silences", "BellRing"),
     }),
     pluginInfo({

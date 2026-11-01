@@ -46,9 +46,10 @@ const (
 	TopicCluster  Topic = "cluster"
 	TopicFlux     Topic = "flux"
 	TopicStorage  Topic = "storage"
-	TopicAlerts   Topic = "alerts"
-	TopicStatus   Topic = "status"
-	TopicApps     Topic = "apps"
+	// TopicAlerts is the alerts and silences (AlertsData), published by the alertmanager plugin.
+	TopicAlerts Topic = "alertmanager.alerts"
+	TopicStatus Topic = "status"
+	TopicApps   Topic = "apps"
 	// TopicLauncherLinks is the launcher's infrastructure links (LauncherData), published by the
 	// launcher plugin.
 	TopicLauncherLinks Topic = "launcher.links"
@@ -108,7 +109,6 @@ type WorstPVC struct {
 }
 
 type Kpis struct {
-	AlertsFiring   int       `json:"alertsFiring"`
 	FluxReady      int       `json:"fluxReady"`
 	FluxTotal      int       `json:"fluxTotal"`
 	FluxSuspended  int       `json:"fluxSuspended"`
@@ -729,7 +729,7 @@ type SilenceMatcher struct {
 	Value string `json:"value"`
 }
 
-// SilenceRequest is the body of POST /api/silences.
+// SilenceRequest is the input of the alertmanager plugin's silence.create action.
 type SilenceRequest struct {
 	Matchers []SilenceMatcher `json:"matchers"`
 	// Duration is 1h, 4h, 24h or 7d.

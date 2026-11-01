@@ -20,6 +20,7 @@ import { formatDateTime, formatRelative } from "@/lib/format";
 import { useNow } from "@/lib/hooks";
 import { useQueryParam } from "@/lib/query-param";
 import { cn } from "@/lib/utils";
+import { useActionAvailable } from "@/plugins/use-action-available";
 
 type Level = "critical" | "warning" | "other";
 
@@ -36,7 +37,7 @@ function levelOf(a: Alert): Level {
   return "other";
 }
 
-/** Same rule as the backend's AlertFiring: active and neither silenced nor inhibited. */
+/** The plugin's firing rule, seen from the other side: not active, or silenced or inhibited. */
 function isSuppressed(a: Alert): boolean {
   return a.state === "suppressed" || a.silencedBy.length > 0 || a.inhibitedBy.length > 0;
 }
@@ -93,7 +94,17 @@ const ITEM_MOTION = {
   transition: { duration: 0.22, ease: "easeOut" as const },
 };
 
-function AlertCard({ alert, level, now }: { alert: Alert; level: Level; now: number }) {
+function AlertCard({
+  alert,
+  level,
+  now,
+  canSilence,
+}: {
+  alert: Alert;
+  level: Level;
+  now: number;
+  canSilence: boolean;
+}) {
   return (
     <motion.div {...ITEM_MOTION}>
       <Panel
@@ -114,10 +125,12 @@ function AlertCard({ alert, level, now }: { alert: Alert; level: Level; now: num
               firing since {formatRelative(alert.startsAt, now)}
             </p>
           </div>
-          <Button variant="outline" size="sm" onClick={() => ui.openSilence(alert)}>
-            <BellOff aria-hidden="true" />
-            Silence
-          </Button>
+          {canSilence && !alert.protected && (
+            <Button variant="outline" size="sm" onClick={() => ui.openSilence(alert)}>
+              <BellOff aria-hidden="true" />
+              Silence
+            </Button>
+          )}
         </div>
         {alert.summary && <p className="text-sm text-fg">{alert.summary}</p>}
         {alert.description && (
@@ -138,7 +151,15 @@ function AlertCard({ alert, level, now }: { alert: Alert; level: Level; now: num
   );
 }
 
-function FiringList({ alerts, now }: { alerts: Alert[]; now: number }) {
+function FiringList({
+  alerts,
+  now,
+  canSilence,
+}: {
+  alerts: Alert[];
+  now: number;
+  canSilence: boolean;
+}) {
   if (alerts.length === 0) {
     return (
       <Panel className="flex flex-col items-center gap-3 px-4 py-12 text-center">
@@ -169,7 +190,13 @@ function FiringList({ alerts, now }: { alerts: Alert[]; now: number }) {
           <div className="grid gap-3 xl:grid-cols-2">
             <AnimatePresence initial={false}>
               {g.items.map((a) => (
-                <AlertCard key={a.fingerprint} alert={a} level={g.key} now={now} />
+                <AlertCard
+                  key={a.fingerprint}
+                  alert={a}
+                  level={g.key}
+                  now={now}
+                  canSilence={canSilence}
+                />
               ))}
             </AnimatePresence>
           </div>
@@ -280,7 +307,15 @@ function matcherOp(m: Matcher): string {
   return m.isEqual ? "=" : "!=";
 }
 
-function SilenceCard({ silence: s, now }: { silence: Silence; now: number }) {
+function SilenceCard({
+  silence: s,
+  now,
+  canExpire,
+}: {
+  silence: Silence;
+  now: number;
+  canExpire: boolean;
+}) {
   const pending = s.state === "pending";
   return (
     <motion.div {...ITEM_MOTION}>
@@ -320,10 +355,12 @@ function SilenceCard({ silence: s, now }: { silence: Silence; now: number }) {
               ))}
             </div>
           </div>
-          <Button variant="outline" size="sm" onClick={() => ui.openExpire(s)}>
-            <ShieldOff aria-hidden="true" />
-            Expire
-          </Button>
+          {canExpire && s.dash && (
+            <Button variant="outline" size="sm" onClick={() => ui.openExpire(s)}>
+              <ShieldOff aria-hidden="true" />
+              Expire
+            </Button>
+          )}
         </div>
         {s.comment && <p className="text-sm text-fg">{s.comment}</p>}
         <p className="text-xs text-muted">
@@ -338,8 +375,13 @@ function SilenceCard({ silence: s, now }: { silence: Silence; now: number }) {
 const TABS = ["firing", "silences"] as const;
 
 export function AlertsPage() {
-  const env = useTopic("alerts");
+  const env = useTopic("alertmanager.alerts");
   const data = env?.data;
+  // The controls exist while the plugin lists the action (actions.enabled) and the role may run
+  // it; an alert cannot be silenced without a duration to offer.
+  const silenceAvailable = useActionAvailable("alertmanager", "silence.create");
+  const canExpire = useActionAvailable("alertmanager", "silence.expire");
+  const canSilence = silenceAvailable && (data?.silenceDurations?.length ?? 0) > 0;
   const now = useNow(30_000).getTime();
   const [tabParam, setTab] = useQueryParam("tab", "firing");
   const tab = (TABS as readonly string[]).includes(tabParam) ? tabParam : "firing";
@@ -393,7 +435,7 @@ export function AlertsPage() {
         </Reveal>
         <TabsContent value="firing" className="space-y-4">
           <Reveal index={1}>
-            <FiringList alerts={firing} now={now} />
+            <FiringList alerts={firing} now={now} canSilence={canSilence} />
           </Reveal>
           <Reveal index={2}>
             <Suppressed alerts={suppressed} all={data.alerts} silences={data.silences} now={now} />
@@ -409,7 +451,7 @@ export function AlertsPage() {
               <div className="grid gap-3 xl:grid-cols-2">
                 <AnimatePresence initial={false}>
                   {silences.map((s) => (
-                    <SilenceCard key={s.id} silence={s} now={now} />
+                    <SilenceCard key={s.id} silence={s} now={now} canExpire={canExpire} />
                   ))}
                 </AnimatePresence>
               </div>

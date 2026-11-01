@@ -37,9 +37,11 @@ export async function reconcileFlux(
   }
 }
 
+const SILENCE_ACTIONS = "/api/v1/plugins/alertmanager/actions";
+
 export async function createSilence(req: SilenceRequest): Promise<boolean> {
   try {
-    const res = await api.post<SilenceResponse>("/api/silences", req);
+    const res = await api.post<SilenceResponse>(`${SILENCE_ACTIONS}/silence.create`, req);
     toast.success(`Silence created`, { description: res.silenceID });
     return true;
   } catch (e) {
@@ -50,7 +52,7 @@ export async function createSilence(req: SilenceRequest): Promise<boolean> {
 
 export async function expireSilence(id: string): Promise<boolean> {
   try {
-    await api.del(`/api/silences/${encodeURIComponent(id)}`);
+    await api.post(`${SILENCE_ACTIONS}/silence.expire`, { id });
     toast.success("Silence expired", { description: id });
     return true;
   } catch (e) {

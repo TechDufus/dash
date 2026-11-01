@@ -1,24 +1,22 @@
 import { BellRing } from "lucide-react";
-import type { Health, OverviewData } from "@/api/types";
 import { Kpi } from "@/components/kpi";
 import { KPI_TILE, KpiLink } from "../../kpi-link";
 import type { ModulePanels, SlotProps } from "../../types";
 
-function alertsHealth(data: OverviewData): Health {
-  if (data.attention.some((a) => a.severity === "crit")) return "crit";
-  if (data.kpis.alertsFiring > 0 || data.attention.some((a) => a.severity === "warn"))
-    return "warn";
-  return "ok";
-}
-
+/**
+ * The plugin's one tile. It owns the presentation of every KPI the plugin publishes (the
+ * overview draws no generic tile for a plugin that contributes one), and takes the health from
+ * the KPI itself: crit when a firing alert is critical, warn when anything fires.
+ */
 function AlertsFiringTile({ data }: SlotProps["overview.kpis"]) {
-  const k = data.kpis;
+  const k = data.kpiList.find((x) => x.plugin === "alertmanager" && x.key === "firing");
+  if (!k) return null;
   return (
-    <KpiLink href="/alerts" label={`Alerts firing: ${k.alertsFiring}. Open alerts`}>
+    <KpiLink href="/alerts" label={`Alerts firing: ${k.value}. Open alerts`}>
       <Kpi
         label="Alerts firing"
-        value={k.alertsFiring}
-        health={alertsHealth(data)}
+        value={k.value}
+        health={k.health}
         icon={<BellRing aria-hidden="true" />}
         className={KPI_TILE}
       />

@@ -15,11 +15,25 @@ import (
 
 var silenceIDRe = regexp.MustCompile(`^[0-9A-Fa-f-]{8,64}$`)
 
-// Alertmanager talks to the Alertmanager v2 API.
-type Alertmanager struct{ c client }
+// ValidSilenceID reports whether id has the shape of an Alertmanager silence id. Callers check it
+// before they put an id in a request.
+func ValidSilenceID(id string) bool { return silenceIDRe.MatchString(id) }
 
-func NewAlertmanager(baseURL string, rt http.RoundTripper) *Alertmanager {
-	return &Alertmanager{c: newClient(baseURL, rt, 5*time.Second)}
+// Alertmanager talks to the Alertmanager v2 API.
+type Alertmanager struct {
+	c      client
+	ignore map[string]struct{}
+}
+
+// NewAlertmanager returns a client for baseURL. ignore lists the alert names Alerts drops: it is
+// the one place they are filtered, so nothing downstream needs to know the meta alerts
+// (Watchdog, InfoInhibitor) by name.
+func NewAlertmanager(baseURL string, rt http.RoundTripper, ignore []string, opts ...Option) *Alertmanager {
+	skip := make(map[string]struct{}, len(ignore))
+	for _, n := range ignore {
+		skip[n] = struct{}{}
+	}
+	return &Alertmanager{c: newClient(baseURL, rt, 5*time.Second, opts...), ignore: skip}
 }
 
 type amAlert struct {
@@ -34,8 +48,8 @@ type amAlert struct {
 	} `json:"status"`
 }
 
-// Alerts lists active, silenced and inhibited alerts, minus the always-firing
-// meta alerts (Watchdog, InfoInhibitor).
+// Alerts lists active, silenced and inhibited alerts, minus the names the client was built to
+// ignore.
 func (a *Alertmanager) Alerts(ctx context.Context) ([]model.Alert, error) {
 	q := url.Values{"active": {"true"}, "silenced": {"true"}, "inhibited": {"true"}}
 	var raw []amAlert
@@ -45,7 +59,7 @@ func (a *Alertmanager) Alerts(ctx context.Context) ([]model.Alert, error) {
 	out := make([]model.Alert, 0, len(raw))
 	for _, r := range raw {
 		name := r.Labels["alertname"]
-		if name == "Watchdog" || name == "InfoInhibitor" {
+		if _, skip := a.ignore[name]; skip {
 			continue
 		}
 		out = append(out, model.Alert{
@@ -162,7 +176,7 @@ func (a *Alertmanager) CreateSilence(ctx context.Context, s SilenceSpec) (string
 
 // ExpireSilence expires (deletes) a silence by id.
 func (a *Alertmanager) ExpireSilence(ctx context.Context, id string) error {
-	if !silenceIDRe.MatchString(id) {
+	if !ValidSilenceID(id) {
 		return fmt.Errorf("%w: bad silence id", ErrInvalid)
 	}
 	return a.c.getJSON(ctx, http.MethodDelete, "/api/v2/silence/"+url.PathEscape(id), nil, nil, nil, nil)

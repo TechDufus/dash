@@ -43,7 +43,6 @@ type built struct {
 	cluster  model.ClusterData
 	flux     model.FluxData
 	storage  model.StorageData
-	alerts   model.AlertsData
 	status   model.StatusData
 	apps     model.AppsData
 }
@@ -52,6 +51,6 @@ func (s *Source) build() built {
 	w := s.world.Build()
 	return built{
 		overview: w.Overview, host: w.Host, vms: w.VMs, cluster: w.Cluster, flux: w.Flux,
-		storage: w.Storage, alerts: w.Alerts, status: w.Status, apps: w.Apps,
+		storage: w.Storage, status: w.Status, apps: w.Apps,
 	}
 }

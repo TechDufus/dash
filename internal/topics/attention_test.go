@@ -185,31 +185,6 @@ func TestFluxRules(t *testing.T) {
 	}
 }
 
-func TestAlertRules(t *testing.T) {
-	tests := []struct {
-		name  string
-		alert model.Alert
-		want  model.Severity
-	}{
-		{"warning", model.Alert{Fingerprint: "a", Name: "X", Severity: "warning", State: "active"}, model.SeverityWarn},
-		{"critical", model.Alert{Fingerprint: "a", Name: "X", Severity: "critical", State: "active"}, model.SeverityCrit},
-		{"watchdog", model.Alert{Fingerprint: "a", Name: "Watchdog", Severity: "critical", State: "active"}, ""},
-		{"info inhibitor", model.Alert{Fingerprint: "a", Name: "InfoInhibitor", Severity: "warning", State: "active"}, ""},
-		{"silenced", model.Alert{Fingerprint: "a", Name: "X", Severity: "critical", State: "suppressed", SilencedBy: []string{"s1"}}, ""},
-		{"inhibited", model.Alert{Fingerprint: "a", Name: "X", Severity: "critical", State: "suppressed", InhibitedBy: []string{"i1"}}, ""},
-		{"silenced but listed active", model.Alert{Fingerprint: "a", Name: "X", Severity: "critical", State: "active", SilencedBy: []string{"s1"}}, ""},
-		{"info severity", model.Alert{Fingerprint: "a", Name: "X", Severity: "info", State: "active"}, ""},
-		{"none severity", model.Alert{Fingerprint: "a", Name: "X", Severity: "none", State: "active"}, ""},
-	}
-	for _, tc := range tests {
-		in := input()
-		in.Alerts = []model.Alert{tc.alert}
-		if got := severityOf(Attention(in, nil), "alert:a"); got != tc.want {
-			t.Errorf("%s: %q, want %q", tc.name, got, tc.want)
-		}
-	}
-}
-
 func TestPodAndWorkloadHealth(t *testing.T) {
 	created := testNow.Add(-10 * time.Minute)
 	podTests := []struct {
@@ -325,23 +300,24 @@ func TestOverallStatusAndOrdering(t *testing.T) {
 		t.Errorf("empty = %s", got)
 	}
 	in := input()
-	in.Alerts = []model.Alert{
-		{Fingerprint: "old-warn", Name: "A", Severity: "warning", State: "active", StartsAt: testNow.Add(-2 * time.Hour)},
-		{Fingerprint: "new-warn", Name: "B", Severity: "warning", State: "active", StartsAt: testNow.Add(-time.Minute)},
+	old, recent := testNow.Add(-2*time.Hour), testNow.Add(-time.Minute)
+	in.Flux.Kustomizations = []model.FluxObj{
+		{Kind: model.FluxKindKustomization, Namespace: "flux-system", Name: "old", LastTransition: &old},
+		{Kind: model.FluxKindKustomization, Namespace: "flux-system", Name: "new", LastTransition: &recent},
 	}
 	items := Attention(in, nil)
 	if OverallStatus(items) != model.HealthWarn {
 		t.Errorf("only warnings must give warn, got %s", OverallStatus(items))
 	}
-	if items[0].ID != "alert:new-warn" {
+	if items[0].ID != "flux:Kustomization/flux-system/new" {
 		t.Errorf("newest first within a severity, got %s", items[0].ID)
 	}
-	in.Alerts = append(in.Alerts, model.Alert{Fingerprint: "crit", Name: "C", Severity: "critical", State: "active", StartsAt: testNow.Add(-24 * time.Hour)})
+	in.Cluster.Nodes = []model.Node{{Name: "cp-2", Ready: false}}
 	items = Attention(in, nil)
 	if OverallStatus(items) != model.HealthCrit {
 		t.Errorf("a critical item must make the status crit, got %s", OverallStatus(items))
 	}
-	if items[0].ID != "alert:crit" {
+	if items[0].ID != "node:cp-2" {
 		t.Errorf("crit sorts first even when older, got %s", items[0].ID)
 	}
 	if items[0].Links == nil {

@@ -86,7 +86,7 @@ func ids(items []model.AttentionItem) string {
 func TestOverviewPublishesWithOneContributor(t *testing.T) {
 	h := hub.New()
 	src := &source{items: []model.AttentionItem{{ID: "fake:1", Severity: model.SeverityWarn, Source: "Fake", Title: "something"}}}
-	m := testManagerWith(config.Defaults(), "", plugintest.AllRunning(h, LegacyManifests()...), contributing("fake", src))
+	m := testManagerWith(config.Defaults(), plugintest.AllRunning(h, LegacyManifests()...), contributing("fake", src))
 	m.rebuild()
 
 	ov := overviewOf(t, h)
@@ -106,7 +106,7 @@ func TestOverviewPublishesWithOneContributor(t *testing.T) {
 // With nothing to say and nothing to rebuild, a round publishes nothing.
 func TestOverviewNeedsADirtyTopicOrAContributor(t *testing.T) {
 	h := hub.New()
-	m := testManager(config.Defaults(), "", plugintest.AllRunning(h, LegacyManifests()...))
+	m := testManager(config.Defaults(), plugintest.AllRunning(h, LegacyManifests()...))
 	m.rebuild()
 	if _, ok := h.Latest("", model.TopicOverview); ok {
 		t.Fatal("an overview from nothing")
@@ -123,7 +123,7 @@ func TestOverviewNeedsADirtyTopicOrAContributor(t *testing.T) {
 // wait for all eight).
 func TestOverviewDoesNotWaitForAllTopics(t *testing.T) {
 	h := hub.New()
-	m := testManager(config.Defaults(), "", plugintest.AllRunning(h, LegacyManifests()...))
+	m := testManager(config.Defaults(), plugintest.AllRunning(h, LegacyManifests()...))
 	m.done["host"] = true
 	m.markAll()
 	m.rebuild()
@@ -145,7 +145,7 @@ func TestOverviewDoesNotWaitForAllTopics(t *testing.T) {
 // The overview is published as core.overview through the core host, and under no other name.
 func TestCoreOverviewPublishesThroughCoreHost(t *testing.T) {
 	rec := &plugintest.Hub{}
-	m := testManager(config.Defaults(), "", plugintest.AllRunning(rec, LegacyManifests()...))
+	m := testManager(config.Defaults(), plugintest.AllRunning(rec, LegacyManifests()...))
 	m.mark(model.TopicHost)
 	m.done["host"] = true
 	m.rebuild()
@@ -168,7 +168,7 @@ func TestCoreOverviewPublishesThroughCoreHost(t *testing.T) {
 func TestOverviewFollowsAContributorChange(t *testing.T) {
 	h := hub.New()
 	src := &source{}
-	m := testManagerWith(config.Defaults(), "", plugintest.AllRunning(h, LegacyManifests()...), contributing("fake", src))
+	m := testManagerWith(config.Defaults(), plugintest.AllRunning(h, LegacyManifests()...), contributing("fake", src))
 	m.rebuild()
 	if ov := overviewOf(t, h); len(ov.Attention) != 0 || ov.Status != model.HealthOK {
 		t.Fatalf("before: %+v", ov)
@@ -195,7 +195,7 @@ func TestOverviewFollowsAContributorChange(t *testing.T) {
 func TestOverviewIsPublishedByTheRebuildLoop(t *testing.T) {
 	h := hub.New()
 	src := &source{items: []model.AttentionItem{{ID: "x", Severity: model.SeverityWarn}}}
-	m := testManagerWith(config.Defaults(), "", plugintest.AllRunning(h, LegacyManifests()...), contributing("fake", src))
+	m := testManagerWith(config.Defaults(), plugintest.AllRunning(h, LegacyManifests()...), contributing("fake", src))
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	m.Run(ctx)
@@ -210,7 +210,7 @@ func TestPanickingContributorDoesNotStopTheOverview(t *testing.T) {
 	h := hub.New()
 	bad := &source{panics: true}
 	good := &source{items: []model.AttentionItem{{ID: "ok", Severity: model.SeverityWarn}}}
-	m := testManagerWith(config.Defaults(), "", plugintest.AllRunning(h, LegacyManifests()...), func() []plugin.Contributor {
+	m := testManagerWith(config.Defaults(), plugintest.AllRunning(h, LegacyManifests()...), func() []plugin.Contributor {
 		return []plugin.Contributor{{ID: "bad", Attention: bad}, {ID: "good", Attention: good}}
 	})
 	m.rebuild()
@@ -233,7 +233,7 @@ func TestAttentionItemsCarryPlugin(t *testing.T) {
 	m := goldenManager(t)
 	items := m.buildOverview(goldenSnapshots(), nil, testNow).Attention
 	want := map[string]string{
-		"alert:f1": "alertmanager", "flux:source-unverified": "flux", "flux:Kustomization/flux-system/apps": "flux",
+		"flux:source-unverified": "flux", "flux:Kustomization/flux-system/apps": "flux",
 		"node:cp-2": "kubernetes", "pod:media/app-0": "kubernetes", "workload:Deployment/media/app": "kubernetes",
 		"cert:media/tls": "kubernetes", "pvc:media/data": "kubernetes", "bucket:backups": "kubernetes",
 		"vm:3000": "proxmox", "gatus:apps_grafana": "gatus",

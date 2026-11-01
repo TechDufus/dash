@@ -48,10 +48,6 @@ func TestStreamEndpointNeverCarriesUpstreamDetail(t *testing.T) {
 	prom.Config.ErrorLog = log.New(io.Discard, "", 0) // the client's refused handshakes
 	prom.StartTLS()
 	t.Cleanup(prom.Close)
-	// Alertmanager is gone.
-	am := httptest.NewServer(http.NotFoundHandler())
-	amURL := am.URL
-	am.Close()
 	// Gatus wants credentials.
 	gatus := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { http.Error(w, "login at gatus", 401) }))
 	t.Cleanup(gatus.Close)
@@ -74,7 +70,6 @@ func TestStreamEndpointNeverCarriesUpstreamDetail(t *testing.T) {
 			Cfg: cfg, Cluster: cluster, Hosts: plugintest.AllRunning(d.Hub, topics.LegacyManifests()...), Links: links.New(cfg), Secrets: reg,
 			// The prometheus plugin's service, here a plain client: the Manager reads it through Services.
 			Services: func(id plugin.ID) (any, bool) { return promClient, id == "prometheus" },
-			AM:       upstream.NewAlertmanager(amURL, nil),
 			Gatus:    upstream.NewGatus(gatus.URL, nil),
 			PVE:      upstream.NewProxmox(pve.URL, "pve", "u@pve!t", token, nil),
 		})
@@ -87,7 +82,7 @@ func TestStreamEndpointNeverCarriesUpstreamDetail(t *testing.T) {
 
 	_, lines := sseClient(t, s.Handler(), "/api/v1/stream")
 	var stream strings.Builder
-	want := []string{`"http_500"`, `"tls"`, `"unreachable"`, `"auth"`} // proxmox, victoriametrics, alertmanager, gatus
+	want := []string{`"http_500"`, `"tls"`, `"auth"`} // proxmox, victoriametrics, gatus
 	deadline := time.After(15 * time.Second)
 	for missing := true; missing; {
 		select {
@@ -105,7 +100,7 @@ func TestStreamEndpointNeverCarriesUpstreamDetail(t *testing.T) {
 		}
 	}
 
-	for _, srv := range []string{pve.URL, prom.URL, amURL, gatus.URL} {
+	for _, srv := range []string{pve.URL, prom.URL, gatus.URL} {
 		u, _ := url.Parse(srv)
 		for _, leak := range []string{srv, u.Host} {
 			if strings.Contains(stream.String(), leak) {

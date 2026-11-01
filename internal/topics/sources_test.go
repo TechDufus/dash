@@ -54,7 +54,7 @@ func TestOverviewCarriesContributorSources(t *testing.T) {
 	h := hub.New()
 	src := &source{items: []model.AttentionItem{{ID: "fake:1", Severity: model.SeverityWarn}}}
 	failing := true
-	m := testManagerWith(config.Defaults(), "", plugintest.AllRunning(h, LegacyManifests()...), func() []plugin.Contributor {
+	m := testManagerWith(config.Defaults(), plugintest.AllRunning(h, LegacyManifests()...), func() []plugin.Contributor {
 		return []plugin.Contributor{{ID: "fake", Attention: src, Sources: func() []model.SourceStatus {
 			if failing {
 				return []model.SourceStatus{{Name: "fakeupstream", Error: "unreachable"}}

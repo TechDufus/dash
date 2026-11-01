@@ -21,7 +21,7 @@ describe("module registry", () => {
       }
     }
     expect([...seen.keys()].sort()).toEqual([
-      "alerts",
+      "alertmanager.alerts",
       "apps",
       "cluster",
       "flux",

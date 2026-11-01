@@ -1,5 +1,5 @@
-// Package topics builds the eight integration topics (host, vms, cluster, flux, storage, alerts,
-// status, apps) from the Kubernetes informers and the upstream clients, and composes core.overview
+// Package topics builds the seven integration topics (host, vms, cluster, flux, storage, status,
+// apps) from the Kubernetes informers and the upstream clients, and composes core.overview
 // from them and from what plugins contribute. Each topic is published through the Host of the
 // plugin that owns it (legacy.go), so a disabled plugin publishes nothing.
 package topics
@@ -29,7 +29,6 @@ var ErrNotFound = errors.New("not found")
 type Deps struct {
 	Cfg     config.Config
 	Cluster *kube.Cluster
-	AM      *upstream.Alertmanager
 	Gatus   *upstream.Gatus
 	PVE     *upstream.Proxmox
 	// Links builds the Proxmox links (VM console, host shell, Proxmox UI). The links into
@@ -63,7 +62,6 @@ const (
 	vmsEvery     = 15 * time.Second
 	usageEvery   = 30 * time.Second
 	storageEvery = 60 * time.Second
-	alertsEvery  = 15 * time.Second
 	statusEvery  = 30 * time.Second
 )
 
@@ -85,7 +83,6 @@ type Manager struct {
 	vms     vmsSnap
 	usage   usageSnap
 	storage storageSnap
-	alerts  alertsSnap
 	status  []model.Endpoint
 
 	built   built
@@ -106,7 +103,6 @@ type built struct {
 	cluster *model.ClusterData
 	flux    *model.FluxData
 	storage *model.StorageData
-	alerts  *model.AlertsData
 	status  *model.StatusData
 	apps    *model.AppsData
 }
@@ -136,7 +132,6 @@ func (m *Manager) Run(ctx context.Context) {
 	m.every(ctx, "vms", vmsEvery, m.pollVMs)
 	m.every(ctx, "usage", usageEvery, m.pollUsage)
 	m.every(ctx, "storage", storageEvery, m.pollStorage)
-	m.every(ctx, "alerts", alertsEvery, m.pollAlerts)
 	m.every(ctx, "status", statusEvery, m.pollStatus)
 
 	go func() {
@@ -274,7 +269,7 @@ func (m *Manager) mark(topics ...model.Topic) {
 
 func (m *Manager) markAll() {
 	m.mark(model.TopicHost, model.TopicVMs, model.TopicCluster, model.TopicFlux, model.TopicStorage,
-		model.TopicAlerts, model.TopicStatus, model.TopicApps)
+		model.TopicStatus, model.TopicApps)
 }
 
 func (m *Manager) onKubeChange(k kube.Kind) {
@@ -321,7 +316,7 @@ func (m *Manager) anyRunning(ids []plugin.ID) bool {
 // keyPoller names the poller (the name Run and pollUsers use) that writes the source keys with
 // a given scope. Keys outside it, the informers' "kubernetes", are always live.
 var keyPoller = map[string]string{
-	"host": "host", "vms": "vms", "cluster": "usage", "storage": "storage", "alerts": "alerts", "status": "status",
+	"host": "host", "vms": "vms", "cluster": "usage", "storage": "storage", "status": "status",
 }
 
 // polled reports whether source key k is being written: its poller runs only while a plugin that
@@ -414,13 +409,6 @@ func (m *Manager) rebuild() {
 		m.mu.Unlock()
 		return d, m.sources("status:gatus")
 	})
-	build(model.TopicAlerts, m.pollDone("alerts"), func() (any, []model.SourceStatus) {
-		d := m.buildAlerts()
-		m.mu.Lock()
-		m.built.alerts = &d
-		m.mu.Unlock()
-		return d, m.sources("alerts:alertmanager")
-	})
 	build(model.TopicCluster, synced, func() (any, []model.SourceStatus) {
 		d := m.buildCluster(now)
 		m.mu.Lock()
@@ -462,6 +450,6 @@ func (m *Manager) rebuild() {
 	m.mu.RUnlock()
 	srcs := m.sources(
 		"kubernetes", "host:proxmox", "host:victoriametrics", "vms:proxmox", "vms:victoriametrics",
-		"cluster:victoriametrics", "storage:victoriametrics", "alerts:alertmanager", "status:gatus")
+		"cluster:victoriametrics", "storage:victoriametrics", "status:gatus")
 	m.publish(model.TopicOverview, m.buildOverview(b, contributors, now), mergeSources(srcs, m.contributorSources(contributors)))
 }

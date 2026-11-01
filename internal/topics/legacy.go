@@ -63,7 +63,6 @@ var pollUsers = map[string][]plugin.ID{
 	"vms":     {"proxmox"},
 	"usage":   {"kubernetes"},
 	"storage": {"kubernetes"},
-	"alerts":  {"alertmanager"},
 	"status":  {"gatus", "kubernetes", "proxmox"}, // the status, apps and vms topics
 }
 
@@ -75,9 +74,6 @@ func legacyManifests() []plugin.Manifest {
 		return plugin.UISpec{Nav: []model.NavItem{{Path: path, Label: label, Title: title, Icon: icon}}}
 	}
 	return []plugin.Manifest{
-		{ID: "alertmanager", Name: "Alertmanager", Description: "Alerts and silences.", Version: "1.0.0", Config: func() any { return &pluginconf.Alertmanager{} },
-			Topics: []plugin.TopicSpec{{Name: "alerts", Legacy: "alerts", Type: model.AlertsData{}, Doc: "Alerts and silences."}},
-			UI:     nav("/alerts", "Alerts", "Alerts and silences", "BellRing")},
 		{ID: "gatus", Name: "Gatus", Description: "Endpoint health.", Version: "1.0.0", Config: func() any { return &pluginconf.Gatus{} },
 			Topics: []plugin.TopicSpec{{Name: "status", Legacy: "status", Type: model.StatusData{}, Doc: "Endpoint health checks."}},
 			UI:     nav("/status", "Status", "Service status", "Activity")},
@@ -128,15 +124,13 @@ func (m *Manager) Plugins() []plugin.Factory {
 
 // pollKeys are the source keys (m.srcs) that decide a poller-backed shim's state.
 var pollKeys = map[plugin.ID][]string{
-	"alertmanager": {"alerts:alertmanager"},
-	"gatus":        {"status:gatus"},
-	"proxmox":      {"vms:proxmox", "host:proxmox"},
-	"hardware":     {"host:victoriametrics"},
+	"gatus":    {"status:gatus"},
+	"proxmox":  {"vms:proxmox", "host:proxmox"},
+	"hardware": {"host:victoriametrics"},
 }
 
 // setting names what to configure for a shim whose source is off, for its status message.
 var setting = map[plugin.ID]string{
-	"alertmanager": "plugins.alertmanager.url",
 	"gatus":        "plugins.gatus.url",
 	"proxmox":      "plugins.proxmox.url, tokenID and tokenSecret",
 	"hardware":     "plugins.prometheus.url",

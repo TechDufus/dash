@@ -10,6 +10,7 @@ import (
 	"github.com/TechDufus/dash/internal/hub"
 	"github.com/TechDufus/dash/internal/plugin"
 	"github.com/TechDufus/dash/internal/pluginconf"
+	"github.com/TechDufus/dash/internal/plugins/alertmanager"
 	"github.com/TechDufus/dash/internal/plugins/grafana"
 	"github.com/TechDufus/dash/internal/plugins/headlamp"
 	"github.com/TechDufus/dash/internal/plugins/launcher"
@@ -69,10 +70,11 @@ var displayOrder = []plugin.ID{
 // moved out of the Manager adds its factory here and its shim leaves topics.legacyManifests;
 // until then it is absent and the shim stands in.
 var realPlugins = map[plugin.ID]plugin.Factory{
-	"prometheus": prometheus.New,
-	"grafana":    grafana.New,
-	"headlamp":   headlamp.New,
-	"launcher":   launcher.New,
+	"prometheus":   prometheus.New,
+	"alertmanager": alertmanager.New,
+	"grafana":      grafana.New,
+	"headlamp":     headlamp.New,
+	"launcher":     launcher.New,
 }
 
 // hasRealPlugin reports whether id runs as a plugin of its own, so demo mode registers its twin

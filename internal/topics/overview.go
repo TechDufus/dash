@@ -21,12 +21,8 @@ func orZero[T any](p *T) T {
 // buildOverview composes core.overview from the legacy contribution (the Manager's rules over the
 // snapshots that exist, zero values for the rest) and what each running plugin in cs adds.
 func (m *Manager) buildOverview(b built, cs []plugin.Contributor, now time.Time) model.OverviewData {
-	var alerts []model.Alert
-	if b.alerts != nil {
-		alerts = b.alerts.Alerts
-	}
 	in := AttentionInput{
-		Alerts: alerts, Flux: orZero(b.flux), Cluster: orZero(b.cluster), VMs: orZero(b.vms), Storage: orZero(b.storage),
+		Flux: orZero(b.flux), Cluster: orZero(b.cluster), VMs: orZero(b.vms), Storage: orZero(b.storage),
 		Status: orZero(b.status), Host: orZero(b.host), Links: m.d.Links, Resolver: m.resolver(), Now: now,
 	}
 	items := legacyAttention(in, m.tracker)
@@ -94,11 +90,6 @@ func (m *Manager) contributorSources(cs []plugin.Contributor) []model.SourceStat
 
 func kpis(in AttentionInput) model.Kpis {
 	k := model.Kpis{PowerWatts: in.Host.PowerWatts}
-	for _, a := range in.Alerts {
-		if AlertFiring(a) {
-			k.AlertsFiring++
-		}
-	}
 	count := func(l []model.FluxObj) {
 		for _, o := range l {
 			k.FluxTotal++

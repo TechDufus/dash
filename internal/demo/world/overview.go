@@ -77,17 +77,24 @@ func (w *World) overviewOf(now time.Time, s Snapshot) model.OverviewData {
 			Health: vm.Health, CPURatio: vm.CPURatio, MemRatio: float64(vm.MemBytes) / float64(vm.MaxMemBytes),
 			IsK8sNode: vm.K8sNode != nil, Running: vm.Status == "running"})
 	}
-	firing := 0
+	firing, alertHealth := 0, model.HealthOK
 	for _, a := range s.Alerts.Alerts {
 		if a.State == "active" {
 			firing++
+			if alertHealth == model.HealthOK {
+				alertHealth = model.HealthWarn
+			}
+			if a.Severity == "critical" {
+				alertHealth = model.HealthCrit
+			}
 		}
 	}
 	fluxTotal := len(s.Flux.Sources) + len(s.Flux.Kustomizations) + len(s.Flux.HelmReleases)
 	o.Status = model.HealthCrit
-	o.KPIList = []model.KPI{}
+	// The alertmanager plugin's one KPI, as its KPIs() computes it for the default severityMap.
+	o.KPIList = []model.KPI{{Key: "firing", Plugin: "alertmanager", Label: "Alerts firing", Value: float64(firing), Health: alertHealth}}
 	o.Kpis = model.Kpis{
-		AlertsFiring: firing, FluxReady: fluxTotal, FluxTotal: fluxTotal, FluxSuspended: 1, SourceVerified: true,
+		FluxReady: fluxTotal, FluxTotal: fluxTotal, FluxSuspended: 1, SourceVerified: true,
 		NodesReady: len(nodeNames), NodesTotal: len(nodeNames), VMsRunning: running, VMsTotal: total,
 		PowerWatts: s.Host.PowerWatts, CPUTempMaxC: cpuTemp,
 		WorstPVC: &model.WorstPVC{Namespace: worst.Namespace, Name: worst.Name, UsedRatio: *worst.UsedRatio},

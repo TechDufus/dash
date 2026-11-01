@@ -55,9 +55,8 @@ type Config struct {
 	DataDir    string
 	SettingsUI string
 
-	AlertmanagerURL string
-	VLogsURL        string
-	GatusURL        string
+	VLogsURL string
+	GatusURL string
 
 	ProxmoxURL string
 	// ProxmoxNode is the node whose status and guests dash reads. Optional: when empty and a

@@ -35,7 +35,7 @@ https://dash.home.techdufus.com.
   temperature into a KPI row, draws the topology from the Proxmox host through its VMs to every
   namespace, and lists what needs attention, worst first.
 - **Live, not polled from the browser.** Informers and upstream pollers rebuild the topics
-  (`host`, `vms`, `cluster`, `flux`, `storage`, `alerts`, `status`, `apps`), the core composes
+  (`host`, `vms`, `cluster`, `flux`, `storage`, `alertmanager.alerts`, `status`, `apps`), the core composes
   `core.overview` from what the integrations contribute, and only what changed goes out over a
   single SSE stream. `core.plugins` says which integrations run and whether each is healthy; the
   launcher plugin publishes its links as `launcher.links`.
@@ -51,7 +51,8 @@ https://dash.home.techdufus.com.
   you are looking at, and a command palette (`Ctrl K`) jumps to any page, VM, node,
   workload or pod.
 - **Safe by design.** Writes are limited to three operations: a workload rollout restart, a Flux
-  reconcile request, and Alertmanager silences that expire. The homelab guardrail
+  reconcile request, and Alertmanager silences that expire (off until
+  `plugins.alertmanager.actions.enabled` is set). The homelab guardrail
   `kubernetes/platform/guardrails/policy-dash.yaml` fences the ServiceAccount to exactly those.
 
 ## Screenshots
@@ -176,7 +177,14 @@ restart with `DASH_PLUGINS_PROXMOX_TOKEN_SECRET_FILE`.
 | `plugins.prometheus.auth.basic.username`, `.password` / `.auth.bearerToken` | empty (no credentials) | Basic or bearer credentials for the service, not both; the password and the token take a literal, `env:NAME` or `file:/path` and a rotated file applies without a restart |
 | `plugins.prometheus.headers` | empty | extra headers sent with every request, `{name: value}` (a JSON object in the environment). Plain configuration, not secrets: put credentials in `auth`. `Authorization`, `Proxy-Authorization`, `Cookie` and `Host` cannot be set |
 | `plugins.prometheus.tls.caFile`, `.insecureSkipVerify` | empty, `false` | a PEM file with the CA that signed the service's certificate, added to the system roots; `insecureSkipVerify` skips verification (prefer `caFile`) |
-| `plugins.alertmanager.url` | empty (source not configured) | Alertmanager |
+| `plugins.alertmanager.url` | empty (source not configured) | Alertmanager; a change of any `plugins.alertmanager.*` setting applies without a restart of dash |
+| `plugins.alertmanager.auth.basic.username`, `.password` / `.auth.bearerToken` | empty (no credentials) | Basic or bearer credentials for Alertmanager, not both; the password and the token take a literal, `env:NAME` or `file:/path` and a rotated file applies without a restart |
+| `plugins.alertmanager.tls.caFile`, `.insecureSkipVerify` | empty, `false` | a PEM file with the CA that signed Alertmanager's certificate, added to the system roots; `insecureSkipVerify` skips verification (prefer `caFile`) |
+| `plugins.alertmanager.ignoreAlerts` | `["Watchdog","InfoInhibitor"]` | alert names dash drops everywhere: the alert list, the attention items and the firing count (a JSON list in the environment) |
+| `plugins.alertmanager.severityMap` | `{"critical":"crit","warning":"warn"}` | how an alert's `severity` label value becomes dash's severity, `crit` or `warn`; an alert whose value is not listed is not attention (a JSON object in the environment) |
+| `plugins.alertmanager.silenceDurations` | `["1h","4h","24h","7d"]` | the silence lengths the dialog offers, from those four (a JSON list in the environment) |
+| `plugins.alertmanager.protectedAlerts` | `["Watchdog"]` | alert names nobody can silence through dash, whatever the role: the Alerts page has no Silence button for them and `silence.create` answers 403 (a JSON list in the environment) |
+| `plugins.alertmanager.actions.enabled` | `false` | mounts the silence actions (`silence.create`, `silence.expire`); only silences dash created (`createdBy` starting `dash:`) can be expired through it. `DASH_PLUGINS_ALERTMANAGER_ACTIONS_ENABLED=true`; a change restarts the plugin |
 | `plugins.victorialogs.url` | empty (source not configured) | VictoriaLogs, for pod logs |
 | `plugins.gatus.url` | empty (source not configured) | Gatus |
 | `plugins.proxmox.tokenID`, `.tokenSecret` | empty (Proxmox off) | API token `<user>!<token>` and its secret; set together |
@@ -309,9 +317,10 @@ The public API is under `/api/v1` (`me`, `stream`, `series`, `topics/<topic>`, `
 by [docs/api/openapi.json](docs/api/openapi.json), an OpenAPI 3.1 document generated from the code
 (`dash api openapi`; `make generate` rewrites it and `make check` fails when it drifts or does
 not lint). The SPA uses the same paths. Before 1.0 a breaking change to them is called out in
-the release notes. The unversioned `/api/vms`, `/api/pods`, `/api/logs`, `/api/actions` and
-`/api/silences` routes are internal to the SPA and go away as their plugins
-move; `/api/me`, `/api/stream` and `/api/series` are now `/api/v1/me`, `/api/v1/stream` and
+the release notes. The unversioned `/api/vms`, `/api/pods`, `/api/logs` and `/api/actions`
+routes are internal to the SPA and go away as their plugins move; `/api/silences` is already
+gone (silences are the alertmanager plugin's actions, and the old paths answer 404), and
+`/api/me`, `/api/stream` and `/api/series` are now `/api/v1/me`, `/api/v1/stream` and
 `/api/v1/series`, and the old paths answer 404.
 
 Every response of the API listener carries an `X-Request-Id` (128 random bits as hex; a proxy on
@@ -326,15 +335,18 @@ sends none. `/api/v1` answers are `Cache-Control: no-store`, except a topic snap
 navigation (the same rows arrive on the `core.plugins` stream topic). A running plugin's own
 read routes live under `/api/v1/plugins/<id>/…`.
 
-The framework can also mount a plugin's actions as `POST /api/v1/plugins/<id>/actions/<name>`,
-but this release ships no plugin that can enable them: no plugin section has `actions` settings
-yet, `dash config validate` rejects `plugins.<id>.actions.enabled` and
-`plugins.<id>.actions.denyNamespaces` as unknown, and the restart, reconcile and silence
-actions stay on the SPA's internal routes. The settings arrive with the G3 plugin leaves, as
-each plugin moves its actions. Once a plugin has them, every action request runs one chain: the
-principal's role, a rate limit of 10 actions a minute per user, the body checks (JSON only,
-unknown fields refused, `required` and `enum` honoured), the namespace deny list, the audit
-intent, the action, then the audit outcome. A refusal is audited and the action does not run.
+The framework mounts a plugin's actions as `POST /api/v1/plugins/<id>/actions/<name>` while
+`plugins.<id>.actions.enabled` is true. Only the alertmanager plugin has them so far:
+`silence.create` and `silence.expire`, both for admins (`silence.expire` answers 202). Set
+`plugins.alertmanager.actions.enabled`
+(`DASH_PLUGINS_ALERTMANAGER_ACTIONS_ENABLED=true`) to turn them on; changing it restarts that
+plugin, and until it is set the Alerts page shows no Silence or Expire button. `dash config
+validate` rejects `plugins.<id>.actions.*` on a plugin without them, and the restart and
+reconcile actions stay on the SPA's internal routes until their plugins move. Every action
+request runs one chain: the principal's role, a rate limit of 10 actions a minute per user, the
+body checks (JSON only, unknown fields refused, `required` and `enum` honoured), the namespace
+deny list where the plugin has one, the audit intent, the action, then the audit outcome. A
+refusal is audited and the action does not run.
 
 Every error answer is `{"error": "<text for a person>", "code": "<reason>", "requestId": "<id>"}`.
 Clients branch on `code`. These are sent today: `unauthenticated`, `forbidden`, `csrf_failed`,

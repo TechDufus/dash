@@ -15,6 +15,7 @@ import (
 	"github.com/TechDufus/dash/internal/model"
 	"github.com/TechDufus/dash/internal/plugin"
 	"github.com/TechDufus/dash/internal/plugin/plugintest"
+	"github.com/TechDufus/dash/internal/plugins/alertmanager"
 	"github.com/TechDufus/dash/internal/topics"
 )
 
@@ -32,7 +33,7 @@ func TestPublishesEveryTopic(t *testing.T) {
 	h := published(t)
 	for _, topic := range []model.Topic{
 		model.TopicOverview, model.TopicHost, model.TopicVMs, model.TopicCluster, model.TopicFlux,
-		model.TopicStorage, model.TopicAlerts, model.TopicStatus, model.TopicApps,
+		model.TopicStorage, model.TopicStatus, model.TopicApps,
 	} {
 		ev, ok := h.Latest("", topic)
 		if !ok {
@@ -89,6 +90,14 @@ func TestWrapAnswersActionsAndSignsIn(t *testing.T) {
 	if rec.Code != http.StatusAccepted {
 		t.Fatalf("restart: got %d, want 202", rec.Code)
 	}
+	// The silence routes are gone: nothing answers for them here any more, the request goes on.
+	for _, c := range []struct{ method, path string }{{http.MethodPost, "/api/silences"}, {http.MethodDelete, "/api/silences/abc"}} {
+		rec = httptest.NewRecorder()
+		Wrap(next).ServeHTTP(rec, httptest.NewRequest(c.method, c.path, nil))
+		if rec.Code != http.StatusTeapot {
+			t.Errorf("%s %s: got %d, want the request to reach the API", c.method, c.path, rec.Code)
+		}
+	}
 	rec = httptest.NewRecorder()
 	Wrap(next).ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/me", nil))
 	if rec.Code != http.StatusTeapot || user != "demo" {
@@ -128,8 +137,8 @@ func TestDemoPublishesLegacyTopicsAndCorePlugins(t *testing.T) {
 		got = append(got, ev.Topic)
 	}
 	// core.plugins first, then the overview, then the integrations' topics under the names
-	// they keep until their plugin migrates.
-	want := []string{"core.plugins", "core.overview", "alerts", "status", "vms", "host", "cluster", "storage", "apps", "flux"}
+	// they keep until their plugin migrates (the alertmanager twin is registered by cmd/dash).
+	want := []string{"core.plugins", "core.overview", "status", "vms", "host", "cluster", "storage", "apps", "flux"}
 	if strings.Join(got, " ") != strings.Join(want, " ") {
 		t.Fatalf("topics = %v, want %v", got, want)
 	}
@@ -141,16 +150,16 @@ func TestDemoPublishesLegacyTopicsAndCorePlugins(t *testing.T) {
 	if err := json.Unmarshal(env.Data, &pd); err != nil {
 		t.Fatal(err)
 	}
-	if len(pd.Plugins) != 7 { // the shims; the real plugins' twins (prometheus, grafana, headlamp, launcher) are registered by cmd/dash
-		t.Fatalf("core.plugins lists %d plugins, want 7", len(pd.Plugins))
+	if len(pd.Plugins) != 6 { // the shims; the real plugins' twins (prometheus, alertmanager, grafana, headlamp, launcher) are registered by cmd/dash
+		t.Fatalf("core.plugins lists %d plugins, want 6", len(pd.Plugins))
 	}
 }
 
 func TestDemoPluginsAreHealthy(t *testing.T) {
 	_, sup, _ := demoSupervisor(t, nil)
 	infos := sup.Infos()
-	if len(infos) != 7 {
-		t.Fatalf("%d plugins, want 7", len(infos))
+	if len(infos) != 6 {
+		t.Fatalf("%d plugins, want 6", len(infos))
 	}
 	for _, in := range infos {
 		if in.State != model.PluginHealthy || in.Message != "" {
@@ -159,6 +168,45 @@ func TestDemoPluginsAreHealthy(t *testing.T) {
 	}
 	if !sup.Ready() {
 		t.Error("the demo is not ready")
+	}
+}
+
+// The overview's alerts tile and source chip are the alertmanager plugin's: the demo adds them
+// while its twin runs and leaves both out when the plugin does not run.
+func TestDemoOverviewHasTheAlertmanagerKPIOnlyWhileItRuns(t *testing.T) {
+	overview := func(hp plugin.HostProvider, h *hub.Hub) (model.OverviewData, []model.SourceStatus) {
+		s := New(Config(config.Defaults()))
+		s.Plugins(hp)
+		s.publish()
+		ev, ok := h.Latest("", model.TopicOverview)
+		if !ok {
+			t.Fatal("no overview")
+		}
+		var env model.Envelope
+		var d model.OverviewData
+		if err := json.Unmarshal(ev.Data, &env); err != nil || json.Unmarshal(env.Data, &d) != nil {
+			t.Fatalf("bad overview envelope (%v)", err)
+		}
+		return d, env.Sources
+	}
+	hasChip := func(srcs []model.SourceStatus) bool {
+		for _, s := range srcs {
+			if s.Name == "alertmanager" {
+				return true
+			}
+		}
+		return false
+	}
+
+	h := hub.New()
+	d, srcs := overview(plugintest.AllRunning(h, append(topics.LegacyManifests(), alertmanager.New().Manifest())...), h)
+	if len(d.KPIList) != 1 || d.KPIList[0].Plugin != "alertmanager" || d.KPIList[0].Key != "firing" || d.KPIList[0].Value != 2 || !hasChip(srcs) {
+		t.Errorf("with alertmanager running: kpiList %+v, sources %+v", d.KPIList, srcs)
+	}
+	h = hub.New()
+	d, srcs = overview(plugintest.Without(plugintest.AllRunning(h, topics.LegacyManifests()...), "alertmanager"), h)
+	if len(d.KPIList) != 0 || hasChip(srcs) {
+		t.Errorf("without alertmanager: kpiList %+v, sources %+v", d.KPIList, srcs)
 	}
 }
 

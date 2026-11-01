@@ -5,6 +5,7 @@
       "id": "bucket:backups",
       "severity": "crit",
       "source": "storage",
+      "plugin": "kubernetes",
       "title": "Bucket backups is 95% of its quota",
       "detail": "",
       "since": "2026-10-30T12:00:00Z",
@@ -15,6 +16,7 @@
       "id": "cert:media/tls",
       "severity": "crit",
       "source": "cert-manager",
+      "plugin": "kubernetes",
       "title": "Certificate media/tls expires soon",
       "detail": "expires 2026-11-04 (5 days)",
       "since": "2026-10-30T12:00:00Z",
@@ -25,6 +27,7 @@
       "id": "host:cpu-temp",
       "severity": "crit",
       "source": "hardware",
+      "plugin": "hardware",
       "title": "CPU package at 92 °C",
       "detail": "",
       "since": "2026-10-30T12:00:00Z",
@@ -46,6 +49,7 @@
       "id": "node:cp-2",
       "severity": "crit",
       "source": "kubernetes",
+      "plugin": "kubernetes",
       "title": "Node cp-2 not ready",
       "detail": "192.0.2.12",
       "since": "2026-10-30T12:00:00Z",
@@ -56,6 +60,7 @@
       "id": "pvc:media/data",
       "severity": "crit",
       "source": "storage",
+      "plugin": "kubernetes",
       "title": "PVC media/data is 93% full",
       "detail": "",
       "since": "2026-10-30T12:00:00Z",
@@ -66,6 +71,7 @@
       "id": "smart:4",
       "severity": "crit",
       "source": "smart",
+      "plugin": "hardware",
       "title": "Disk in bay 4 reports SMART failure",
       "detail": "sdd S1",
       "since": "2026-10-30T12:00:00Z",
@@ -87,6 +93,7 @@
       "id": "workload:Deployment/media/app",
       "severity": "crit",
       "source": "kubernetes",
+      "plugin": "kubernetes",
       "title": "Deployment media/app not ready",
       "detail": "0 of 2 ready",
       "since": "2026-10-30T12:00:00Z",
@@ -97,6 +104,7 @@
       "id": "zfs:pool:bulk",
       "severity": "crit",
       "source": "zfs",
+      "plugin": "hardware",
       "title": "ZFS pool bulk is degraded",
       "detail": "",
       "since": "2026-10-30T12:00:00Z",
@@ -118,6 +126,7 @@
       "id": "gatus:infrastructure_unifi",
       "severity": "crit",
       "source": "gatus",
+      "plugin": "gatus",
       "title": "UniFi check failing",
       "detail": "infrastructure",
       "since": "2026-10-30T11:56:00Z",
@@ -128,6 +137,7 @@
       "id": "pod:media/app-0",
       "severity": "crit",
       "source": "kubernetes",
+      "plugin": "kubernetes",
       "title": "Pod media/app-0 is failing",
       "detail": "CrashLoopBackOff",
       "since": "2026-10-30T11:13:00Z",
@@ -138,6 +148,7 @@
       "id": "alert:f1",
       "severity": "crit",
       "source": "alertmanager",
+      "plugin": "alertmanager",
       "title": "NodeDown",
       "detail": "cp-2 is down",
       "since": "2026-10-30T11:10:00Z",
@@ -148,12 +159,14 @@
           "href": "https://grafana.example.com/alerting/list",
           "kind": "grafana"
         }
-      ]
+      ],
+      "ref": "alertmanager:Alert/f1"
     },
     {
       "id": "flux:source-unverified",
       "severity": "crit",
       "source": "flux",
+      "plugin": "flux",
       "title": "flux-system source signature not verified",
       "detail": "GitRepository flux-system/flux-system SourceVerified is not True",
       "since": "2026-10-30T11:00:00Z",
@@ -170,6 +183,7 @@
       "id": "pvc:monitoring/tsdb",
       "severity": "warn",
       "source": "storage",
+      "plugin": "kubernetes",
       "title": "PVC monitoring/tsdb is 82% full",
       "detail": "",
       "since": "2026-10-30T12:00:00Z",
@@ -180,6 +194,7 @@
       "id": "vm:3000",
       "severity": "warn",
       "source": "proxmox",
+      "plugin": "proxmox",
       "title": "VM scratch is stopped",
       "detail": "VMID 3000",
       "since": "2026-10-30T12:00:00Z",
@@ -190,6 +205,7 @@
       "id": "gatus:apps_grafana",
       "severity": "warn",
       "source": "gatus",
+      "plugin": "gatus",
       "title": "Grafana check failing",
       "detail": "apps",
       "since": "2026-10-30T11:58:00Z",
@@ -200,6 +216,7 @@
       "id": "pod:media/app-1",
       "severity": "warn",
       "source": "kubernetes",
+      "plugin": "kubernetes",
       "title": "Pod media/app-1 is stuck pending",
       "detail": "Pending for over 5 minutes",
       "since": "2026-10-30T11:40:00Z",
@@ -210,6 +227,7 @@
       "id": "flux:Kustomization/flux-system/apps",
       "severity": "warn",
       "source": "flux",
+      "plugin": "flux",
       "title": "Kustomization flux-system/apps not ready",
       "detail": "build failed",
       "since": "2026-10-30T11:30:00Z",
@@ -226,6 +244,7 @@
       "id": "alert:f2",
       "severity": "warn",
       "source": "alertmanager",
+      "plugin": "alertmanager",
       "title": "DiskFilling",
       "detail": "media/data",
       "since": "2026-10-30T09:00:00Z",
@@ -236,12 +255,14 @@
           "href": "https://grafana.example.com/alerting/list",
           "kind": "grafana"
         }
-      ]
+      ],
+      "ref": "alertmanager:Alert/f2"
     },
     {
       "id": "zfs:scrub:fast",
       "severity": "warn",
       "source": "zfs",
+      "plugin": "hardware",
       "title": "ZFS pool fast last scrub found errors",
       "detail": "3 errors",
       "since": "2026-10-28T12:00:00Z",
@@ -261,7 +282,6 @@
     }
   ],
   "kpis": {
-    "alertsFiring": 2,
     "fluxReady": 2,
     "fluxTotal": 4,
     "fluxSuspended": 1,
@@ -278,6 +298,7 @@
       "usedRatio": 0.93
     }
   },
+  "kpiList": [],
   "topology": {
     "host": {
       "name": "pve-demo",

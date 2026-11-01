@@ -22,6 +22,7 @@ import (
 	"github.com/TechDufus/dash/internal/plugin"
 	"github.com/TechDufus/dash/internal/plugin/plugintest"
 	"github.com/TechDufus/dash/internal/pluginconf"
+	"github.com/TechDufus/dash/internal/plugins/alertmanager"
 	"github.com/TechDufus/dash/internal/plugins/grafana"
 	"github.com/TechDufus/dash/internal/plugins/headlamp"
 )
@@ -65,10 +66,10 @@ func newLinkRig(t *testing.T, cfg config.Config, lab ...plugin.InstanceConfig) *
 		r.set.Set(ic)
 	}
 	r.m = New(Deps{
-		Cfg: cfg, Cluster: podCluster(), Hosts: r.sup, Links: links.New(cfg),
+		Cfg: cfg, Cluster: podCluster(), Hosts: r.sup, Links: links.New(cfg), Contributors: r.sup.Contributors,
 		LinkProviders: func() plugin.LinkResolver { r.providerReads.Add(1); return r.sup.Links() },
 	})
-	if err := r.sup.Add(append(r.m.Plugins(), grafana.New, headlamp.New)...); err != nil {
+	if err := r.sup.Add(append(r.m.Plugins(), grafana.New, headlamp.New, alertmanager.New)...); err != nil {
 		t.Fatal(err)
 	}
 	ctx, cancel := context.WithCancel(context.Background())
@@ -198,32 +199,6 @@ func TestLinksFollowTheGrafanaAndHeadlampRows(t *testing.T) {
 	})
 }
 
-// The alert link of an attention item and the link of a failing Flux object come from the same
-// providers: with grafana and headlamp off the overview's items carry none of them.
-func TestAttentionLinksFollowTheProviders(t *testing.T) {
-	r := newLinkRig(t, config.Defaults(), grafanaOn("https://gf.example.com"), headlampOn("https://hl.example.com"))
-	in := AttentionInput{
-		Alerts:   []model.Alert{{Fingerprint: "f1", Name: "NodeDown", Severity: "critical", State: "active"}},
-		Links:    r.m.d.Links,
-		Resolver: r.sup.Links(),
-		Now:      testNow,
-	}
-	items := Attention(in, nil)
-	if len(items) != 1 || len(items[0].Links) != 1 || items[0].Links[0].Kind != model.LinkKindGrafana ||
-		items[0].Links[0].Href != "https://gf.example.com/alerting/list" {
-		t.Fatalf("items = %+v, want the Grafana alert list on the alert", items)
-	}
-	in.Resolver = plugin.NoLinks
-	items = Attention(in, nil)
-	if len(items) != 1 || items[0].Links == nil || len(items[0].Links) != 0 {
-		t.Errorf("without a provider the alert has no links, got %+v", items)
-	}
-	in.Resolver = nil // a Manager with no supervisor
-	if items = Attention(in, nil); len(items) != 1 || items[0].Links == nil || len(items[0].Links) != 0 {
-		t.Errorf("with no resolver the alert has no links, got %+v", items)
-	}
-}
-
 // The providers are read once per rebuild: two pods, the host and the overview are linked from
 // one snapshot, and the next rebuild reads them again.
 func TestProvidersAreReadOncePerRebuild(t *testing.T) {
@@ -278,7 +253,7 @@ func TestHostModelReachesTheHostEnvelope(t *testing.T) {
 	cfg := config.Defaults()
 	cfg.HostModel = "Dell R730"
 	h := hub.New()
-	m := testManager(cfg, "", plugintest.AllRunning(h, LegacyManifests()...))
+	m := testManager(cfg, plugintest.AllRunning(h, LegacyManifests()...))
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	m.Run(ctx)
@@ -291,7 +266,7 @@ func TestHostModelReachesTheHostEnvelope(t *testing.T) {
 		t.Errorf("host.model = %q, want the configured model", got.Model)
 	}
 	// Unset it shows nothing.
-	if m2 := testManager(config.Defaults(), "", nil); m2.buildHost().Model != "" {
+	if m2 := testManager(config.Defaults(), nil); m2.buildHost().Model != "" {
 		t.Errorf("host.model = %q without a configured model", m2.buildHost().Model)
 	}
 }

@@ -115,8 +115,6 @@ func (s *Server) routeTable() []Route {
 		{Method: "GET", Path: "/api/logs/tail", Legacy: true, Handler: s.logsTail},
 		{Method: "POST", Path: "/api/actions/restart", Legacy: true, Handler: s.restart},
 		{Method: "POST", Path: "/api/actions/reconcile", Legacy: true, Handler: s.reconcile},
-		{Method: "POST", Path: "/api/silences", Legacy: true, Handler: s.createSilence},
-		{Method: "DELETE", Path: "/api/silences/{id}", Legacy: true, Handler: s.expireSilence},
 
 		{Path: "/api/", Infra: true, Handler: func(w http.ResponseWriter, _ *http.Request) {
 			writeErr(w, http.StatusNotFound, model.ErrCodeNotFound, "not found")

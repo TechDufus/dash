@@ -81,12 +81,6 @@ func goldenSnapshots() built {
 			},
 			Buckets: []model.Bucket{{Name: "backups", UsedBytes: 95, QuotaBytes: 100}, {Name: "scratch", UsedBytes: 5}},
 		},
-		alerts: &model.AlertsData{Alerts: []model.Alert{
-			{Fingerprint: "f1", Name: "NodeDown", Severity: "critical", State: "active", Summary: "cp-2 is down", StartsAt: ago(50 * time.Minute)},
-			{Fingerprint: "f2", Name: "DiskFilling", Severity: "warning", State: "active", Description: "media/data", StartsAt: ago(3 * time.Hour)},
-			{Fingerprint: "f3", Name: "Silenced", Severity: "critical", State: "suppressed", SilencedBy: []string{"s1"}},
-			{Fingerprint: "f4", Name: "Watchdog", Severity: "critical", State: "active"},
-		}},
 		status: &model.StatusData{Endpoints: []model.Endpoint{
 			{Group: "infrastructure", Name: "UniFi", Key: "infrastructure_unifi", Healthy: false, Results: []model.CheckResult{
 				{Success: true, Timestamp: ago(5 * time.Minute)}, {Success: false, Timestamp: ago(4 * time.Minute)}, {Success: false, Timestamp: ago(time.Minute)}}},
@@ -124,10 +118,27 @@ func withoutNewFields(t *testing.T, raw []byte) map[string]any {
 	return doc
 }
 
+// goldenAlerts stands in for the running alertmanager plugin: the two firing alerts of the lab
+// as its AttentionSource raises them (the rules themselves are the plugin's, tested there), with
+// the Grafana link the lab's providers resolve for Kind "Alerts".
+type goldenAlerts struct{ lab plugin.LinkResolver }
+
+func (g goldenAlerts) Attention(time.Time) []model.AttentionItem {
+	ls := g.lab.Resolve(plugin.LinkRequest{Kind: "Alerts"})
+	return []model.AttentionItem{
+		{ID: "alert:f1", Severity: model.SeverityCrit, Source: "alertmanager", Plugin: "alertmanager", Title: "NodeDown",
+			Detail: "cp-2 is down", Since: testNow.Add(-50 * time.Minute), Route: "/alerts", Links: ls, Ref: "alertmanager:Alert/f1"},
+		{ID: "alert:f2", Severity: model.SeverityWarn, Source: "alertmanager", Plugin: "alertmanager", Title: "DiskFilling",
+			Detail: "media/data", Since: testNow.Add(-3 * time.Hour), Route: "/alerts", Links: ls, Ref: "alertmanager:Alert/f2"},
+	}
+}
+
 // The overview a lab gets is unchanged by composing it from plugin contributions: the golden file
-// was written by the code that built it from the nine topics directly.
+// was written by the code that built it from the topics directly. The alerts now arrive from the
+// alertmanager contribution, and Kpis.alertsFiring is gone (its tile is the plugin's KPI).
 func TestOverviewOutputIsUnchanged(t *testing.T) {
-	got, err := json.MarshalIndent(goldenManager(t).buildOverview(goldenSnapshots(), nil, testNow), "", "  ")
+	cs := []plugin.Contributor{{ID: "alertmanager", Attention: goldenAlerts{lab: labLinks(t)}}}
+	got, err := json.MarshalIndent(goldenManager(t).buildOverview(goldenSnapshots(), cs, testNow), "", "  ")
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -7,6 +7,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"slices"
 	"strings"
 	"time"
 
@@ -99,18 +100,24 @@ func (s *Source) publish() {
 		}
 		return out
 	}
+	// The alertmanager plugin's KPI and its source chip are on the overview while its twin runs.
+	ov, ovSrcs := w.overview, src("kubernetes", "victoriametrics", "proxmox")
+	if s.hosts.Running("alertmanager") {
+		ovSrcs = append(ovSrcs, src("alertmanager")...)
+	} else {
+		ov.KPIList = slices.DeleteFunc(slices.Clone(ov.KPIList), func(k model.KPI) bool { return k.Plugin == "alertmanager" })
+	}
 	for _, p := range []struct {
 		topic model.Topic
 		data  any
 		srcs  []model.SourceStatus
 	}{
-		{model.TopicOverview, w.overview, src("kubernetes", "victoriametrics", "proxmox", "alertmanager")},
+		{model.TopicOverview, ov, ovSrcs},
 		{model.TopicHost, w.host, src("victoriametrics")},
 		{model.TopicVMs, w.vms, src("proxmox", "victoriametrics")},
 		{model.TopicCluster, w.cluster, src("kubernetes", "victoriametrics")},
 		{model.TopicFlux, w.flux, src("kubernetes")},
 		{model.TopicStorage, w.storage, src("kubernetes", "victoriametrics", "proxmox")},
-		{model.TopicAlerts, w.alerts, src("alertmanager")},
 		{model.TopicStatus, w.status, src("gatus")},
 		{model.TopicApps, w.apps, src("kubernetes", "gatus")},
 	} {
@@ -124,7 +131,7 @@ func (s *Source) publish() {
 	}
 }
 
-// ---- REST: series, logs, details, silences ----
+// ---- REST: series, logs, details ----
 
 // Query answers /api/logs with a few minutes of plausible lines for the pod.
 func (s *Source) Query(_ context.Context, q upstream.LogQuery) ([]model.LogLine, error) {
@@ -243,17 +250,9 @@ func (s *Source) VMDetail(_ context.Context, vmid int) (model.VMDetail, error) {
 	return model.VMDetail{}, topics.ErrNotFound
 }
 
-// CreateSilence pretends to create a silence.
-func (s *Source) CreateSilence(context.Context, upstream.SilenceSpec) (string, error) {
-	return "demo-silence", nil
-}
-
-// ExpireSilence pretends to expire a silence.
-func (s *Source) ExpireSilence(context.Context, string) error { return nil }
-
 // Wrap signs every request in as the user "demo" and answers the Kubernetes actions with 202
-// without doing anything, since demo mode has no cluster to patch. Silences go through the API
-// to CreateSilence/ExpireSilence above.
+// without doing anything, since demo mode has no cluster to patch. The silence actions are the
+// alertmanager twin's.
 func Wrap(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("X-Forwarded-User") == "" {

@@ -28,10 +28,18 @@ const overview = (extra: Partial<OverviewData> = {}): OverviewData =>
   ({
     status: "ok",
     attention: [],
-    kpiList: [],
+    kpiList: [
+      {
+        key: "firing",
+        plugin: "alertmanager",
+        label: "Alerts firing",
+        unit: "",
+        value: 2,
+        health: "warn",
+      },
+    ],
     topology: { host: {}, vms: [], groups: [] },
     kpis: {
-      alertsFiring: 2,
       fluxReady: 8,
       fluxTotal: 9,
       fluxSuspended: 0,
@@ -175,6 +183,20 @@ describe("pages built from slots", () => {
       expect(tileLabels()).toEqual([tiles[0], tiles[1], tiles[2], tiles[4], tiles[5]]);
     });
 
+    it("drops the alerts tile with the alertmanager plugin, and shows none without its KPI", () => {
+      renderApp(<OverviewPage />);
+      const rows = shimRows();
+      stream.plugins(rows);
+      stream.send("core.overview", overview());
+
+      stream.plugins(withState(rows, "alertmanager", "disabled"));
+      expect(tileLabels()).toEqual(tiles.slice(1));
+
+      stream.plugins(rows);
+      stream.send("core.overview", overview({ kpiList: [] }));
+      expect(tileLabels()).toEqual(tiles.slice(1));
+    });
+
     it("adds the KPIs plugins publish after the tiles, and hides them with their plugin", () => {
       renderApp(<OverviewPage />);
       const rows = [...shimRows(), pluginInfo({ id: "queue", name: "Queue" })];
@@ -217,14 +239,18 @@ describe("pages built from slots", () => {
         "core.overview",
         overview({
           kpiList: [
+            entry("alertmanager", "firing", "Published alerts", 2),
             entry("hardware", "power", "Published power", 240),
             entry("hardware", "cpuTemp", "Published temperature", 62),
             entry("queue", "depth", "Queue depth", 42),
           ],
         }),
       );
-      // The hardware module draws Power and CPU temperature itself; its list entries stay unused.
+      // The alertmanager and hardware modules draw their tiles themselves; their list entries
+      // stay unused (one tile per KPI, never a second generic one).
       expect(tileLabels()).toEqual(tiles);
+      expect(screen.queryByText("Published alerts")).toBeNull();
+      expect(screen.getAllByText("Alerts firing")).toHaveLength(1);
       expect(screen.queryByText("Published power")).toBeNull();
       expect(screen.queryByText("Published temperature")).toBeNull();
       // The queue plugin has no panel: its KPI is the one generic tile, after the six module tiles.

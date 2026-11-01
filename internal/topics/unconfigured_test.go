@@ -35,14 +35,13 @@ func TestUnconfiguredUpstreamsMakeNoRequests(t *testing.T) {
 	rt := &failingTransport{}
 	m := New(Deps{
 		Cfg:   cfg,
-		AM:    upstream.NewAlertmanager(cfg.AlertmanagerURL, rt),
 		Gatus: upstream.NewGatus(cfg.GatusURL, rt),
 		PVE:   upstream.NewProxmox(cfg.ProxmoxURL, cfg.ProxmoxNode, cfg.ProxmoxTokenID, cfg.ProxmoxTokenSecret, rt),
 		Links: links.New(cfg),
 	})
 
 	ctx := context.Background()
-	for _, poll := range []func(context.Context){m.pollHost, m.pollVMs, m.pollUsage, m.pollStorage, m.pollAlerts, m.pollStatus} {
+	for _, poll := range []func(context.Context){m.pollHost, m.pollVMs, m.pollUsage, m.pollStorage, m.pollStatus} {
 		poll(ctx)
 	}
 	if _, err := upstream.NewVLogs(cfg.VLogsURL, rt).Query(ctx, upstream.LogQuery{Namespace: "apps"}); !errors.Is(err, upstream.ErrDisabled) {
@@ -54,7 +53,7 @@ func TestUnconfiguredUpstreamsMakeNoRequests(t *testing.T) {
 	}
 	for _, key := range []string{
 		"host:victoriametrics", "cluster:victoriametrics", "storage:victoriametrics", "vms:victoriametrics",
-		"alerts:alertmanager", "status:gatus", "host:proxmox", "vms:proxmox",
+		"status:gatus", "host:proxmox", "vms:proxmox",
 	} {
 		s := m.sources(key)[0]
 		if s.OK || s.Error != "not_configured" {

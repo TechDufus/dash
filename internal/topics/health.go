@@ -128,22 +128,3 @@ func PodHealth(phase string, waitingReasons []string, createdAt, now time.Time) 
 	}
 	return model.HealthOK
 }
-
-// AlertHealth maps an Alertmanager severity label; other severities (info) are not attention.
-func AlertHealth(severity string) (model.Health, bool) {
-	switch severity {
-	case "critical":
-		return model.HealthCrit, true
-	case "warning":
-		return model.HealthWarn, true
-	}
-	return model.HealthOK, false
-}
-
-// AlertFiring reports whether an alert counts: active and neither silenced nor inhibited.
-func AlertFiring(a model.Alert) bool {
-	if a.Name == "Watchdog" || a.Name == "InfoInhibitor" {
-		return false
-	}
-	return a.State == "active" && len(a.SilencedBy) == 0 && len(a.InhibitedBy) == 0
-}

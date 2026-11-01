@@ -27,7 +27,7 @@ func TestAlertmanagerAlerts(t *testing.T) {
 		}
 		io.WriteString(w, amAlertsJSON)
 	})
-	got, err := NewAlertmanager(s.URL, nil).Alerts(ctx)
+	got, err := NewAlertmanager(s.URL, nil, []string{"Watchdog", "InfoInhibitor"}).Alerts(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -47,9 +47,53 @@ func TestAlertmanagerAlerts(t *testing.T) {
 
 	// An empty answer is an empty non-nil slice.
 	s2 := serve(t, func(w http.ResponseWriter, r *http.Request) { io.WriteString(w, `[]`) })
-	empty, err := NewAlertmanager(s2.URL, nil).Alerts(ctx)
+	empty, err := NewAlertmanager(s2.URL, nil, nil).Alerts(ctx)
 	if err != nil || empty == nil || len(empty) != 0 {
 		t.Fatalf("empty = %v, %v", empty, err)
+	}
+}
+
+// The alert names to drop are the caller's, not literals: with none configured the meta alerts
+// come through, and any name can be dropped.
+func TestAlertmanagerIgnoreListIsTheOnlyFilter(t *testing.T) {
+	s := serve(t, func(w http.ResponseWriter, r *http.Request) { io.WriteString(w, amAlertsJSON) })
+	names := func(ignore []string) []string {
+		got, err := NewAlertmanager(s.URL, nil, ignore).Alerts(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var out []string
+		for _, a := range got {
+			out = append(out, a.Name)
+		}
+		return out
+	}
+	if got := names(nil); !reflect.DeepEqual(got, []string{"Watchdog", "InfoInhibitor", "ProxmoxIpmiSelCriticalEntry"}) {
+		t.Errorf("no ignore list: %v", got)
+	}
+	if got := names([]string{"ProxmoxIpmiSelCriticalEntry"}); !reflect.DeepEqual(got, []string{"Watchdog", "InfoInhibitor"}) {
+		t.Errorf("custom ignore list: %v", got)
+	}
+}
+
+func TestAlertmanagerTakesTheTimeoutOption(t *testing.T) {
+	s := serve(t, func(w http.ResponseWriter, r *http.Request) {
+		time.Sleep(300 * time.Millisecond)
+		io.WriteString(w, `[]`)
+	})
+	if _, err := NewAlertmanager(s.URL, nil, nil, Timeout(30*time.Millisecond)).Alerts(ctx); err == nil {
+		t.Error("the 30ms timeout option did not apply")
+	}
+}
+
+func TestValidSilenceID(t *testing.T) {
+	for id, want := range map[string]bool{
+		"5b1c2d3e-aaaa-bbbb-cccc-0123456789ab": true, "ABCDEF12": true,
+		"": false, "short": false, "../../x": false, "abc/def-1234": false, "zzzzzzzz": false,
+	} {
+		if got := ValidSilenceID(id); got != want {
+			t.Errorf("ValidSilenceID(%q) = %v, want %v", id, got, want)
+		}
 	}
 }
 
@@ -60,7 +104,7 @@ func TestAlertmanagerSilences(t *testing.T) {
 		 {"id":"33333333-4444","status":{"state":"pending"},"matchers":[],"createdBy":"x","comment":"","startsAt":"2026-10-31T20:00:00Z","endsAt":"2026-10-31T22:00:00Z"},
 		 {"id":"55555555-6666","status":{"state":"expired"},"matchers":[],"startsAt":"2026-10-01T20:00:00Z","endsAt":"2026-10-01T22:00:00Z"}]`)
 	})
-	got, err := NewAlertmanager(s.URL, nil).Silences(ctx)
+	got, err := NewAlertmanager(s.URL, nil, nil).Silences(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -82,7 +126,7 @@ func TestAlertmanagerCreateSilence(t *testing.T) {
 		io.WriteString(w, `{"silenceID":"abcdef12-3456"}`)
 	})
 	start := time.Date(2026, 10, 30, 22, 0, 0, 0, time.FixedZone("CDT", -5*3600))
-	id, err := NewAlertmanager(s.URL, nil).CreateSilence(ctx, SilenceSpec{
+	id, err := NewAlertmanager(s.URL, nil, nil).CreateSilence(ctx, SilenceSpec{
 		Matchers:  []model.SilenceMatcher{{Name: "alertname", Value: "Foo"}, {Name: "namespace", Value: "gatus"}},
 		StartsAt:  start,
 		EndsAt:    start.Add(4 * time.Hour),
@@ -108,7 +152,7 @@ func TestAlertmanagerCreateSilence(t *testing.T) {
 	if !reflect.DeepEqual(body, want) {
 		t.Fatalf("body = %v\nwant %v", body, want)
 	}
-	if _, err := NewAlertmanager(s.URL, nil).CreateSilence(ctx, SilenceSpec{}); !errors.Is(err, ErrInvalid) {
+	if _, err := NewAlertmanager(s.URL, nil, nil).CreateSilence(ctx, SilenceSpec{}); !errors.Is(err, ErrInvalid) {
 		t.Fatalf("no matchers: %v", err)
 	}
 }
@@ -119,7 +163,7 @@ func TestAlertmanagerExpireSilence(t *testing.T) {
 		method, path = r.Method, r.URL.Path
 		w.WriteHeader(http.StatusOK)
 	})
-	am := NewAlertmanager(s.URL, nil)
+	am := NewAlertmanager(s.URL, nil, nil)
 	if err := am.ExpireSilence(ctx, "5b1c2d3e-aaaa-bbbb-cccc-0123456789ab"); err != nil {
 		t.Fatal(err)
 	}
@@ -136,7 +180,7 @@ func TestAlertmanagerExpireSilence(t *testing.T) {
 	missing := serve(t, func(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "silence not found", http.StatusNotFound)
 	})
-	err := NewAlertmanager(missing.URL, nil).ExpireSilence(ctx, "5b1c2d3e-aaaa")
+	err := NewAlertmanager(missing.URL, nil, nil).ExpireSilence(ctx, "5b1c2d3e-aaaa")
 	var se *StatusError
 	if !errors.As(err, &se) || se.Code != 404 || se.Body != "silence not found" {
 		t.Fatalf("err = %v", err)

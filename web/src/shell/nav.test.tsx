@@ -37,6 +37,16 @@ function connect(): FakeEventSource {
   return es;
 }
 
+/** The alertmanager plugin's `firing` KPI, which the Alerts entry draws as its badge. */
+const firing = (value: number) => ({
+  key: "firing",
+  plugin: "alertmanager",
+  label: "Alerts firing",
+  unit: "",
+  value,
+  health: "warn",
+});
+
 function railLabels(): string[] {
   const rail = screen.getByRole("navigation", { name: "Primary" });
   return within(rail)
@@ -163,7 +173,7 @@ describe("rail", () => {
     act(() =>
       es.emit(
         "core.overview",
-        envelope("core.overview", { status: "warn", attention: [], kpis: { alertsFiring: 3 } }),
+        envelope("core.overview", { status: "warn", attention: [], kpiList: [firing(3)] }),
       ),
     );
     expect(
@@ -174,7 +184,7 @@ describe("rail", () => {
     act(() =>
       es.emit(
         "core.overview",
-        envelope("core.overview", { status: "ok", attention: [], kpis: { alertsFiring: 0 } }),
+        envelope("core.overview", { status: "ok", attention: [], kpiList: [firing(0)] }),
       ),
     );
     expect(within(within(rail).getByRole("link", { name: "Alerts" })).queryByText("3")).toBeNull();
@@ -187,7 +197,7 @@ describe("rail", () => {
       es.emit("core.plugins", pluginsEnvelope(shimRows()));
       es.emit(
         "core.overview",
-        envelope("core.overview", { status: "warn", attention: [], kpis: { alertsFiring: 2 } }),
+        envelope("core.overview", { status: "warn", attention: [], kpiList: [firing(2)] }),
       );
     });
     expect(screen.getByText("2")).toBeInTheDocument();

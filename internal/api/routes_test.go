@@ -24,8 +24,6 @@ var legacyRoutes = []string{
 	"GET /api/logs/tail",
 	"POST /api/actions/restart",
 	"POST /api/actions/reconcile",
-	"POST /api/silences",
-	"DELETE /api/silences/{id}",
 }
 
 // samplePath is a request path that matches the ServeMux path: every wildcard filled with "x".
@@ -219,14 +217,20 @@ func TestLegacyRoutesKeepTheirPathsAndGetTheEnvelope(t *testing.T) {
 	}
 }
 
-// The three core paths that moved to /api/v1 are gone, with no alias.
+// The core paths that moved to /api/v1 or into a plugin are gone, with no alias. The silence
+// routes moved into the alertmanager plugin's actions (P3.3).
 func TestMovedCorePathsAre404WithCode(t *testing.T) {
 	h := newServer(nil).Handler()
-	for _, path := range []string{"/api/me", "/api/stream", "/api/series?name=host.cpu&range=1h", "/api/topics/vms", "/api/plugins"} {
-		w := req{path: path}.do(h)
+	for _, c := range []struct{ method, path string }{
+		{"GET", "/api/me"}, {"GET", "/api/stream"}, {"GET", "/api/series?name=host.cpu&range=1h"},
+		{"GET", "/api/topics/vms"}, {"GET", "/api/plugins"},
+		{"POST", "/api/silences"}, {"DELETE", "/api/silences/00000000-0000-4000-8000-000000000001"},
+	} {
+		path := c.path
+		w := req{method: c.method, path: path}.do(h)
 		e := wantError(t, w, http.StatusNotFound, model.ErrCodeNotFound)
 		if e.RequestID == "" || e.RequestID != w.Header().Get("X-Request-Id") {
-			t.Errorf("%s: requestId %q, header %q", path, e.RequestID, w.Header().Get("X-Request-Id"))
+			t.Errorf("%s %s: requestId %q, header %q", c.method, path, e.RequestID, w.Header().Get("X-Request-Id"))
 		}
 	}
 }

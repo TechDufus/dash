@@ -1,6 +1,7 @@
 import { Loader2, RotateCw } from "lucide-react";
 import { useEffect, useState } from "react";
 import { createSilence, expireSilence, restartWorkload } from "@/api/actions";
+import { useTopic } from "@/api/stream";
 import { ui, useUi } from "@/api/ui-store";
 import {
   AlertDialog,
@@ -99,20 +100,25 @@ function RestartDialog() {
   );
 }
 
-const DURATIONS = ["1h", "4h", "24h", "7d"] as const;
+const PREFERRED_DURATION = "4h";
 
 /** Silence dialog: choose labels to match (alertname is locked), a duration and a comment. */
 function SilenceDialog() {
   const { silence } = useUi();
+  // The lengths the alertmanager plugin offers (plugins.alertmanager.silenceDurations).
+  const durations = useTopic("alertmanager.alerts")?.data.silenceDurations ?? [];
+  const initialDuration = durations.includes(PREFERRED_DURATION)
+    ? PREFERRED_DURATION
+    : (durations[0] ?? "");
   const [selected, setSelected] = useState<Set<string>>(new Set());
-  const [duration, setDuration] = useState<string>("4h");
+  const [duration, setDuration] = useState<string>(initialDuration);
   const [comment, setComment] = useState("");
   const [busy, setBusy] = useState(false);
   const fp = silence?.fingerprint ?? "";
   // biome-ignore lint/correctness/useExhaustiveDependencies: reset on a newly opened alert only
   useEffect(() => {
     setSelected(new Set(["alertname"]));
-    setDuration("4h");
+    setDuration(initialDuration);
     setComment("");
   }, [fp]);
   const labels = Object.entries(silence?.labels ?? {}).sort(([a], [b]) => {
@@ -120,7 +126,11 @@ function SilenceDialog() {
     if (b === "alertname") return 1;
     return a.localeCompare(b);
   });
-  const valid = comment.trim().length >= 1 && comment.length <= 500 && selected.has("alertname");
+  const valid =
+    comment.trim().length >= 1 &&
+    comment.length <= 500 &&
+    selected.has("alertname") &&
+    duration !== "";
   return (
     <Dialog open={!!silence} onOpenChange={(o) => !o && !busy && ui.closeSilence()}>
       <DialogContent className="sm:max-w-lg">
@@ -174,7 +184,7 @@ function SilenceDialog() {
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                {DURATIONS.map((d) => (
+                {durations.map((d) => (
                   <SelectItem key={d} value={d}>
                     {d}
                   </SelectItem>

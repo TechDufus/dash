@@ -16,7 +16,6 @@ import (
 // AttentionInput is everything the rule table reads. Every field is the typed data of a topic
 // (the health fields in it were set with the functions in health.go).
 type AttentionInput struct {
-	Alerts  []model.Alert
 	Flux    model.FluxData
 	Cluster model.ClusterData
 	VMs     model.VMsData
@@ -52,7 +51,6 @@ var legacyRules = []struct {
 	plugin plugin.ID
 	run    func(AttentionInput, addFn)
 }{
-	{"alertmanager", attentionAlerts},
 	{"flux", attentionFlux},
 	{"kubernetes", attentionCluster},
 	{"proxmox", attentionVMs},
@@ -143,21 +141,6 @@ func OverallStatus(items []model.AttentionItem) model.Health {
 }
 
 type addFn func(id string, sev model.Health, source, title, detail string, natural time.Time, route string, ls []model.Link)
-
-func attentionAlerts(in AttentionInput, add addFn) {
-	for _, a := range in.Alerts {
-		sev, ok := AlertHealth(a.Severity)
-		if !ok || !AlertFiring(a) {
-			continue
-		}
-		detail := a.Summary
-		if detail == "" {
-			detail = a.Description
-		}
-		add("alert:"+a.Fingerprint, sev, "alertmanager", a.Name, detail, a.StartsAt, "/alerts",
-			in.link("Alerts", "", ""))
-	}
-}
 
 func attentionFlux(in AttentionInput, add addFn) {
 	all := func(l []model.FluxObj) {

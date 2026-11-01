@@ -28,12 +28,6 @@ import (
 	"github.com/TechDufus/dash/web"
 )
 
-// AlertmanagerAPI is the slice of upstream.Alertmanager the API uses.
-type AlertmanagerAPI interface {
-	CreateSilence(ctx context.Context, s upstream.SilenceSpec) (string, error)
-	ExpireSilence(ctx context.Context, id string) error
-}
-
 // VLogsAPI is the slice of upstream.VLogs the API uses.
 type VLogsAPI interface {
 	Query(ctx context.Context, q upstream.LogQuery) ([]model.LogLine, error)
@@ -69,7 +63,6 @@ type Deps struct {
 	Hub     *hub.Hub
 	Kube    kubernetes.Interface
 	Dyn     dynamic.Interface
-	AM      AlertmanagerAPI
 	VLogs   VLogsAPI
 	Data    DataAPI
 	Plugins PluginsAPI   // nil = no plugins

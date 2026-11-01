@@ -77,7 +77,7 @@ func TestReloadedSecretReachesTheProxmoxClientWhileReadinessHolds(t *testing.T) 
 	fw := newFramework(res, store, config.ReloadOptions{Interval: time.Millisecond}, nil, nil, false)
 	sup, reloader := fw.sup, fw.reloader
 	mgr := topics.New(topics.Deps{
-		Cfg: cfg, Cluster: testCluster(), AM: upstream.NewAlertmanager(cfg.AlertmanagerURL, nil),
+		Cfg: cfg, Cluster: testCluster(),
 		Gatus: upstream.NewGatus(cfg.GatusURL, nil), PVE: pveClient, Hosts: sup,
 		Links: links.New(cfg), Secrets: reg,
 	})

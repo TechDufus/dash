@@ -2,9 +2,9 @@ package pluginconf
 
 import "slices"
 
-// silenceDurations are the lengths a silence can have: the keys of the duration table the
-// silence action accepts (internal/api/silences.go until that action moves into the plugin).
-// A plugin offers a subset of them in its dialog.
+// silenceDurations are the lengths a silence can have: the keys of the duration table of the
+// silence.create action (internal/plugins/alertmanager). A plugin offers a subset of them in its
+// dialog.
 var silenceDurations = []string{"1h", "4h", "24h", "7d"}
 
 // Alertmanager is plugins.alertmanager: alerts and silences.

@@ -13,36 +13,6 @@ import (
 	"github.com/TechDufus/dash/internal/model"
 )
 
-type alertsSnap struct {
-	alerts   []model.Alert
-	silences []model.Silence
-}
-
-func (m *Manager) pollAlerts(ctx context.Context) {
-	alerts, err := m.d.AM.Alerts(ctx)
-	var silences []model.Silence
-	if err == nil {
-		silences, err = m.d.AM.Silences(ctx)
-	}
-	m.setSource("alerts:alertmanager", err)
-	if err == nil {
-		m.mu.Lock()
-		m.alerts = alertsSnap{alerts, silences}
-		m.mu.Unlock()
-	}
-	m.mark(model.TopicAlerts)
-}
-
-func (m *Manager) buildAlerts() model.AlertsData {
-	m.mu.RLock()
-	a := m.alerts
-	m.mu.RUnlock()
-	d := model.AlertsData{Alerts: append([]model.Alert{}, a.alerts...), Silences: append([]model.Silence{}, a.silences...)}
-	sort.SliceStable(d.Alerts, func(i, j int) bool { return d.Alerts[i].StartsAt.After(d.Alerts[j].StartsAt) })
-	sort.SliceStable(d.Silences, func(i, j int) bool { return d.Silences[i].EndsAt.Before(d.Silences[j].EndsAt) })
-	return d
-}
-
 func (m *Manager) pollStatus(ctx context.Context) {
 	eps, err := m.d.Gatus.Statuses(ctx)
 	m.setSource("status:gatus", err)

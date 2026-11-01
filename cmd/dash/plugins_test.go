@@ -108,8 +108,8 @@ func TestFrameworkStartOrderPublishesFirstPoll(t *testing.T) {
 	cfg := res.Config
 	mgr := topics.New(topics.Deps{
 		Cfg: cfg, Cluster: testCluster(), Hosts: fw.sup, Contributors: fw.sup.Contributors, Links: links.New(cfg),
-		AM: upstream.NewAlertmanager("", nil), Gatus: upstream.NewGatus("", nil),
-		PVE: upstream.NewProxmox("", "", "", cfg.ProxmoxTokenSecret, nil),
+		Gatus: upstream.NewGatus("", nil),
+		PVE:   upstream.NewProxmox("", "", "", cfg.ProxmoxTokenSecret, nil),
 	})
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -118,7 +118,7 @@ func TestFrameworkStartOrderPublishesFirstPoll(t *testing.T) {
 	}
 	defer fw.sup.Shutdown(context.Background())
 
-	want := []string{"core.plugins", "core.overview", "alerts", "status", "vms", "host", "cluster", "storage", "apps", "flux"}
+	want := []string{"core.plugins", "core.overview", "status", "vms", "host", "cluster", "storage", "apps", "flux"}
 	deadline := time.Now().Add(5 * time.Second)
 	for {
 		snap, _, cancelSub := fw.hub.Subscribe("", nil)
@@ -204,7 +204,7 @@ func TestDemoSeriesComeFromThePrometheusTwin(t *testing.T) {
 	}
 	defer fw.sup.Shutdown(context.Background())
 
-	srv := api.New(api.Deps{Cfg: cfg, Hub: fw.hub, Plugins: fw.sup, AM: src, VLogs: src, Data: src, Health: fw.sup})
+	srv := api.New(api.Deps{Cfg: cfg, Hub: fw.hub, Plugins: fw.sup, VLogs: src, Data: src, Health: fw.sup})
 	r := httptest.NewRequest(http.MethodGet, cfg.PublicURL+"/api/v1/series?name=host.cpu&range=1h", nil)
 	rec := httptest.NewRecorder()
 	demo.Wrap(srv.Handler()).ServeHTTP(rec, r)
@@ -239,7 +239,7 @@ func TestDemoPublishesTheLauncherLinksLast(t *testing.T) {
 	}
 	defer fw.sup.Shutdown(context.Background())
 
-	want := []string{"core.plugins", "core.overview", "alerts", "status", "vms", "host", "cluster", "storage", "apps", "flux", "launcher.links"}
+	want := []string{"core.plugins", "core.overview", "alertmanager.alerts", "status", "vms", "host", "cluster", "storage", "apps", "flux", "launcher.links"}
 	deadline := time.Now().Add(5 * time.Second)
 	for {
 		snap, _, cancelSub := fw.hub.Subscribe("", nil)

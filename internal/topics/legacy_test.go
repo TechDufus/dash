@@ -24,6 +24,7 @@ import (
 	"github.com/TechDufus/dash/internal/model"
 	"github.com/TechDufus/dash/internal/plugin"
 	"github.com/TechDufus/dash/internal/plugin/plugintest"
+	"github.com/TechDufus/dash/internal/secret"
 	"github.com/TechDufus/dash/internal/upstream"
 )
 
@@ -51,16 +52,16 @@ func fakeCluster() *kube.Cluster {
 	return kube.NewFromClients(kubefake.NewClientset(), dynfake.NewSimpleDynamicClientWithCustomListKinds(runtime.NewScheme(), listKinds))
 }
 
-// testManager is a Manager over an empty cluster and the given upstream URLs ("" = not configured).
-func testManager(cfg config.Config, amURL string, hosts plugin.HostProvider) *Manager {
-	return testManagerWith(cfg, amURL, hosts, nil)
+// testManager is a Manager over an empty cluster and the given hosts; the upstreams
+// (Proxmox, Gatus) are the ones cfg configures.
+func testManager(cfg config.Config, hosts plugin.HostProvider) *Manager {
+	return testManagerWith(cfg, hosts, nil)
 }
 
 // testManagerWith is testManager with plugins that contribute to the overview.
-func testManagerWith(cfg config.Config, amURL string, hosts plugin.HostProvider, contributors func() []plugin.Contributor) *Manager {
+func testManagerWith(cfg config.Config, hosts plugin.HostProvider, contributors func() []plugin.Contributor) *Manager {
 	return New(Deps{
 		Cfg: cfg, Cluster: fakeCluster(), Hosts: hosts, Contributors: contributors, Links: links.New(cfg),
-		AM:    upstream.NewAlertmanager(amURL, nil),
 		Gatus: upstream.NewGatus(cfg.GatusURL, nil),
 		PVE:   upstream.NewProxmox(cfg.ProxmoxURL, cfg.ProxmoxNode, cfg.ProxmoxTokenID, cfg.ProxmoxTokenSecret, nil),
 	})
@@ -87,14 +88,14 @@ func latest(h *hub.Hub, topic model.Topic) (model.Envelope, bool) {
 
 var legacyTopics = []model.Topic{
 	model.TopicHost, model.TopicVMs, model.TopicCluster, model.TopicFlux, model.TopicStorage,
-	model.TopicAlerts, model.TopicStatus, model.TopicApps,
+	model.TopicStatus, model.TopicApps,
 }
 
 // The Manager publishes through the Host of each topic's owner, and the SSE names stay the ones
 // the SPA reads: "vms", "host", …, not "proxmox.vms". The payloads are what the Manager builds.
 func TestManagerPublishesLegacyTopicsThroughHosts(t *testing.T) {
 	h := hub.New()
-	m := testManager(config.Defaults(), "", plugintest.AllRunning(h, LegacyManifests()...))
+	m := testManager(config.Defaults(), plugintest.AllRunning(h, LegacyManifests()...))
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	m.Run(ctx)
@@ -114,14 +115,14 @@ func TestManagerPublishesLegacyTopicsThroughHosts(t *testing.T) {
 		got = append(got, ev.Topic)
 	}
 	slices.Sort(got)
-	want := []string{"alerts", "apps", "cluster", "core.overview", "flux", "host", "status", "storage", "vms"}
+	want := []string{"apps", "cluster", "core.overview", "flux", "host", "status", "storage", "vms"}
 	if !slices.Equal(got, want) {
 		t.Fatalf("published %v, want exactly %v", got, want)
 	}
 
 	builds := map[model.Topic]any{
 		model.TopicHost: m.buildHost(), model.TopicVMs: m.buildVMs(), model.TopicCluster: m.buildCluster(m.now()),
-		model.TopicFlux: m.buildFlux(), model.TopicStorage: m.buildStorage(m.now()), model.TopicAlerts: m.buildAlerts(),
+		model.TopicFlux: m.buildFlux(), model.TopicStorage: m.buildStorage(m.now()),
 		model.TopicStatus: m.buildStatus(), model.TopicApps: m.buildApps(),
 	}
 	for topic, data := range builds {
@@ -144,46 +145,48 @@ func TestManagerPublishesLegacyTopicsThroughHosts(t *testing.T) {
 // calls the disabled owner's Host (a Host that drops the call would hide a missing skip).
 func TestDisabledOwnerPublishesNothingAndItsPollerIsSkipped(t *testing.T) {
 	var requests atomic.Int32
-	am := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	pve := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		requests.Add(1)
-		_, _ = w.Write([]byte("[]"))
+		_, _ = w.Write([]byte(`{"data":[]}`))
 	}))
-	defer am.Close()
+	defer pve.Close()
 
 	run := func(off ...plugin.ID) (*hub.Hub, *Manager, *plugintest.Partial) {
 		h := hub.New()
 		hp := plugintest.Without(plugintest.AllRunning(h, LegacyManifests()...), off...)
-		m := testManager(config.Defaults(), am.URL, hp)
+		cfg := config.Defaults()
+		cfg.ProxmoxURL, cfg.ProxmoxNode, cfg.ProxmoxTokenID, cfg.ProxmoxTokenSecret = pve.URL, "pve", "u@pve!t", secret.New("s3cret", "")
+		m := testManager(cfg, hp)
 		ctx, cancel := context.WithCancel(context.Background())
 		t.Cleanup(cancel)
 		m.Run(ctx)
 		return h, m, hp
 	}
 
-	// Alertmanager on: it is polled and its topic published.
+	// Proxmox on: its poller runs and its topic is published.
 	h, _, hp := run()
-	eventually(t, "the alerts topic", func() bool { _, ok := h.Latest("", model.TopicAlerts); return ok })
+	eventually(t, "the vms topic", func() bool { _, ok := h.Latest("", model.TopicVMs); return ok })
 	if requests.Load() == 0 {
-		t.Fatal("alertmanager is running but was not polled")
+		t.Fatal("proxmox is running but was not polled")
 	}
-	if hp.Publishes("alertmanager") == 0 {
-		t.Fatal("the recording host saw no publish for a running alertmanager")
+	if hp.Publishes("proxmox") == 0 {
+		t.Fatal("the recording host saw no publish for a running proxmox")
 	}
 
 	// Off: not polled, nothing published, and the overview still comes.
 	requests.Store(0)
-	h, m, hp := run("alertmanager")
+	h, m, hp := run("proxmox", "hardware") // the host poller reads Proxmox too
 	eventually(t, "the overview", func() bool { _, ok := h.Latest("", model.TopicOverview); return ok })
-	eventually(t, "the status poller's first round", func() bool { return m.pollDone("status", "alerts") })
+	eventually(t, "the vms and host pollers' first round", func() bool { return m.pollDone("vms", "host") })
 	eventually(t, "the status topic", func() bool { _, ok := h.Latest("", model.TopicStatus); return ok })
 	if n := requests.Load(); n != 0 {
-		t.Errorf("a disabled alertmanager was polled %d times", n)
+		t.Errorf("a disabled proxmox was polled %d times", n)
 	}
-	if n := hp.Publishes("alertmanager"); n != 0 {
-		t.Errorf("the Manager called the disabled alertmanager's Host %d times", n)
+	if n := hp.Publishes("proxmox"); n != 0 {
+		t.Errorf("the Manager called the disabled proxmox's Host %d times", n)
 	}
-	if _, ok := h.Latest("", model.TopicAlerts); ok {
-		t.Error("the alerts topic is published although alertmanager does not run")
+	if _, ok := h.Latest("", model.TopicVMs); ok {
+		t.Error("the vms topic is published although proxmox does not run")
 	}
 }
 
@@ -241,7 +244,7 @@ func TestExplicitDisableRemovesShimTopics(t *testing.T) {
 	set.Set(plugin.InstanceConfig{Name: "flux", Enabled: &off, Config: &config.FluxConfig{}})
 	sup := plugin.NewSupervisor(plugin.Options{Publisher: h, Settings: set, StatusEvery: 10 * time.Millisecond})
 	h.SetOrder(sup.TopicOrder)
-	m := testManager(config.Defaults(), "", sup)
+	m := testManager(config.Defaults(), sup)
 	if err := sup.Add(m.Plugins()...); err != nil {
 		t.Fatal(err)
 	}
@@ -273,7 +276,7 @@ func TestExplicitDisableRemovesShimTopics(t *testing.T) {
 	if states["flux"].State != model.PluginDisabled || !slices.Equal(states["flux"].Topics, []string{"flux"}) {
 		t.Errorf("flux = %+v, want disabled with the topic flux", states["flux"])
 	}
-	if states["kubernetes"].State == model.PluginDisabled || len(pd.Plugins) != 7 {
+	if states["kubernetes"].State == model.PluginDisabled || len(pd.Plugins) != 6 {
 		t.Errorf("kubernetes = %s of %d plugins", states["kubernetes"].State, len(pd.Plugins))
 	}
 }
@@ -289,7 +292,7 @@ func TestLegacyManifestsMatchConfigSections(t *testing.T) {
 	}
 	// The sections of the integrations that moved out of the Manager have no shim: each runs as
 	// the plugin of internal/plugins/<id>.
-	for _, moved := range []string{"prometheus", "grafana", "headlamp", "launcher"} {
+	for _, moved := range []string{"prometheus", "alertmanager", "grafana", "headlamp", "launcher"} {
 		delete(sections, moved)
 	}
 	ms := LegacyManifests()
@@ -339,10 +342,10 @@ func TestLegacyStatusMapping(t *testing.T) {
 		state plugin.State
 		msg   string
 	}{
-		{"alertmanager unset", "alertmanager", map[string]srcState{"alerts:alertmanager": off}, plugin.StateUnavailable, "not configured: set plugins.alertmanager.url"},
-		{"alertmanager not polled", "alertmanager", nil, plugin.StateStarting, "waiting for the first poll"},
-		{"alertmanager ok", "alertmanager", map[string]srcState{"alerts:alertmanager": okSrc}, plugin.StateHealthy, ""},
-		{"alertmanager down", "alertmanager", map[string]srcState{"alerts:alertmanager": bad("unreachable")}, plugin.StateError, "unreachable"},
+		{"gatus unset", "gatus", map[string]srcState{"status:gatus": off}, plugin.StateUnavailable, "not configured: set plugins.gatus.url"},
+		{"gatus not polled", "gatus", nil, plugin.StateStarting, "waiting for the first poll"},
+		{"gatus ok", "gatus", map[string]srcState{"status:gatus": okSrc}, plugin.StateHealthy, ""},
+		{"gatus down", "gatus", map[string]srcState{"status:gatus": bad("unreachable")}, plugin.StateError, "unreachable"},
 		{"gatus auth", "gatus", map[string]srcState{"status:gatus": bad("auth")}, plugin.StateError, "auth"},
 		{"proxmox unset", "proxmox", map[string]srcState{"vms:proxmox": off, "host:proxmox": off}, plugin.StateUnavailable,
 			"not configured: set plugins.proxmox.url, tokenID and tokenSecret"},
@@ -405,10 +408,10 @@ func TestLegacyStatusMapping(t *testing.T) {
 // an error category.
 func TestLegacyStatusNeverNamesAnUpstream(t *testing.T) {
 	cfg := config.Defaults()
-	cfg.AlertmanagerURL = "http://am.internal.example.com:9093"
+	cfg.GatusURL = "http://gatus.internal.example.com:8080"
 	m := New(Deps{Cfg: cfg, Cluster: fakeCluster()})
-	m.setSource("alerts:alertmanager", &upstream.StatusError{Code: 500})
-	st := m.legacyStatus("alertmanager")
+	m.setSource("status:gatus", &upstream.StatusError{Code: 500})
+	st := m.legacyStatus("gatus")
 	if st.State != plugin.StateError || strings.Contains(st.Message, "example.com") || st.Message != "http_500" {
 		t.Errorf("status = %s %q", st.State, st.Message)
 	}

@@ -442,9 +442,9 @@
         },
         "type": "object"
       },
-      "Envelope.alerts": {
+      "Envelope.alertmanager.alerts": {
         "additionalProperties": false,
-        "description": "The envelope of the alerts topic.",
+        "description": "The envelope of the alertmanager.alerts topic.",
         "properties": {
           "data": {
             "$ref": "#/components/schemas/AlertsData"
@@ -456,7 +456,7 @@
             "type": "array"
           },
           "topic": {
-            "const": "alerts"
+            "const": "alertmanager.alerts"
           },
           "updatedAt": {
             "format": "date-time",
@@ -1069,9 +1069,6 @@
       "Kpis": {
         "additionalProperties": false,
         "properties": {
-          "alertsFiring": {
-            "type": "integer"
-          },
           "cpuTempMaxC": {
             "type": "number"
           },
@@ -1708,6 +1705,18 @@
         },
         "type": "object"
       },
+      "SilenceMatcher": {
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "value": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
       "SourceStatus": {
         "additionalProperties": false,
         "properties": {
@@ -2047,6 +2056,37 @@
           }
         },
         "type": "object"
+      },
+      "silenceCreateInput": {
+        "additionalProperties": false,
+        "properties": {
+          "comment": {
+            "type": "string"
+          },
+          "duration": {
+            "type": "string"
+          },
+          "matchers": {
+            "items": {
+              "$ref": "#/components/schemas/SilenceMatcher"
+            },
+            "type": "array"
+          }
+        },
+        "type": "object"
+      },
+      "silenceExpireInput": {
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "description": "The id of the silence to expire. Only silences dash created can be expired.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "type": "object"
       }
     },
     "securitySchemes": {
@@ -2138,6 +2178,136 @@
         ],
         "x-dash-min-role": "viewer",
         "x-dash-scope": "read"
+      }
+    },
+    "/api/v1/plugins/alertmanager/actions/silence.create": {
+      "post": {
+        "description": "Runs only while the instance is running with actions.enabled set; otherwise 404. Every call is audited and counts against the principal's action rate limit.",
+        "operationId": "alertmanager_silence_create",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/silenceCreateInput"
+              }
+            }
+          },
+          "description": "The action's input.",
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "The action's result.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/XRequestId"
+              }
+            }
+          },
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "status": {
+                      "const": "accepted"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The action was accepted and has no result.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/XRequestId"
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "summary": "Silence",
+        "tags": [
+          "alertmanager"
+        ],
+        "x-dash-confirm": "none",
+        "x-dash-destructive": false,
+        "x-dash-idempotent": false,
+        "x-dash-min-role": "admin",
+        "x-dash-scope": "actions:alertmanager"
+      }
+    },
+    "/api/v1/plugins/alertmanager/actions/silence.expire": {
+      "post": {
+        "description": "Runs only while the instance is running with actions.enabled set; otherwise 404. Every call is audited and counts against the principal's action rate limit.",
+        "operationId": "alertmanager_silence_expire",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/silenceExpireInput"
+              }
+            }
+          },
+          "description": "The action's input.",
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "The action's result.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/XRequestId"
+              }
+            }
+          },
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "status": {
+                      "const": "accepted"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The action was accepted and has no result.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/XRequestId"
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "summary": "Expire silence",
+        "tags": [
+          "alertmanager"
+        ],
+        "x-dash-confirm": "none",
+        "x-dash-destructive": false,
+        "x-dash-idempotent": true,
+        "x-dash-min-role": "admin",
+        "x-dash-scope": "actions:alertmanager"
       }
     },
     "/api/v1/series": {
@@ -2293,7 +2463,7 @@
                 "schema": {
                   "oneOf": [
                     {
-                      "$ref": "#/components/schemas/Envelope.alerts"
+                      "$ref": "#/components/schemas/Envelope.alertmanager.alerts"
                     },
                     {
                       "$ref": "#/components/schemas/Envelope.apps"
@@ -2390,6 +2560,10 @@
     {
       "description": "Live state: one envelope per topic, as a snapshot or a stream.",
       "name": "Topics"
+    },
+    {
+      "description": "Alertmanager: Alerts and silences.",
+      "name": "alertmanager"
     }
   ]
 }
