@@ -85,8 +85,9 @@ func TestUpstreamErrorsReachClientsAsCategoryOnly(t *testing.T) {
 			if got := decodeErr(t, w); got != tc.want {
 				t.Errorf("error = %q, want %q", got, tc.want)
 			}
+			body := bodyWithoutRequestID(w)
 			for _, leak := range append(canaryForms(), "example.com", "192.0.2.7", "8428") {
-				if strings.Contains(w.Body.String(), leak) {
+				if strings.Contains(body, leak) {
 					t.Errorf("response carries %q: %s", leak, w.Body)
 				}
 			}
@@ -101,6 +102,16 @@ func TestUpstreamErrorsReachClientsAsCategoryOnly(t *testing.T) {
 			}
 		})
 	}
+}
+
+// bodyWithoutRequestID is the response body without its request id, which is random hex: a
+// short canary such as a port number could otherwise match it by chance.
+func bodyWithoutRequestID(w *httptest.ResponseRecorder) string {
+	id := w.Header().Get("X-Request-Id")
+	if id == "" {
+		return w.Body.String()
+	}
+	return strings.ReplaceAll(w.Body.String(), id, "")
 }
 
 // Kubernetes 403/404/409/422 stay verbatim (an admission denial must reach the user); other
