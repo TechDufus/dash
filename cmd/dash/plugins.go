@@ -16,6 +16,7 @@ import (
 	"github.com/TechDufus/dash/internal/plugins/headlamp"
 	"github.com/TechDufus/dash/internal/plugins/launcher"
 	"github.com/TechDufus/dash/internal/plugins/prometheus"
+	"github.com/TechDufus/dash/internal/plugins/victorialogs"
 	"github.com/TechDufus/dash/internal/secret"
 	"github.com/TechDufus/dash/internal/settings"
 	"github.com/TechDufus/dash/internal/topics"
@@ -74,6 +75,7 @@ var realPlugins = map[plugin.ID]plugin.Factory{
 	"prometheus":   prometheus.New,
 	"alertmanager": alertmanager.New,
 	"gatus":        gatus.New,
+	"victorialogs": victorialogs.New,
 	"grafana":      grafana.New,
 	"headlamp":     headlamp.New,
 	"launcher":     launcher.New,

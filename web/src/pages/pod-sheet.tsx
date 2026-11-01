@@ -31,6 +31,7 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { formatBytes, formatDateTime, formatRelative, shortImage } from "@/lib/format";
 import { cn } from "@/lib/utils";
+import { usePluginVisible } from "@/plugins/state";
 import { filterSearch, formatCores } from "./cluster/common";
 import { PodLogs } from "./cluster/pod-logs";
 
@@ -82,7 +83,13 @@ function backToPods(params: URLSearchParams): string {
 
 function PodBody({ ns, name, open }: { ns: string; name: string; open: boolean }) {
   const [params] = useSearchParams();
-  const [tab, setTab] = useState<SheetTab>("overview");
+  const [chosen, setTab] = useState<SheetTab>("overview");
+  // The Logs tab belongs to the victorialogs plugin: it is there while the plugin's pages are
+  // visible and gone when it is disabled or not configured. A chosen tab that went away reads as
+  // Overview.
+  const logsOn = usePluginVisible("victorialogs") === true;
+  const tabs = logsOn ? TABS : TABS.filter((t) => t.value !== "logs");
+  const tab = tabs.some((t) => t.value === chosen) ? chosen : "overview";
   const detail = usePodDetail(ns, name);
   const cluster = useTopicData("cluster");
   const livePod = cluster?.pods.find((p) => p.namespace === ns && p.name === name);
@@ -158,7 +165,7 @@ function PodBody({ ns, name, open }: { ns: string; name: string; open: boolean }
         >
           <div className="overflow-x-auto border-b border-line px-3 pt-2 pb-3">
             <TabsList variant="line">
-              {TABS.map((t) => (
+              {tabs.map((t) => (
                 <TabsTrigger key={t.value} value={t.value} className="flex-none px-3">
                   {t.label}
                 </TabsTrigger>
@@ -183,14 +190,16 @@ function PodBody({ ns, name, open }: { ns: string; name: string; open: boolean }
             )}
           </TabsContent>
 
-          <TabsContent value="logs" className="flex min-h-0 flex-1 flex-col p-4">
-            <PodLogs
-              ns={ns}
-              pod={name}
-              containers={data?.containers.map((c) => c.name) ?? []}
-              active={open && tab === "logs"}
-            />
-          </TabsContent>
+          {logsOn && (
+            <TabsContent value="logs" className="flex min-h-0 flex-1 flex-col p-4">
+              <PodLogs
+                ns={ns}
+                pod={name}
+                containers={data?.containers.map((c) => c.name) ?? []}
+                active={open && tab === "logs"}
+              />
+            </TabsContent>
+          )}
 
           <TabsContent value="metrics" className="min-h-0 flex-1 space-y-6 overflow-y-auto p-4">
             <SeriesChart

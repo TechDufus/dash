@@ -9,21 +9,10 @@ import (
 	"k8s.io/client-go/rest"
 )
 
-// DevTransport lets a laptop reach in-cluster services: requests to
-// <svc>.<ns>.svc[:port] go through the API server's service proxy using the
-// kube credentials; every other host uses a plain transport.
-func DevTransport(cfg *rest.Config) (http.RoundTripper, error) {
-	wrap, err := DevWrap(cfg)
-	if err != nil {
-		return nil, err
-	}
-	return wrap(http.DefaultTransport.(*http.Transport).Clone()), nil
-}
-
-// DevWrap is DevTransport over transports of the caller's: wrap(base) sends the requests to
-// <svc>.<ns>.svc through the API server's service proxy and every other request through base, so
-// a plugin's own client (its CA, credentials and dial guard) keeps serving the hosts that are not
-// in-cluster services.
+// DevWrap lets a laptop reach in-cluster services: wrap(base) sends the requests to
+// <svc>.<ns>.svc[:port] through the API server's service proxy using the kube credentials and
+// every other request through base, so a plugin's own client (its CA, credentials and dial
+// guard) keeps serving the hosts that are not in-cluster services.
 func DevWrap(cfg *rest.Config) (wrap func(base http.RoundTripper) http.RoundTripper, err error) {
 	kube, err := rest.TransportFor(cfg)
 	if err != nil {

@@ -13,10 +13,12 @@ import (
 	"github.com/TechDufus/dash/internal/model"
 	"github.com/TechDufus/dash/internal/plugin"
 	"github.com/TechDufus/dash/internal/plugin/plugintest"
+	"github.com/TechDufus/dash/internal/pluginconf"
 )
 
-// routesRegistry is a test registry: two running plugins whose routes cover a path value, the
-// index route, query parameters, and a stream.
+// routesRegistry is a test registry: two running fake plugins whose routes cover a path value,
+// the index route, query parameters and a stream, and the real victorialogs plugin (a route and
+// a stream with a validator).
 func routesRegistry(t *testing.T) *pluginEnv {
 	t.Helper()
 	ok := func(w http.ResponseWriter, _ *http.Request) { writeJSON(w, http.StatusOK, map[string]bool{"ok": true}) }
@@ -33,8 +35,13 @@ func routesRegistry(t *testing.T) *pluginEnv {
 		r.Get("/items", ok, plugin.RouteSpec{Summary: "Items", Scope: "read", Query: []plugin.Param{{Name: "ns"}}})
 	}
 	silent := plugintest.New("cc") // a plugin without routes adds none to either side
-	e := newPluginEnv(t, nil, a, b, silent)
-	e.eventually(t, "the plugins to run", func() bool { return e.sup.Running("aa") && e.sup.Running("bb") && e.sup.Running("cc") })
+	up := newFakeVLogs(t, vlRecord1)
+	cfg := pluginconf.DefaultVictoriaLogs()
+	cfg.URL = up.URL
+	e := newPluginEnv(t, []plugin.InstanceConfig{{Name: "victorialogs", Config: &cfg}}, a, b, silent, vlFactory{})
+	e.eventually(t, "the plugins to run", func() bool {
+		return e.sup.Running("aa") && e.sup.Running("bb") && e.sup.Running("cc") && e.sup.Running("victorialogs")
+	})
 	return e
 }
 
@@ -93,8 +100,8 @@ func TestEveryPluginRouteMatchesItsSpecEntryAndNothingElse(t *testing.T) {
 			}
 		}
 	}
-	if nRoutes != 3 || nStreams != 1 {
-		t.Fatalf("the supervisor reports %d routes and %d streams, want 3 and 1", nRoutes, nStreams)
+	if nRoutes != 4 || nStreams != 2 {
+		t.Fatalf("the supervisor reports %d routes and %d streams, want 4 and 2", nRoutes, nStreams)
 	}
 
 	// What the document has under a plugin's path, whatever the method.
@@ -113,18 +120,22 @@ func TestEveryPluginRouteMatchesItsSpecEntryAndNothingElse(t *testing.T) {
 		t.Errorf("plugin operations in the document:\n%v\nroutes the supervisor reports:\n%v", got, want)
 	}
 
-	// And every one of them is served: the routes answer, the stream reaches its handler.
+	// And every one of them is served: the routes answer, the streams reach their handler (the
+	// fake's, or victorialogs' validator, which refuses a tail without a namespace first).
 	h := e.Handler()
 	for _, m := range e.sup.Manifests() {
 		for _, ri := range e.sup.RouteInfos(m.ID) {
 			path := "/api/v1/plugins/" + string(m.ID) + samplePath(strings.ReplaceAll(ri.Pattern, "{$}", ""))
-			w := req{path: path}.do(h)
-			if ri.Stream != nil {
-				if e := wantError(t, w, http.StatusBadRequest, model.ErrCodeInvalidInput); e.Error != "mounted" {
-					t.Errorf("GET %s: %+v", path, e)
+			if ri.Stream == nil {
+				w := req{path: path + "?ns=media&pod=p1"}.do(h)
+				if w.Code != http.StatusOK {
+					t.Errorf("GET %s = %d %s", path, w.Code, w.Body)
 				}
-			} else if w.Code != http.StatusOK {
-				t.Errorf("GET %s = %d %s", path, w.Code, w.Body)
+				continue
+			}
+			e := wantError(t, req{path: path}.do(h), http.StatusBadRequest, model.ErrCodeInvalidInput)
+			if m.ID == "aa" && e.Error != "mounted" {
+				t.Errorf("GET %s: %+v", path, e)
 			}
 		}
 	}

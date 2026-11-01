@@ -131,7 +131,7 @@ func run(reg *secret.Registry) error {
 			return err
 		}
 		srv = api.New(api.Deps{
-			Cfg: cfg, Version: version, Hub: h, Plugins: sup, VLogs: src, Data: src, Health: sup, Metrics: metrics, Secrets: reg, Audit: alog,
+			Cfg: cfg, Version: version, Hub: h, Plugins: sup, Data: src, Health: sup, Metrics: metrics, Secrets: reg, Audit: alog,
 		})
 		handler = demo.Wrap(srv.Handler())
 		slog.Info("demo mode: serving fake data, no cluster or upstreams are contacted")
@@ -148,19 +148,13 @@ func run(reg *secret.Registry) error {
 			return err
 		}
 
-		// Outside the cluster the monitoring services are reached through the API server proxy:
-		// the legacy clients below get it as their transport, the plugins' clients through the
-		// transport hook of the framework.
-		var rt http.RoundTripper
+		// Outside the cluster the monitoring services are reached through the API server proxy,
+		// through the transport hook of the framework.
 		if cfg.Dev {
-			if rt, err = upstream.DevTransport(rc); err != nil {
-				return err
-			}
 			if devWrap, err = upstream.DevWrap(rc); err != nil {
 				return err
 			}
 		}
-		vlogs := upstream.NewVLogs(cfg.VLogsURL, metrics.Upstream("victorialogs", rt))
 		pve := upstream.NewProxmox(cfg.ProxmoxURL, cfg.ProxmoxNode, cfg.ProxmoxTokenID, cfg.ProxmoxTokenSecret, metrics.Upstream("proxmox", nil)) // not a .svc host
 
 		mgr := topics.New(topics.Deps{
@@ -174,7 +168,7 @@ func run(reg *secret.Registry) error {
 
 		srv = api.New(api.Deps{
 			Cfg: cfg, Version: version, Hub: h, Plugins: sup, Kube: cluster.Client, Dyn: cluster.Dynamic,
-			VLogs: vlogs, Data: mgr, Health: sup, Metrics: metrics, Secrets: reg, Audit: alog,
+			Data: mgr, Health: sup, Metrics: metrics, Secrets: reg, Audit: alog,
 		})
 		handler = srv.Handler()
 	}

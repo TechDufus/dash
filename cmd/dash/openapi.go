@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/TechDufus/dash/internal/api"
+	"github.com/TechDufus/dash/internal/plugin"
 )
 
 const apiUsage = "dash api openapi [-o FILE]"
@@ -33,7 +34,7 @@ func openapiCommand(args []string, out io.Writer) error {
 	if fs.NArg() > 0 {
 		return fmt.Errorf("unexpected argument %q; usage: %s", fs.Arg(0), apiUsage)
 	}
-	doc, err := api.OpenAPI(builtinManifests(), nil)
+	doc, err := api.OpenAPI(builtinManifests(), builtinRoutes)
 	if err != nil {
 		return err
 	}
@@ -42,4 +43,15 @@ func openapiCommand(args []string, out io.Writer) error {
 	}
 	_, err = out.Write(doc)
 	return err
+}
+
+// builtinRoutes are the GET routes and streams of a plugin dash ships, read off a fresh instance
+// that is never started. A plugin that is still a shim has none.
+func builtinRoutes(id plugin.ID) []plugin.RouteInfo {
+	if f, ok := realPlugins[id]; ok {
+		if r, ok := f().(plugin.Router); ok {
+			return plugin.CollectRoutes(r)
+		}
+	}
+	return nil
 }

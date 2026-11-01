@@ -79,7 +79,7 @@ export function PodLogs({ ns, pod, containers, active }: PodLogsProps) {
     const params = new URLSearchParams({ ns, pod });
     if (containerParam) params.set("container", containerParam);
     if (qParam) params.set("q", qParam);
-    const es = new EventSource(`/api/logs/tail?${params.toString()}`);
+    const es = new EventSource(`/api/v1/plugins/victorialogs/logs/tail?${params.toString()}`);
     let buffer: Row[] = [];
     let nextId = 0;
     let timer: ReturnType<typeof setTimeout> | undefined;

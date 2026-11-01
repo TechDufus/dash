@@ -111,8 +111,6 @@ func (s *Server) routeTable() []Route {
 		// plugin that takes it over (design A.7); routes_test.go pins the list.
 		{Method: "GET", Path: "/api/vms/{vmid}", Legacy: true, Handler: s.vmDetail},
 		{Method: "GET", Path: "/api/pods/{ns}/{name}", Legacy: true, Handler: s.podDetail},
-		{Method: "GET", Path: "/api/logs", Legacy: true, Handler: s.logs},
-		{Method: "GET", Path: "/api/logs/tail", Legacy: true, Handler: s.logsTail},
 		{Method: "POST", Path: "/api/actions/restart", Legacy: true, Handler: s.restart},
 		{Method: "POST", Path: "/api/actions/reconcile", Legacy: true, Handler: s.reconcile},
 

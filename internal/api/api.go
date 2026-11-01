@@ -28,12 +28,6 @@ import (
 	"github.com/TechDufus/dash/web"
 )
 
-// VLogsAPI is the slice of upstream.VLogs the API uses.
-type VLogsAPI interface {
-	Query(ctx context.Context, q upstream.LogQuery) ([]model.LogLine, error)
-	Tail(ctx context.Context, q upstream.LogQuery, emit func(model.LogLine) error) error
-}
-
 // DataAPI is the slice of topics.Manager the API uses.
 type DataAPI interface {
 	PodDetail(ctx context.Context, ns, name string) (model.PodDetail, error)
@@ -63,7 +57,6 @@ type Deps struct {
 	Hub     *hub.Hub
 	Kube    kubernetes.Interface
 	Dyn     dynamic.Interface
-	VLogs   VLogsAPI
 	Data    DataAPI
 	Plugins PluginsAPI   // nil = no plugins
 	Health  HealthSource // readiness; see health.go
@@ -80,8 +73,8 @@ type Server struct {
 	now         func() time.Time
 	heartbeat   time.Duration
 	events      *streamLimiter // open /api/v1/stream connections
-	tails       *streamLimiter // open /api/logs/tail connections
-	tailMax     time.Duration  // longest a log tail stays open
+	tails       *streamLimiter // open plugin streams (a log tail)
+	tailMax     time.Duration  // longest a plugin stream stays open
 	sseWrite    time.Duration  // deadline of each SSE write
 	bodyTimeout time.Duration  // longest a request body may take to arrive
 	actionLimit *rateLimiter   // framework actions per principal
@@ -130,10 +123,6 @@ func writeErr(w http.ResponseWriter, status int, code, msg string) {
 
 // maxBody caps JSON request bodies.
 const maxBody = 64 << 10
-
-// maxTailResume is how far back a reconnecting log tail replays. The other stream and request
-// limits are settings (server.limits in internal/config).
-const maxTailResume = time.Minute
 
 // decodeBody reads a JSON body into v; it answers 400 itself and reports false on failure.
 func (s *Server) decodeBody(w http.ResponseWriter, r *http.Request, v any) bool {

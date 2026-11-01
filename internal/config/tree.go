@@ -44,8 +44,8 @@ type ServerConfig struct {
 type LimitsConfig struct {
 	StreamsPerUser  int                 `json:"streamsPerUser" dash:"restart" doc:"Open /api/v1/stream connections one user may hold; more get 429."`
 	Streams         int                 `json:"streams" dash:"restart" doc:"Open /api/v1/stream connections in all; more get 503."`
-	TailsPerUser    int                 `json:"tailsPerUser" dash:"restart" doc:"Open /api/logs/tail connections one user may hold; more get 429."`
-	Tails           int                 `json:"tails" dash:"restart" doc:"Open /api/logs/tail connections in all; more get 503."`
+	TailsPerUser    int                 `json:"tailsPerUser" dash:"restart" doc:"Open plugin stream connections (the log tail) one user may hold; more get 429."`
+	Tails           int                 `json:"tails" dash:"restart" doc:"Open plugin stream connections (the log tail) in all; more get 503."`
 	TailMaxDuration pluginconf.Duration `json:"tailMaxDuration" dash:"restart" doc:"A log tail ends after this long and the browser reconnects."`
 	SSEWriteTimeout pluginconf.Duration `json:"sseWriteTimeout" dash:"restart" doc:"A stalled stream write fails after this long."`
 	BodyReadTimeout pluginconf.Duration `json:"bodyReadTimeout" dash:"restart" doc:"A request body must arrive within this long."`
@@ -225,7 +225,6 @@ func (t Tree) config(dev, demo bool) Config {
 		},
 		DataDir:      t.DataDir,
 		SettingsUI:   t.Settings.UI,
-		VLogsURL:     p.VictoriaLogs.URL,
 		ProxmoxURL:   p.Proxmox.URL,
 		ProxmoxNode:  p.Proxmox.Node,
 		HostNodename: p.Proxmox.Node, // overridden by hosts[0] below

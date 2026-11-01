@@ -43,9 +43,6 @@ func TestUnconfiguredUpstreamsMakeNoRequests(t *testing.T) {
 	for _, poll := range []func(context.Context){m.pollHost, m.pollVMs, m.pollUsage, m.pollStorage} {
 		poll(ctx)
 	}
-	if _, err := upstream.NewVLogs(cfg.VLogsURL, rt).Query(ctx, upstream.LogQuery{Namespace: "apps"}); !errors.Is(err, upstream.ErrDisabled) {
-		t.Errorf("VictoriaLogs query: %v, want ErrDisabled", err)
-	}
 
 	if n := rt.n.Load(); n != 0 {
 		t.Errorf("%d upstream requests with nothing configured", n)

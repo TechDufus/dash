@@ -2,17 +2,14 @@ package api
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
-	"log/slog"
 	"net/http"
 	"sync"
 	"time"
 
 	"github.com/TechDufus/dash/internal/model"
 	"github.com/TechDufus/dash/internal/obs"
-	"github.com/TechDufus/dash/internal/upstream"
 )
 
 // sseWriter serialises writes to one SSE response (events and the heartbeat goroutine).
@@ -126,64 +123,5 @@ func (s *Server) stream(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 		}
-	}
-}
-
-func (s *Server) logsTail(w http.ResponseWriter, r *http.Request) {
-	q := logQueryFrom(r)
-	if _, err := upstream.BuildQuery(q, true); err != nil {
-		writeErr(w, http.StatusBadRequest, model.ErrCodeInvalidInput, err.Error())
-		return
-	}
-	// A reconnecting EventSource sends the id of the last line it saw: one resume point per
-	// container. Replay from just before the oldest, never further back than maxTailResume,
-	// and drop only what the client already has from each container. A malformed id means a
-	// plain tail.
-	resume, seen := resumePoints{}, resumePoints{}
-	if p, ok := parseResumePoints(r.Header.Get("Last-Event-ID")); ok {
-		resume, seen = p, p.clone() // seen starts from the points so quiet containers survive the next reconnect
-		q.StartOffset = min(max(s.now().Sub(p.oldest())+5*time.Second, 0), maxTailResume)
-	}
-	release, ok := s.tails.acquire(w, userFrom(r.Context()))
-	if !ok {
-		s.deny(r, obs.AuthStreamLimit)
-		return
-	}
-	defer release()
-	defer s.d.Metrics.StreamOpened(obs.StreamTail)()
-	e, err := startSSE(w, s.sseWrite)
-	defer e.done()
-	if err != nil {
-		return
-	}
-	// When the deadline ends the tail, the browser's EventSource reconnects by itself.
-	ctx, cancel := context.WithTimeout(r.Context(), s.tailMax)
-	// The heartbeat writes to w, so it must be finished before the handler returns.
-	pingsDone := make(chan struct{})
-	go func() {
-		defer close(pingsDone)
-		e.pings(ctx, s.heartbeat)
-	}()
-	defer func() {
-		cancel()
-		<-pingsDone
-	}()
-	err = s.d.VLogs.Tail(ctx, q, func(l model.LogLine) error {
-		if at, ok := resume[l.Container]; ok && !l.Time.After(at) { // already delivered before the reconnect
-			return nil
-		}
-		l.Msg = s.d.Secrets.ScrubLogLine(l.Msg)
-		b, err := json.Marshal(l)
-		if err != nil {
-			return err
-		}
-		if l.Time.IsZero() {
-			return e.event("line", b)
-		}
-		seen.note(l.Container, l.Time)
-		return e.eventID("line", seen.String(), b)
-	})
-	if err != nil && ctx.Err() == nil {
-		slog.Warn("log tail ended", "error", err)
 	}
 }

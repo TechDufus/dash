@@ -204,7 +204,7 @@ func TestDemoSeriesComeFromThePrometheusTwin(t *testing.T) {
 	}
 	defer fw.sup.Shutdown(context.Background())
 
-	srv := api.New(api.Deps{Cfg: cfg, Hub: fw.hub, Plugins: fw.sup, VLogs: src, Data: src, Health: fw.sup})
+	srv := api.New(api.Deps{Cfg: cfg, Hub: fw.hub, Plugins: fw.sup, Data: src, Health: fw.sup})
 	r := httptest.NewRequest(http.MethodGet, cfg.PublicURL+"/api/v1/series?name=host.cpu&range=1h", nil)
 	rec := httptest.NewRecorder()
 	demo.Wrap(srv.Handler()).ServeHTTP(rec, r)

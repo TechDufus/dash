@@ -1,6 +1,7 @@
 package world
 
 import (
+	"context"
 	"time"
 
 	"github.com/TechDufus/dash/internal/model"
@@ -29,10 +30,32 @@ func LogLine(pod, container string, at time.Time, i int) model.LogLine {
 
 // Logs is a few minutes of plausible lines for a pod, oldest first, ending now.
 func (w *World) Logs(pod, container string) []model.LogLine {
-	now := w.clock()
+	return LogsAt(pod, container, w.clock())
+}
+
+// LogsAt is Logs for a clock reading, for a caller that has no World (the demo twin of the
+// victorialogs plugin).
+func LogsAt(pod, container string, now time.Time) []model.LogLine {
 	lines := make([]model.LogLine, 0, 60)
 	for i := 59; i >= 0; i-- {
 		lines = append(lines, LogLine(pod, container, now.Add(-time.Duration(i)*7*time.Second), i))
 	}
 	return lines
+}
+
+// TailLogs emits a new synthetic line every interval, stamped with now(), until ctx ends
+// (returns nil) or emit fails.
+func TailLogs(ctx context.Context, pod, container string, interval time.Duration, now func() time.Time, emit func(model.LogLine) error) error {
+	t := time.NewTicker(interval)
+	defer t.Stop()
+	for i := 0; ; i++ {
+		select {
+		case <-ctx.Done():
+			return nil
+		case <-t.C:
+			if err := emit(LogLine(pod, container, now(), i)); err != nil {
+				return err
+			}
+		}
+	}
 }

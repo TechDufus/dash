@@ -10,7 +10,6 @@ import (
 	"github.com/TechDufus/dash/internal/queries"
 	"github.com/TechDufus/dash/internal/svc"
 	"github.com/TechDufus/dash/internal/topics"
-	"github.com/TechDufus/dash/internal/upstream"
 )
 
 func (s *Server) series(w http.ResponseWriter, r *http.Request) {
@@ -119,34 +118,5 @@ func (s *Server) podDetail(w http.ResponseWriter, r *http.Request) {
 		s.badGateway(w, "pod details unavailable", err)
 	default:
 		writeJSON(w, http.StatusOK, d)
-	}
-}
-
-func logQueryFrom(r *http.Request) upstream.LogQuery {
-	q := r.URL.Query()
-	return upstream.LogQuery{
-		Namespace: firstOf(r, "ns", "namespace"),
-		Pod:       q.Get("pod"),
-		Container: q.Get("container"),
-		Text:      q.Get("q"),
-		Since:     q.Get("since"),
-	}
-}
-
-func (s *Server) logs(w http.ResponseWriter, r *http.Request) {
-	lines, err := s.d.VLogs.Query(r.Context(), logQueryFrom(r))
-	switch {
-	case errInvalid(err):
-		writeErr(w, http.StatusBadRequest, model.ErrCodeInvalidInput, err.Error())
-	case err != nil:
-		s.badGateway(w, "logs unavailable", err)
-	default:
-		if lines == nil {
-			lines = []model.LogLine{}
-		}
-		for i := range lines {
-			lines[i].Msg = s.d.Secrets.ScrubLogLine(lines[i].Msg)
-		}
-		writeJSON(w, http.StatusOK, lines)
 	}
 }

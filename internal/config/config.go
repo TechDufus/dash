@@ -55,8 +55,6 @@ type Config struct {
 	DataDir    string
 	SettingsUI string
 
-	VLogsURL string
-
 	ProxmoxURL string
 	// ProxmoxNode is the node whose status and guests dash reads. Optional: when empty and a
 	// token is set, dash discovers it from the API at startup if the cluster has exactly one node.
@@ -86,7 +84,7 @@ type Config struct {
 // Limits is server.limits as the flat view reads it.
 type Limits struct {
 	StreamsPerUser, Streams int // /api/v1/stream connections per user and in all
-	TailsPerUser, Tails     int // /api/logs/tail connections per user and in all
+	TailsPerUser, Tails     int // plugin stream (log tail) connections per user and in all
 	TailMaxDuration         time.Duration
 	SSEWriteTimeout         time.Duration
 	BodyReadTimeout         time.Duration

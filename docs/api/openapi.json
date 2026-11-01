@@ -1150,6 +1150,25 @@
         },
         "type": "object"
       },
+      "LogLine": {
+        "additionalProperties": false,
+        "properties": {
+          "container": {
+            "type": "string"
+          },
+          "msg": {
+            "type": "string"
+          },
+          "pod": {
+            "type": "string"
+          },
+          "time": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
       "Machine": {
         "additionalProperties": false,
         "properties": {
@@ -2310,6 +2329,155 @@
         "x-dash-scope": "actions:alertmanager"
       }
     },
+    "/api/v1/plugins/victorialogs/logs": {
+      "get": {
+        "operationId": "victorialogs_get_logs",
+        "parameters": [
+          {
+            "description": "Namespace of the pod (required). namespace is accepted as well.",
+            "in": "query",
+            "name": "ns",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Pod name. Empty selects every pod of the namespace.",
+            "in": "query",
+            "name": "pod",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Container name. Empty selects every container.",
+            "in": "query",
+            "name": "container",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Text a line must contain.",
+            "in": "query",
+            "name": "q",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "How far back a query looks: 5m, 15m (default), 1h, 6h or 24h. A tail ignores it.",
+            "in": "query",
+            "name": "since",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/LogLine"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Log lines of a pod",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/XRequestId"
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "summary": "Log lines of a pod",
+        "tags": [
+          "victorialogs"
+        ],
+        "x-dash-min-role": "viewer",
+        "x-dash-scope": "logs"
+      }
+    },
+    "/api/v1/plugins/victorialogs/logs/tail": {
+      "get": {
+        "operationId": "victorialogs_get_logs_tail",
+        "parameters": [
+          {
+            "description": "Namespace of the pod (required). namespace is accepted as well.",
+            "in": "query",
+            "name": "ns",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Pod name. Empty selects every pod of the namespace.",
+            "in": "query",
+            "name": "pod",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Container name. Empty selects every container.",
+            "in": "query",
+            "name": "container",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Text a line must contain.",
+            "in": "query",
+            "name": "q",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "How far back a query looks: 5m, 15m (default), 1h, 6h or 24h. A tail ignores it.",
+            "in": "query",
+            "name": "since",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "text/event-stream": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "description": "A stream of server-sent events: each event is named by the route and carries a JSON payload, with an id the browser sends back as Last-Event-ID when it reconnects. A comment line every 15 seconds keeps the connection alive, and the server ends the stream after its maximum duration. 403 when the namespace is denied, 429 when the user has too many open streams, 503 when the server has.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/XRequestId"
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "summary": "Live log lines of a pod",
+        "tags": [
+          "victorialogs"
+        ],
+        "x-dash-min-role": "viewer",
+        "x-dash-scope": "logs"
+      }
+    },
     "/api/v1/series": {
       "get": {
         "operationId": "getSeries",
@@ -2564,6 +2732,10 @@
     {
       "description": "Alertmanager: Alerts and silences.",
       "name": "alertmanager"
+    },
+    {
+      "description": "VictoriaLogs: The pod logs the UI shows.",
+      "name": "victorialogs"
     }
   ]
 }

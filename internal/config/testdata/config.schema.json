@@ -420,13 +420,13 @@
         },
         "tails": {
           "default": 32,
-          "description": "Open /api/logs/tail connections in all; more get 503.",
+          "description": "Open plugin stream connections (the log tail) in all; more get 503.",
           "type": "integer",
           "x-dash-restart": true
         },
         "tailsPerUser": {
           "default": 4,
-          "description": "Open /api/logs/tail connections one user may hold; more get 429.",
+          "description": "Open plugin stream connections (the log tail) one user may hold; more get 429.",
           "type": "integer",
           "x-dash-restart": true
         }

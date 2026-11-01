@@ -16,7 +16,6 @@ import (
 	"github.com/TechDufus/dash/internal/model"
 	"github.com/TechDufus/dash/internal/plugin"
 	"github.com/TechDufus/dash/internal/topics"
-	"github.com/TechDufus/dash/internal/upstream"
 )
 
 // tick is how often the fixtures drift, so the UI looks live.
@@ -130,28 +129,7 @@ func (s *Source) publish() {
 	}
 }
 
-// ---- REST: series, logs, details ----
-
-// Query answers /api/logs with a few minutes of plausible lines for the pod.
-func (s *Source) Query(_ context.Context, q upstream.LogQuery) ([]model.LogLine, error) {
-	return s.world.Logs(q.Pod, q.Container), nil
-}
-
-// Tail emits a new line every couple of seconds until the client goes away.
-func (s *Source) Tail(ctx context.Context, q upstream.LogQuery, emit func(model.LogLine) error) error {
-	t := time.NewTicker(2 * time.Second)
-	defer t.Stop()
-	for i := 0; ; i++ {
-		select {
-		case <-ctx.Done():
-			return nil
-		case now := <-t.C:
-			if err := emit(world.LogLine(q.Pod, q.Container, now, i)); err != nil {
-				return err
-			}
-		}
-	}
-}
+// ---- REST: details ----
 
 // PodDetail answers /api/pods/{ns}/{name} from the cluster fixtures.
 func (s *Source) PodDetail(_ context.Context, ns, name string) (model.PodDetail, error) {

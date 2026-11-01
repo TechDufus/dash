@@ -166,7 +166,7 @@ restart with `DASH_PLUGINS_PROXMOX_TOKEN_SECRET_FILE`.
 | `server.readyTimeout` | `60s` | how long `/readyz` waits for `server.readyRequires`; after that it reports ready anyway and logs one WARN naming the plugins still starting |
 | `server.metrics` | `false` | serve `/metrics` on the health listener (see Metrics below) |
 | `server.limits.streamsPerUser`, `.streams` | 16, 256 | open `/api/v1/stream` connections per user and in all; more get 429 or 503 |
-| `server.limits.tailsPerUser`, `.tails` | 4, 32 | the same for `/api/logs/tail` |
+| `server.limits.tailsPerUser`, `.tails` | 4, 32 | the same for plugin streams, that is the pod log tail, `/api/v1/plugins/victorialogs/logs/tail` |
 | `server.limits.tailMaxDuration` | `30m` | a log tail ends after this; the browser reconnects (a duration string, also in the environment) |
 | `server.limits.sseWriteTimeout`, `.bodyReadTimeout` | `10s`, `10s` | a stalled stream write, or a request body that does not arrive, is cut off after this |
 | `server.limits.maxHeaderBytes` | `65536` | request header size of the API listener |
@@ -185,7 +185,12 @@ restart with `DASH_PLUGINS_PROXMOX_TOKEN_SECRET_FILE`.
 | `plugins.alertmanager.silenceDurations` | `["1h","4h","24h","7d"]` | the silence lengths the dialog offers, from those four (a JSON list in the environment) |
 | `plugins.alertmanager.protectedAlerts` | `["Watchdog"]` | alert names nobody can silence through dash, whatever the role: the Alerts page has no Silence button for them and `silence.create` answers 403 (a JSON list in the environment) |
 | `plugins.alertmanager.actions.enabled` | `false` | mounts the silence actions (`silence.create`, `silence.expire`); only silences dash created (`createdBy` starting `dash:`) can be expired through it. `DASH_PLUGINS_ALERTMANAGER_ACTIONS_ENABLED=true`; a change restarts the plugin |
-| `plugins.victorialogs.url` | empty (source not configured) | VictoriaLogs, for pod logs |
+| `plugins.victorialogs.url` | empty (source not configured) | VictoriaLogs, for pod logs; a change of any `plugins.victorialogs.*` setting applies without a restart of dash, and the pod sheet's Logs tab appears and disappears with the plugin |
+| `plugins.victorialogs.auth.basic.username`, `.password` / `.auth.bearerToken` | empty (no credentials) | Basic or bearer credentials for VictoriaLogs, not both; the password and the token take a literal, `env:NAME` or `file:/path` and a rotated file applies without a restart |
+| `plugins.victorialogs.tls.caFile`, `.insecureSkipVerify` | empty, `false` | a PEM file with the CA that signed VictoriaLogs's certificate, added to the system roots; `insecureSkipVerify` skips verification (prefer `caFile`) |
+| `plugins.victorialogs.fields.namespace`, `.pod`, `.container` | `kubernetes.pod_namespace`, `kubernetes.pod_name`, `kubernetes.container_name` | the fields of your log records that name the pod a line came from, for the query and for the pod and container shown with each line; letters, digits, `_` and `.`, not starting with a digit or a dot. The fields that share a name's prefix up to its first dot (`kubernetes.` by default) are left out of the message text |
+| `plugins.victorialogs.limit` | `500` | the most lines one log query returns; greater than zero |
+| `plugins.victorialogs.denyNamespaces` | `[]` | namespaces whose logs dash never shows, whatever the role: the query and the tail answer 403 and the refusal is audited (a JSON list in the environment) |
 | `plugins.gatus.url` | empty (source not configured) | Gatus; a change of any `plugins.gatus.*` setting applies without a restart of dash |
 | `plugins.gatus.auth.basic.username`, `.password` / `.auth.bearerToken` | empty (no credentials) | Basic or bearer credentials for Gatus, not both; the password and the token take a literal, `env:NAME` or `file:/path` and a rotated file applies without a restart |
 | `plugins.gatus.tls.caFile`, `.insecureSkipVerify` | empty, `false` | a PEM file with the CA that signed Gatus's certificate, added to the system roots; `insecureSkipVerify` skips verification (prefer `caFile`) |
@@ -295,7 +300,8 @@ cleared secret back.
 Every action, silence change and stored-secret change is logged as an `audit` record on
 stdout. When `dataDir` is writable dash also appends each record to `audit.jsonl` there: one
 JSON line with the actor, what was done, the target and the result, never a secret or a changed
-value (only the field paths). Refused requests (CSRF, unauthenticated, stream caps) are recorded
+value (only the field paths). Opening a pod log tail is recorded as `logs.tail` with the pod as
+the target. Refused requests (CSRF, unauthenticated, stream caps, a denied namespace) are recorded
 too, at most once per peer and reason per minute. Each line carries the SHA-256 of the previous
 one, so an edited, deleted or reordered line is detectable. At 10 MiB the file rotates to
 `audit.jsonl.1` (newest) to `audit.jsonl.5` (oldest); older records are dropped.
@@ -321,8 +327,9 @@ The public API is under `/api/v1` (`me`, `stream`, `series`, `topics/<topic>`, `
 by [docs/api/openapi.json](docs/api/openapi.json), an OpenAPI 3.1 document generated from the code
 (`dash api openapi`; `make generate` rewrites it and `make check` fails when it drifts or does
 not lint). The SPA uses the same paths. Before 1.0 a breaking change to them is called out in
-the release notes. The unversioned `/api/vms`, `/api/pods`, `/api/logs` and `/api/actions`
-routes are internal to the SPA and go away as their plugins move; `/api/silences` is already
+the release notes. The unversioned `/api/vms`, `/api/pods` and `/api/actions`
+routes are internal to the SPA and go away as their plugins move; `/api/logs` and `/api/logs/tail`
+are now `/api/v1/plugins/victorialogs/logs` and `.../logs/tail` and the old paths answer 404; `/api/silences` is already
 gone (silences are the alertmanager plugin's actions, and the old paths answer 404), and
 `/api/me`, `/api/stream` and `/api/series` are now `/api/v1/me`, `/api/v1/stream` and
 `/api/v1/series`, and the old paths answer 404.

@@ -104,7 +104,6 @@ func newServer(mod func(*Deps)) *Server {
 		Cfg:     config.Config{PublicURL: testOrigin + "/", HostNodename: "pve-730", Limits: config.Defaults().Limits, Conventions: config.Conventions{ProtectedLabel: protectedLabel}},
 		Version: "test",
 		Hub:     hub.New(),
-		VLogs:   &fakeLogs{},
 		Data:    fakeData{nodes: map[string]string{"cp1": "10.0.0.5"}},
 	}
 	if mod != nil {

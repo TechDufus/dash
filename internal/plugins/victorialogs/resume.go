@@ -1,4 +1,4 @@
-package api
+package victorialogs
 
 import (
 	"net/url"

@@ -54,7 +54,7 @@ func TestBuildQuery(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			got, err := BuildQuery(tc.q, tc.tail)
+			got, err := BuildQuery(tc.q, DefaultLogFields(), tc.tail)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -85,7 +85,7 @@ func TestBuildQueryInvalid(t *testing.T) {
 	for _, tc := range tests {
 		for _, tail := range []bool{false, true} {
 			t.Run(fmt.Sprintf("%s/tail=%v", tc.name, tail), func(t *testing.T) {
-				if _, err := BuildQuery(tc.q, tail); !errors.Is(err, ErrInvalid) {
+				if _, err := BuildQuery(tc.q, DefaultLogFields(), tail); !errors.Is(err, ErrInvalid) {
 					t.Fatalf("err = %v, want ErrInvalid", err)
 				}
 			})
@@ -105,7 +105,7 @@ func TestVLogsQuery(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	lines, err := NewVLogs(srv.URL, nil).Query(context.Background(), LogQuery{Namespace: "n", Pod: "p1"})
+	lines, err := NewVLogs(srv.URL, nil, 500).Query(context.Background(), LogQuery{Namespace: "n", Pod: "p1"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -130,7 +130,7 @@ func TestVLogsQueryEmptyAndErrors(t *testing.T) {
 		}
 	}))
 	defer srv.Close()
-	v := NewVLogs(srv.URL, nil)
+	v := NewVLogs(srv.URL, nil, 0)
 
 	lines, err := v.Query(context.Background(), LogQuery{Namespace: "n"})
 	if err != nil || lines == nil || len(lines) != 0 {
@@ -147,7 +147,7 @@ func TestVLogsQueryEmptyAndErrors(t *testing.T) {
 	if _, err := v.Query(context.Background(), LogQuery{}); !errors.Is(err, ErrInvalid) {
 		t.Fatalf("err = %v, want ErrInvalid", err)
 	}
-	if _, err := NewVLogs("", nil).Query(context.Background(), LogQuery{Namespace: "n"}); !errors.Is(err, ErrDisabled) {
+	if _, err := NewVLogs("", nil, 0).Query(context.Background(), LogQuery{Namespace: "n"}); !errors.Is(err, ErrDisabled) {
 		t.Fatalf("err = %v, want ErrDisabled", err)
 	}
 }
@@ -165,7 +165,7 @@ func TestVLogsTail(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	var got []string
-	err := NewVLogs(srv.URL, nil).Tail(ctx, LogQuery{Namespace: "n", Pod: "p1", Text: "x"}, func(l model.LogLine) error {
+	err := NewVLogs(srv.URL, nil, 0).Tail(ctx, LogQuery{Namespace: "n", Pod: "p1", Text: "x"}, func(l model.LogLine) error {
 		got = append(got, l.Msg)
 		if len(got) == 2 {
 			cancel() // client goes away
@@ -203,7 +203,7 @@ func TestVLogsTailStartOffset(t *testing.T) {
 	} {
 		raw = ""
 		q := LogQuery{Namespace: "n", StartOffset: tc.off}
-		if err := NewVLogs(srv.URL, nil).Tail(context.Background(), q, func(model.LogLine) error { return nil }); err != nil {
+		if err := NewVLogs(srv.URL, nil, 0).Tail(context.Background(), q, func(model.LogLine) error { return nil }); err != nil {
 			t.Fatal(err)
 		}
 		got, perr := url.ParseQuery(raw)
@@ -238,12 +238,12 @@ func TestRecordLineAppendsFields(t *testing.T) {
 		for k, v := range tc.extra {
 			rec[k] = v
 		}
-		l, ok := recordLine(rec)
+		l, ok := recordLine(rec, DefaultLogFields())
 		if !ok || l.Msg != tc.want || l.Pod != "dash-1" || l.Container != "dash" {
 			t.Errorf("%s: got %+v ok=%v, want msg %q", tc.name, l, ok, tc.want)
 		}
 	}
-	if _, ok := recordLine(map[string]string{"_msg": "x", "_time": "nope"}); ok {
+	if _, ok := recordLine(map[string]string{"_msg": "x", "_time": "nope"}, DefaultLogFields()); ok {
 		t.Error("a record with a bad _time must be skipped")
 	}
 }
@@ -255,7 +255,7 @@ func TestVLogsTailEmitError(t *testing.T) {
 	defer srv.Close()
 	boom := errors.New("boom")
 	n := 0
-	err := NewVLogs(srv.URL, nil).Tail(context.Background(), LogQuery{Namespace: "n"}, func(model.LogLine) error {
+	err := NewVLogs(srv.URL, nil, 0).Tail(context.Background(), LogQuery{Namespace: "n"}, func(model.LogLine) error {
 		n++
 		return boom
 	})
@@ -264,7 +264,7 @@ func TestVLogsTailEmitError(t *testing.T) {
 	}
 
 	// Stream ending on its own is a nil return.
-	if err := NewVLogs(srv.URL, nil).Tail(context.Background(), LogQuery{Namespace: "n"}, func(model.LogLine) error { return nil }); err != nil {
+	if err := NewVLogs(srv.URL, nil, 0).Tail(context.Background(), LogQuery{Namespace: "n"}, func(model.LogLine) error { return nil }); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -272,7 +272,7 @@ func TestVLogsTailEmitError(t *testing.T) {
 func TestReadLogLinesSkipsOversizedRecord(t *testing.T) {
 	huge := `{"_msg":"` + strings.Repeat("x", 300<<10) + `","_time":"2026-10-30T21:39:17.5Z"}`
 	var got []model.LogLine
-	err := readLogLines(strings.NewReader(vlOldest+"\n"+huge+"\n"+vlNewest+"\n"), func(l model.LogLine) error {
+	err := readLogLines(strings.NewReader(vlOldest+"\n"+huge+"\n"+vlNewest+"\n"), DefaultLogFields(), func(l model.LogLine) error {
 		got = append(got, l)
 		return nil
 	})
@@ -285,11 +285,111 @@ func TestReadLogLinesSkipsOversizedRecord(t *testing.T) {
 }
 
 func TestRecordLineCapsMessage(t *testing.T) {
-	l, ok := recordLine(map[string]string{"_time": "2026-10-30T21:39:17.5Z", "_msg": strings.Repeat("é", 10000)})
+	l, ok := recordLine(map[string]string{"_time": "2026-10-30T21:39:17.5Z", "_msg": strings.Repeat("é", 10000)}, DefaultLogFields())
 	if !ok {
 		t.Fatal("record skipped")
 	}
 	if n := utf8.RuneCountInString(l.Msg); n != maxLogMsg+1 || !strings.HasSuffix(l.Msg, "…") {
 		t.Errorf("message has %d runes, suffix %q; want %d ending in …", n, l.Msg[len(l.Msg)-3:], maxLogMsg+1)
+	}
+}
+
+var customFields = LogFields{Namespace: "k8s.namespace", Pod: "k8s.pod", Container: "ctr"}
+
+func TestBuildQueryUsesTheConfiguredFields(t *testing.T) {
+	q := LogQuery{Namespace: "n", Pod: "p", Container: "c", Text: "boom"}
+	got, err := BuildQuery(q, customFields, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := `_time:15m k8s.namespace:="n" k8s.pod:="p" ctr:="c" "boom" | sort by (_time desc)`
+	if got != want {
+		t.Errorf("query = %s\nwant    %s", got, want)
+	}
+	tail, err := BuildQuery(q, customFields, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := `k8s.namespace:="n" k8s.pod:="p" ctr:="c" "boom"`; tail != want {
+		t.Errorf("tail query = %s\nwant         %s", tail, want)
+	}
+}
+
+func TestVLogsReadsPodAndContainerThroughTheMapping(t *testing.T) {
+	var gotQuery, gotLimit string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotQuery, gotLimit = r.URL.Query().Get("query"), r.URL.Query().Get("limit")
+		fmt.Fprint(w, `{"_msg":"hello","_time":"2026-10-30T21:39:17.5Z","k8s.namespace":"n","k8s.pod":"p1","ctr":"c1","k8s.node":"node-a","level":"info"}`+"\n")
+	}))
+	defer srv.Close()
+
+	v := NewVLogs(srv.URL, nil, 50).WithFields(customFields)
+	lines, err := v.Query(context.Background(), LogQuery{Namespace: "n", Pod: "p1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if gotLimit != "50" || gotQuery != `_time:15m k8s.namespace:="n" k8s.pod:="p1" | sort by (_time desc)` {
+		t.Errorf("request: limit=%q query=%q", gotLimit, gotQuery)
+	}
+	// k8s.* is the family of the mapped fields, ctr is hidden by name; level stays in the message.
+	if len(lines) != 1 || lines[0].Pod != "p1" || lines[0].Container != "c1" || lines[0].Msg != "hello level=info" {
+		t.Errorf("lines = %+v", lines)
+	}
+
+	// WithFields copies: the client it was called on keeps the default mapping.
+	if q, _ := BuildQuery(LogQuery{Namespace: "n"}, v.fields, true); !strings.HasPrefix(q, "k8s.namespace:=") {
+		t.Errorf("the derived client lost its fields: %s", q)
+	}
+	base := NewVLogs(srv.URL, nil, 0)
+	_ = base.WithFields(customFields)
+	if base.fields != DefaultLogFields() {
+		t.Errorf("WithFields changed the receiver: %+v", base.fields)
+	}
+}
+
+func TestVLogsLimitDefaults(t *testing.T) {
+	var gotLimit string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { gotLimit = r.URL.Query().Get("limit") }))
+	defer srv.Close()
+	for _, limit := range []int{0, -3} {
+		gotLimit = ""
+		if _, err := NewVLogs(srv.URL, nil, limit).Query(context.Background(), LogQuery{Namespace: "n"}); err != nil {
+			t.Fatal(err)
+		}
+		if gotLimit != "500" {
+			t.Errorf("limit %d sent %q, want 500", limit, gotLimit)
+		}
+	}
+}
+
+// The family of hidden fields is derived from the configured names: up to and including the
+// first dot, so the default mapping hides kubernetes.* (the pod IP, the labels), and a mapping
+// into another prefix hides that one instead.
+func TestLogFieldsHidden(t *testing.T) {
+	tests := []struct {
+		name   string
+		fields LogFields
+		key    string
+		hidden bool
+	}{
+		{"default hides the pod ip", DefaultLogFields(), "kubernetes.pod_ip", true},
+		{"default hides a label", DefaultLogFields(), "kubernetes.pod_labels.app", true},
+		{"default shows a plain field", DefaultLogFields(), "level", false},
+		{"internal fields", DefaultLogFields(), "_stream_id", true},
+		{"stream", DefaultLogFields(), "stream", true},
+		{"another prefix is shown by the default mapping", DefaultLogFields(), "k8s.node", false},
+		{"a mapped prefix hides its family", customFields, "k8s.node", true},
+		{"the default family is shown when unmapped", customFields, "kubernetes.pod_ip", false},
+		{"an undotted field is hidden by name", customFields, "ctr", true},
+		{"and only by name", customFields, "ctr2", false},
+		{"an undotted mapping hides no family", LogFields{Namespace: "ns", Pod: "pod", Container: "container"}, "pod_ip", false},
+		{"a prefix needs its dot", LogFields{Namespace: "a.ns", Pod: "a.pod", Container: "a.ctr"}, "ab", false},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := tc.fields.hidden(tc.key); got != tc.hidden {
+				t.Errorf("hidden(%q) = %v, want %v", tc.key, got, tc.hidden)
+			}
+		})
 	}
 }

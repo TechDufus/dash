@@ -6,7 +6,6 @@ import (
 	"github.com/TechDufus/dash/internal/config"
 	"github.com/TechDufus/dash/internal/model"
 	"github.com/TechDufus/dash/internal/plugin"
-	"github.com/TechDufus/dash/internal/pluginconf"
 	"github.com/TechDufus/dash/internal/upstream"
 )
 
@@ -73,7 +72,6 @@ func legacyManifests() []plugin.Manifest {
 		return plugin.UISpec{Nav: []model.NavItem{{Path: path, Label: label, Title: title, Icon: icon}}}
 	}
 	return []plugin.Manifest{
-		{ID: "victorialogs", Name: "VictoriaLogs", Description: "The pod logs the UI shows.", Version: "1.0.0", Config: func() any { return &pluginconf.VictoriaLogs{} }},
 		{ID: "proxmox", Name: "Proxmox VE", Description: "Virtual machines, containers and the hypervisor.", Version: "1.0.0",
 			Uses:   []plugin.ID{"kubernetes", "prometheus"},
 			Config: func() any { return &config.ProxmoxConfig{} },
@@ -126,9 +124,8 @@ var pollKeys = map[plugin.ID][]string{
 
 // setting names what to configure for a shim whose source is off, for its status message.
 var setting = map[plugin.ID]string{
-	"proxmox":      "plugins.proxmox.url, tokenID and tokenSecret",
-	"hardware":     "plugins.prometheus.url",
-	"victorialogs": "plugins.victorialogs.url",
+	"proxmox":  "plugins.proxmox.url, tokenID and tokenSecret",
+	"hardware": "plugins.prometheus.url",
 }
 
 // legacyStatus is the state of shim id (design: how the Manager reports for its plugins). The
@@ -141,10 +138,7 @@ func (m *Manager) legacyStatus(id plugin.ID) plugin.Status {
 		}
 		return plugin.Status{State: plugin.StateStarting, Message: "informers syncing", Sources: m.sources("kubernetes")}
 	}
-	all, polled := pollKeys[id]
-	if !polled {
-		return m.pollerlessStatus(id)
-	}
+	all := pollKeys[id]
 	// A key whose poller is skipped (nothing that reads it runs) would stay "not polled yet".
 	keys := m.polledKeys(all)
 	if len(keys) == 0 {
@@ -187,18 +181,4 @@ func (m *Manager) legacyStatus(id plugin.ID) plugin.Status {
 	default:
 		return status(plugin.StateError, failure)
 	}
-}
-
-// pollerlessStatus is the state of a shim that polls nothing: healthy when its setting is there.
-func (m *Manager) pollerlessStatus(id plugin.ID) plugin.Status {
-	c := m.d.Cfg
-	var set bool
-	switch id {
-	case "victorialogs":
-		set = c.VLogsURL != ""
-	}
-	if set {
-		return plugin.Status{State: plugin.StateHealthy}
-	}
-	return plugin.Status{State: plugin.StateUnavailable, Message: "not configured: set " + setting[id]}
 }

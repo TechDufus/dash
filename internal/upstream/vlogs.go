@@ -21,7 +21,9 @@ import (
 
 const (
 	maxLogText = 200
-	logLimit   = "500"
+
+	// DefaultLogLimit is the most lines a query returns when NewVLogs gets no positive limit.
+	DefaultLogLimit = 500
 
 	maxLogRecord   = 256 << 10 // bytes; longer records are skipped
 	maxLogMsg      = 8192      // runes kept per message
@@ -34,6 +36,41 @@ var (
 	logEscaper = strings.NewReplacer(`\`, `\\`, `"`, `\"`)
 )
 
+// LogFields names the fields of the log records that identify the pod a line came from. The
+// names are concatenated into the LogsQL query, so they must be valid field names (letters,
+// digits, _ and ., not starting with a digit or a dot): pluginconf.VictoriaLogs.Validate
+// enforces that before a plugin builds a client.
+type LogFields struct{ Namespace, Pod, Container string }
+
+// DefaultLogFields is the mapping of the Kubernetes log shippers (vlagent, vector).
+func DefaultLogFields() LogFields {
+	return LogFields{
+		Namespace: "kubernetes.pod_namespace",
+		Pod:       "kubernetes.pod_name",
+		Container: "kubernetes.container_name",
+	}
+}
+
+// hidden reports whether record field k is left out of a line's message: the internal fields
+// (_time, _msg, _stream…), "stream", and the family of the pod fields. The family is every key
+// that starts like a configured field up to and including its first dot (the default mapping
+// gives "kubernetes.", which hides kubernetes.pod_ip and the labels too); a configured field
+// with no dot is hidden by name, since its value already is the Pod or Container of the line.
+func (f LogFields) hidden(k string) bool {
+	if strings.HasPrefix(k, "_") || k == "stream" {
+		return true
+	}
+	for _, name := range [...]string{f.Namespace, f.Pod, f.Container} {
+		if k == name {
+			return true
+		}
+		if i := strings.IndexByte(name, '.'); i >= 0 && strings.HasPrefix(k, name[:i+1]) {
+			return true
+		}
+	}
+	return false
+}
+
 // LogQuery selects container logs. Namespace is required. StartOffset applies to tails only:
 // VictoriaLogs replays the last 5s by default (v1.52 start_offset default), and a positive
 // StartOffset widens that replay window to this far back; BuildQuery ignores it.
@@ -42,9 +79,9 @@ type LogQuery struct {
 	StartOffset                            time.Duration
 }
 
-// BuildQuery renders q as a LogsQL query. tail=true omits the time filter and
-// the sort, as /select/logsql/tail wants.
-func BuildQuery(q LogQuery, tail bool) (string, error) {
+// BuildQuery renders q as a LogsQL query over the record fields f names. tail=true omits the
+// time filter and the sort, as /select/logsql/tail wants.
+func BuildQuery(q LogQuery, f LogFields, tail bool) (string, error) {
 	if !k8sNameRe.MatchString(q.Namespace) {
 		return "", fmt.Errorf("%w: bad namespace", ErrInvalid)
 	}
@@ -66,12 +103,12 @@ func BuildQuery(q LogQuery, tail bool) (string, error) {
 	if !tail {
 		b.WriteString("_time:" + since + " ")
 	}
-	b.WriteString(`kubernetes.pod_namespace:="` + q.Namespace + `"`)
+	b.WriteString(f.Namespace + `:="` + q.Namespace + `"`)
 	if q.Pod != "" {
-		b.WriteString(` kubernetes.pod_name:="` + q.Pod + `"`)
+		b.WriteString(` ` + f.Pod + `:="` + q.Pod + `"`)
 	}
 	if q.Container != "" {
-		b.WriteString(` kubernetes.container_name:="` + q.Container + `"`)
+		b.WriteString(` ` + f.Container + `:="` + q.Container + `"`)
 	}
 	if t := cleanLogText(q.Text); t != "" {
 		b.WriteString(` "` + logEscaper.Replace(t) + `"`)
@@ -94,26 +131,47 @@ func cleanLogText(s string) string {
 }
 
 // VLogs queries VictoriaLogs.
-type VLogs struct{ short, stream client }
+type VLogs struct {
+	short, stream client
+	limit         int
+	fields        LogFields
+}
 
-func NewVLogs(baseURL string, rt http.RoundTripper) *VLogs {
+// NewVLogs builds the client for the VictoriaLogs at baseURL. limit is the most lines a query
+// returns (DefaultLogLimit when it is not positive). It reads the default record fields; use
+// WithFields for another mapping.
+func NewVLogs(baseURL string, rt http.RoundTripper, limit int, opts ...Option) *VLogs {
+	if limit <= 0 {
+		limit = DefaultLogLimit
+	}
 	return &VLogs{
-		short:  newClient(baseURL, rt, 10*time.Second),
-		stream: newStreamClient(baseURL, rt),
+		short:  newClient(baseURL, rt, 10*time.Second, opts...),
+		stream: newStreamClient(baseURL, rt, opts...),
+		limit:  limit,
+		fields: DefaultLogFields(),
 	}
 }
 
-// recordLine turns one VictoriaLogs record into a LogLine. vlagent moves a JSON log line's "msg" into
-// _msg and every other key into its own field, so the remaining fields are appended after the
-// message as " k=v" (sorted by key) to keep structured lines such as audit entries readable.
-func recordLine(rec map[string]string) (model.LogLine, bool) {
+// WithFields returns a client that reads the record fields f names, for queries and for the pod
+// and container of every line.
+func (v *VLogs) WithFields(f LogFields) *VLogs {
+	c := *v
+	c.fields = f
+	return &c
+}
+
+// recordLine turns one VictoriaLogs record into a LogLine, reading the pod and the container
+// through f. vlagent moves a JSON log line's "msg" into _msg and every other key into its own
+// field, so the remaining fields are appended after the message as " k=v" (sorted by key) to keep
+// structured lines such as audit entries readable; the fields f.hidden names are not.
+func recordLine(rec map[string]string, f LogFields) (model.LogLine, bool) {
 	t, err := time.Parse(time.RFC3339Nano, rec["_time"])
 	if err != nil {
 		return model.LogLine{}, false
 	}
 	keys := make([]string, 0, len(rec))
 	for k := range rec {
-		if strings.HasPrefix(k, "_") || strings.HasPrefix(k, "kubernetes.") || k == "stream" {
+		if f.hidden(k) {
 			continue
 		}
 		keys = append(keys, k)
@@ -132,29 +190,32 @@ func recordLine(rec map[string]string) (model.LogLine, bool) {
 	if t := truncate(m, maxLogMsg); len(t) < len(m) {
 		m = t + "…"
 	}
-	return model.LogLine{Time: t, Pod: rec["kubernetes.pod_name"], Container: rec["kubernetes.container_name"], Msg: m}, true
+	return model.LogLine{Time: t, Pod: rec[f.Pod], Container: rec[f.Container], Msg: m}, true
 }
 
-// Query returns up to 500 of the newest matching lines, oldest first.
+// Query returns up to the configured limit of the newest matching lines, oldest first.
 func (v *VLogs) Query(ctx context.Context, q LogQuery) ([]model.LogLine, error) {
-	expr, err := BuildQuery(q, false)
+	expr, err := BuildQuery(q, v.fields, false)
 	if err != nil {
 		return nil, err
 	}
-	resp, err := v.short.open(ctx, http.MethodGet, "/select/logsql/query", url.Values{"query": {expr}, "limit": {logLimit}}, nil, nil)
+	resp, err := v.short.open(ctx, http.MethodGet, "/select/logsql/query", url.Values{"query": {expr}, "limit": {strconv.Itoa(v.limit)}}, nil, nil)
 	if err != nil {
 		return nil, err
 	}
 	defer resp.Body.Close()
 	out := []model.LogLine{}
-	err = readLogLines(io.LimitReader(resp.Body, maxLogResponse), func(l model.LogLine) error {
+	err = readLogLines(io.LimitReader(resp.Body, maxLogResponse), v.fields, func(l model.LogLine) error {
 		out = append(out, l)
 		return nil
 	})
 	if err != nil {
 		return nil, err
 	}
-	// The query sorts newest first; the UI shows chronological order.
+	// The query sorts newest first and VictoriaLogs honours the limit; an upstream that does not
+	// still cannot make dash return more than the configured number of lines.
+	out = out[:min(len(out), v.limit)]
+	// The UI shows chronological order.
 	slices.Reverse(out)
 	return out, nil
 }
@@ -162,7 +223,7 @@ func (v *VLogs) Query(ctx context.Context, q LogQuery) ([]model.LogLine, error) 
 // Tail streams new matching lines to emit until ctx ends (returns nil), the
 // stream ends, or emit fails.
 func (v *VLogs) Tail(ctx context.Context, q LogQuery, emit func(model.LogLine) error) error {
-	expr, err := BuildQuery(q, true)
+	expr, err := BuildQuery(q, v.fields, true)
 	if err != nil {
 		return err
 	}
@@ -180,7 +241,7 @@ func (v *VLogs) Tail(ctx context.Context, q LogQuery, emit func(model.LogLine) e
 	}
 	defer resp.Body.Close()
 	var emitErr error
-	err = readLogLines(resp.Body, func(l model.LogLine) error {
+	err = readLogLines(resp.Body, v.fields, func(l model.LogLine) error {
 		emitErr = emit(l)
 		return emitErr
 	})
@@ -195,7 +256,7 @@ func (v *VLogs) Tail(ctx context.Context, q LogQuery, emit func(model.LogLine) e
 
 // readLogLines decodes JSON lines from r and passes each to emit; malformed
 // and oversized lines are skipped. An emit error is returned as is.
-func readLogLines(r io.Reader, emit func(model.LogLine) error) error {
+func readLogLines(r io.Reader, f LogFields, emit func(model.LogLine) error) error {
 	br := bufio.NewReaderSize(r, 64<<10)
 	var buf []byte
 	skip := false // the current record exceeds maxLogRecord
@@ -214,7 +275,7 @@ func readLogLines(r io.Reader, emit func(model.LogLine) error) error {
 		if !skip && len(bytes.TrimSpace(buf)) > 0 {
 			var rec map[string]string
 			if json.Unmarshal(buf, &rec) == nil {
-				if l, ok := recordLine(rec); ok {
+				if l, ok := recordLine(rec, f); ok {
 					if eerr := emit(l); eerr != nil {
 						return eerr
 					}

@@ -37,7 +37,7 @@ const (
 // Kinds of SSE stream.
 const (
 	StreamEvents = "events" // /api/v1/stream
-	StreamTail   = "tail"   // /api/logs/tail
+	StreamTail   = "tail"   // a plugin stream (the victorialogs log tail)
 )
 
 // Outcomes of an action.

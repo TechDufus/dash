@@ -20,8 +20,6 @@ import (
 var legacyRoutes = []string{
 	"GET /api/vms/{vmid}",
 	"GET /api/pods/{ns}/{name}",
-	"GET /api/logs",
-	"GET /api/logs/tail",
 	"POST /api/actions/restart",
 	"POST /api/actions/reconcile",
 }
@@ -204,7 +202,7 @@ func TestLegacyRoutesKeepTheirPathsAndGetTheEnvelope(t *testing.T) {
 	}
 
 	// The ones that read answer where they always did.
-	for _, path := range []string{"/api/vms/100", "/api/pods/apps/web", "/api/logs?ns=media&pod=web"} {
+	for _, path := range []string{"/api/vms/100", "/api/pods/apps/web"} {
 		if w := (req{path: path}.do(h)); w.Code != http.StatusOK {
 			t.Errorf("GET %s = %d %s", path, w.Code, w.Body)
 		}
@@ -218,12 +216,14 @@ func TestLegacyRoutesKeepTheirPathsAndGetTheEnvelope(t *testing.T) {
 }
 
 // The core paths that moved to /api/v1 or into a plugin are gone, with no alias. The silence
-// routes moved into the alertmanager plugin's actions (P3.3).
+// routes moved into the alertmanager plugin's actions (P3.3), the logs into the victorialogs
+// plugin's routes (P3.5).
 func TestMovedCorePathsAre404WithCode(t *testing.T) {
 	h := newServer(nil).Handler()
 	for _, c := range []struct{ method, path string }{
 		{"GET", "/api/me"}, {"GET", "/api/stream"}, {"GET", "/api/series?name=host.cpu&range=1h"},
-		{"GET", "/api/topics/vms"}, {"GET", "/api/plugins"},
+		{"GET", "/api/topics/vms"}, {"GET", "/api/plugins"}, {"GET", "/api/config"},
+		{"GET", "/api/logs?ns=media&pod=web"}, {"GET", "/api/logs/tail?ns=media&pod=web"},
 		{"POST", "/api/silences"}, {"DELETE", "/api/silences/00000000-0000-4000-8000-000000000001"},
 	} {
 		path := c.path

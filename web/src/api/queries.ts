@@ -94,7 +94,7 @@ export interface LogQuery {
 export function useLogs(query: LogQuery, enabled: boolean) {
   return useQuery({
     queryKey: ["logs", query],
-    queryFn: () => api.get<LogLine[]>("/api/logs", { ...query }),
+    queryFn: () => api.get<LogLine[]>("/api/v1/plugins/victorialogs/logs", { ...query }),
     enabled,
     staleTime: Number.POSITIVE_INFINITY,
     gcTime: 60_000,
