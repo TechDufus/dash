@@ -33,7 +33,7 @@ func TestPublishesEveryTopic(t *testing.T) {
 	h := published(t)
 	for _, topic := range []model.Topic{
 		model.TopicOverview, model.TopicHost, model.TopicVMs, model.TopicCluster, model.TopicFlux,
-		model.TopicStorage, model.TopicStatus, model.TopicApps,
+		model.TopicStorage, model.TopicApps,
 	} {
 		ev, ok := h.Latest("", topic)
 		if !ok {
@@ -138,7 +138,7 @@ func TestDemoPublishesLegacyTopicsAndCorePlugins(t *testing.T) {
 	}
 	// core.plugins first, then the overview, then the integrations' topics under the names
 	// they keep until their plugin migrates (the alertmanager twin is registered by cmd/dash).
-	want := []string{"core.plugins", "core.overview", "status", "vms", "host", "cluster", "storage", "apps", "flux"}
+	want := []string{"core.plugins", "core.overview", "vms", "host", "cluster", "storage", "apps", "flux"}
 	if strings.Join(got, " ") != strings.Join(want, " ") {
 		t.Fatalf("topics = %v, want %v", got, want)
 	}
@@ -150,16 +150,16 @@ func TestDemoPublishesLegacyTopicsAndCorePlugins(t *testing.T) {
 	if err := json.Unmarshal(env.Data, &pd); err != nil {
 		t.Fatal(err)
 	}
-	if len(pd.Plugins) != 6 { // the shims; the real plugins' twins (prometheus, alertmanager, grafana, headlamp, launcher) are registered by cmd/dash
-		t.Fatalf("core.plugins lists %d plugins, want 6", len(pd.Plugins))
+	if len(pd.Plugins) != 5 { // the shims; the real plugins' twins (prometheus, alertmanager, gatus, grafana, headlamp, launcher) are registered by cmd/dash
+		t.Fatalf("core.plugins lists %d plugins, want 5", len(pd.Plugins))
 	}
 }
 
 func TestDemoPluginsAreHealthy(t *testing.T) {
 	_, sup, _ := demoSupervisor(t, nil)
 	infos := sup.Infos()
-	if len(infos) != 6 {
-		t.Fatalf("%d plugins, want 6", len(infos))
+	if len(infos) != 5 {
+		t.Fatalf("%d plugins, want 5", len(infos))
 	}
 	for _, in := range infos {
 		if in.State != model.PluginHealthy || in.Message != "" {

@@ -48,7 +48,7 @@ const (
 	TopicStorage  Topic = "storage"
 	// TopicAlerts is the alerts and silences (AlertsData), published by the alertmanager plugin.
 	TopicAlerts Topic = "alertmanager.alerts"
-	TopicStatus Topic = "status"
+	TopicStatus Topic = "gatus.status"
 	TopicApps   Topic = "apps"
 	// TopicLauncherLinks is the launcher's infrastructure links (LauncherData), published by the
 	// launcher plugin.

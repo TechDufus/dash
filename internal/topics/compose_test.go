@@ -236,7 +236,7 @@ func TestAttentionItemsCarryPlugin(t *testing.T) {
 		"flux:source-unverified": "flux", "flux:Kustomization/flux-system/apps": "flux",
 		"node:cp-2": "kubernetes", "pod:media/app-0": "kubernetes", "workload:Deployment/media/app": "kubernetes",
 		"cert:media/tls": "kubernetes", "pvc:media/data": "kubernetes", "bucket:backups": "kubernetes",
-		"vm:3000": "proxmox", "gatus:apps_grafana": "gatus",
+		"vm:3000":       "proxmox",
 		"zfs:pool:bulk": "hardware", "smart:4": "hardware", "host:cpu-temp": "hardware",
 	}
 	got := map[string]string{}

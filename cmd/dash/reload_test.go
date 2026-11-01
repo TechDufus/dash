@@ -78,7 +78,7 @@ func TestReloadedSecretReachesTheProxmoxClientWhileReadinessHolds(t *testing.T) 
 	sup, reloader := fw.sup, fw.reloader
 	mgr := topics.New(topics.Deps{
 		Cfg: cfg, Cluster: testCluster(),
-		Gatus: upstream.NewGatus(cfg.GatusURL, nil), PVE: pveClient, Hosts: sup,
+		PVE: pveClient, Hosts: sup, Services: sup.Service,
 		Links: links.New(cfg), Secrets: reg,
 	})
 	ctx, cancel := context.WithCancel(context.Background())

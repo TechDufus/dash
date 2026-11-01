@@ -9,6 +9,6 @@ const StatusPage = lazy(() =>
 export default definePlugin({
   id: "gatus",
   order: 70,
-  topics: { status: topic<StatusData>() },
+  topics: { "gatus.status": topic<StatusData>() },
   routes: [{ path: "/status", page: StatusPage }],
 });

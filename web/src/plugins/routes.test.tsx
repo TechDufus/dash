@@ -40,7 +40,7 @@ const STATUS_PAGE = "No endpoints reported.";
 describe("PluginRoutes", () => {
   it("renders a visible plugin's lazy page at its route", async () => {
     const es = connect();
-    es.emit("status", envelope("status", { endpoints: [] }));
+    es.emit("gatus.status", envelope("gatus.status", { endpoints: [] }));
     renderApp(<PluginRoutes />, { path: "/status" });
     expect(await screen.findByText(STATUS_PAGE)).toBeInTheDocument();
   });
@@ -115,7 +115,7 @@ describe("PluginRoutes", () => {
 
   it("swaps a page for the disabled page when its plugin turns off, without a reload", async () => {
     const es = connect();
-    es.emit("status", envelope("status", { endpoints: [] }));
+    es.emit("gatus.status", envelope("gatus.status", { endpoints: [] }));
     renderApp(<PluginRoutes />, { path: "/status" });
     await screen.findByText(STATUS_PAGE);
 

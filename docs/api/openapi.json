@@ -616,6 +616,35 @@
         ],
         "type": "object"
       },
+      "Envelope.gatus.status": {
+        "additionalProperties": false,
+        "description": "The envelope of the gatus.status topic.",
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/StatusData"
+          },
+          "sources": {
+            "items": {
+              "$ref": "#/components/schemas/SourceStatus"
+            },
+            "type": "array"
+          },
+          "topic": {
+            "const": "gatus.status"
+          },
+          "updatedAt": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "data",
+          "sources",
+          "topic",
+          "updatedAt"
+        ],
+        "type": "object"
+      },
       "Envelope.host": {
         "additionalProperties": false,
         "description": "The envelope of the host topic.",
@@ -660,35 +689,6 @@
           },
           "topic": {
             "const": "launcher.links"
-          },
-          "updatedAt": {
-            "format": "date-time",
-            "type": "string"
-          }
-        },
-        "required": [
-          "data",
-          "sources",
-          "topic",
-          "updatedAt"
-        ],
-        "type": "object"
-      },
-      "Envelope.status": {
-        "additionalProperties": false,
-        "description": "The envelope of the status topic.",
-        "properties": {
-          "data": {
-            "$ref": "#/components/schemas/StatusData"
-          },
-          "sources": {
-            "items": {
-              "$ref": "#/components/schemas/SourceStatus"
-            },
-            "type": "array"
-          },
-          "topic": {
-            "const": "status"
           },
           "updatedAt": {
             "format": "date-time",
@@ -2481,13 +2481,13 @@
                       "$ref": "#/components/schemas/Envelope.flux"
                     },
                     {
+                      "$ref": "#/components/schemas/Envelope.gatus.status"
+                    },
+                    {
                       "$ref": "#/components/schemas/Envelope.host"
                     },
                     {
                       "$ref": "#/components/schemas/Envelope.launcher.links"
-                    },
-                    {
-                      "$ref": "#/components/schemas/Envelope.status"
                     },
                     {
                       "$ref": "#/components/schemas/Envelope.storage"

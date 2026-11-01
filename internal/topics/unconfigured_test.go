@@ -35,13 +35,12 @@ func TestUnconfiguredUpstreamsMakeNoRequests(t *testing.T) {
 	rt := &failingTransport{}
 	m := New(Deps{
 		Cfg:   cfg,
-		Gatus: upstream.NewGatus(cfg.GatusURL, rt),
 		PVE:   upstream.NewProxmox(cfg.ProxmoxURL, cfg.ProxmoxNode, cfg.ProxmoxTokenID, cfg.ProxmoxTokenSecret, rt),
 		Links: links.New(cfg),
 	})
 
 	ctx := context.Background()
-	for _, poll := range []func(context.Context){m.pollHost, m.pollVMs, m.pollUsage, m.pollStorage, m.pollStatus} {
+	for _, poll := range []func(context.Context){m.pollHost, m.pollVMs, m.pollUsage, m.pollStorage} {
 		poll(ctx)
 	}
 	if _, err := upstream.NewVLogs(cfg.VLogsURL, rt).Query(ctx, upstream.LogQuery{Namespace: "apps"}); !errors.Is(err, upstream.ErrDisabled) {
@@ -53,12 +52,16 @@ func TestUnconfiguredUpstreamsMakeNoRequests(t *testing.T) {
 	}
 	for _, key := range []string{
 		"host:victoriametrics", "cluster:victoriametrics", "storage:victoriametrics", "vms:victoriametrics",
-		"status:gatus", "host:proxmox", "vms:proxmox",
+		"host:proxmox", "vms:proxmox",
 	} {
 		s := m.sources(key)[0]
 		if s.OK || s.Error != "not_configured" {
 			t.Errorf("%s: ok=%v error=%q, want not ok with %q", key, s.OK, s.Error, "not_configured")
 		}
+	}
+	// With the gatus plugin not running the Manager's stand-in keeps the chip, not configured.
+	if g := m.endpoints().SourceStatuses(); len(g) != 1 || g[0].Name != "gatus" || g[0].OK || g[0].Error != "not_configured" {
+		t.Errorf("gatus source = %+v, want one not_configured chip", g)
 	}
 }
 

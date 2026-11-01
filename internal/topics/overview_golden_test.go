@@ -81,12 +81,6 @@ func goldenSnapshots() built {
 			},
 			Buckets: []model.Bucket{{Name: "backups", UsedBytes: 95, QuotaBytes: 100}, {Name: "scratch", UsedBytes: 5}},
 		},
-		status: &model.StatusData{Endpoints: []model.Endpoint{
-			{Group: "infrastructure", Name: "UniFi", Key: "infrastructure_unifi", Healthy: false, Results: []model.CheckResult{
-				{Success: true, Timestamp: ago(5 * time.Minute)}, {Success: false, Timestamp: ago(4 * time.Minute)}, {Success: false, Timestamp: ago(time.Minute)}}},
-			{Group: "apps", Name: "Grafana", Key: "apps_grafana", Healthy: false, Results: []model.CheckResult{{Success: false, Timestamp: ago(2 * time.Minute)}}},
-			{Group: "apps", Name: "Wiki", Key: "apps_wiki", Healthy: true, Results: []model.CheckResult{{Success: true, Timestamp: ago(time.Minute)}}},
-		}},
 		apps: &model.AppsData{},
 	}
 }
@@ -133,11 +127,28 @@ func (g goldenAlerts) Attention(time.Time) []model.AttentionItem {
 	}
 }
 
+// goldenGatus stands in for the running gatus plugin: the two failing checks of the lab as its
+// AttentionSource raises them (the severity rule and the since time are the plugin's, tested
+// there), each with the ref the plugin gives its endpoints.
+type goldenGatus struct{}
+
+func (goldenGatus) Attention(time.Time) []model.AttentionItem {
+	return []model.AttentionItem{
+		{ID: "gatus:infrastructure_unifi", Severity: model.SeverityCrit, Source: "gatus", Plugin: "gatus", Title: "UniFi check failing",
+			Detail: "infrastructure", Since: testNow.Add(-4 * time.Minute), Route: "/status", Links: []model.Link{}, Ref: "gatus:Endpoint/infrastructure_unifi"},
+		{ID: "gatus:apps_grafana", Severity: model.SeverityWarn, Source: "gatus", Plugin: "gatus", Title: "Grafana check failing",
+			Detail: "apps", Since: testNow.Add(-2 * time.Minute), Route: "/status", Links: []model.Link{}, Ref: "gatus:Endpoint/apps_grafana"},
+	}
+}
+
 // The overview a lab gets is unchanged by composing it from plugin contributions: the golden file
 // was written by the code that built it from the topics directly. The alerts now arrive from the
 // alertmanager contribution, and Kpis.alertsFiring is gone (its tile is the plugin's KPI).
 func TestOverviewOutputIsUnchanged(t *testing.T) {
-	cs := []plugin.Contributor{{ID: "alertmanager", Attention: goldenAlerts{lab: labLinks(t)}}}
+	cs := []plugin.Contributor{
+		{ID: "alertmanager", Attention: goldenAlerts{lab: labLinks(t)}},
+		{ID: "gatus", Attention: goldenGatus{}},
+	}
 	got, err := json.MarshalIndent(goldenManager(t).buildOverview(goldenSnapshots(), cs, testNow), "", "  ")
 	if err != nil {
 		t.Fatal(err)

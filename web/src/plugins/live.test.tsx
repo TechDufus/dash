@@ -38,7 +38,7 @@ describe("a plugin that is switched off while the page is open", () => {
     if (!es) throw new Error("no EventSource");
     es.open();
     es.emit("core.plugins", pluginsEnvelope(shimRows()));
-    es.emit("status", envelope("status", { endpoints: [] }));
+    es.emit("gatus.status", envelope("gatus.status", { endpoints: [] }));
 
     renderApp(
       <Shell>
@@ -65,7 +65,7 @@ describe("a plugin that is switched off while the page is open", () => {
 
     // And back on.
     act(() => es.emit("core.plugins", pluginsEnvelope(shimRows())));
-    act(() => es.emit("status", envelope("status", { endpoints: [] })));
+    act(() => es.emit("gatus.status", envelope("gatus.status", { endpoints: [] })));
     expect(within(rail).getByRole("link", { name: "Status", hidden: true })).toBeInTheDocument();
     expect(await screen.findByText("No endpoints reported.")).toBeInTheDocument();
     expect(within(palette).getByText("Status")).toBeInTheDocument();

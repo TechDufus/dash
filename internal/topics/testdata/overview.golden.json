@@ -131,7 +131,8 @@
       "detail": "infrastructure",
       "since": "2026-10-30T11:56:00Z",
       "route": "/status",
-      "links": []
+      "links": [],
+      "ref": "gatus:Endpoint/infrastructure_unifi"
     },
     {
       "id": "pod:media/app-0",
@@ -210,7 +211,8 @@
       "detail": "apps",
       "since": "2026-10-30T11:58:00Z",
       "route": "/status",
-      "links": []
+      "links": [],
+      "ref": "gatus:Endpoint/apps_grafana"
     },
     {
       "id": "pod:media/app-1",

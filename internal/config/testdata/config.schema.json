@@ -170,7 +170,7 @@
         },
         "pageSize": {
           "default": 30,
-          "description": "Endpoints requested from Gatus per page. Greater than zero.",
+          "description": "Check results Gatus returns per endpoint (the pageSize query parameter); the Status page draws them as the endpoint's history. Greater than zero.",
           "type": "integer"
         },
         "tls": {

@@ -161,11 +161,10 @@ func run(reg *secret.Registry) error {
 			}
 		}
 		vlogs := upstream.NewVLogs(cfg.VLogsURL, metrics.Upstream("victorialogs", rt))
-		gatus := upstream.NewGatus(cfg.GatusURL, metrics.Upstream("gatus", rt))
 		pve := upstream.NewProxmox(cfg.ProxmoxURL, cfg.ProxmoxNode, cfg.ProxmoxTokenID, cfg.ProxmoxTokenSecret, metrics.Upstream("proxmox", nil)) // not a .svc host
 
 		mgr := topics.New(topics.Deps{
-			Cfg: cfg, Cluster: cluster, Gatus: gatus, PVE: pve, Hosts: sup, Contributors: sup.Contributors,
+			Cfg: cfg, Cluster: cluster, PVE: pve, Hosts: sup, Contributors: sup.Contributors,
 			Services: sup.Service, LinkProviders: sup.Links, Links: links.New(cfg), Secrets: reg,
 		})
 		// The supervisor starts before the Manager so that no first publish is dropped.

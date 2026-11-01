@@ -28,11 +28,13 @@ function recent(results: CheckResult[]): CheckResult[] {
     .slice(-SEGMENTS);
 }
 
-/** The infrastructure group first, then the rest alphabetically. */
-function groupOrder(a: string, b: string): number {
-  const ai = a.toLowerCase().includes("infra") ? 0 : 1;
-  const bi = b.toLowerCase().includes("infra") ? 0 : 1;
-  return ai - bi || a.localeCompare(b);
+/**
+ * The critical groups first (compared without regard to case, as the server does), then the rest;
+ * each part alphabetically. With no critical groups the order is alphabetical.
+ */
+function groupOrder(a: string, b: string, critical: readonly string[]): number {
+  const rank = (g: string) => (critical.some((c) => c.toLowerCase() === g.toLowerCase()) ? 0 : 1);
+  return rank(a) - rank(b) || a.localeCompare(b);
 }
 
 /** 30 thin segments: a success is a short ok bar, a failure a taller crit bar with a top cap. */
@@ -98,7 +100,7 @@ function EndpointRow({ e, now }: { e: Endpoint; now: number }) {
 }
 
 export function StatusPage() {
-  const env = useTopic("status");
+  const env = useTopic("gatus.status");
   const data = env?.data;
   const now = useNow(15_000).getTime();
   const [q, setQ] = useQueryParam("q");
@@ -113,8 +115,9 @@ export function StatusPage() {
       list.push(e);
       byGroup.set(e.group, list);
     }
+    const critical = data?.criticalGroups ?? [];
     const groups = [...byGroup.entries()]
-      .sort(([a], [b]) => groupOrder(a, b))
+      .sort(([a], [b]) => groupOrder(a, b, critical))
       .map(([name, items]) => ({
         name,
         items: items.sort(

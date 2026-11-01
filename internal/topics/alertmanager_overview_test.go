@@ -177,7 +177,7 @@ func TestAlertmanagerDownStillListsItsOverviewSource(t *testing.T) {
 	r.set.Set(alertmanagerOff(url))
 	r.sup.Reload()
 	eventually(t, "the chip to go with the plugin", func() bool {
-		r.m.mark(model.TopicStatus) // with nothing contributing, the overview waits for a topic to change
+		r.m.mark(model.TopicFlux) // with nothing contributing, the overview waits for a topic to change
 		_, srcs, ok := r.overview(t)
 		_, has := hasSource(srcs, "alertmanager")
 		return ok && !has

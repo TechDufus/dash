@@ -7,7 +7,7 @@ type Gatus struct {
 	Auth           Auth     `json:"auth" doc:"How dash authenticates to Gatus. Neither basic nor bearerToken sends no credentials."`
 	TLS            TLS      `json:"tls" doc:"How dash verifies Gatus's certificate."`
 	CriticalGroups []string `json:"criticalGroups" doc:"Gatus groups whose failing checks are critical (compared without regard to case); a failing check in any other group is a warning. The Status page lists these groups first. Empty makes every failure a warning. A JSON list in the environment."`
-	PageSize       int      `json:"pageSize" doc:"Endpoints requested from Gatus per page. Greater than zero."`
+	PageSize       int      `json:"pageSize" doc:"Check results Gatus returns per endpoint (the pageSize query parameter); the Status page draws them as the endpoint's history. Greater than zero."`
 }
 
 // DefaultGatus is the section with nothing set.

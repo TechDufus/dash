@@ -259,20 +259,20 @@ func TestRegistryOrderAndReplacement(t *testing.T) {
 		}
 	}
 
-	real := plugintest.New("gatus", plugintest.Status(plugin.StateHealthy, ""))
-	impl := map[plugin.ID]plugin.Factory{"gatus": real.Factory()}
+	real := plugintest.New("victorialogs", plugintest.Status(plugin.StateHealthy, ""))
+	impl := map[plugin.ID]plugin.Factory{"victorialogs": real.Factory()}
 	maps.Copy(impl, realPlugins)
 	got := registryOf(impl, shims)
 	if !slices.Equal(ids(got), displayOrder) {
-		t.Fatalf("registry with a real gatus = %v, want the same order", ids(got))
+		t.Fatalf("registry with a real victorialogs = %v, want the same order", ids(got))
 	}
 	for _, f := range got {
 		p := f()
 		_, isShim := p.(*topics.Legacy)
 		switch id := p.Manifest().ID; {
-		case id == "gatus" && (isShim || p != plugin.Plugin(real)):
-			t.Errorf("gatus is %T, want the real plugin", p)
-		case id != "gatus" && !isShim && !hasRealPlugin(id):
+		case id == "victorialogs" && (isShim || p != plugin.Plugin(real)):
+			t.Errorf("victorialogs is %T, want the real plugin", p)
+		case id != "victorialogs" && !isShim && !hasRealPlugin(id):
 			t.Errorf("%s is %T, want its shim", id, p)
 		}
 	}
@@ -285,8 +285,8 @@ func TestRegistryOrderAndReplacement(t *testing.T) {
 		if m.ID != displayOrder[i] {
 			t.Errorf("manifest %d is %s, want %s", i, m.ID, displayOrder[i])
 		}
-		if m.ID == "gatus" && len(m.Topics) != 0 {
-			t.Errorf("gatus manifest %+v is the shim's, want the real plugin's", m)
+		if m.ID == "victorialogs" && len(m.Topics) != 0 {
+			t.Errorf("victorialogs manifest %+v is the shim's, want the real plugin's", m)
 		}
 	}
 }

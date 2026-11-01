@@ -239,35 +239,6 @@ func TestPodAndWorkloadHealth(t *testing.T) {
 	}
 }
 
-func TestEndpointHealth(t *testing.T) {
-	tests := []struct {
-		group   string
-		healthy bool
-		want    model.Health
-	}{
-		{"infrastructure", false, model.HealthCrit}, {"Infrastructure", false, model.HealthCrit},
-		{"apps", false, model.HealthWarn}, {"infrastructure", true, model.HealthOK}, {"apps", true, model.HealthOK},
-	}
-	for _, tc := range tests {
-		if got := EndpointHealth(tc.group, tc.healthy); got != tc.want {
-			t.Errorf("%s healthy=%v: %s, want %s", tc.group, tc.healthy, got, tc.want)
-		}
-	}
-	in := input()
-	in.Status.Endpoints = []model.Endpoint{
-		{Group: "infrastructure", Name: "UniFi", Key: "infrastructure_unifi", Healthy: false, Results: []model.CheckResult{
-			{Success: true, Timestamp: testNow.Add(-3 * time.Minute)},
-			{Success: false, Timestamp: testNow.Add(-2 * time.Minute)},
-			{Success: false, Timestamp: testNow.Add(-time.Minute)},
-		}},
-		{Group: "apps", Name: "Grafana", Key: "apps_grafana", Healthy: true, Results: []model.CheckResult{{Success: true}}},
-	}
-	items := Attention(in, nil)
-	if len(items) != 1 || items[0].Severity != model.SeverityCrit || !items[0].Since.Equal(testNow.Add(-2*time.Minute)) {
-		t.Errorf("want one crit item since the first failure of the streak, got %+v", items)
-	}
-}
-
 func TestHostRules(t *testing.T) {
 	tests := []struct {
 		name string

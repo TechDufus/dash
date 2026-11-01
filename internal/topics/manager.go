@@ -1,5 +1,5 @@
-// Package topics builds the seven integration topics (host, vms, cluster, flux, storage, status,
-// apps) from the Kubernetes informers and the upstream clients, and composes core.overview
+// Package topics builds the six integration topics (host, vms, cluster, flux, storage, apps) from
+// the Kubernetes informers and the upstream clients, and composes core.overview
 // from them and from what plugins contribute. Each topic is published through the Host of the
 // plugin that owns it (legacy.go), so a disabled plugin publishes nothing.
 package topics
@@ -29,7 +29,6 @@ var ErrNotFound = errors.New("not found")
 type Deps struct {
 	Cfg     config.Config
 	Cluster *kube.Cluster
-	Gatus   *upstream.Gatus
 	PVE     *upstream.Proxmox
 	// Links builds the Proxmox links (VM console, host shell, Proxmox UI). The links into
 	// Headlamp and Grafana come from LinkProviders.
@@ -39,10 +38,10 @@ type Deps struct {
 	// Contributors lists the running plugins that add to the overview (Supervisor.Contributors);
 	// nil means none do.
 	Contributors func() []plugin.Contributor
-	// Services is Supervisor.Service: what a running plugin exports (svc.Querier, svc.EndpointHealth,
-	// …), for the Manager, which is not a plugin and so cannot use Host.Service. It sits next to the
-	// concrete clients, which each plugin's migration replaces with an accessor over it (querier
-	// for prometheus). nil means no plugin exports anything.
+	// Services is Supervisor.Service: what a running plugin exports (svc.Querier,
+	// svc.EndpointHealth, …), for the Manager, which is not a plugin and so cannot use
+	// Host.Service. The Manager reads them through accessors (querier, endpoints) that return a
+	// stub while the plugin is absent. nil means no plugin exports anything.
 	Services func(id plugin.ID) (any, bool)
 	// LinkProviders is Supervisor.Links: the resolver over the running link providers (grafana,
 	// headlamp), read once per rebuild. nil means none: no Grafana or Headlamp link is built.
@@ -62,7 +61,6 @@ const (
 	vmsEvery     = 15 * time.Second
 	usageEvery   = 30 * time.Second
 	storageEvery = 60 * time.Second
-	statusEvery  = 30 * time.Second
 )
 
 type srcState struct {
@@ -83,11 +81,15 @@ type Manager struct {
 	vms     vmsSnap
 	usage   usageSnap
 	storage storageSnap
-	status  []model.Endpoint
 
 	built   built
 	linkSet atomic.Pointer[plugin.LinkResolver] // the provider snapshot of the running rebuild
 	tracker *Tracker
+
+	// seenEndpoints and seenRevision are the service of svc.EndpointHealth and its Revision as
+	// the last rebuild round saw them (see watchEndpoints); only that round reads or writes them.
+	seenEndpoints any
+	seenRevision  uint64
 
 	dmu   sync.Mutex
 	dirty map[model.Topic]bool
@@ -103,13 +105,12 @@ type built struct {
 	cluster *model.ClusterData
 	flux    *model.FluxData
 	storage *model.StorageData
-	status  *model.StatusData
 	apps    *model.AppsData
 }
 
 // New returns a Manager; call Run to start it.
 func New(d Deps) *Manager {
-	return &Manager{
+	m := &Manager{
 		d:          d,
 		now:        time.Now,
 		srcs:       map[string]srcState{},
@@ -118,6 +119,10 @@ func New(d Deps) *Manager {
 		dirty:      map[model.Topic]bool{},
 		badSources: map[plugin.ID]struct{}{},
 	}
+	// What exists now is not a change; Run marks every topic once the caches are filled.
+	id, ep, _ := m.lookupEndpoints()
+	m.seenEndpoints, m.seenRevision = id, ep.Revision()
+	return m
 }
 
 // Ready is true once every informer has synced. Upstream outages never affect it.
@@ -132,7 +137,6 @@ func (m *Manager) Run(ctx context.Context) {
 	m.every(ctx, "vms", vmsEvery, m.pollVMs)
 	m.every(ctx, "usage", usageEvery, m.pollUsage)
 	m.every(ctx, "storage", storageEvery, m.pollStorage)
-	m.every(ctx, "status", statusEvery, m.pollStatus)
 
 	go func() {
 		// Everything is dirty once the caches are filled, so the first full state is published.
@@ -269,7 +273,7 @@ func (m *Manager) mark(topics ...model.Topic) {
 
 func (m *Manager) markAll() {
 	m.mark(model.TopicHost, model.TopicVMs, model.TopicCluster, model.TopicFlux, model.TopicStorage,
-		model.TopicStatus, model.TopicApps)
+		model.TopicApps)
 }
 
 func (m *Manager) onKubeChange(k kube.Kind) {
@@ -316,7 +320,7 @@ func (m *Manager) anyRunning(ids []plugin.ID) bool {
 // keyPoller names the poller (the name Run and pollUsers use) that writes the source keys with
 // a given scope. Keys outside it, the informers' "kubernetes", are always live.
 var keyPoller = map[string]string{
-	"host": "host", "vms": "vms", "cluster": "usage", "storage": "storage", "status": "status",
+	"host": "host", "vms": "vms", "cluster": "usage", "storage": "storage",
 }
 
 // polled reports whether source key k is being written: its poller runs only while a plugin that
@@ -365,6 +369,7 @@ func (m *Manager) link(kind, namespace, name string) []model.Link {
 // from what exists. The overview waits for no topic: it is recomposed after any change, and on
 // every round while a plugin contributes to it (the hub drops an unchanged result).
 func (m *Manager) rebuild() {
+	m.watchEndpoints() // before the early return below: a quiet cluster still follows gatus
 	m.dmu.Lock()
 	dirty := m.dirty
 	m.dirty = map[model.Topic]bool{}
@@ -402,13 +407,6 @@ func (m *Manager) rebuild() {
 		m.mu.Unlock()
 		return d, m.sources("host:proxmox", "host:victoriametrics")
 	})
-	build(model.TopicStatus, m.pollDone("status"), func() (any, []model.SourceStatus) {
-		d := m.buildStatus()
-		m.mu.Lock()
-		m.built.status = &d
-		m.mu.Unlock()
-		return d, m.sources("status:gatus")
-	})
 	build(model.TopicCluster, synced, func() (any, []model.SourceStatus) {
 		d := m.buildCluster(now)
 		m.mu.Lock()
@@ -428,7 +426,7 @@ func (m *Manager) rebuild() {
 		m.mu.Lock()
 		m.built.vms = &d
 		m.mu.Unlock()
-		return d, m.sources("vms:proxmox", "vms:victoriametrics", "status:gatus", "kubernetes")
+		return d, append(m.sources("vms:proxmox", "vms:victoriametrics", "kubernetes"), m.endpoints().SourceStatuses()...)
 	})
 	build(model.TopicStorage, synced && m.pollDone("storage"), func() (any, []model.SourceStatus) {
 		d := m.buildStorage(now)
@@ -437,12 +435,12 @@ func (m *Manager) rebuild() {
 		m.mu.Unlock()
 		return d, m.sources("kubernetes", "storage:victoriametrics")
 	})
-	build(model.TopicApps, synced && m.pollDone("status"), func() (any, []model.SourceStatus) {
+	build(model.TopicApps, synced && m.endpointsReady(), func() (any, []model.SourceStatus) {
 		d := m.buildApps()
 		m.mu.Lock()
 		m.built.apps = &d
 		m.mu.Unlock()
-		return d, m.sources("kubernetes", "status:gatus")
+		return d, append(m.sources("kubernetes"), m.endpoints().SourceStatuses()...)
 	})
 
 	m.mu.RLock()
@@ -450,6 +448,6 @@ func (m *Manager) rebuild() {
 	m.mu.RUnlock()
 	srcs := m.sources(
 		"kubernetes", "host:proxmox", "host:victoriametrics", "vms:proxmox", "vms:victoriametrics",
-		"cluster:victoriametrics", "storage:victoriametrics", "status:gatus")
+		"cluster:victoriametrics", "storage:victoriametrics")
 	m.publish(model.TopicOverview, m.buildOverview(b, contributors, now), mergeSources(srcs, m.contributorSources(contributors)))
 }

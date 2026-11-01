@@ -118,7 +118,6 @@ func (s *Source) publish() {
 		{model.TopicCluster, w.cluster, src("kubernetes", "victoriametrics")},
 		{model.TopicFlux, w.flux, src("kubernetes")},
 		{model.TopicStorage, w.storage, src("kubernetes", "victoriametrics", "proxmox")},
-		{model.TopicStatus, w.status, src("gatus")},
 		{model.TopicApps, w.apps, src("kubernetes", "gatus")},
 	} {
 		if id, local, ok := topics.Owner(p.topic); ok {

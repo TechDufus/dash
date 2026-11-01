@@ -56,7 +56,6 @@ type Config struct {
 	SettingsUI string
 
 	VLogsURL string
-	GatusURL string
 
 	ProxmoxURL string
 	// ProxmoxNode is the node whose status and guests dash reads. Optional: when empty and a

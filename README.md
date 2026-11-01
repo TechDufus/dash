@@ -35,7 +35,7 @@ https://dash.home.techdufus.com.
   temperature into a KPI row, draws the topology from the Proxmox host through its VMs to every
   namespace, and lists what needs attention, worst first.
 - **Live, not polled from the browser.** Informers and upstream pollers rebuild the topics
-  (`host`, `vms`, `cluster`, `flux`, `storage`, `alertmanager.alerts`, `status`, `apps`), the core composes
+  (`host`, `vms`, `cluster`, `flux`, `storage`, `alertmanager.alerts`, `gatus.status`, `apps`), the core composes
   `core.overview` from what the integrations contribute, and only what changed goes out over a
   single SSE stream. `core.plugins` says which integrations run and whether each is healthy; the
   launcher plugin publishes its links as `launcher.links`.
@@ -186,7 +186,11 @@ restart with `DASH_PLUGINS_PROXMOX_TOKEN_SECRET_FILE`.
 | `plugins.alertmanager.protectedAlerts` | `["Watchdog"]` | alert names nobody can silence through dash, whatever the role: the Alerts page has no Silence button for them and `silence.create` answers 403 (a JSON list in the environment) |
 | `plugins.alertmanager.actions.enabled` | `false` | mounts the silence actions (`silence.create`, `silence.expire`); only silences dash created (`createdBy` starting `dash:`) can be expired through it. `DASH_PLUGINS_ALERTMANAGER_ACTIONS_ENABLED=true`; a change restarts the plugin |
 | `plugins.victorialogs.url` | empty (source not configured) | VictoriaLogs, for pod logs |
-| `plugins.gatus.url` | empty (source not configured) | Gatus |
+| `plugins.gatus.url` | empty (source not configured) | Gatus; a change of any `plugins.gatus.*` setting applies without a restart of dash |
+| `plugins.gatus.auth.basic.username`, `.password` / `.auth.bearerToken` | empty (no credentials) | Basic or bearer credentials for Gatus, not both; the password and the token take a literal, `env:NAME` or `file:/path` and a rotated file applies without a restart |
+| `plugins.gatus.tls.caFile`, `.insecureSkipVerify` | empty, `false` | a PEM file with the CA that signed Gatus's certificate, added to the system roots; `insecureSkipVerify` skips verification (prefer `caFile`) |
+| `plugins.gatus.criticalGroups` | `[]` | the Gatus groups whose failing checks are critical (matched without regard to case); a failing check in any other group is a warning, so with `[]` every failure is a warning. The Status page lists these groups first, then the others alphabetically. The old built-in rule made `infrastructure` critical: set `DASH_PLUGINS_GATUS_CRITICAL_GROUPS='["infrastructure"]'` to keep it (a JSON list in the environment) |
+| `plugins.gatus.pageSize` | `30` | how many check results Gatus returns per endpoint (its `pageSize` query parameter), drawn as each endpoint's history on the Status page; greater than zero |
 | `plugins.proxmox.tokenID`, `.tokenSecret` | empty (Proxmox off) | API token `<user>!<token>` and its secret; set together |
 | `plugins.proxmox.url` | required with a token | Proxmox API |
 | `plugins.proxmox.node` | discovered from the API when the cluster has one node | the node to read; set it for multi-node clusters or to skip discovery |

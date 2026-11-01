@@ -11,6 +11,7 @@ import (
 	"github.com/TechDufus/dash/internal/plugin"
 	"github.com/TechDufus/dash/internal/pluginconf"
 	"github.com/TechDufus/dash/internal/plugins/alertmanager"
+	"github.com/TechDufus/dash/internal/plugins/gatus"
 	"github.com/TechDufus/dash/internal/plugins/grafana"
 	"github.com/TechDufus/dash/internal/plugins/headlamp"
 	"github.com/TechDufus/dash/internal/plugins/launcher"
@@ -72,6 +73,7 @@ var displayOrder = []plugin.ID{
 var realPlugins = map[plugin.ID]plugin.Factory{
 	"prometheus":   prometheus.New,
 	"alertmanager": alertmanager.New,
+	"gatus":        gatus.New,
 	"grafana":      grafana.New,
 	"headlamp":     headlamp.New,
 	"launcher":     launcher.New,

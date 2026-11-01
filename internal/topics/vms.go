@@ -3,7 +3,6 @@ package topics
 import (
 	"context"
 	"sort"
-	"strings"
 
 	"github.com/TechDufus/dash/internal/model"
 	"github.com/TechDufus/dash/internal/queries"
@@ -64,7 +63,6 @@ func (m *Manager) k8sNodes() map[string]bool {
 func (m *Manager) buildVMs() model.VMsData {
 	m.mu.RLock()
 	snap := m.vms
-	status := m.status
 	m.mu.RUnlock()
 	nodes := m.k8sNodes()
 
@@ -91,12 +89,8 @@ func (m *Manager) buildVMs() model.VMsData {
 	}
 	sort.Slice(out.VMs, func(i, j int) bool { return out.VMs[i].VMID < out.VMs[j].VMID })
 
-	rpi := false
-	for _, e := range status {
-		if strings.EqualFold(e.Name, rpiGatusEndpoint) {
-			rpi = e.Healthy
-		}
-	}
+	// A check that exists but has no results counts as down; one that does not exist is down too.
+	rpi, _ := m.endpoints().ByName(rpiGatusEndpoint)
 	out.Machines = []model.Machine{
 		{Name: "mac-mini", Up: snap.macUp, Source: "victoriametrics"},
 		{Name: "rpi-control", Up: rpi, Source: "gatus"},

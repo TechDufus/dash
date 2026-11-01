@@ -158,7 +158,7 @@ describe("rows from a v0.5.0 server (rollback of an open tab)", () => {
       const es = connect();
       if (source === "stream") {
         es.emit("core.plugins", pluginsEnvelope(legacyRows()));
-        es.emit("status", envelope("status", { endpoints: [] }));
+        es.emit("gatus.status", envelope("gatus.status", { endpoints: [] }));
       }
       renderApp(
         <Shell>

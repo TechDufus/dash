@@ -10,13 +10,20 @@ import (
 	"github.com/TechDufus/dash/internal/model"
 )
 
-const gatusPageSize = 30
+// defaultGatusTimeout is the whole-request timeout of a Gatus client unless a Timeout option
+// replaces it.
+const defaultGatusTimeout = 5 * time.Second
 
 // Gatus reads endpoint statuses from the Gatus API.
-type Gatus struct{ c client }
+type Gatus struct {
+	c        client
+	pageSize int
+}
 
-func NewGatus(baseURL string, rt http.RoundTripper) *Gatus {
-	return &Gatus{c: newClient(baseURL, rt, 5*time.Second)}
+// NewGatus returns a client for the Gatus at baseURL. pageSize is how many results Gatus returns
+// per endpoint (its pageSize query parameter); a value below 1 asks for one result.
+func NewGatus(baseURL string, rt http.RoundTripper, pageSize int, opts ...Option) *Gatus {
+	return &Gatus{c: newClient(baseURL, rt, defaultGatusTimeout, opts...), pageSize: max(pageSize, 1)}
 }
 
 type gatusStatus struct {
@@ -33,10 +40,10 @@ type gatusStatus struct {
 
 // Statuses lists every endpoint with its recent results (oldest first). Gatus pages each
 // endpoint's results (not the endpoint list), so one request returns all endpoints with up
-// to gatusPageSize results each. Gatus does not return the configured endpoint URL, so URL
+// to pageSize results each. Gatus does not return the configured endpoint URL, so URL
 // carries the host that the latest result probed (a bare hostname or IP, no scheme).
 func (g *Gatus) Statuses(ctx context.Context) ([]model.Endpoint, error) {
-	q := url.Values{"page": {"1"}, "pageSize": {strconv.Itoa(gatusPageSize)}}
+	q := url.Values{"page": {"1"}, "pageSize": {strconv.Itoa(g.pageSize)}}
 	var raw []gatusStatus
 	if err := g.c.getJSON(ctx, http.MethodGet, "/api/v1/endpoints/statuses", q, nil, nil, &raw); err != nil {
 		return nil, err

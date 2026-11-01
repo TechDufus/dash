@@ -61,26 +61,21 @@ func TestViewerStreamNeverCarriesUpstreamDetail(t *testing.T) {
 	// Prometheus is behind a certificate the client does not trust.
 	prom := httptest.NewTLSServer(http.NotFoundHandler())
 	t.Cleanup(prom.Close)
-	// Gatus wants credentials.
-	gatus := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { http.Error(w, "login at gatus", 401) }))
-	t.Cleanup(gatus.Close)
 
 	cfg := config.Defaults()
 	cfg.ProxmoxNode, cfg.HostNodename = "pve", "pve"
 	m := New(Deps{
 		Cfg:      cfg,
 		Services: promServices(upstream.NewProm(prom.URL, nil)),
-		Gatus:    upstream.NewGatus(gatus.URL, nil),
 		PVE:      upstream.NewProxmox(pve.URL, "pve", "u@pve!t", token, nil),
 		Links:    links.New(cfg),
 		Secrets:  reg,
 	})
 	ctx := context.Background()
 	m.pollHost(ctx)
-	m.pollStatus(ctx)
 
-	keys := []string{"host:proxmox", "host:victoriametrics", "status:gatus"}
-	want := map[string]string{"proxmox": "http_500", "victoriametrics": "tls", "gatus": "auth"}
+	keys := []string{"host:proxmox", "host:victoriametrics"}
+	want := map[string]string{"proxmox": "http_500", "victoriametrics": "tls"}
 	sources := m.sources(keys...)
 	for _, s := range sources {
 		if s.OK || s.Error != want[s.Name] {

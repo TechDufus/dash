@@ -25,9 +25,9 @@ describe("module registry", () => {
       "apps",
       "cluster",
       "flux",
+      "gatus.status",
       "host",
       "launcher.links",
-      "status",
       "storage",
       "vms",
     ]);

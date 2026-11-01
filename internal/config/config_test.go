@@ -48,7 +48,7 @@ func TestPublicURLAloneConfiguresNoUpstream(t *testing.T) {
 	if !reflect.DeepEqual(c, want) {
 		t.Errorf("Config =\n%+v\nwant\n%+v", c, want)
 	}
-	for _, u := range []string{c.VLogsURL, c.GatusURL} {
+	for _, u := range []string{c.VLogsURL} {
 		if u != "" {
 			t.Errorf("upstream URL %q set without configuration", u)
 		}
@@ -222,7 +222,7 @@ func TestDeploymentEnvCompat(t *testing.T) {
 		"DASH_PLUGINS_PROMETHEUS_URL":       res.Tree.Plugins.Prometheus.URL,
 		"DASH_PLUGINS_ALERTMANAGER_URL":     res.Tree.Plugins.Alertmanager.URL,
 		"DASH_PLUGINS_VICTORIALOGS_URL":     c.VLogsURL,
-		"DASH_PLUGINS_GATUS_URL":            c.GatusURL,
+		"DASH_PLUGINS_GATUS_URL":            res.Tree.Plugins.Gatus.URL,
 		"DASH_PLUGINS_PROXMOX_URL":          c.ProxmoxURL,
 		"DASH_PLUGINS_HEADLAMP_URL":         res.Tree.Plugins.Headlamp.URL,
 		"DASH_PLUGINS_GRAFANA_URL":          res.Tree.Plugins.Grafana.URL,

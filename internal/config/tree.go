@@ -226,7 +226,6 @@ func (t Tree) config(dev, demo bool) Config {
 		DataDir:      t.DataDir,
 		SettingsUI:   t.Settings.UI,
 		VLogsURL:     p.VictoriaLogs.URL,
-		GatusURL:     p.Gatus.URL,
 		ProxmoxURL:   p.Proxmox.URL,
 		ProxmoxNode:  p.Proxmox.Node,
 		HostNodename: p.Proxmox.Node, // overridden by hosts[0] below

@@ -64,7 +64,7 @@ func TestFileLoadsIntoConfig(t *testing.T) {
 		Listen: "0.0.0.0:9090", HealthListen: "127.0.0.1:9091", PublicURL: "https://dash.example.com",
 		AllowedHosts: []string{"media.example.com", "192.0.2.10"}, ReadyRequires: []string{"kubernetes", "flux"}, ReadyTimeout: 2 * time.Minute,
 		DataDir: "/var/lib/dash", SettingsUI: SettingsReadOnly, Limits: defaultLimits,
-		VLogsURL: "http://vlogs.example.com:9428", GatusURL: "http://gatus.example.com:8080",
+		VLogsURL:   "http://vlogs.example.com:9428",
 		ProxmoxURL: "https://pve.example.com:8006", ProxmoxNode: "pve", ProxmoxTokenID: "dash@pve!dash", ProxmoxTokenSecret: secret.New("s3cret", ""),
 		HostNodename: "box", HostModel: "Dell R730",
 		Kubeconfig: "/etc/dash/kubeconfig",
@@ -163,11 +163,10 @@ plugins:
 	if err != nil {
 		t.Fatal(err)
 	}
-	c := res.Config
 	pl := res.Tree.Plugins
 	if pl.Grafana.URL != "https://grafana.file.example.com" || pl.Headlamp.URL != "https://headlamp.env.example.com" ||
-		pl.Headlamp.Cluster != "ui-cluster" || c.GatusURL != "http://gatus.ui.example.com" {
-		t.Errorf("effective values: grafana %q headlamp %q cluster %q gatus %q", pl.Grafana.URL, pl.Headlamp.URL, pl.Headlamp.Cluster, c.GatusURL)
+		pl.Headlamp.Cluster != "ui-cluster" || pl.Gatus.URL != "http://gatus.ui.example.com" {
+		t.Errorf("effective values: grafana %q headlamp %q cluster %q gatus %q", pl.Grafana.URL, pl.Headlamp.URL, pl.Headlamp.Cluster, pl.Gatus.URL)
 	}
 	for path, want := range map[string]Provenance{
 		"plugins.grafana.url":      {SourceFile, "/etc/dash/config.yaml"},

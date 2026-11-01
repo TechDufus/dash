@@ -211,7 +211,7 @@ Gatus: endpoint health.
 | `plugins.gatus.enabled` | `DASH_PLUGINS_GATUS_ENABLED` | boolean | - | false turns the plugin off (a restart applies it): its topics are removed, and the web UI drops its rail entry, palette entries, overview tiles and panels and shows a switched-off page at its address. The Kubernetes connection is required whichever plugins are off. Unset leaves it on: a plugin without its settings reports itself unavailable (not configured), and the web UI hides its pages. |
 | `plugins.gatus.url` | `DASH_PLUGINS_GATUS_URL` | string | - | Base URL of the service, e.g. http://host:9090. Empty turns the source off: dash makes no request and its panels show "source not configured". |
 | `plugins.gatus.criticalGroups` | `DASH_PLUGINS_GATUS_CRITICAL_GROUPS` | list of strings (JSON) | - | Gatus groups whose failing checks are critical (compared without regard to case); a failing check in any other group is a warning. The Status page lists these groups first. Empty makes every failure a warning. A JSON list in the environment. |
-| `plugins.gatus.pageSize` | `DASH_PLUGINS_GATUS_PAGE_SIZE` | integer | `30` | Endpoints requested from Gatus per page. Greater than zero. |
+| `plugins.gatus.pageSize` | `DASH_PLUGINS_GATUS_PAGE_SIZE` | integer | `30` | Check results Gatus returns per endpoint (the pageSize query parameter); the Status page draws them as the endpoint's history. Greater than zero. |
 
 ## `plugins.gatus.auth.basic`
 

@@ -20,7 +20,6 @@ type AttentionInput struct {
 	Cluster model.ClusterData
 	VMs     model.VMsData
 	Storage model.StorageData
-	Status  model.StatusData
 	Host    model.HostData
 	Links   *links.Builder
 	// Resolver resolves the Grafana and Headlamp links of the rules' objects; nil means none.
@@ -55,7 +54,6 @@ var legacyRules = []struct {
 	{"kubernetes", attentionCluster},
 	{"proxmox", attentionVMs},
 	{"kubernetes", attentionStorage},
-	{"gatus", attentionStatus},
 	{"hardware", attentionHost},
 }
 
@@ -230,25 +228,6 @@ func attentionStorage(in AttentionInput, add addFn) {
 		add("bucket:"+b.Name, RatioHealth(r), "storage", fmt.Sprintf("Bucket %s is %.0f%% of its quota", b.Name, r*100),
 			"", time.Time{}, "/storage", nil)
 	}
-}
-
-func attentionStatus(in AttentionInput, add addFn) {
-	for _, e := range in.Status.Endpoints {
-		if len(e.Results) == 0 {
-			continue
-		}
-		add("gatus:"+e.Key, EndpointHealth(e.Group, e.Healthy), "gatus", fmt.Sprintf("%s check failing", e.Name),
-			e.Group, latestFailureStart(e), "/status", nil)
-	}
-}
-
-// latestFailureStart is the timestamp of the first failure in the current failing streak.
-func latestFailureStart(e model.Endpoint) time.Time {
-	var t time.Time
-	for i := len(e.Results) - 1; i >= 0 && !e.Results[i].Success; i-- {
-		t = e.Results[i].Timestamp
-	}
-	return t
 }
 
 func attentionHost(in AttentionInput, add addFn) {

@@ -1,7 +1,6 @@
 package topics
 
 import (
-	"strings"
 	"time"
 
 	"github.com/TechDufus/dash/internal/model"
@@ -95,17 +94,6 @@ func WorkloadHealth(ready, desired int) model.Health {
 		return model.HealthWarn
 	}
 	return model.HealthCrit
-}
-
-// EndpointHealth: a failed Gatus endpoint warns, critical in the infrastructure group.
-func EndpointHealth(group string, healthy bool) model.Health {
-	switch {
-	case healthy:
-		return model.HealthOK
-	case strings.EqualFold(group, "infrastructure"):
-		return model.HealthCrit
-	}
-	return model.HealthWarn
 }
 
 var crashReasons = map[string]bool{

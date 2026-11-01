@@ -1,8 +1,6 @@
 package topics
 
 import (
-	"context"
-	"net/url"
 	"regexp"
 	"sort"
 	"strings"
@@ -12,35 +10,6 @@ import (
 	"github.com/TechDufus/dash/internal/kube"
 	"github.com/TechDufus/dash/internal/model"
 )
-
-func (m *Manager) pollStatus(ctx context.Context) {
-	eps, err := m.d.Gatus.Statuses(ctx)
-	m.setSource("status:gatus", err)
-	if err == nil {
-		m.mu.Lock()
-		m.status = eps
-		m.mu.Unlock()
-	}
-	m.mark(model.TopicStatus, model.TopicApps, model.TopicVMs)
-}
-
-func (m *Manager) buildStatus() model.StatusData {
-	m.mu.RLock()
-	eps := append([]model.Endpoint{}, m.status...)
-	m.mu.RUnlock()
-	sort.SliceStable(eps, func(i, j int) bool {
-		if eps[i].Group != eps[j].Group {
-			return eps[i].Group < eps[j].Group
-		}
-		return eps[i].Name < eps[j].Name
-	})
-	for i := range eps {
-		if eps[i].Results == nil {
-			eps[i].Results = []model.CheckResult{}
-		}
-	}
-	return model.StatusData{Endpoints: eps}
-}
 
 var iconRE = regexp.MustCompile(`^[a-z0-9-]+\.(png|svg)$`)
 
@@ -67,19 +36,7 @@ func routeAttachesToHome(u *unstructured.Unstructured) bool {
 }
 
 func (m *Manager) buildApps() model.AppsData {
-	m.mu.RLock()
-	eps := m.status
-	m.mu.RUnlock()
-	health := map[string]bool{}
-	for _, e := range eps {
-		host := strings.ToLower(e.URL)
-		if u, err := url.Parse(e.URL); err == nil && u.Hostname() != "" {
-			host = strings.ToLower(u.Hostname())
-		}
-		if host != "" {
-			health[host] = e.Healthy
-		}
-	}
+	ep := m.endpoints()
 	infos := m.namespaceInfos()
 
 	out := model.AppsData{Apps: []model.App{}}
@@ -105,8 +62,8 @@ func (m *Manager) buildApps() model.AppsData {
 				Name: name, Description: ann["gethomepage.dev/description"], IconURL: iconURL(ann["gethomepage.dev/icon"]),
 				Href: "https://" + h, Group: group, Namespace: u.GetNamespace(),
 			}
-			if ok, has := health[strings.ToLower(h)]; has {
-				app.Healthy = new(ok)
+			if state, known := ep.ByHost(h); known {
+				app.Healthy = new(state == model.HealthOK)
 			}
 			out.Apps = append(out.Apps, app)
 		}

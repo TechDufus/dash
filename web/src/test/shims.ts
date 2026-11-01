@@ -19,7 +19,7 @@ export function shimRows(): PluginInfo[] {
     pluginInfo({
       id: "gatus",
       name: "Gatus",
-      topics: ["status"],
+      topics: ["gatus.status"],
       nav: nav("/status", "Status", "Service status", "Activity"),
     }),
     pluginInfo({ id: "victorialogs", name: "VictoriaLogs" }),

@@ -86,7 +86,7 @@ export const TopicStorage = "storage";
  * TopicAlerts is the alerts and silences (AlertsData), published by the alertmanager plugin.
  */
 export const TopicAlerts = "alertmanager.alerts";
-export const TopicStatus = "status";
+export const TopicStatus = "gatus.status";
 export const TopicApps = "apps";
 /**
  * TopicLauncherLinks is the launcher's infrastructure links (LauncherData), published by the
