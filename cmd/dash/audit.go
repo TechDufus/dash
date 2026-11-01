@@ -50,6 +50,9 @@ func auditVerify(args []string, out io.Writer) error {
 	} else {
 		fmt.Fprintln(out, "chain intact")
 	}
+	if t := rep.Torn; t != nil {
+		fmt.Fprintf(out, "torn tail: %s:%d has %d bytes without a newline (a crash mid-write; dash drops it on the next start)\n", t.File, t.Line, t.Bytes)
+	}
 	for _, d := range rep.Dangling {
 		target := strings.Trim(d.Target.Namespace+"/"+d.Target.Name, "/")
 		fmt.Fprintf(out, "dangling intent %s: %s %s %s at %s (%s:%d)\n",

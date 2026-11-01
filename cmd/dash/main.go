@@ -74,10 +74,12 @@ func run(reg *secret.Registry) error {
 	}
 	cfg := res.Config
 
-	// Demo has nothing to audit and no data dir: its actions go to slog only. Elsewhere a data
-	// dir that cannot be written also means slog only (audit.Open says so); a log that cannot be
-	// continued is an error. The file has no redacting handler in front of it, so error text is
-	// scrubbed here. The log closes after the servers stop (defers run last-in first-out).
+	// Demo has nothing to audit and no data dir: its actions go to slog only. Elsewhere a missing
+	// or unwritable data dir also means slog only (audit.Open logs it at INFO). In a writable dir
+	// a log that cannot be opened or continued, or that another dash instance holds, is an
+	// error: dash refuses to start rather than run without the record the 503 rule relies on.
+	// The file has no redacting handler in front of it, so error text is scrubbed here. The log
+	// closes after the servers stop (defers run last-in first-out).
 	auditDir := cfg.DataDir
 	if cfg.Demo {
 		auditDir = ""

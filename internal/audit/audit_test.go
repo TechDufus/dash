@@ -360,7 +360,11 @@ func TestSlogOnlyWhenDirNotWritable(t *testing.T) {
 				t.Fatal("Enabled() = true")
 			}
 			if !strings.Contains(buf.String(), "audit log file disabled") {
-				t.Errorf("no warning that the file is disabled: %s", buf.String())
+				t.Errorf("no note that the file is disabled: %s", buf.String())
+			}
+			// Expected configuration, not a fault: INFO, like the settings store.
+			if strings.Contains(buf.String(), `"level":"WARN"`) || strings.Contains(buf.String(), `"level":"ERROR"`) {
+				t.Errorf("disabled-file message above INFO: %s", buf.String())
 			}
 			buf.Reset()
 			p, err := l.Intent(restart("alice"))
@@ -378,6 +382,71 @@ func TestSlogOnlyWhenDirNotWritable(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// A writable dir whose log file cannot be opened must stop dash: silently going slog-only
+// would make the "no durable record, no change" rule void without anyone noticing.
+func TestOpenFailsWhenLogFileCannotBeOpened(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.Mkdir(filepath.Join(dir, FileName), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	l, err := Open(dir, Options{Logger: jsonLogger(&bytes.Buffer{}, slog.LevelInfo)})
+	if err == nil {
+		l.Close()
+		t.Fatal("Open succeeded although audit.jsonl cannot be opened")
+	}
+	if !strings.Contains(err.Error(), FileName) {
+		t.Errorf("error does not name the file: %v", err)
+	}
+}
+
+func TestSecondWriterOnTheSameDirIsRefused(t *testing.T) {
+	dir := t.TempDir()
+	l := open(t, dir, Options{MaxSize: 1}) // every record rotates
+	_, err := Open(dir, Options{Logger: jsonLogger(&bytes.Buffer{}, slog.LevelInfo)})
+	if !errors.Is(err, ErrLocked) {
+		t.Fatalf("second Open = %v, want ErrLocked", err)
+	}
+	if !strings.Contains(err.Error(), dir) || !strings.Contains(err.Error(), "one dash instance") {
+		t.Errorf("message does not say what to do: %v", err)
+	}
+
+	// The lock is its own file, so the settings store's .lock is untouched, and it lives
+	// as long as the log, not as long as one file: rotation must not release it.
+	if _, err := os.Stat(filepath.Join(dir, ".audit.lock")); err != nil {
+		t.Errorf("no .audit.lock: %v", err)
+	}
+	l.Event(Record{Action: "login"})
+	l.Event(Record{Action: "logout"})
+	if _, err := os.Stat(filepath.Join(dir, FileName+".1")); err != nil {
+		t.Fatalf("no rotation happened: %v", err)
+	}
+	if _, err := Open(dir, Options{}); !errors.Is(err, ErrLocked) {
+		t.Errorf("Open after a write = %v, want ErrLocked", err)
+	}
+
+	l.Close()
+	l2, err := Open(dir, Options{Logger: jsonLogger(&bytes.Buffer{}, slog.LevelInfo)})
+	if err != nil {
+		t.Fatalf("Open after Close: %v", err)
+	}
+	l2.Close()
+}
+
+// Creating audit.jsonl must be followed by an fsync of the directory, or a crash can lose
+// the file and every record fsynced into it.
+func TestCreatingTheLogSyncsTheDirectory(t *testing.T) {
+	var synced []string
+	orig := syncDir
+	syncDir = func(dir string) error { synced = append(synced, dir); return orig(dir) }
+	t.Cleanup(func() { syncDir = orig })
+
+	dir := t.TempDir()
+	open(t, dir, Options{})
+	if len(synced) != 1 || synced[0] != dir {
+		t.Errorf("directory syncs after creating the log = %v, want [%s]", synced, dir)
 	}
 }
 
@@ -491,7 +560,7 @@ func TestVerifyDetectsEditedLine(t *testing.T) {
 	}
 }
 
-func TestVerifyDetectsDeletedLineAndMissingFile(t *testing.T) {
+func TestVerifyDetectsMissingFile(t *testing.T) {
 	dir := t.TempDir()
 	l := open(t, dir, Options{MaxSize: 400})
 	for i := range 20 {
@@ -539,6 +608,59 @@ func TestVerifyReportsDanglingIntent(t *testing.T) {
 	d := rep.Dangling[0]
 	if d.ID != pending.rec.ID || d.Target.Name != "stuck" || d.Action != "kubernetes.restart" || d.File != FileName || d.Line != 3 {
 		t.Errorf("Dangling[0] = %+v", d)
+	}
+}
+
+func TestVerifyDetectsDeletedLine(t *testing.T) {
+	dir := t.TempDir()
+	l := open(t, dir, Options{})
+	for i := range 6 {
+		rec := restart("alice")
+		rec.Target.Name = fmt.Sprintf("app-%d", i)
+		l.Event(rec)
+	}
+	path := filepath.Join(dir, FileName)
+	lines := strings.Split(strings.TrimSuffix(string(mustRead(t, path)), "\n"), "\n")
+	lines = append(lines[:2], lines[3:]...) // drop line 3
+	if err := os.WriteFile(path, []byte(strings.Join(lines, "\n")+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	rep, err := Verify(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The line before the gap is where the chain stops: its successor vouches for the
+	// deleted line, not for it.
+	if rep.OK() || rep.Break.File != FileName || rep.Break.Line != 2 {
+		t.Errorf("Break = %+v, want %s:2", rep.Break, FileName)
+	}
+}
+
+// A crash mid-write leaves an unterminated last line; it is no record, so it is reported but
+// the chain stays intact (the next start truncates it).
+func TestVerifyReportsTornTailWithoutBreaking(t *testing.T) {
+	dir := t.TempDir()
+	l := open(t, dir, Options{})
+	p, _ := l.Intent(restart("alice"))
+	p.Outcome(nil)
+	l.Close()
+	f, err := os.OpenFile(filepath.Join(dir, FileName), os.O_WRONLY|os.O_APPEND, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	const torn = `{"time":"2026-11-01T12:00:00Z","kind":"inte`
+	f.WriteString(torn)
+	f.Close()
+
+	rep, err := Verify(dir)
+	if err != nil || !rep.OK() {
+		t.Fatalf("Verify = %+v, %v; want the chain intact", rep, err)
+	}
+	if rep.Records != 2 {
+		t.Errorf("Records = %d, want the 2 complete lines", rep.Records)
+	}
+	if rep.Torn == nil || rep.Torn.File != FileName || rep.Torn.Line != 3 || rep.Torn.Bytes != len(torn) {
+		t.Errorf("Torn = %+v, want %s:3 with %d bytes", rep.Torn, FileName, len(torn))
 	}
 }
 
@@ -625,7 +747,7 @@ func TestClosedLogRefusesIntent(t *testing.T) {
 
 func TestConcurrentWritersKeepOneChain(t *testing.T) {
 	dir := t.TempDir()
-	l := open(t, dir, Options{MaxSize: 2048})
+	l := open(t, dir, Options{MaxSize: 2048, Keep: 100})
 	var wg sync.WaitGroup
 	for g := range 8 {
 		wg.Add(1)
@@ -648,8 +770,9 @@ func TestConcurrentWritersKeepOneChain(t *testing.T) {
 	if err != nil || !rep.OK() || len(rep.Dangling) != 0 {
 		t.Fatalf("Verify = %+v, %v", rep, err)
 	}
-	if rep.Records > 320 {
-		t.Errorf("%d records, want at most 320", rep.Records)
+	// Keep is large enough that rotation drops nothing: 8 writers x 20 x (intent, outcome).
+	if rep.Records != 320 {
+		t.Errorf("%d records, want exactly 320", rep.Records)
 	}
 }
 

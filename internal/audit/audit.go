@@ -132,15 +132,43 @@ type Log struct {
 	size    int64
 	last    string // hex SHA-256 of the last line written
 	denials map[denialKey]time.Time
+	lock    *os.File // flock on dir/.audit.lock, held for the log's lifetime
+}
+
+// ErrLocked means another dash process holds the data directory's audit log.
+var ErrLocked = errors.New("audit log is locked by another dash instance")
+
+// syncDir makes a created or renamed directory entry durable. A variable so a test can see
+// that creating the log file calls it.
+var syncDir = func(dir string) error {
+	d, err := os.Open(dir)
+	if err != nil {
+		return err
+	}
+	defer d.Close()
+	return d.Sync()
+}
+
+// writable reports whether dir accepts new files. Creating a probe is the only reliable test:
+// mode bits ignore read-only mounts and ACLs (the settings store probes the same way).
+func writable(dir string) bool {
+	f, err := os.CreateTemp(dir, ".audit-probe-*")
+	if err != nil {
+		return false
+	}
+	f.Close()
+	return os.Remove(f.Name()) == nil
 }
 
 type denialKey struct{ peer, reason string }
 
 // Open starts the audit log in dir. A missing, empty or unwritable dir yields a
 // slog-only log (Enabled reports false); that is not an error, so an unconfigured data
-// dir keeps today's behaviour. An error means the dir is writable but the existing log
-// cannot be read to continue its hash chain, and the caller should refuse to start
-// rather than silently fork the chain.
+// dir keeps today's behaviour. In a writable dir the log takes an flock of its own, so a
+// second dash on the same dir is refused (ErrLocked) even when its settings are read-only.
+// Any other failure there is an error and the caller should refuse to start: a log file that
+// cannot be opened must not silently turn into slog-only (the 503 rule would be void), and
+// one that cannot be read to continue its hash chain must not be forked.
 func Open(dir string, opts Options) (*Log, error) {
 	if opts.Now == nil {
 		opts.Now = time.Now
@@ -153,21 +181,29 @@ func Open(dir string, opts Options) (*Log, error) {
 	}
 	l := &Log{opts: opts, denials: make(map[denialKey]time.Time)}
 	if dir == "" {
-		l.logger().Warn("audit log file disabled, logging to slog only", "reason", "no data dir")
+		l.logger().Info("audit log file disabled, logging to slog only", "reason", "no data dir")
 		return l, nil
 	}
 	if fi, err := os.Stat(dir); err != nil || !fi.IsDir() {
-		l.logger().Warn("audit log file disabled, logging to slog only", "dir", dir, "reason", "data dir is missing")
+		l.logger().Info("audit log file disabled, logging to slog only", "dir", dir, "reason", "data dir is missing")
 		return l, nil
 	}
-	l.dir = dir
-	if err := l.openActive(); err != nil {
-		l.dir = ""
-		l.logger().Warn("audit log file disabled, logging to slog only", "dir", dir, "error", err.Error())
+	if !writable(dir) {
+		l.logger().Info("audit log file disabled, logging to slog only", "dir", dir, "reason", "data dir is not writable")
 		return l, nil
+	}
+	lock, err := acquireLock(dir)
+	if err != nil {
+		return nil, fmt.Errorf("audit log %s: %w", dir, err)
+	}
+	l.dir, l.lock = dir, lock
+	if err := l.openActive(); err != nil {
+		lock.Close()
+		return nil, fmt.Errorf("audit log %s: %w", filepath.Join(dir, FileName), err)
 	}
 	if err := l.restoreChain(); err != nil {
 		l.f.Close()
+		lock.Close()
 		return nil, fmt.Errorf("audit log %s: %w", filepath.Join(dir, FileName), err)
 	}
 	return l, nil
@@ -184,11 +220,15 @@ func (l *Log) Close() error {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	l.closed = true
-	if l.f == nil {
-		return nil
+	var err error
+	if l.f != nil {
+		err = l.f.Close()
+		l.f = nil
 	}
-	err := l.f.Close()
-	l.f = nil
+	if l.lock != nil {
+		l.lock.Close() // drops the flock
+		l.lock = nil
+	}
 	return err
 }
 
@@ -415,6 +455,14 @@ func (l *Log) openActive() error {
 		f.Close()
 		return err
 	}
+	if fi.Size() == 0 {
+		// Possibly just created: a crash before the directory entry is durable would lose
+		// the file and with it every record fsynced into it.
+		if err := syncDir(l.dir); err != nil {
+			f.Close()
+			return err
+		}
+	}
 	l.f, l.size = f, fi.Size()
 	return nil
 }
@@ -436,9 +484,8 @@ func (l *Log) rotate() error {
 	if err := os.Rename(l.path(0), l.path(1)); err != nil {
 		return err
 	}
-	if d, err := os.Open(l.dir); err == nil {
-		_ = d.Sync()
-		d.Close()
+	if err := syncDir(l.dir); err != nil {
+		return err
 	}
 	return l.openActive()
 }

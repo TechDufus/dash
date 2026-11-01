@@ -27,6 +27,17 @@ type Report struct {
 	// when dash crashed shows up here; so does a change whose outcome could not be
 	// written.
 	Dangling []Dangling
+	// Torn is an unterminated last line of the active file: a crash mid-write. Its writer
+	// never got an acknowledgement, so it is not a record and does not break the chain;
+	// the next start truncates it.
+	Torn *Torn
+}
+
+// Torn locates an unterminated final line.
+type Torn struct {
+	File  string
+	Line  int
+	Bytes int
 }
 
 // OK reports whether the hash chain is intact. Dangling intents do not affect it.
@@ -115,6 +126,10 @@ func (v *verifier) walk(name string, r io.Reader, rep *Report) error {
 		}
 		if err != nil && !errors.Is(err, io.EOF) {
 			return err
+		}
+		if err != nil && name == FileName {
+			rep.Torn = &Torn{File: name, Line: n, Bytes: len(line)}
+			return nil
 		}
 		line = bytes.TrimSuffix(line, []byte("\n"))
 		rep.Records++

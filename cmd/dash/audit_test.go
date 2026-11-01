@@ -41,6 +41,25 @@ func TestAuditVerifyCleanLog(t *testing.T) {
 	}
 }
 
+// A crash mid-write leaves an unterminated last line: reported, not a broken chain.
+func TestAuditVerifyReportsTornTailAsIntact(t *testing.T) {
+	dir := t.TempDir()
+	writeLog(t, dir)
+	f, err := os.OpenFile(filepath.Join(dir, audit.FileName), os.O_WRONLY|os.O_APPEND, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.WriteString(`{"kind":"inte`)
+	f.Close()
+	var out bytes.Buffer
+	if err := command([]string{"audit", "verify", "--dir", dir}, &out); err != nil {
+		t.Fatalf("torn tail failed verification: %v\n%s", err, &out)
+	}
+	if !strings.Contains(out.String(), "chain intact") || !strings.Contains(out.String(), "torn tail: audit.jsonl:4") {
+		t.Errorf("report:\n%s", &out)
+	}
+}
+
 func TestAuditVerifyNamesTheEditedLine(t *testing.T) {
 	dir := t.TempDir()
 	writeLog(t, dir)
