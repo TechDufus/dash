@@ -27,7 +27,7 @@ func (m *Manager) buildOverview(b built, cs []plugin.Contributor, now time.Time)
 	}
 	in := AttentionInput{
 		Alerts: alerts, Flux: orZero(b.flux), Cluster: orZero(b.cluster), VMs: orZero(b.vms), Storage: orZero(b.storage),
-		Status: orZero(b.status), Host: orZero(b.host), Links: m.d.Links, Now: now,
+		Status: orZero(b.status), Host: orZero(b.host), Links: m.d.Links, Resolver: m.resolver(), Now: now,
 	}
 	items := legacyAttention(in, m.tracker)
 	topo := topology(in, items)

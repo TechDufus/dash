@@ -33,7 +33,7 @@ func mustLoad(t *testing.T, m map[string]string) Config {
 func TestNoSiteDefaults(t *testing.T) {
 	want := Config{
 		Listen: "127.0.0.1:8080", HealthListen: "0.0.0.0:8081", DataDir: "/data",
-		SettingsUI: SettingsEditable, HeadlampCluster: "main", Limits: defaultLimits, ReadyTimeout: 60 * time.Second,
+		SettingsUI: SettingsEditable, Limits: defaultLimits, ReadyTimeout: 60 * time.Second,
 	}
 	if got := Defaults(); !reflect.DeepEqual(got, want) {
 		t.Errorf("Defaults() =\n%+v\nwant\n%+v", got, want)
@@ -224,8 +224,8 @@ func TestDeploymentEnvCompat(t *testing.T) {
 		"DASH_PLUGINS_VICTORIALOGS_URL":     c.VLogsURL,
 		"DASH_PLUGINS_GATUS_URL":            c.GatusURL,
 		"DASH_PLUGINS_PROXMOX_URL":          c.ProxmoxURL,
-		"DASH_PLUGINS_HEADLAMP_URL":         c.HeadlampURL,
-		"DASH_PLUGINS_GRAFANA_URL":          c.GrafanaURL,
+		"DASH_PLUGINS_HEADLAMP_URL":         res.Tree.Plugins.Headlamp.URL,
+		"DASH_PLUGINS_GRAFANA_URL":          res.Tree.Plugins.Grafana.URL,
 		"DASH_PLUGINS_PROXMOX_TOKEN_ID":     c.ProxmoxTokenID,
 		"DASH_PLUGINS_PROXMOX_TOKEN_SECRET": c.ProxmoxTokenSecret.Reveal(),
 	}

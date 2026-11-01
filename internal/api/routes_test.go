@@ -18,7 +18,6 @@ import (
 // to this list (a decision), and each plugin migration deletes its entries together with the
 // route. P3.13 deletes the Legacy flag and this list.
 var legacyRoutes = []string{
-	"GET /api/config",
 	"GET /api/vms/{vmid}",
 	"GET /api/pods/{ns}/{name}",
 	"GET /api/logs",
@@ -207,7 +206,7 @@ func TestLegacyRoutesKeepTheirPathsAndGetTheEnvelope(t *testing.T) {
 	}
 
 	// The ones that read answer where they always did.
-	for _, path := range []string{"/api/config", "/api/vms/100", "/api/pods/apps/web", "/api/logs?ns=media&pod=web"} {
+	for _, path := range []string{"/api/vms/100", "/api/pods/apps/web", "/api/logs?ns=media&pod=web"} {
 		if w := (req{path: path}.do(h)); w.Code != http.StatusOK {
 			t.Errorf("GET %s = %d %s", path, w.Code, w.Body)
 		}

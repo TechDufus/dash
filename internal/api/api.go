@@ -217,13 +217,5 @@ func (s *Server) me(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, me)
 }
 
-func (s *Server) uiConfig(w http.ResponseWriter, _ *http.Request) {
-	launcher := s.d.Cfg.Launcher
-	if launcher == nil {
-		launcher = []model.LauncherLink{}
-	}
-	writeJSON(w, http.StatusOK, model.UIConfig{HostModel: s.d.Cfg.HostModel, Launcher: launcher})
-}
-
 // errInvalid reports whether err is an upstream input validation failure.
 func errInvalid(err error) bool { return errors.Is(err, upstream.ErrInvalid) }

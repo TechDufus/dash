@@ -49,7 +49,7 @@ export function shimRows(): PluginInfo[] {
     }),
     pluginInfo({ id: "grafana", name: "Grafana" }),
     pluginInfo({ id: "headlamp", name: "Headlamp" }),
-    pluginInfo({ id: "launcher", name: "Launcher" }),
+    pluginInfo({ id: "launcher", name: "Launcher", topics: ["launcher.links"] }),
   ];
 }
 

@@ -127,7 +127,7 @@ func TestReloadSeesAConfigMapStyleSymlinkSwap(t *testing.T) {
 	if !slices.Equal(rl.RestartRequired(), []string{"plugins.headlamp.url"}) {
 		t.Errorf("restart required = %v", rl.RestartRequired())
 	}
-	if res.Config.HeadlampURL != "https://hl-a.example.com" {
+	if res.Tree.Plugins.Headlamp.URL != "https://hl-a.example.com" {
 		t.Error("nothing but secrets applies live: the running config must not change")
 	}
 	rl.poll()
@@ -147,7 +147,7 @@ func TestReloadKeepsTheRunningConfigOnAnInvalidEditAndLogsOnce(t *testing.T) {
 	if n := g.count("level=ERROR"); n != 1 || !strings.Contains(g.log.String(), "plugins.headlamp.urll") {
 		t.Fatalf("want one ERROR naming the field:\n%s", g.log)
 	}
-	if len(g.changes) != 0 || len(g.rl.RestartRequired()) != 0 || g.res.Config.HeadlampURL != "https://hl-a.example.com" {
+	if len(g.changes) != 0 || len(g.rl.RestartRequired()) != 0 || g.res.Tree.Plugins.Headlamp.URL != "https://hl-a.example.com" {
 		t.Error("an invalid edit must change nothing")
 	}
 
@@ -236,7 +236,7 @@ func TestReloadReReadsTheSettingsStore(t *testing.T) {
 	if !slices.Equal(rl.RestartRequired(), []string{"plugins.grafana.url"}) {
 		t.Errorf("restart required = %v", rl.RestartRequired())
 	}
-	if res.Config.GrafanaURL != "" {
+	if res.Tree.Plugins.Grafana.URL != "" {
 		t.Error("the running config must not change")
 	}
 	rl.poll()

@@ -55,8 +55,8 @@ func TestLoadConfigAppliesStoredSettingsBelowEnvironment(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer store.Close()
-	if c := res.Config; c.GrafanaURL != "https://grafana.ui.example.com" || c.HeadlampURL != "https://headlamp.env.example.com" {
-		t.Errorf("grafana %q headlamp %q: want the stored value, and the environment over it", c.GrafanaURL, c.HeadlampURL)
+	if p := res.Tree.Plugins; p.Grafana.URL != "https://grafana.ui.example.com" || p.Headlamp.URL != "https://headlamp.env.example.com" {
+		t.Errorf("grafana %q headlamp %q: want the stored value, and the environment over it", p.Grafana.URL, p.Headlamp.URL)
 	}
 	if store.ReadOnly() {
 		t.Error("a writable data directory gives a writable store")

@@ -10,7 +10,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/TechDufus/dash/internal/model"
 	"github.com/TechDufus/dash/internal/secret"
 )
 
@@ -69,8 +68,6 @@ func TestFileLoadsIntoConfig(t *testing.T) {
 		VLogsURL:        "http://vlogs.example.com:9428", GatusURL: "http://gatus.example.com:8080",
 		ProxmoxURL: "https://pve.example.com:8006", ProxmoxNode: "pve", ProxmoxTokenID: "dash@pve!dash", ProxmoxTokenSecret: secret.New("s3cret", ""),
 		HostNodename: "box", HostModel: "Dell R730",
-		HeadlampURL: "https://headlamp.example.com", HeadlampCluster: "prod", GrafanaURL: "https://grafana.example.com",
-		Launcher:   []model.LauncherLink{{Name: "Proxmox", Href: "https://pve.example.com:8006", Icon: "proxmox"}},
 		Kubeconfig: "/etc/dash/kubeconfig",
 		Conventions: Conventions{
 			ProtectedLabel: "example.com/protected", TenantLabel: "example.com/tenant",
@@ -168,9 +165,10 @@ plugins:
 		t.Fatal(err)
 	}
 	c := res.Config
-	if c.GrafanaURL != "https://grafana.file.example.com" || c.HeadlampURL != "https://headlamp.env.example.com" ||
-		c.HeadlampCluster != "ui-cluster" || c.GatusURL != "http://gatus.ui.example.com" {
-		t.Errorf("effective values: grafana %q headlamp %q cluster %q gatus %q", c.GrafanaURL, c.HeadlampURL, c.HeadlampCluster, c.GatusURL)
+	pl := res.Tree.Plugins
+	if pl.Grafana.URL != "https://grafana.file.example.com" || pl.Headlamp.URL != "https://headlamp.env.example.com" ||
+		pl.Headlamp.Cluster != "ui-cluster" || c.GatusURL != "http://gatus.ui.example.com" {
+		t.Errorf("effective values: grafana %q headlamp %q cluster %q gatus %q", pl.Grafana.URL, pl.Headlamp.URL, pl.Headlamp.Cluster, c.GatusURL)
 	}
 	for path, want := range map[string]Provenance{
 		"plugins.grafana.url":      {SourceFile, "/etc/dash/config.yaml"},
@@ -223,8 +221,8 @@ func TestUIIneligiblePathsAreIgnoredWithAWarning(t *testing.T) {
 	if c.Listen != "127.0.0.1:8080" || c.PublicURL != "http://localhost:5173" || c.SettingsUI != SettingsEditable || c.DataDir != "/data" {
 		t.Errorf("UI changed an ineligible field: %+v", c)
 	}
-	if c.GrafanaURL != "https://grafana.example.com" {
-		t.Errorf("eligible UI value lost: %q", c.GrafanaURL)
+	if g := res.Tree.Plugins.Grafana.URL; g != "https://grafana.example.com" {
+		t.Errorf("eligible UI value lost: %q", g)
 	}
 	out := buf.String()
 	for _, p := range []string{"server.listen", "server.publicURL", "settings.ui", "dataDir", "auth.mode", "plugins.nope"} {
@@ -244,8 +242,8 @@ func TestUIWrongTypeIsIgnoredNotFatal(t *testing.T) {
 	if err != nil {
 		t.Fatalf("a stored UI value must not stop dash starting: %v", err)
 	}
-	if res.Config.GrafanaURL != "" || !strings.Contains(buf.String(), "plugins.grafana.url") {
-		t.Errorf("grafana %q, log %q", res.Config.GrafanaURL, buf)
+	if g := res.Tree.Plugins.Grafana.URL; g != "" || !strings.Contains(buf.String(), "plugins.grafana.url") {
+		t.Errorf("grafana %q, log %q", g, buf)
 	}
 }
 
@@ -360,16 +358,13 @@ func TestProcessSourcesLayerFileAndEnv(t *testing.T) {
 		t.Fatal(err)
 	}
 	res, err := Resolve(src)
-	if err == nil {
-		err = res.LoadLauncherFile()
-	}
 	if err != nil {
 		t.Fatal(err)
 	}
 	if res.Config.PublicURL != "https://dash.example.com" || res.Config.Listen != "127.0.0.1:9001" {
 		t.Errorf("publicURL %q listen %q", res.Config.PublicURL, res.Config.Listen)
 	}
-	if len(res.Config.Launcher) != 1 || res.Config.Launcher[0].Name != "Router" {
-		t.Errorf("launcher = %+v", res.Config.Launcher)
+	if res.Tree.Plugins.Launcher.File != launcher {
+		t.Errorf("launcher file = %q, want %q", res.Tree.Plugins.Launcher.File, launcher)
 	}
 }

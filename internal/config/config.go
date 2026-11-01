@@ -8,8 +8,8 @@
 //
 // Nothing site-specific has a default: server.publicURL is required outside dev and demo, Proxmox
 // needs plugins.proxmox.url once a token is set (plugins.proxmox.node is optional: with one node
-// in the cluster dash discovers it from the API at startup), and an empty Headlamp or Grafana URL
-// drops those links.
+// in the cluster dash discovers it from the API at startup), and the Headlamp and Grafana plugins
+// link only once their URL is set.
 package config
 
 import (
@@ -24,8 +24,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/TechDufus/dash/internal/model"
-	"github.com/TechDufus/dash/internal/pluginconf"
 	"github.com/TechDufus/dash/internal/secret"
 )
 
@@ -76,16 +74,9 @@ type Config struct {
 	// HostModel is shown next to the host's name, e.g. "Dell R730"; empty shows nothing.
 	HostModel string
 
-	HeadlampURL     string
-	HeadlampCluster string
-	GrafanaURL      string
-
-	// LauncherFile is a YAML or JSON list of infrastructure links (see LauncherLink).
-	LauncherFile string
-	Launcher     []model.LauncherLink
-
-	// IconBaseURL is ui.iconBaseURL: the origin icon names resolve against and the only origin an
-	// icon URL may come from; empty means no third-party icon request. The SPA reads it with /me.
+	// IconBaseURL is ui.iconBaseURL: the origin launcher link icon names resolve against and the
+	// only origin an absolute launcher icon URL may come from; empty means letter tiles and no
+	// third-party icon request from the launcher (apps are not affected). The SPA reads it with /me.
 	IconBaseURL string
 
 	Conventions Conventions
@@ -132,20 +123,6 @@ func ProcessSources(reg *secret.Registry) (Sources, error) {
 		return Sources{}, err
 	}
 	return Sources{Environ: environ, File: f, Registry: reg}, nil
-}
-
-// LoadLauncherFile reads the launcher file the configuration names, if any, into Config.Launcher.
-func (r *Resolved) LoadLauncherFile() error {
-	c := &r.Config
-	if c.LauncherFile == "" {
-		return nil
-	}
-	links, err := pluginconf.LoadLauncher(c.LauncherFile)
-	if err != nil {
-		return err
-	}
-	c.Launcher = links
-	return nil
 }
 
 // Load resolves defaults and the given os.Environ-style variables, with no config file and no UI

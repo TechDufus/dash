@@ -26,6 +26,7 @@ describe("module registry", () => {
       "cluster",
       "flux",
       "host",
+      "launcher.links",
       "status",
       "storage",
       "vms",

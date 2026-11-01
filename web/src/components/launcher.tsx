@@ -1,6 +1,5 @@
 import { AppWindow } from "lucide-react";
 import { type ReactNode, useState } from "react";
-import { useUIConfig } from "@/api/queries";
 import { useTopic } from "@/api/stream";
 import type { App, Group } from "@/api/types";
 import { Panel, SourceChips } from "@/components/panel";
@@ -229,9 +228,9 @@ export function AppsSection({ query, compact }: SectionsProps) {
   );
 }
 
-/** The infrastructure links from the launcher file, filtered by `query`. */
+/** The infrastructure links of the launcher plugin, filtered by `query`. */
 export function InfraSection({ query, compact }: SectionsProps) {
-  const infra = useInfraLinks();
+  const { links: infra } = useInfraLinks();
   if (infra.length === 0) return null;
   const items = infra.filter((l) => infraMatches(l, query));
   return (
@@ -260,16 +259,16 @@ export type LauncherStatus = "loading" | "shown" | "off";
 
 /**
  * Whether either launcher section is on the page. "loading" until the plugin list (and, for the
- * infrastructure links, the UI config) is known, so nothing claims "off" while data is on its way.
+ * infrastructure links, the launcher.links topic) is known, so nothing claims "off" while data is
+ * on its way.
  */
 export function useLauncherStatus(): LauncherStatus {
   const { ready } = usePluginsState();
   const apps = useTopicAvailable("apps");
   const launcher = usePluginVisible("launcher");
-  const config = useUIConfig();
   const infra = useInfraLinks();
-  if (apps === true || (launcher === true && infra.length > 0)) return "shown";
-  if (!ready || (launcher === true && config.isPending)) return "loading";
+  if (apps === true || (launcher === true && infra.links.length > 0)) return "shown";
+  if (!ready || (launcher === true && infra.pending)) return "loading";
   return "off";
 }
 
@@ -288,11 +287,10 @@ export function NoMatches({ query }: { query: string }) {
   const appsOn = useTopicAvailable("apps") === true;
   const launcherOn = usePluginVisible("launcher") === true;
   const apps = useTopic("apps")?.data.apps;
-  const config = useUIConfig();
   const infra = useInfraLinks();
-  const loading = (appsOn && apps === undefined) || (launcherOn && config.isPending);
+  const loading = (appsOn && apps === undefined) || (launcherOn && infra.pending);
   const listedApps = appsOn ? (apps ?? []) : [];
-  const listedInfra = launcherOn ? infra : [];
+  const listedInfra = launcherOn ? infra.links : [];
   const nothing =
     !loading &&
     listedApps.length + listedInfra.length > 0 &&

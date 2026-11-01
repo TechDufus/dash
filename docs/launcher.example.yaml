@@ -1,7 +1,9 @@
 # Infrastructure links for the launcher (Overview and Apps), read from the file that
-# plugins.launcher.file (DASH_PLUGINS_LAUNCHER_FILE) points at.
-# icon is a name from https://github.com/homarr-labs/dashboard-icons (png) or an image URL;
-# leave it out for a generic icon. href must be http or https.
+# plugins.launcher.file (DASH_PLUGINS_LAUNCHER_FILE) points at when the launcher starts.
+# icon is a name from https://github.com/homarr-labs/dashboard-icons (it is shown from
+# ui.iconBaseURL, DASH_UI_ICON_BASE_URL: without one the link gets a letter tile), a same-origin
+# path, or an image URL under ui.iconBaseURL; leave it out for a letter tile. href must be http or
+# https.
 - name: Proxmox
   href: https://pve.example.com:8006
   icon: proxmox

@@ -1,13 +1,12 @@
-import { QueryClient } from "@tanstack/react-query";
 import { screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import type { ReactElement } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { AppsData, OverviewData, StorageData } from "@/api/types";
+import type { AppsData, HostData, LauncherData, OverviewData, StorageData } from "@/api/types";
 import { connectStream, type TestStream } from "@/plugins/test-util";
-import { pluginInfo, renderApp as renderWith, stubFetch } from "@/test/harness";
+import { pluginInfo, renderApp, stubFetch } from "@/test/harness";
 import { shimRows, withState } from "@/test/shims";
 import { AppsPage } from "./apps";
+import { HardwarePage } from "./hardware";
 import { OverviewPage } from "./overview";
 import { StoragePage } from "./storage";
 
@@ -83,20 +82,40 @@ const DOWN = {
   checkedAt: "2026-11-01T00:00:00Z",
 };
 
-const config = {
-  hostModel: "",
-  launcher: [
+/** The launcher plugin's links, as its launcher.links envelope carries them. */
+const launcher: LauncherData = {
+  links: [
     { name: "Proxmox", href: "https://pve.example.com", icon: "", description: "hypervisor" },
     { name: "NAS", href: "https://nas.example.com", icon: "", description: "storage box" },
   ],
 };
 
-/** renderApp with the UI config (the launcher file's links) already in the query cache. */
-function renderApp(ui: ReactElement) {
-  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  queryClient.setQueryData(["config"], config);
-  return renderWith(ui, { queryClient });
-}
+// What the launcher plugin publishes for an inline list (plugins.launcher.links) and, after a
+// reconfigure, for a file (plugins.launcher.file): the payload is the same shape, whichever it came
+// from, and a new envelope replaces the list on the page.
+const inlineList: LauncherData = {
+  links: [
+    {
+      name: "Inline Proxmox",
+      href: "https://pve.example.com",
+      icon: "",
+      description: "hypervisor",
+    },
+    { name: "Inline NAS", href: "https://nas.example.com", icon: "", description: "" },
+  ],
+};
+const fileList: LauncherData = {
+  links: [
+    {
+      name: "File Router",
+      href: "https://router.example.com",
+      icon: "/icons/router.png",
+      description: "gateway",
+    },
+    { name: "File Switch", href: "http://switch.example.com", icon: "", description: "" },
+    { name: "File Printer", href: "https://printer.example.com", icon: "", description: "" },
+  ],
+};
 
 const tileLabels = () =>
   screen
@@ -107,10 +126,14 @@ const tileLabels = () =>
 describe("pages built from slots", () => {
   let stream: TestStream;
   beforeEach(() => {
-    stubFetch({ "GET /api/config": config });
+    stubFetch({
+      "GET /api/v1/me": { user: "dev", role: "admin", scopes: [], ui: { iconBaseUrl: "" } },
+    });
     stream = connectStream();
   });
   afterEach(() => stream.close());
+  /** The launcher.links envelope. The hub sends it again whenever the launcher row turns visible. */
+  const sendLauncher = (data: LauncherData = launcher) => stream.send("launcher.links", data);
 
   describe("Overview", () => {
     const tiles = [
@@ -210,11 +233,44 @@ describe("pages built from slots", () => {
       expect(tile?.parentElement?.children).toHaveLength(7);
     });
 
+    it("lists the launcher's links from an inline list and from a file list", () => {
+      renderApp(<OverviewPage />);
+      stream.plugins(shimRows());
+      stream.send("core.overview", overview());
+      stream.send("apps", apps());
+
+      sendLauncher(inlineList);
+      const infra = () => screen.getByRole("heading", { name: /^Infrastructure/ });
+      expect(infra()).toHaveTextContent("2");
+      expect(screen.getByRole("link", { name: /Inline Proxmox/ })).toHaveAttribute(
+        "href",
+        "https://pve.example.com",
+      );
+      expect(screen.getByRole("link", { name: /Inline NAS/ })).toBeInTheDocument();
+
+      sendLauncher(fileList);
+      expect(infra()).toHaveTextContent("3");
+      expect(screen.queryByText("Inline Proxmox")).toBeNull();
+      expect(screen.getByRole("link", { name: /File Router/ })).toHaveAttribute(
+        "href",
+        "https://router.example.com",
+      );
+      expect(screen.getByRole("link", { name: /File Switch/ })).toHaveAttribute(
+        "href",
+        "http://switch.example.com",
+      );
+      // The same-origin icon of the file's first link is drawn; the others are letter tiles.
+      expect(
+        Array.from(document.querySelectorAll("img")).map((i) => i.getAttribute("src")),
+      ).toContain("/icons/router.png");
+    });
+
     it("shows the launcher row with its section counts but announces nothing", () => {
       renderApp(<OverviewPage />);
       stream.plugins(shimRows());
       stream.send("core.overview", overview());
       stream.send("apps", apps());
+      sendLauncher();
 
       expect(screen.getByRole("heading", { name: "Launcher" })).toBeInTheDocument();
       expect(screen.getByRole("heading", { name: /^Platform/ })).toHaveTextContent("2");
@@ -228,12 +284,14 @@ describe("pages built from slots", () => {
       stream.plugins(rows);
       stream.send("core.overview", overview());
       stream.send("apps", apps());
+      sendLauncher();
       expect(screen.getByRole("heading", { name: "Launcher" })).toBeInTheDocument();
 
       stream.plugins(withState(withState(rows, "launcher", "disabled"), "kubernetes", "disabled"));
       expect(screen.queryByRole("heading", { name: "Launcher" })).toBeNull();
 
       stream.plugins(withState(rows, "kubernetes", "disabled"));
+      sendLauncher(); // the envelope left with the hidden row: the hub sends it again
       expect(screen.getByRole("heading", { name: "Launcher" })).toBeInTheDocument();
     });
 
@@ -242,6 +300,7 @@ describe("pages built from slots", () => {
       stream.plugins(shimRows());
       stream.send("core.overview", overview());
       stream.send("apps", apps(), [DOWN]);
+      sendLauncher();
 
       const heading = screen.getByRole("heading", { name: "Launcher" });
       const row = heading.parentElement as HTMLElement;
@@ -315,10 +374,40 @@ describe("pages built from slots", () => {
     };
     const status = (name: RegExp) => within(section(name)).getByRole("status");
 
+    it("lists the launcher's links from an inline list and from a file list", () => {
+      renderApp(<AppsPage />);
+      stream.plugins(shimRows());
+      stream.send("apps", apps());
+
+      sendLauncher(inlineList);
+      const infra = () =>
+        screen
+          .getByRole("heading", { name: /^Infrastructure/, level: 3 })
+          .closest("section") as HTMLElement;
+      expect(within(infra()).getByRole("status")).toHaveTextContent("2");
+      expect(within(infra()).getByRole("link", { name: /Inline Proxmox/ })).toHaveAttribute(
+        "href",
+        "https://pve.example.com",
+      );
+
+      sendLauncher(fileList);
+      expect(within(infra()).getByRole("status")).toHaveTextContent("3");
+      expect(within(infra()).queryByText("Inline NAS")).toBeNull();
+      expect(within(infra()).getByRole("link", { name: /File Router/ })).toHaveAttribute(
+        "href",
+        "https://router.example.com",
+      );
+      expect(within(infra()).getByRole("link", { name: /File Printer/ })).toBeInTheDocument();
+      expect(Array.from(infra().querySelectorAll("img")).map((i) => i.getAttribute("src"))).toEqual(
+        ["/icons/router.png"],
+      );
+    });
+
     it("announces each section's count in its own polite live region", () => {
       renderApp(<AppsPage />);
       stream.plugins(shimRows());
       stream.send("apps", apps());
+      sendLauncher();
 
       // The page-level line is gone; one live region per section.
       expect(screen.getAllByRole("status")).toHaveLength(5); // plus the empty state, which is silent
@@ -337,6 +426,7 @@ describe("pages built from slots", () => {
       renderApp(<AppsPage />);
       stream.plugins(shimRows());
       stream.send("apps", apps());
+      sendLauncher();
       await screen.findByRole("heading", { name: /^Infrastructure/ });
 
       await user.type(screen.getByRole("searchbox"), "example.com");
@@ -364,6 +454,7 @@ describe("pages built from slots", () => {
       const rows = shimRows();
       stream.plugins(rows);
       stream.send("apps", apps());
+      sendLauncher();
 
       // launcher off: the infrastructure section and its live region go.
       stream.plugins(withState(rows, "launcher", "disabled"));
@@ -378,6 +469,7 @@ describe("pages built from slots", () => {
 
       // launcher back on: its section and live region return on their own.
       stream.plugins(withState(rows, "kubernetes", "disabled"));
+      sendLauncher();
       expect(status(/^Infrastructure/)).toHaveTextContent("2");
     });
 
@@ -391,6 +483,7 @@ describe("pages built from slots", () => {
         renderApp(<AppsPage />);
         stream.plugins(shimRows());
         stream.send("apps", apps());
+        sendLauncher();
         await screen.findByRole("heading", { name: /^Infrastructure/ });
         return user;
       }
@@ -472,11 +565,10 @@ describe("pages built from slots", () => {
 
       it("stays silent about matches when nothing is listed at all", async () => {
         const user = userEvent.setup();
-        const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-        queryClient.setQueryData(["config"], { hostModel: "", launcher: [] });
-        renderWith(<AppsPage />, { queryClient });
+        renderApp(<AppsPage />);
         stream.plugins(shimRows());
         stream.send("apps", { apps: [] });
+        sendLauncher({ links: [] });
         await user.type(screen.getByRole("searchbox"), "zzz");
         expect(screen.queryByText(/No apps match/)).toBeNull();
       });
@@ -484,6 +576,7 @@ describe("pages built from slots", () => {
         const user = userEvent.setup();
         renderApp(<AppsPage />);
         stream.plugins(shimRows()); // kubernetes is on; no apps envelope yet
+        sendLauncher();
         await user.type(screen.getByRole("searchbox"), "zzz"); // matches no infrastructure link
         expect(screen.queryByText(/No apps match/)).toBeNull();
 
@@ -491,16 +584,16 @@ describe("pages built from slots", () => {
         expect(screen.getByText("No apps match “zzz”.")).toBeInTheDocument();
       });
 
-      it("stays silent while the UI config has not arrived", async () => {
+      it("stays silent while launcher.links has not arrived, and speaks once it has", async () => {
         const user = userEvent.setup();
-        stubFetch({ "GET /api/config": () => new Promise(() => {}) });
-        renderWith(<AppsPage />, {
-          queryClient: new QueryClient({ defaultOptions: { queries: { retry: false } } }),
-        });
+        renderApp(<AppsPage />);
         stream.plugins(shimRows());
         stream.send("apps", apps());
         await user.type(screen.getByRole("searchbox"), "zzz");
-        expect(screen.queryByText(/No apps match/)).toBeNull();
+        expect(screen.queryByText(/No apps match/)).toBeNull(); // the links are not known yet
+
+        sendLauncher();
+        expect(screen.getByText("No apps match “zzz”.")).toBeInTheDocument();
       });
     });
 
@@ -518,20 +611,16 @@ describe("pages built from slots", () => {
       });
 
       it("says the launcher file is empty when its plugin is on but lists no links", () => {
-        const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-        queryClient.setQueryData(["config"], { hostModel: "", launcher: [] });
-        renderWith(<AppsPage />, { queryClient });
+        renderApp(<AppsPage />);
         stream.plugins(withState(shimRows(), "kubernetes", "disabled"));
+        sendLauncher({ links: [] });
         expect(screen.getByText(/Nothing to launch/)).toHaveTextContent(
           "and the launcher plugin (the infrastructure links) lists no links.",
         );
       });
 
       it("says nothing while the plugin list is loading, and goes away when a plugin returns", () => {
-        stubFetch({
-          "GET /api/config": config,
-          "GET /api/v1/plugins": () => new Promise(() => {}),
-        });
+        stubFetch({ "GET /api/v1/plugins": () => new Promise(() => {}) });
         renderApp(<AppsPage />);
         expect(screen.queryByText(/Nothing to launch/)).toBeNull();
 
@@ -540,6 +629,7 @@ describe("pages built from slots", () => {
         expect(screen.getByText(/Nothing to launch/)).toBeInTheDocument();
 
         stream.plugins(withState(rows, "launcher", "healthy"));
+        sendLauncher();
         expect(screen.queryByText(/Nothing to launch/)).toBeNull();
         expect(screen.getByRole("heading", { name: /^Infrastructure/ })).toBeInTheDocument();
       });
@@ -556,6 +646,46 @@ describe("pages built from slots", () => {
       stream.plugins(shimRows());
       stream.send("apps", apps(), [DOWN]);
       expect(screen.getAllByText(/source unreachable: kubernetes/)).toHaveLength(1);
+    });
+  });
+
+  describe("Hardware", () => {
+    const host = (model: string) =>
+      ({
+        model,
+        name: "pve-demo",
+        uptimeSeconds: 3600,
+        pveVersion: "9.0.11",
+        kernel: "",
+        cpuModel: "",
+        cpuRatio: 0.1,
+        memUsedBytes: 1,
+        memTotalBytes: 2,
+        powerWatts: 200,
+        packageTempsC: [],
+        sensors: [],
+        fans: [],
+        psus: [],
+        pools: [],
+        disks: [],
+        selFreeBytes: 0,
+        scrubTracked: false,
+        links: [],
+      }) as unknown as HostData;
+
+    it("shows the model the host topic carries next to the host's name", () => {
+      renderApp(<HardwarePage />);
+      stream.plugins(shimRows());
+      stream.send("host", host("Dell R730"));
+      expect(screen.getByText("pve-demo · Dell R730")).toBeInTheDocument();
+    });
+
+    it("shows only the name when no model is configured", () => {
+      renderApp(<HardwarePage />);
+      stream.plugins(shimRows());
+      stream.send("host", host(""));
+      expect(screen.getByText("pve-demo")).toBeInTheDocument();
+      expect(screen.queryByText(/pve-demo ·/)).toBeNull();
     });
   });
 });

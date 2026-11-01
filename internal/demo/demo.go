@@ -12,7 +12,6 @@ import (
 
 	"github.com/TechDufus/dash/internal/config"
 	"github.com/TechDufus/dash/internal/demo/world"
-	"github.com/TechDufus/dash/internal/links"
 	"github.com/TechDufus/dash/internal/model"
 	"github.com/TechDufus/dash/internal/plugin"
 	"github.com/TechDufus/dash/internal/topics"
@@ -22,16 +21,12 @@ import (
 // tick is how often the fixtures drift, so the UI looks live.
 const tick = 5 * time.Second
 
-// Config points every deep link and launcher entry at example.com and names the fake host.
+// Config points the Proxmox link at example.com and names the fake host. The links into Grafana
+// and Headlamp, and the launcher, are those of the plugins' demo twins (world.GrafanaURL, …).
 func Config(cfg config.Config) config.Config {
 	cfg.ProxmoxURL = "https://pve.example.com:8006"
 	cfg.ProxmoxNode = world.HostName
 	cfg.HostNodename = world.HostName
-	cfg.HeadlampURL = "https://headlamp.example.com"
-	cfg.HeadlampCluster = "demo"
-	cfg.GrafanaURL = "https://grafana.example.com"
-	cfg.HostModel = "Dell R730"
-	cfg.Launcher = world.Launcher().Links
 	return cfg
 }
 
@@ -50,7 +45,7 @@ type Source struct {
 // New returns a Source anchored at the current time. Call Plugins before Run.
 func New(cfg config.Config) *Source {
 	s := &Source{start: time.Now(), now: time.Now}
-	s.world = world.New(func() time.Time { return s.now() }, s.start, links.New(cfg))
+	s.world = world.New(func() time.Time { return s.now() }, s.start, newLinks(cfg))
 	return s
 }
 

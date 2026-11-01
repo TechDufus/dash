@@ -163,7 +163,7 @@ func (m *Manager) buildPod(p *corev1.Pod, usage usageSnap, res kube.Resolver, no
 		ReadyContainers: ready, TotalContainers: len(p.Spec.Containers), Restarts: restarts, Node: p.Spec.NodeName,
 		CreatedAt: p.CreationTimestamp.UTC(),
 		Health:    PodHealth(string(p.Status.Phase), waitingReasons(p), p.CreationTimestamp.Time, now),
-		Links:     m.d.Links.Headlamp("Pod", p.Namespace, p.Name),
+		Links:     m.link("Pod", p.Namespace, p.Name),
 	}
 	key := p.Namespace + "/" + p.Name
 	if v, ok := usage.podCPU[key]; ok {
@@ -215,7 +215,7 @@ func (m *Manager) buildCluster(now time.Time) model.ClusterData {
 		out.Nodes = append(out.Nodes, model.Node{
 			Name: n.Name, IP: ip, Ready: nodeReady(n.Status.Conditions), KubeletVersion: n.Status.NodeInfo.KubeletVersion,
 			CPURatio: usage.nodeCPU[inst], MemRatio: usage.nodeMem[inst], Pods: podsPerNode[n.Name],
-			Links: m.d.Links.Headlamp("Node", "", n.Name),
+			Links: m.link("Node", "", n.Name),
 		})
 	}
 	sort.Slice(out.Nodes, func(i, j int) bool { return out.Nodes[i].Name < out.Nodes[j].Name })
@@ -277,7 +277,7 @@ func (m *Manager) buildCluster(now time.Time) model.ClusterData {
 
 	for _, u := range c.List(kube.GVRCertificates) {
 		cert := model.Cert{Namespace: u.GetNamespace(), Name: u.GetName(), Ready: conditionTrue(u, "Ready"),
-			Links: m.d.Links.Headlamp("Certificate", u.GetNamespace(), u.GetName())}
+			Links: m.link("Certificate", u.GetNamespace(), u.GetName())}
 		if s, ok, _ := unstructured.NestedString(u.Object, "status", "notAfter"); ok {
 			if t, err := time.Parse(time.RFC3339, s); err == nil {
 				cert.NotAfter = new(t.UTC())
@@ -315,7 +315,7 @@ func (m *Manager) buildWorkloads(infos map[string]nsInfo) []model.Workload {
 		}
 		out = append(out, model.Workload{
 			Kind: kind, Namespace: ns, Name: name, Ready: ready, Desired: desired, Images: images, Health: h,
-			Restartable: restartable, Protected: infos[ns].protected, Links: m.d.Links.Headlamp(string(kind), ns, name),
+			Restartable: restartable, Protected: infos[ns].protected, Links: m.link(string(kind), ns, name),
 		})
 	}
 	for _, d := range c.ListDeployments() {

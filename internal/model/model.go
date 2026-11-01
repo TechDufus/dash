@@ -49,6 +49,9 @@ const (
 	TopicAlerts   Topic = "alerts"
 	TopicStatus   Topic = "status"
 	TopicApps     Topic = "apps"
+	// TopicLauncherLinks is the launcher's infrastructure links (LauncherData), published by the
+	// launcher plugin.
+	TopicLauncherLinks Topic = "launcher.links"
 	// TopicPlugins is the status of every plugin instance (PluginsData), published by the
 	// plugin supervisor. The core.* names belong to dash itself, not to a plugin.
 	TopicPlugins Topic = "core.plugins"
@@ -211,8 +214,8 @@ type Disk struct {
 }
 
 type HostData struct {
-	// Model is shown next to the host's name, e.g. "Dell R730"; empty shows nothing. It replaces
-	// UIConfig.HostModel.
+	// Model is shown next to the host's name, e.g. "Dell R730"; empty shows nothing. The topic
+	// manager fills it from plugins.hardware.hosts[0].model.
 	Model         string    `json:"model"`
 	Name          string    `json:"name"`
 	UptimeSeconds int64     `json:"uptimeSeconds"`
@@ -675,8 +678,9 @@ type Me struct {
 
 // MeUI is the site configuration the SPA reads once with /me.
 type MeUI struct {
-	// IconBaseURL resolves icon names and is the only origin icon URLs may come from
-	// (ui.iconBaseURL). The JSON key is iconBaseUrl: the API document is linted for camelCase.
+	// IconBaseURL resolves the icon names of launcher links and is the only origin an absolute
+	// launcher icon URL may come from (ui.iconBaseURL). The JSON key is iconBaseUrl: the API
+	// document is linted for camelCase.
 	IconBaseURL string `json:"iconBaseUrl"`
 }
 
@@ -700,13 +704,6 @@ type LauncherLink struct {
 	// Icon is a dashboard-icons name (e.g. "proxmox") or an image URL; empty shows a generic icon.
 	Icon        string `json:"icon"`
 	Description string `json:"description"`
-}
-
-// UIConfig is GET /api/config: the site-specific bits of the UI.
-type UIConfig struct {
-	// HostModel is shown next to the host's name, e.g. "Dell R730"; empty shows nothing.
-	HostModel string         `json:"hostModel"`
-	Launcher  []LauncherLink `json:"launcher"`
 }
 
 // RestartRequest is the body of POST /api/actions/restart.

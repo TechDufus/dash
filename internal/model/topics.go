@@ -7,15 +7,16 @@ import "reflect"
 // they come from its manifest (plugin.TopicSpec.Type).
 func TopicTypes() map[Topic]reflect.Type {
 	return map[Topic]reflect.Type{
-		TopicPlugins:  reflect.TypeFor[PluginsData](),
-		TopicOverview: reflect.TypeFor[OverviewData](),
-		TopicHost:     reflect.TypeFor[HostData](),
-		TopicVMs:      reflect.TypeFor[VMsData](),
-		TopicCluster:  reflect.TypeFor[ClusterData](),
-		TopicFlux:     reflect.TypeFor[FluxData](),
-		TopicStorage:  reflect.TypeFor[StorageData](),
-		TopicAlerts:   reflect.TypeFor[AlertsData](),
-		TopicStatus:   reflect.TypeFor[StatusData](),
-		TopicApps:     reflect.TypeFor[AppsData](),
+		TopicPlugins:       reflect.TypeFor[PluginsData](),
+		TopicOverview:      reflect.TypeFor[OverviewData](),
+		TopicHost:          reflect.TypeFor[HostData](),
+		TopicVMs:           reflect.TypeFor[VMsData](),
+		TopicCluster:       reflect.TypeFor[ClusterData](),
+		TopicFlux:          reflect.TypeFor[FluxData](),
+		TopicStorage:       reflect.TypeFor[StorageData](),
+		TopicAlerts:        reflect.TypeFor[AlertsData](),
+		TopicStatus:        reflect.TypeFor[StatusData](),
+		TopicApps:          reflect.TypeFor[AppsData](),
+		TopicLauncherLinks: reflect.TypeFor[LauncherData](),
 	}
 }

@@ -24,7 +24,17 @@ type AttentionInput struct {
 	Status  model.StatusData
 	Host    model.HostData
 	Links   *links.Builder
-	Now     time.Time
+	// Resolver resolves the Grafana and Headlamp links of the rules' objects; nil means none.
+	Resolver plugin.LinkResolver
+	Now      time.Time
+}
+
+// link is the links of one object into the tools whose plugins run: never nil.
+func (in AttentionInput) link(kind, namespace, name string) []model.Link {
+	if in.Resolver == nil {
+		return []model.Link{}
+	}
+	return in.Resolver.Resolve(plugin.LinkRequest{Kind: kind, Namespace: namespace, Name: name})
 }
 
 // Tracker remembers when an attention item was first seen, for items without a natural time.
@@ -145,7 +155,7 @@ func attentionAlerts(in AttentionInput, add addFn) {
 			detail = a.Description
 		}
 		add("alert:"+a.Fingerprint, sev, "alertmanager", a.Name, detail, a.StartsAt, "/alerts",
-			in.Links.GrafanaAlerts())
+			in.link("Alerts", "", ""))
 	}
 }
 
@@ -155,13 +165,13 @@ func attentionFlux(in AttentionInput, add addFn) {
 			id := fmt.Sprintf("flux:%s/%s/%s", o.Kind, o.Namespace, o.Name)
 			if !o.Ready && !o.Suspended {
 				add(id, model.HealthWarn, "flux", fmt.Sprintf("%s %s/%s not ready", o.Kind, o.Namespace, o.Name),
-					firstLine(o.Message), deref(o.LastTransition), "/gitops", in.Links.Headlamp(string(o.Kind), o.Namespace, o.Name))
+					firstLine(o.Message), deref(o.LastTransition), "/gitops", in.link(string(o.Kind), o.Namespace, o.Name))
 			}
 			if o.Kind == model.FluxKindGitRepository && o.Namespace == "flux-system" && o.Name == "flux-system" &&
 				(o.Verified == nil || !*o.Verified) {
 				add("flux:source-unverified", model.HealthCrit, "flux", "flux-system source signature not verified",
 					"GitRepository flux-system/flux-system SourceVerified is not True", deref(o.LastTransition), "/gitops",
-					in.Links.Headlamp(string(o.Kind), o.Namespace, o.Name))
+					in.link(string(o.Kind), o.Namespace, o.Name))
 			}
 		}
 	}

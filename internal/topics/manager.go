@@ -10,6 +10,7 @@ import (
 	"log/slog"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/TechDufus/dash/internal/config"
@@ -31,7 +32,9 @@ type Deps struct {
 	AM      *upstream.Alertmanager
 	Gatus   *upstream.Gatus
 	PVE     *upstream.Proxmox
-	Links   *links.Builder
+	// Links builds the Proxmox links (VM console, host shell, Proxmox UI). The links into
+	// Headlamp and Grafana come from LinkProviders.
+	Links *links.Builder
 	// Hosts hands out the Host each topic is published through, and says which plugins run.
 	Hosts plugin.HostProvider
 	// Contributors lists the running plugins that add to the overview (Supervisor.Contributors);
@@ -42,8 +45,8 @@ type Deps struct {
 	// concrete clients, which each plugin's migration replaces with an accessor over it (querier
 	// for prometheus). nil means no plugin exports anything.
 	Services func(id plugin.ID) (any, bool)
-	// LinkProviders is Supervisor.Links: the resolver over the running link providers, read once
-	// per rebuild. nil means none. Links stays the concrete builder until the providers take over.
+	// LinkProviders is Supervisor.Links: the resolver over the running link providers (grafana,
+	// headlamp), read once per rebuild. nil means none: no Grafana or Headlamp link is built.
 	LinkProviders func() plugin.LinkResolver
 	// Secrets scrubs logged upstream errors; nil only matches credential shapes.
 	Secrets *secret.Registry
@@ -86,6 +89,7 @@ type Manager struct {
 	status  []model.Endpoint
 
 	built   built
+	linkSet atomic.Pointer[plugin.LinkResolver] // the provider snapshot of the running rebuild
 	tracker *Tracker
 
 	dmu   sync.Mutex
@@ -339,6 +343,29 @@ func (m *Manager) polledKeys(keys []string) []string {
 	return out
 }
 
+// resolver is the link resolver of the running rebuild: one snapshot of the providers per
+// rebuild, not one per object. Outside a rebuild (a builder called on its own) it reads them
+// afresh.
+func (m *Manager) resolver() plugin.LinkResolver {
+	if r := m.linkSet.Load(); r != nil {
+		return *r
+	}
+	return m.providers()
+}
+
+// providers reads the running link providers; none when the Manager has no supervisor.
+func (m *Manager) providers() plugin.LinkResolver {
+	if m.d.LinkProviders == nil {
+		return plugin.NoLinks
+	}
+	return m.d.LinkProviders()
+}
+
+// link is the links of one object into Grafana and Headlamp: always a non-nil slice.
+func (m *Manager) link(kind, namespace, name string) []model.Link {
+	return m.resolver().Resolve(plugin.LinkRequest{Kind: kind, Namespace: namespace, Name: name})
+}
+
 // rebuild rebuilds every dirty topic whose prerequisites are ready, then composes the overview
 // from what exists. The overview waits for no topic: it is recomposed after any change, and on
 // every round while a plugin contributes to it (the hub drops an unchanged result).
@@ -351,6 +378,9 @@ func (m *Manager) rebuild() {
 	if len(dirty) == 0 && len(contributors) == 0 {
 		return
 	}
+	snap := m.providers()
+	m.linkSet.Store(&snap)
+	defer m.linkSet.Store(nil)
 	synced := m.d.Cluster.HasSynced()
 	retry := func(t model.Topic) { m.mark(t) }
 	now := m.now()

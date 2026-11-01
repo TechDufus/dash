@@ -37,7 +37,8 @@ https://dash.home.techdufus.com.
 - **Live, not polled from the browser.** Informers and upstream pollers rebuild the topics
   (`host`, `vms`, `cluster`, `flux`, `storage`, `alerts`, `status`, `apps`), the core composes
   `core.overview` from what the integrations contribute, and only what changed goes out over a
-  single SSE stream. `core.plugins` says which integrations run and whether each is healthy.
+  single SSE stream. `core.plugins` says which integrations run and whether each is healthy; the
+  launcher plugin publishes its links as `launcher.links`.
 - **Proxmox and the hardware.** VMs with their Kubernetes node, config, snapshots and charts;
   IPMI power, temperatures, fans and PSUs; ZFS pools and per-bay SMART health.
 - **Kubernetes and GitOps.** Nodes, workloads, pods with logs and metrics, events, namespaces,
@@ -182,9 +183,10 @@ restart with `DASH_PLUGINS_PROXMOX_TOKEN_SECRET_FILE`.
 | `plugins.proxmox.url` | required with a token | Proxmox API |
 | `plugins.proxmox.node` | discovered from the API when the cluster has one node | the node to read; set it for multi-node clusters or to skip discovery |
 | `plugins.hardware.hosts` | empty | `[{nodename, model}]`, one entry for now: `nodename` is the label of the host's node-exporter and IPMI series (default: `plugins.proxmox.node`, or the discovered node), `model` is shown next to its name, e.g. `Dell R730` |
-| `plugins.headlamp.url`, `.cluster` | empty, `main` | Headlamp deep links |
-| `plugins.grafana.url` | empty | Grafana links |
-| `plugins.launcher.file`, `.links` | empty | the launcher's links, from a YAML file or inline (not both) |
+| `plugins.headlamp.url`, `.cluster` | empty, `main` | Headlamp deep links; a change applies without a restart |
+| `plugins.grafana.url` | empty | Grafana links (the alert list on alerts, Grafana on the host); a change applies without a restart |
+| `plugins.launcher.file`, `.links` | empty | the launcher's links, from a YAML or JSON file or inline (not both); the file is read when the launcher starts, so restart dash or change the launcher's settings to read it again |
+| `ui.iconBaseURL` (`DASH_UI_ICON_BASE_URL`) | empty (letter tiles) | where the icons of launcher links come from: a name such as `proxmox` is requested from `<iconBaseURL>/proxmox.png`, an absolute icon URL is used only under it. It covers the launcher only: the icons of apps on the Apps page still come from the CDN URL dash builds. Set it to `https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/png` to keep launcher icons by name; a restart applies it |
 | `plugins.kubernetes.kubeconfig` | in-cluster | used outside the cluster; `KUBECONFIG` is honoured too, as it is, with no `_FILE` form |
 | `plugins.<id>.enabled` | unset (on) | `false` turns that plugin off (a restart applies it): its topics are removed, and the web UI drops its rail entry, palette entries, overview tiles and panels and shows a "switched off" page at its address. The Kubernetes connection is required whichever plugins are off. Unset leaves it on: a plugin without its settings reports itself unavailable ("not configured"), and the web UI hides its pages |
 | `plugins.<id>.type` | the section name | the plugin type; dash runs one instance per type, so leave it unset or equal to the section name |
@@ -199,9 +201,12 @@ without the data and logs a WARN.
 loopback peer (`kubectl port-forward`, a shell in the pod); any other peer gets the plain body.
 
 The launcher is a list of `name`, `href`, `icon` and `description`; `icon` is a
-[dashboard-icons](https://github.com/homarr-labs/dashboard-icons) name or an image URL. Mount a
-file from a ConfigMap and point `plugins.launcher.file` at it, or list the links in
-`plugins.launcher.links`. See [`docs/launcher.example.yaml`](docs/launcher.example.yaml).
+[dashboard-icons](https://github.com/homarr-labs/dashboard-icons) name (shown from
+`ui.iconBaseURL`; without it, a letter tile), a same-origin path, or an image URL under
+`ui.iconBaseURL`. Mount a file from a ConfigMap and point `plugins.launcher.file` at it, or list
+the links in `plugins.launcher.links`. An unreadable file makes the launcher plugin report `error`
+(dash still starts); an invalid link in `plugins.launcher.links` is refused when the configuration
+loads. See [`docs/launcher.example.yaml`](docs/launcher.example.yaml).
 
 dash also reads a few labels, annotations and metric names from the cluster. None has a default:
 while one is empty, the feature that depends on it is off.
@@ -304,8 +309,8 @@ The public API is under `/api/v1` (`me`, `stream`, `series`, `topics/<topic>`, `
 by [docs/api/openapi.json](docs/api/openapi.json), an OpenAPI 3.1 document generated from the code
 (`dash api openapi`; `make generate` rewrites it and `make check` fails when it drifts or does
 not lint). The SPA uses the same paths. Before 1.0 a breaking change to them is called out in
-the release notes. The unversioned `/api/config`, `/api/vms`, `/api/pods`, `/api/logs`,
-`/api/actions` and `/api/silences` routes are internal to the SPA and go away as their plugins
+the release notes. The unversioned `/api/vms`, `/api/pods`, `/api/logs`, `/api/actions` and
+`/api/silences` routes are internal to the SPA and go away as their plugins
 move; `/api/me`, `/api/stream` and `/api/series` are now `/api/v1/me`, `/api/v1/stream` and
 `/api/v1/series`, and the old paths answer 404.
 
@@ -403,7 +408,7 @@ name wins), with no `_FILE` form because it is another tool's variable.
 | `internal/topics` | topic builders, health and attention rules, and the shims that stand for each integration in the plugin registry until it becomes a plugin |
 | `internal/hub`, `internal/api` | SSE hub, REST, middleware |
 | `internal/obs` | dash's own Prometheus metrics (`server.metrics`), in a private registry |
-| `internal/links` | Headlamp, Proxmox and Grafana deep links |
+| `internal/links` | Proxmox deep links (Headlamp and Grafana links come from their plugins) |
 | `internal/demo` | fake data for `DASH_DEMO=true`; `internal/demo/world` is the fake homelab the plugins' demo twins publish from |
 | `web/` | React 19, Vite, Tailwind v4, shadcn/ui and Magic UI |
 | `web/src/plugins` | the SPA's plugin modules, registry, slots and generic panels; a module's directory name is its plugin ID |

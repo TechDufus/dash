@@ -10,6 +10,9 @@ import (
 	"github.com/TechDufus/dash/internal/hub"
 	"github.com/TechDufus/dash/internal/plugin"
 	"github.com/TechDufus/dash/internal/pluginconf"
+	"github.com/TechDufus/dash/internal/plugins/grafana"
+	"github.com/TechDufus/dash/internal/plugins/headlamp"
+	"github.com/TechDufus/dash/internal/plugins/launcher"
 	"github.com/TechDufus/dash/internal/plugins/prometheus"
 	"github.com/TechDufus/dash/internal/secret"
 	"github.com/TechDufus/dash/internal/settings"
@@ -67,6 +70,9 @@ var displayOrder = []plugin.ID{
 // until then it is absent and the shim stands in.
 var realPlugins = map[plugin.ID]plugin.Factory{
 	"prometheus": prometheus.New,
+	"grafana":    grafana.New,
+	"headlamp":   headlamp.New,
+	"launcher":   launcher.New,
 }
 
 // hasRealPlugin reports whether id runs as a plugin of its own, so demo mode registers its twin

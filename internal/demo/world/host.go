@@ -29,7 +29,7 @@ func (w *World) host(now time.Time) model.HostData {
 	memTotal := gib(256)
 	memUsed := int64(float64(memTotal) * Around("hostmem", now, 0.41, 0.02))
 	h := model.HostData{
-		Name: HostName, UptimeSeconds: int64(now.Sub(w.start).Seconds()) + 38*86400,
+		Model: HostModel, Name: HostName, UptimeSeconds: int64(now.Sub(w.start).Seconds()) + 38*86400,
 		PVEVersion: "9.0.11", Kernel: "6.14.11-4-pve", CPUModel: "2 × Intel Xeon E5-2690 v4 @ 2.60GHz",
 		CPURatio: Around("hostcpu", now, 0.19, 0.07), MemUsedBytes: memUsed, MemTotalBytes: memTotal,
 		PowerWatts: power, PackageTempsC: temps, Sensors: sensors,

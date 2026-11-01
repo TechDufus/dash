@@ -14,8 +14,8 @@ import (
 // inline, not both.
 type Launcher struct {
 	PluginBase
-	File  string               `json:"file" doc:"Path of a YAML file with the launcher's links (see docs/launcher.example.yaml). Not together with links."`
-	Links []model.LauncherLink `json:"links" doc:"The launcher's links, inline: a list of {name, href, icon, description}. Not together with file."`
+	File  string               `json:"file" doc:"Path of a YAML or JSON file with the launcher's links (see docs/launcher.example.yaml). The file is read when the launcher starts: restart dash, or change the launcher's settings, to read it again; an unreadable file makes the launcher report an error. Not together with links."`
+	Links []model.LauncherLink `json:"links" doc:"The launcher's links, inline: a list of {name, href, icon, description}. icon is an icon name (resolved against ui.iconBaseURL; without it the link shows a letter tile), a same-origin path, or an image URL under ui.iconBaseURL. Not together with file."`
 }
 
 // Validate checks the static rules: file and links are not both set, and every inline link has a

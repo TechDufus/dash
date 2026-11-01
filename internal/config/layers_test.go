@@ -48,9 +48,12 @@ func TestUIValuesAreARealLayerBelowFileAndEnv(t *testing.T) {
 	})
 	const file = "plugins: {grafana: {url: 'https://grafana.file.example.com'}}\n"
 
+	urls := func(r *Resolved) (grafana, headlamp string) {
+		return r.Tree.Plugins.Grafana.URL, r.Tree.Plugins.Headlamp.URL
+	}
 	res, _ := resolveLayers(t, st, "")
-	if c := res.Config; c.GrafanaURL != "https://grafana.ui.example.com" || c.HeadlampURL != "https://headlamp.ui.example.com" {
-		t.Fatalf("stored values must apply: grafana %q headlamp %q", c.GrafanaURL, c.HeadlampURL)
+	if g, h := urls(res); g != "https://grafana.ui.example.com" || h != "https://headlamp.ui.example.com" {
+		t.Fatalf("stored values must apply: grafana %q headlamp %q", g, h)
 	}
 	if p := res.Provenance["plugins.grafana.url"]; p != (Provenance{SourceUI, st.Path()}) {
 		t.Errorf("provenance = %+v, want the store file", p)
@@ -58,12 +61,12 @@ func TestUIValuesAreARealLayerBelowFileAndEnv(t *testing.T) {
 
 	// A file value saved after the UI save wins, and the environment wins over both.
 	res, _ = resolveLayers(t, st, file)
-	if res.Config.GrafanaURL != "https://grafana.file.example.com" || res.Config.HeadlampURL != "https://headlamp.ui.example.com" {
-		t.Errorf("file over UI: grafana %q headlamp %q", res.Config.GrafanaURL, res.Config.HeadlampURL)
+	if g, h := urls(res); g != "https://grafana.file.example.com" || h != "https://headlamp.ui.example.com" {
+		t.Errorf("file over UI: grafana %q headlamp %q", g, h)
 	}
 	res, _ = resolveLayers(t, st, file, "DASH_PLUGINS_GRAFANA_URL=https://grafana.env.example.com", "DASH_PLUGINS_HEADLAMP_URL=https://headlamp.env.example.com")
-	if res.Config.GrafanaURL != "https://grafana.env.example.com" || res.Config.HeadlampURL != "https://headlamp.env.example.com" {
-		t.Errorf("env over file and UI: grafana %q headlamp %q", res.Config.GrafanaURL, res.Config.HeadlampURL)
+	if g, h := urls(res); g != "https://grafana.env.example.com" || h != "https://headlamp.env.example.com" {
+		t.Errorf("env over file and UI: grafana %q headlamp %q", g, h)
 	}
 	if p := res.Provenance["plugins.grafana.url"]; p != (Provenance{SourceEnv, "DASH_PLUGINS_GRAFANA_URL"}) {
 		t.Errorf("provenance = %+v", p)
@@ -71,8 +74,8 @@ func TestUIValuesAreARealLayerBelowFileAndEnv(t *testing.T) {
 
 	// Removing the file value reveals the stored one on the next resolution.
 	res, _ = resolveLayers(t, st, "")
-	if res.Config.GrafanaURL != "https://grafana.ui.example.com" {
-		t.Errorf("after the file value is gone: grafana %q, want the stored value", res.Config.GrafanaURL)
+	if g, _ := urls(res); g != "https://grafana.ui.example.com" {
+		t.Errorf("after the file value is gone: grafana %q, want the stored value", g)
 	}
 
 	// Nothing the file or the environment said was copied into the store.
@@ -113,8 +116,8 @@ func TestStoredValuesAtUIIneligiblePathsAreIgnored(t *testing.T) {
 	if c.Listen != "127.0.0.1:8080" || c.PublicURL != "http://localhost:5173" || c.SettingsUI != SettingsEditable || c.DataDir != "/data" {
 		t.Errorf("a stored value moved an ineligible field: %+v", c)
 	}
-	if c.GrafanaURL != "https://grafana.ui.example.com" {
-		t.Errorf("the eligible stored value was lost: %q", c.GrafanaURL)
+	if g := res.Tree.Plugins.Grafana.URL; g != "https://grafana.ui.example.com" {
+		t.Errorf("the eligible stored value was lost: %q", g)
 	}
 	for _, p := range []string{"server.listen", "server.publicURL", "settings.ui", "dataDir"} {
 		if !strings.Contains(log, "path="+p+" ") {

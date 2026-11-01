@@ -645,6 +645,35 @@
         ],
         "type": "object"
       },
+      "Envelope.launcher.links": {
+        "additionalProperties": false,
+        "description": "The envelope of the launcher.links topic.",
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/LauncherData"
+          },
+          "sources": {
+            "items": {
+              "$ref": "#/components/schemas/SourceStatus"
+            },
+            "type": "array"
+          },
+          "topic": {
+            "const": "launcher.links"
+          },
+          "updatedAt": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "data",
+          "sources",
+          "topic",
+          "updatedAt"
+        ],
+        "type": "object"
+      },
       "Envelope.status": {
         "additionalProperties": false,
         "description": "The envelope of the status topic.",
@@ -1075,6 +1104,36 @@
           },
           "worstPvc": {
             "$ref": "#/components/schemas/WorstPVC"
+          }
+        },
+        "type": "object"
+      },
+      "LauncherData": {
+        "additionalProperties": false,
+        "properties": {
+          "links": {
+            "items": {
+              "$ref": "#/components/schemas/LauncherLink"
+            },
+            "type": "array"
+          }
+        },
+        "type": "object"
+      },
+      "LauncherLink": {
+        "additionalProperties": false,
+        "properties": {
+          "description": {
+            "type": "string"
+          },
+          "href": {
+            "type": "string"
+          },
+          "icon": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
           }
         },
         "type": "object"
@@ -2253,6 +2312,9 @@
                     },
                     {
                       "$ref": "#/components/schemas/Envelope.host"
+                    },
+                    {
+                      "$ref": "#/components/schemas/Envelope.launcher.links"
                     },
                     {
                       "$ref": "#/components/schemas/Envelope.status"

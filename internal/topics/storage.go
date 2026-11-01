@@ -85,7 +85,7 @@ func (m *Manager) buildStorage(now time.Time) model.StorageData {
 		key := p.Namespace + "/" + p.Name
 		pvc := model.PVC{
 			Namespace: p.Namespace, Name: p.Name, Phase: string(p.Status.Phase), Health: model.HealthOK,
-			Links: m.d.Links.Headlamp("PersistentVolumeClaim", p.Namespace, p.Name),
+			Links: m.link("PersistentVolumeClaim", p.Namespace, p.Name),
 		}
 		if p.Spec.StorageClassName != nil {
 			pvc.StorageClass = *p.Spec.StorageClassName
@@ -142,7 +142,7 @@ func (m *Manager) buildStorage(now time.Time) model.StorageData {
 
 	for _, u := range m.d.Cluster.List(kube.GVRCNPGClusters) {
 		c := model.CNPGCluster{Namespace: u.GetNamespace(), Name: u.GetName(),
-			Links: m.d.Links.Headlamp("Cluster", u.GetNamespace(), u.GetName())}
+			Links: m.link("Cluster", u.GetNamespace(), u.GetName())}
 		if n, ok, _ := unstructured.NestedInt64(u.Object, "status", "instances"); ok {
 			c.Instances = int(n)
 		} else if n, ok, _ := unstructured.NestedInt64(u.Object, "spec", "instances"); ok {

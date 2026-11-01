@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/TechDufus/dash/internal/config"
+	"github.com/TechDufus/dash/internal/pluginconf"
 )
 
 // errConfigInvalid makes `dash config validate` exit 1; the report it printed says why.
@@ -101,9 +102,10 @@ func configValidate(args []string, out io.Writer) error {
 		},
 	}))
 
-	// The checks startup adds around Resolve (loadConfig): the secret keys, and the launcher file.
-	// A key file and the launcher file are files that may exist only where dash runs, so they
-	// are read only with --resolve-secrets; the rest of the key rules apply either way.
+	// The checks startup adds around Resolve (loadConfig): the secret keys. A key file and the
+	// launcher file are files that may exist only where dash runs, so they are read only with
+	// --resolve-secrets (the launcher plugin reads its file at Start; this reads it now); the
+	// rest of the key rules apply either way.
 	var keyErr error
 	if resolveSecrets {
 		_, keyErr = config.SecretKeys(src.Environ, nil)
@@ -112,7 +114,9 @@ func configValidate(args []string, out io.Writer) error {
 	}
 	res, resErr := config.Resolve(src)
 	if resErr == nil && resolveSecrets {
-		resErr = res.LoadLauncherFile()
+		if f := res.Tree.Plugins.Launcher.File; f != "" {
+			_, resErr = pluginconf.LoadLauncher(f)
+		}
 	}
 	if err := errors.Join(keyErr, resErr); err != nil {
 		printWarnings(out, &warnings)

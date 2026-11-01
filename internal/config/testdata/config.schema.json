@@ -201,7 +201,7 @@
           "type": "string"
         },
         "url": {
-          "description": "Base URL of the service, e.g. http://host:9090. Empty turns the source off: dash makes no request and its panels show \"source not configured\".",
+          "description": "Base URL of Grafana, e.g. https://grafana.example.com. Adds a link to Grafana's alert list on alerts and to Grafana on the host. Empty turns the Grafana links off.",
           "format": "uri",
           "type": "string"
         }
@@ -326,11 +326,11 @@
           "type": "boolean"
         },
         "file": {
-          "description": "Path of a YAML file with the launcher's links (see docs/launcher.example.yaml). Not together with links.",
+          "description": "Path of a YAML or JSON file with the launcher's links (see docs/launcher.example.yaml). The file is read when the launcher starts: restart dash, or change the launcher's settings, to read it again; an unreadable file makes the launcher report an error. Not together with links.",
           "type": "string"
         },
         "links": {
-          "description": "The launcher's links, inline: a list of {name, href, icon, description}. Not together with file.",
+          "description": "The launcher's links, inline: a list of {name, href, icon, description}. icon is an icon name (resolved against ui.iconBaseURL; without it the link shows a letter tile), a same-origin path, or an image URL under ui.iconBaseURL. Not together with file.",
           "items": {
             "$ref": "#/$defs/LauncherLink"
           },
@@ -677,7 +677,7 @@
       "additionalProperties": false,
       "properties": {
         "iconBaseURL": {
-          "description": "Where icon names resolve: an icon called proxmox is requested from <iconBaseURL>/proxmox.png, and an icon URL is only used when it lies under this URL. An http(s) URL with a host, without query or fragment, e.g. https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/png. Empty requests no icon from any third party: an icon name shows a letter tile.",
+          "description": "Where the icons of launcher links resolve: a launcher icon called proxmox is requested from <iconBaseURL>/proxmox.png, and an absolute icon URL on a launcher link is used only when it lies under this URL. App icons on the Apps page are not affected in this release: they still come from the server-built CDN URL until a later release. An http(s) URL with a host, without query or fragment, e.g. https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/png. Empty (the default) shows letter tiles for launcher links, so the launcher makes no third-party request.",
           "format": "uri",
           "type": "string",
           "x-dash-restart": true

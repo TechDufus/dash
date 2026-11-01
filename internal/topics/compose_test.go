@@ -230,7 +230,7 @@ func TestPanickingContributorDoesNotStopTheOverview(t *testing.T) {
 
 // Each legacy rule's items name the plugin that owns the source (design A.7).
 func TestAttentionItemsCarryPlugin(t *testing.T) {
-	m := goldenManager()
+	m := goldenManager(t)
 	items := m.buildOverview(goldenSnapshots(), nil, testNow).Attention
 	want := map[string]string{
 		"alert:f1": "alertmanager", "flux:source-unverified": "flux", "flux:Kustomization/flux-system/apps": "flux",

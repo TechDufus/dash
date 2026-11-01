@@ -53,7 +53,7 @@ func TestReloadedSecretReachesTheProxmoxClientWhileReadinessHolds(t *testing.T) 
 	pve := newFakePVE(t, always(200, nodesBody("pve")))
 	dir := t.TempDir()
 	cfgPath, tokenPath := filepath.Join(dir, "config.yaml"), filepath.Join(dir, "token")
-	writeTestFile(t, cfgPath, "plugins:\n  headlamp:\n    url: https://hl-a.example.com\n")
+	writeTestFile(t, cfgPath, "plugins:\n  flux:\n    suspendReasonAnnotation: example.com/a\n")
 	writeTestFile(t, tokenPath, "token-one-0123456789\n")
 	startEnv(t, dir,
 		"DASH_CONFIG="+cfgPath, "DASH_PLUGINS_PROXMOX_URL="+pve.URL, `DASH_SERVER_READY_REQUIRES=["kubernetes"]`,
@@ -118,7 +118,7 @@ func TestReloadedSecretReachesTheProxmoxClientWhileReadinessHolds(t *testing.T) 
 	// An invalid config file, then a rotated secret: while the file stays invalid, the rotation
 	// is refused with it. The token is rotated only once the reloader has seen the invalid
 	// file; a tick that read the old file before both writes could otherwise apply the rotation.
-	writeTestFile(t, cfgPath, "plugins:\n  headlamp:\n    urll: https://hl-b.example.com\n")
+	writeTestFile(t, cfgPath, "plugins:\n  flux:\n    suspendReasonAnnotationn: example.com/b\n")
 	waitFor(t, func() bool { return strings.Contains(logs.String(), "configuration reload failed") })
 	writeTestFile(t, tokenPath, "token-two-9876543210\n")
 	time.Sleep(20 * time.Millisecond) // many ticks at 1 ms
@@ -127,7 +127,7 @@ func TestReloadedSecretReachesTheProxmoxClientWhileReadinessHolds(t *testing.T) 
 	}
 
 	// Fixed: the rotation applies live, the changed URL is flagged for a restart.
-	writeTestFile(t, cfgPath, "plugins:\n  headlamp:\n    url: https://hl-b.example.com\n")
+	writeTestFile(t, cfgPath, "plugins:\n  flux:\n    suspendReasonAnnotation: example.com/b\n")
 	seen := map[string]bool{}
 	for len(seen) < 2 {
 		select {
@@ -137,13 +137,13 @@ func TestReloadedSecretReachesTheProxmoxClientWhileReadinessHolds(t *testing.T) 
 			t.Fatalf("change events so far: %v\n%s", seen, logs.String())
 		}
 	}
-	if !seen["plugins.proxmox"] || !seen["plugins.headlamp"] {
+	if !seen["plugins.proxmox"] || !seen["plugins.flux"] {
 		t.Errorf("sections = %v", seen)
 	}
 	if got := lastAuth(); !strings.HasSuffix(got, "=token-two-9876543210") || ready() != 200 {
 		t.Errorf("after the reload: %q, ready %d", got, ready())
 	}
-	if r := reloader.RestartRequired(); len(r) != 1 || r[0] != "plugins.headlamp.url" {
+	if r := reloader.RestartRequired(); len(r) != 1 || r[0] != "plugins.flux.suspendReasonAnnotation" {
 		t.Errorf("restart required = %v", r)
 	}
 	for _, s := range []string{"token-one-0123456789", "token-two-9876543210"} {

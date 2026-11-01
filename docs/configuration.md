@@ -65,7 +65,7 @@ What the web UI is told by the server.
 
 | Setting | Variable | Type | Default | Description |
 |---|---|---|---|---|
-| `ui.iconBaseURL` | `DASH_UI_ICON_BASE_URL` | string | - | Where icon names resolve: an icon called proxmox is requested from <iconBaseURL>/proxmox.png, and an icon URL is only used when it lies under this URL. An http(s) URL with a host, without query or fragment, e.g. https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/png. Empty requests no icon from any third party: an icon name shows a letter tile. _Restart-only._ |
+| `ui.iconBaseURL` | `DASH_UI_ICON_BASE_URL` | string | - | Where the icons of launcher links resolve: a launcher icon called proxmox is requested from <iconBaseURL>/proxmox.png, and an absolute icon URL on a launcher link is used only when it lies under this URL. App icons on the Apps page are not affected in this release: they still come from the server-built CDN URL until a later release. An http(s) URL with a host, without query or fragment, e.g. https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/png. Empty (the default) shows letter tiles for launcher links, so the launcher makes no third-party request. _Restart-only._ |
 
 ## `plugins.prometheus`
 
@@ -282,7 +282,7 @@ Grafana: links to dashboards.
 |---|---|---|---|---|
 | `plugins.grafana.type` | `DASH_PLUGINS_GRAFANA_TYPE` | string | - | The plugin type. dash runs one instance per type, so this is empty or the section name. |
 | `plugins.grafana.enabled` | `DASH_PLUGINS_GRAFANA_ENABLED` | boolean | - | false turns the plugin off (a restart applies it): its topics are removed, and the web UI drops its rail entry, palette entries, overview tiles and panels and shows a switched-off page at its address. The Kubernetes connection is required whichever plugins are off. Unset leaves it on: a plugin without its settings reports itself unavailable (not configured), and the web UI hides its pages. |
-| `plugins.grafana.url` | `DASH_PLUGINS_GRAFANA_URL` | string | - | Base URL of the service, e.g. http://host:9090. Empty turns the source off: dash makes no request and its panels show "source not configured". |
+| `plugins.grafana.url` | `DASH_PLUGINS_GRAFANA_URL` | string | - | Base URL of Grafana, e.g. https://grafana.example.com. Adds a link to Grafana's alert list on alerts and to Grafana on the host. Empty turns the Grafana links off. |
 
 ## `plugins.launcher`
 
@@ -292,8 +292,8 @@ The launcher: links to your infrastructure.
 |---|---|---|---|---|
 | `plugins.launcher.type` | `DASH_PLUGINS_LAUNCHER_TYPE` | string | - | The plugin type. dash runs one instance per type, so this is empty or the section name. |
 | `plugins.launcher.enabled` | `DASH_PLUGINS_LAUNCHER_ENABLED` | boolean | - | false turns the plugin off (a restart applies it): its topics are removed, and the web UI drops its rail entry, palette entries, overview tiles and panels and shows a switched-off page at its address. The Kubernetes connection is required whichever plugins are off. Unset leaves it on: a plugin without its settings reports itself unavailable (not configured), and the web UI hides its pages. |
-| `plugins.launcher.file` | `DASH_PLUGINS_LAUNCHER_FILE` | string | - | Path of a YAML file with the launcher's links (see docs/launcher.example.yaml). Not together with links. |
-| `plugins.launcher.links` | `DASH_PLUGINS_LAUNCHER_LINKS` | list of objects (JSON) | - | The launcher's links, inline: a list of {name, href, icon, description}. Not together with file. |
+| `plugins.launcher.file` | `DASH_PLUGINS_LAUNCHER_FILE` | string | - | Path of a YAML or JSON file with the launcher's links (see docs/launcher.example.yaml). The file is read when the launcher starts: restart dash, or change the launcher's settings, to read it again; an unreadable file makes the launcher report an error. Not together with links. |
+| `plugins.launcher.links` | `DASH_PLUGINS_LAUNCHER_LINKS` | list of objects (JSON) | - | The launcher's links, inline: a list of {name, href, icon, description}. icon is an icon name (resolved against ui.iconBaseURL; without it the link shows a letter tile), a same-origin path, or an image URL under ui.iconBaseURL. Not together with file. |
 
 ## `plugins.kubernetes`
 

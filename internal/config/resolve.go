@@ -70,8 +70,7 @@ type Resolved struct {
 	Tree Tree
 	// Provenance is keyed by dotted path (e.g. "plugins.proxmox.url"). Lists are one entry.
 	Provenance map[string]Provenance
-	// Config is the flat view of Tree. Its launcher file, if any, is not read yet
-	// (LoadLauncherFile does).
+	// Config is the flat view of Tree.
 	Config Config
 	// Keys is the keyring the resolution decrypted with, for writing and re-encrypting
 	// secrets (SecretWriter, RekeyStore).

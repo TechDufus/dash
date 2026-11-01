@@ -10,6 +10,7 @@ import (
 	"github.com/TechDufus/dash/internal/config"
 	"github.com/TechDufus/dash/internal/links"
 	"github.com/TechDufus/dash/internal/model"
+	"github.com/TechDufus/dash/internal/plugin"
 )
 
 var update = flag.Bool("update", false, "rewrite testdata/overview.golden.json")
@@ -97,11 +98,11 @@ func goldenSnapshots() built {
 }
 
 // goldenManager is a Manager that has only what the overview needs.
-func goldenManager() *Manager {
+func goldenManager(t *testing.T) *Manager {
 	cfg := config.Defaults()
-	cfg.HeadlampURL, cfg.HeadlampCluster = "https://headlamp.example.com", "demo"
-	cfg.GrafanaURL, cfg.ProxmoxURL, cfg.ProxmoxNode = "https://grafana.example.com", "https://pve.example.com:8006", "pve-demo"
-	m := New(Deps{Cfg: cfg, Links: links.New(cfg)})
+	cfg.ProxmoxURL, cfg.ProxmoxNode = "https://pve.example.com:8006", "pve-demo"
+	lab := labLinks(t)
+	m := New(Deps{Cfg: cfg, Links: links.New(cfg), LinkProviders: func() plugin.LinkResolver { return lab }})
 	m.now = func() time.Time { return testNow }
 	return m
 }
@@ -126,7 +127,7 @@ func withoutNewFields(t *testing.T, raw []byte) map[string]any {
 // The overview a lab gets is unchanged by composing it from plugin contributions: the golden file
 // was written by the code that built it from the nine topics directly.
 func TestOverviewOutputIsUnchanged(t *testing.T) {
-	got, err := json.MarshalIndent(goldenManager().buildOverview(goldenSnapshots(), nil, testNow), "", "  ")
+	got, err := json.MarshalIndent(goldenManager(t).buildOverview(goldenSnapshots(), nil, testNow), "", "  ")
 	if err != nil {
 		t.Fatal(err)
 	}

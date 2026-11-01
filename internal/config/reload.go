@@ -209,11 +209,7 @@ func (r *Reloader) resolve() (*Resolved, error) {
 	if r.store != nil {
 		src.UI, src.UIRef = r.store.Values(), r.store.Path()
 	}
-	res, err := Resolve(src)
-	if err == nil {
-		err = res.LoadLauncherFile()
-	}
-	return res, err
+	return Resolve(src)
 }
 
 // apply puts a valid resolution into effect as far as that is possible and reports what

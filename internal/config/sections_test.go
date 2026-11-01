@@ -121,8 +121,8 @@ func TestPluginconfDefaultsAndTheFlatView(t *testing.T) {
 	c := res.Config
 	if c.AlertmanagerURL != "http://am.example.com:9093" || c.GatusURL != "http://gatus.example.com" ||
 		res.Tree.Plugins.Prometheus.URL != "http://prom.example.com:9090" ||
-		c.VLogsURL != "http://vl.example.com:9428" || c.GrafanaURL != "https://grafana.example.com" || c.HeadlampURL != "https://headlamp.example.com" ||
-		c.HeadlampCluster != "lab" {
+		c.VLogsURL != "http://vl.example.com:9428" || res.Tree.Plugins.Grafana.URL != "https://grafana.example.com" ||
+		res.Tree.Plugins.Headlamp.URL != "https://headlamp.example.com" || res.Tree.Plugins.Headlamp.Cluster != "lab" {
 		t.Errorf("flat view = %+v", c)
 	}
 	if c.IconBaseURL != "https://cdn.example.com/icons/png" {
@@ -333,16 +333,12 @@ func TestSectionReportsEveryProblemAtOnePath(t *testing.T) {
 }
 
 // An inline launcher link that is invalid is rejected by validation (so by a reload too, which
-// keeps the last good configuration); the file is read afterwards, by LoadLauncherFile, so an
-// unreadable file does not fail Resolve but fails the load.
+// keeps the last good configuration); the file is not read by the configuration at all: the
+// launcher plugin reads it at Start, so an unreadable file does not fail Resolve.
 func TestLauncherValidationSplitsStaticAndFileChecks(t *testing.T) {
 	src := Sources{Environ: []string{"DASH_DEMO=true", "DASH_PLUGINS_LAUNCHER_FILE=/missing/launcher.yaml"}}
-	res, _, err := resolveWith(t, src)
-	if err != nil {
+	if _, _, err := resolveWith(t, src); err != nil {
 		t.Fatalf("Resolve reads no launcher file: %v", err)
-	}
-	if err := res.LoadLauncherFile(); err == nil || !strings.Contains(err.Error(), "launcher file") {
-		t.Errorf("LoadLauncherFile = %v, want the unreadable file to fail", err)
 	}
 
 	tree := DefaultTree()

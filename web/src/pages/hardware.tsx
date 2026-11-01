@@ -13,7 +13,6 @@ import {
 } from "lucide-react";
 import { useReducedMotion } from "motion/react";
 import type { ReactNode } from "react";
-import { useUIConfig } from "@/api/queries";
 import { useTopic } from "@/api/stream";
 import type { Disk, Health, HostData, Pool, SourceStatus } from "@/api/types";
 import { BytesBar } from "@/components/bytes-bar";
@@ -76,7 +75,7 @@ function BigPower({ watts }: { watts: number }) {
 }
 
 function Hero({ host, sources }: { host: HostData; sources: SourceStatus[] | undefined }) {
-  const model = useUIConfig().data?.hostModel;
+  const model = host.model;
   return (
     <Panel>
       <PanelHeader

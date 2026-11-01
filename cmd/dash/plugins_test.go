@@ -19,12 +19,14 @@ import (
 	"github.com/TechDufus/dash/internal/api"
 	"github.com/TechDufus/dash/internal/config"
 	"github.com/TechDufus/dash/internal/demo"
+	"github.com/TechDufus/dash/internal/demo/world"
 	"github.com/TechDufus/dash/internal/kube"
 	"github.com/TechDufus/dash/internal/links"
 	"github.com/TechDufus/dash/internal/model"
 	"github.com/TechDufus/dash/internal/plugin"
 	"github.com/TechDufus/dash/internal/plugin/plugintest"
 	"github.com/TechDufus/dash/internal/pluginconf"
+	"github.com/TechDufus/dash/internal/plugins/launcher"
 	"github.com/TechDufus/dash/internal/secret"
 	"github.com/TechDufus/dash/internal/topics"
 	"github.com/TechDufus/dash/internal/upstream"
@@ -150,14 +152,15 @@ func TestFrameworkStartOrderPublishesFirstPoll(t *testing.T) {
 func TestFrameworkAppliesLiveSectionsAndReportsTheRest(t *testing.T) {
 	dir := t.TempDir()
 	cfgPath := filepath.Join(dir, "config.yaml")
-	files := func(headlamp, grafana string) string {
-		return "plugins:\n  headlamp:\n    url: " + headlamp + "\n  grafana:\n    url: " + grafana + "\n"
+	files := func(headlamp, flux string) string {
+		return "plugins:\n  headlamp:\n    url: " + headlamp + "\n  flux:\n    suspendReasonAnnotation: " + flux + "\n"
 	}
-	writeTestFile(t, cfgPath, files("https://hl-a.example.com", "https://gf-a.example.com"))
+	writeTestFile(t, cfgPath, files("https://hl-a.example.com", "example.com/a"))
 	startEnv(t, dir, "DASH_CONFIG="+cfgPath)
 	fw, _ := loadFramework(t)
 
-	// headlamp is a plugin that follows its section; grafana has no plugin in this framework.
+	// headlamp is a plugin that follows its section; flux has no plugin in this framework (it is
+	// the Manager's, which only a restart changes).
 	headlamp := plugintest.New("headlamp", plugintest.Config(func() any { return &pluginconf.Headlamp{} }))
 	ctx, cancel := context.WithCancel(context.Background())
 	if err := fw.start(ctx, []plugin.Factory{headlamp.Factory()}, func() {}); err != nil {
@@ -168,13 +171,13 @@ func TestFrameworkAppliesLiveSectionsAndReportsTheRest(t *testing.T) {
 	defer func() { cancel(); <-done; fw.sup.Shutdown(context.Background()) }()
 	waitFor(t, func() bool { return headlamp.Starts() == 1 })
 
-	writeTestFile(t, cfgPath, files("https://hl-b.example.com", "https://gf-b.example.com"))
+	writeTestFile(t, cfgPath, files("https://hl-b.example.com", "example.com/b"))
 	waitFor(t, func() bool { return headlamp.Starts() == 2 })
 	if got := headlamp.Config().(*pluginconf.Headlamp).URL; got != "https://hl-b.example.com" {
 		t.Errorf("the plugin restarted with %q, want the new section", got)
 	}
 	waitFor(t, func() bool { return len(fw.reloader.RestartRequired()) > 0 })
-	if got := fw.reloader.RestartRequired(); !slices.Equal(got, []string{"plugins.grafana.url"}) {
+	if got := fw.reloader.RestartRequired(); !slices.Equal(got, []string{"plugins.flux.suspendReasonAnnotation"}) {
 		t.Errorf("restart required = %v, want only the section no plugin applies", got)
 	}
 }
@@ -211,5 +214,113 @@ func TestDemoSeriesComeFromThePrometheusTwin(t *testing.T) {
 	var got model.Series
 	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil || len(got.Series) == 0 || len(got.Series[0].Points) == 0 {
 		t.Fatalf("series body = %s (%v), want generated lines", rec.Body, err)
+	}
+}
+
+// Demo mode publishes the launcher's links through the launcher plugin's demo twin, after every
+// other topic (the launcher comes last in the display order), and the shim of the Manager
+// registers nothing under that name.
+func TestDemoPublishesTheLauncherLinksLast(t *testing.T) {
+	startEnv(t, t.TempDir(), "DASH_DEMO=true")
+	res, store, err := loadConfig(secret.NewRegistry())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if store != nil {
+		t.Cleanup(func() { _ = store.Close() })
+	}
+	fw := newFramework(res, store, config.ReloadOptions{}, nil, nil, true)
+	src := demo.New(demo.Config(res.Config))
+	src.HasReal = hasRealPlugin
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	if err := fw.start(ctx, registry(src.Plugins(fw.sup)), func() { src.Run(ctx) }); err != nil {
+		t.Fatal(err)
+	}
+	defer fw.sup.Shutdown(context.Background())
+
+	want := []string{"core.plugins", "core.overview", "alerts", "status", "vms", "host", "cluster", "storage", "apps", "flux", "launcher.links"}
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		snap, _, cancelSub := fw.hub.Subscribe("", nil)
+		cancelSub()
+		var got []string
+		for _, ev := range snap {
+			got = append(got, ev.Topic)
+		}
+		if slices.Equal(got, want) {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("topics = %v, want %v (in this order)", got, want)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	env, ok := fw.hub.Latest("", model.TopicLauncherLinks)
+	if !ok {
+		t.Fatal("launcher.links has no snapshot")
+	}
+	var e model.Envelope
+	var data model.LauncherData
+	if err := json.Unmarshal(env.Data, &e); err != nil || json.Unmarshal(e.Data, &data) != nil || len(data.Links) != len(world.Launcher().Links) {
+		t.Fatalf("launcher.links = %s (%v), want the demo links", env.Data, err)
+	}
+	// The demo's host carries the fake host's model, and a pod link comes from the headlamp twin.
+	hostEnv, ok := fw.hub.Latest("", model.TopicHost)
+	if !ok {
+		t.Fatal("host has no snapshot")
+	}
+	var he model.Envelope
+	var host model.HostData
+	if err := json.Unmarshal(hostEnv.Data, &he); err != nil || json.Unmarshal(he.Data, &host) != nil || host.Model != world.HostModel {
+		t.Fatalf("host = %s, want model %q", hostEnv.Data, world.HostModel)
+	}
+}
+
+// The launcher file is read by the launcher plugin at Start: an unreadable file makes its row
+// error, as any plugin that fails to start, and no longer stops dash from starting (it used to
+// abort loadConfig). A readable file is published as launcher.links.
+func TestUnreadableLauncherFileMakesTheRowErrorAndNotTheStartup(t *testing.T) {
+	dir := t.TempDir()
+	good := filepath.Join(dir, "launcher.yaml")
+	writeTestFile(t, good, "- {name: Router, href: 'http://192.0.2.1', icon: unifi}\n")
+	row := func(fw *framework) (model.PluginInfo, bool) {
+		for _, in := range fw.sup.Infos() {
+			if in.ID == "launcher" {
+				return in, true
+			}
+		}
+		return model.PluginInfo{}, false
+	}
+	run := func(file string) *framework {
+		t.Helper()
+		startEnv(t, t.TempDir(), "DASH_PLUGINS_LAUNCHER_FILE="+file)
+		fw, _ := loadFramework(t) // loadConfig does not read the file
+		ctx, cancel := context.WithCancel(context.Background())
+		t.Cleanup(cancel)
+		if err := fw.start(ctx, []plugin.Factory{launcher.New}, func() {}); err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { fw.sup.Shutdown(context.Background()) })
+		return fw
+	}
+
+	fw := run(filepath.Join(dir, "missing.yaml"))
+	waitFor(t, func() bool { in, ok := row(fw); return ok && in.State == model.PluginError })
+	if _, ok := fw.hub.Latest("", model.TopicLauncherLinks); ok {
+		t.Error("launcher.links is published although the file could not be read")
+	}
+
+	fw = run(good)
+	waitFor(t, func() bool { in, ok := row(fw); return ok && in.State == model.PluginHealthy })
+	env, ok := fw.hub.Latest("", model.TopicLauncherLinks)
+	if !ok {
+		t.Fatal("launcher.links is not published")
+	}
+	var e model.Envelope
+	var data model.LauncherData
+	if err := json.Unmarshal(env.Data, &e); err != nil || json.Unmarshal(e.Data, &data) != nil ||
+		len(data.Links) != 1 || data.Links[0].Name != "Router" || data.Links[0].Icon != "unifi" {
+		t.Errorf("launcher.links = %s (%v)", env.Data, err)
 	}
 }

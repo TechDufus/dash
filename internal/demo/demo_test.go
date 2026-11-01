@@ -141,16 +141,16 @@ func TestDemoPublishesLegacyTopicsAndCorePlugins(t *testing.T) {
 	if err := json.Unmarshal(env.Data, &pd); err != nil {
 		t.Fatal(err)
 	}
-	if len(pd.Plugins) != 10 { // the shims; the real plugins' twins (prometheus) are registered by cmd/dash
-		t.Fatalf("core.plugins lists %d plugins, want 10", len(pd.Plugins))
+	if len(pd.Plugins) != 7 { // the shims; the real plugins' twins (prometheus, grafana, headlamp, launcher) are registered by cmd/dash
+		t.Fatalf("core.plugins lists %d plugins, want 7", len(pd.Plugins))
 	}
 }
 
 func TestDemoPluginsAreHealthy(t *testing.T) {
 	_, sup, _ := demoSupervisor(t, nil)
 	infos := sup.Infos()
-	if len(infos) != 10 {
-		t.Fatalf("%d plugins, want 10", len(infos))
+	if len(infos) != 7 {
+		t.Fatalf("%d plugins, want 7", len(infos))
 	}
 	for _, in := range infos {
 		if in.State != model.PluginHealthy || in.Message != "" {

@@ -86,11 +86,16 @@ export const TopicAlerts = "alerts";
 export const TopicStatus = "status";
 export const TopicApps = "apps";
 /**
+ * TopicLauncherLinks is the launcher's infrastructure links (LauncherData), published by the
+ * launcher plugin.
+ */
+export const TopicLauncherLinks = "launcher.links";
+/**
  * TopicPlugins is the status of every plugin instance (PluginsData), published by the
  * plugin supervisor. The core.* names belong to dash itself, not to a plugin.
  */
 export const TopicPlugins = "core.plugins";
-export type Topic = typeof TopicOverview | typeof TopicHost | typeof TopicVMs | typeof TopicCluster | typeof TopicFlux | typeof TopicStorage | typeof TopicAlerts | typeof TopicStatus | typeof TopicApps | typeof TopicPlugins;
+export type Topic = typeof TopicOverview | typeof TopicHost | typeof TopicVMs | typeof TopicCluster | typeof TopicFlux | typeof TopicStorage | typeof TopicAlerts | typeof TopicStatus | typeof TopicApps | typeof TopicLauncherLinks | typeof TopicPlugins;
 export interface Link {
   label: string;
   href: string;
@@ -240,8 +245,8 @@ export interface Disk {
 }
 export interface HostData {
   /**
-   * Model is shown next to the host's name, e.g. "Dell R730"; empty shows nothing. It replaces
-   * UIConfig.HostModel.
+   * Model is shown next to the host's name, e.g. "Dell R730"; empty shows nothing. The topic
+   * manager fills it from plugins.hardware.hosts[0].model.
    */
   model: string;
   name: string;
@@ -670,8 +675,9 @@ export interface Me {
  */
 export interface MeUI {
   /**
-   * IconBaseURL resolves icon names and is the only origin icon URLs may come from
-   * (ui.iconBaseURL). The JSON key is iconBaseUrl: the API document is linted for camelCase.
+   * IconBaseURL resolves the icon names of launcher links and is the only origin an absolute
+   * launcher icon URL may come from (ui.iconBaseURL). The JSON key is iconBaseUrl: the API
+   * document is linted for camelCase.
    */
   iconBaseUrl: string;
 }
@@ -701,16 +707,6 @@ export interface LauncherLink {
    */
   icon: string;
   description: string;
-}
-/**
- * UIConfig is GET /api/config: the site-specific bits of the UI.
- */
-export interface UIConfig {
-  /**
-   * HostModel is shown next to the host's name, e.g. "Dell R730"; empty shows nothing.
-   */
-  hostModel: string;
-  launcher: LauncherLink[];
 }
 /**
  * RestartRequest is the body of POST /api/actions/restart.

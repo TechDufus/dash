@@ -192,6 +192,7 @@ func (m *Manager) buildHost() model.HostData {
 	if d.Disks == nil {
 		d.Disks = []model.Disk{}
 	}
-	d.Links = append(append(m.d.Links.ProxmoxUI(), m.d.Links.HostShell()...), m.d.Links.Grafana()...)
+	d.Model = m.d.Cfg.HostModel
+	d.Links = append(append(m.d.Links.ProxmoxUI(), m.d.Links.HostShell()...), m.link("Host", "", "")...)
 	return d
 }

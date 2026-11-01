@@ -31,7 +31,7 @@ func (m *Manager) fluxObj(u *unstructured.Unstructured, kind model.FluxKind) mod
 		Kind: kind, Namespace: u.GetNamespace(), Name: u.GetName(), Ready: conditionTrue(u, "Ready"),
 		Suspended: suspended, SuspendReason: u.GetAnnotations()[m.d.Cfg.Conventions.SuspendReasonAnnotation], Message: msg,
 		LastTransition: conditionTime(u, "Ready"),
-		Links:          m.d.Links.Headlamp(string(kind), u.GetNamespace(), u.GetName()),
+		Links:          m.link(string(kind), u.GetNamespace(), u.GetName()),
 	}
 	switch kind {
 	case model.FluxKindKustomization:

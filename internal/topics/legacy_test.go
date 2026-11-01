@@ -273,7 +273,7 @@ func TestExplicitDisableRemovesShimTopics(t *testing.T) {
 	if states["flux"].State != model.PluginDisabled || !slices.Equal(states["flux"].Topics, []string{"flux"}) {
 		t.Errorf("flux = %+v, want disabled with the topic flux", states["flux"])
 	}
-	if states["kubernetes"].State == model.PluginDisabled || len(pd.Plugins) != 10 {
+	if states["kubernetes"].State == model.PluginDisabled || len(pd.Plugins) != 7 {
 		t.Errorf("kubernetes = %s of %d plugins", states["kubernetes"].State, len(pd.Plugins))
 	}
 }
@@ -287,9 +287,9 @@ func TestLegacyManifestsMatchConfigSections(t *testing.T) {
 		name, _, _ := strings.Cut(pt.Field(i).Tag.Get("json"), ",")
 		sections[name] = pt.Field(i).Type
 	}
-	// The sections of the integrations that moved out of the Manager have no shim: prometheus
-	// runs as the plugin of internal/plugins/prometheus.
-	for _, moved := range []string{"prometheus"} {
+	// The sections of the integrations that moved out of the Manager have no shim: each runs as
+	// the plugin of internal/plugins/<id>.
+	for _, moved := range []string{"prometheus", "grafana", "headlamp", "launcher"} {
 		delete(sections, moved)
 	}
 	ms := LegacyManifests()
@@ -385,16 +385,15 @@ func TestLegacyStatusMapping(t *testing.T) {
 	t.Run("no poller", func(t *testing.T) {
 		cfg := config.Defaults()
 		m := New(Deps{Cfg: cfg, Cluster: fakeCluster()})
-		for _, id := range []plugin.ID{"victorialogs", "grafana", "headlamp", "launcher"} {
+		for _, id := range []plugin.ID{"victorialogs"} {
 			got := m.legacyStatus(id)
 			if got.State != plugin.StateUnavailable || !strings.HasPrefix(got.Message, "not configured: set plugins."+string(id)+".") {
 				t.Errorf("%s unset: %s %q", id, got.State, got.Message)
 			}
 		}
-		cfg.VLogsURL, cfg.GrafanaURL, cfg.HeadlampURL = "https://logs.example.com", "https://grafana.example.com", "https://hl.example.com"
-		cfg.Launcher = []model.LauncherLink{{Name: "x", Href: "https://x.example.com"}}
+		cfg.VLogsURL = "https://logs.example.com"
 		m = New(Deps{Cfg: cfg, Cluster: fakeCluster()})
-		for _, id := range []plugin.ID{"victorialogs", "grafana", "headlamp", "launcher"} {
+		for _, id := range []plugin.ID{"victorialogs"} {
 			if got := m.legacyStatus(id); got.State != plugin.StateHealthy || got.Message != "" {
 				t.Errorf("%s set: %s %q", id, got.State, got.Message)
 			}

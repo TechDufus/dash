@@ -314,12 +314,12 @@ func TestEnvBeatsTheFileLayer(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if res.Config.GrafanaURL != "https://new.example.com" || res.Provenance["plugins.grafana.url"].Ref != "DASH_PLUGINS_GRAFANA_URL" {
-		t.Errorf("grafana %q, %+v", res.Config.GrafanaURL, res.Provenance["plugins.grafana.url"])
+	if g := res.Tree.Plugins.Grafana.URL; g != "https://new.example.com" || res.Provenance["plugins.grafana.url"].Ref != "DASH_PLUGINS_GRAFANA_URL" {
+		t.Errorf("grafana %q, %+v", g, res.Provenance["plugins.grafana.url"])
 	}
 	res, _ = Resolve(Sources{Environ: []string{"DASH_DEMO=true"}, File: file, Log: log})
-	if res.Config.GrafanaURL != "https://file.example.com" {
-		t.Errorf("without env the file value applies: %q", res.Config.GrafanaURL)
+	if g := res.Tree.Plugins.Grafana.URL; g != "https://file.example.com" {
+		t.Errorf("without env the file value applies: %q", g)
 	}
 }
 
@@ -388,8 +388,8 @@ func TestFileSuffixVariables(t *testing.T) {
 	})
 	t.Run("a name that merely ends in _FILE is not a file form", func(t *testing.T) {
 		res, _, err := resolveEnv(t, "DASH_PLUGINS_LAUNCHER_FILE=/etc/dash/launcher.yaml")
-		if err != nil || res.Config.LauncherFile != "/etc/dash/launcher.yaml" {
-			t.Errorf("launcher file %q, err %v", res.Config.LauncherFile, err)
+		if f := res.Tree.Plugins.Launcher.File; err != nil || f != "/etc/dash/launcher.yaml" {
+			t.Errorf("launcher file %q, err %v", f, err)
 		}
 	})
 }

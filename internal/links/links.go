@@ -1,4 +1,5 @@
-// Package links builds deep links into Headlamp, Proxmox and Grafana.
+// Package links builds deep links into Proxmox. The links into Headlamp and Grafana come from
+// their plugins (plugin.LinkProvider), through plugin.LinkResolver.
 package links
 
 import (
@@ -9,68 +10,14 @@ import (
 	"github.com/TechDufus/dash/internal/model"
 )
 
-// Builder holds the base URLs of the tools dash links to.
+// Builder holds the base URL and node of the Proxmox host dash links to.
 type Builder struct {
-	headlamp, cluster, proxmox, node, grafana string
+	proxmox, node string
 }
 
 // New builds a Builder from the configuration.
 func New(cfg config.Config) *Builder {
-	return &Builder{
-		headlamp: cfg.HeadlampURL,
-		cluster:  cfg.HeadlampCluster,
-		proxmox:  cfg.ProxmoxURL,
-		node:     cfg.ProxmoxNode,
-		grafana:  cfg.GrafanaURL,
-	}
-}
-
-// headlampPaths maps a Kubernetes kind to its Headlamp path prefix; the object follows as
-// "<ns>/<name>" (namespaced) or "<name>" (cluster-scoped).
-var headlampPaths = map[string]struct {
-	prefix     string
-	namespaced bool
-}{
-	"Pod":                   {"pods", true},
-	"Deployment":            {"deployments", true},
-	"StatefulSet":           {"statefulsets", true},
-	"DaemonSet":             {"daemonsets", true},
-	"Job":                   {"jobs", true},
-	"CronJob":               {"cronjobs", true},
-	"Node":                  {"nodes", false},
-	"Namespace":             {"namespaces", false},
-	"PersistentVolumeClaim": {"storage/persistentvolumeclaims", true},
-	"Kustomization":         {"customresources/kustomizations.kustomize.toolkit.fluxcd.io", true},
-	"HelmRelease":           {"customresources/helmreleases.helm.toolkit.fluxcd.io", true},
-	"GitRepository":         {"customresources/gitrepositories.source.toolkit.fluxcd.io", true},
-	"OCIRepository":         {"customresources/ocirepositories.source.toolkit.fluxcd.io", true},
-	"HelmRepository":        {"customresources/helmrepositories.source.toolkit.fluxcd.io", true},
-	"Cluster":               {"customresources/clusters.postgresql.cnpg.io", true},
-	"Certificate":           {"customresources/certificates.cert-manager.io", true},
-}
-
-// HeadlampURL returns the Headlamp URL of an object; ok is false for an unknown kind or when
-// Headlamp is not configured.
-func (b *Builder) HeadlampURL(kind, namespace, name string) (string, bool) {
-	p, ok := headlampPaths[kind]
-	if !ok || b.headlamp == "" {
-		return "", false
-	}
-	u := b.headlamp + "/c/" + url.PathEscape(b.cluster) + "/" + p.prefix + "/"
-	if p.namespaced {
-		u += url.PathEscape(namespace) + "/"
-	}
-	return u + url.PathEscape(name), true
-}
-
-// Headlamp returns the "Open in Headlamp" link for an object, or an empty slice for an unknown
-// kind or when Headlamp is not configured.
-func (b *Builder) Headlamp(kind, namespace, name string) []model.Link {
-	href, ok := b.HeadlampURL(kind, namespace, name)
-	if !ok {
-		return []model.Link{}
-	}
-	return []model.Link{{Label: "Open in Headlamp", Href: href, Kind: model.LinkKindHeadlamp}}
+	return &Builder{proxmox: cfg.ProxmoxURL, node: cfg.ProxmoxNode}
 }
 
 // one returns a single link, or none when its tool's base URL is not configured.
@@ -98,14 +45,4 @@ func (b *Builder) HostShell() []model.Link {
 // ProxmoxUI is the Proxmox web UI.
 func (b *Builder) ProxmoxUI() []model.Link {
 	return one(b.proxmox, "Proxmox UI", b.proxmox+"/", model.LinkKindProxmox)
-}
-
-// GrafanaAlerts is Grafana's alert list.
-func (b *Builder) GrafanaAlerts() []model.Link {
-	return one(b.grafana, "Grafana alerts", b.grafana+"/alerting/list", model.LinkKindGrafana)
-}
-
-// Grafana is the Grafana home page.
-func (b *Builder) Grafana() []model.Link {
-	return one(b.grafana, "Grafana", b.grafana+"/", model.LinkKindGrafana)
 }

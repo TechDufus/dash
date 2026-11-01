@@ -34,9 +34,6 @@ func loadConfig(reg *secret.Registry) (*config.Resolved, *settings.Store, error)
 		src.UI, src.UIRef = store.Values(), store.Path()
 	}
 	res, err := config.Resolve(src)
-	if err == nil {
-		err = res.LoadLauncherFile()
-	}
 	if err != nil {
 		if store != nil {
 			store.Close()

@@ -231,11 +231,6 @@ func (t Tree) config(dev, demo bool) Config {
 		ProxmoxURL:      p.Proxmox.URL,
 		ProxmoxNode:     p.Proxmox.Node,
 		HostNodename:    p.Proxmox.Node, // overridden by hosts[0] below
-		HeadlampURL:     p.Headlamp.URL,
-		HeadlampCluster: p.Headlamp.Cluster,
-		GrafanaURL:      p.Grafana.URL,
-		LauncherFile:    p.Launcher.File,
-		Launcher:        p.Launcher.Links,
 		IconBaseURL:     t.UI.IconBaseURL,
 		Kubeconfig:      p.Kubernetes.Kubeconfig,
 		Conventions: Conventions{

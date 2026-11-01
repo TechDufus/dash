@@ -85,7 +85,7 @@ func (m *Manager) buildVMs() model.VMsData {
 		}
 		if ready, ok := nodes[v.Name]; ok {
 			vm.K8sNode = &model.K8sNodeRef{Name: v.Name, Ready: ready}
-			vm.Links = append(vm.Links, m.d.Links.Headlamp("Node", "", v.Name)...)
+			vm.Links = append(vm.Links, m.link("Node", "", v.Name)...)
 		}
 		out.VMs = append(out.VMs, vm)
 	}

@@ -106,11 +106,6 @@ func legacyManifests() []plugin.Manifest {
 			Config: func() any { return &config.FluxConfig{} },
 			Topics: []plugin.TopicSpec{{Name: "objects", Legacy: "flux", Type: model.FluxData{}, Doc: "Flux objects."}},
 			UI:     nav("/gitops", "GitOps", "GitOps (Flux)", "GitBranch")},
-		{ID: "grafana", Name: "Grafana", Description: "Links to dashboards.", Version: "1.0.0", Config: func() any { return &pluginconf.Grafana{} }},
-		{ID: "headlamp", Name: "Headlamp", Description: "Deep links into the Kubernetes UI.", Version: "1.0.0",
-			Config: func() any { return &pluginconf.Headlamp{} }},
-		{ID: "launcher", Name: "Launcher", Description: "Links to your infrastructure.", Version: "1.0.0",
-			Config: func() any { return &pluginconf.Launcher{} }},
 	}
 }
 
@@ -146,9 +141,6 @@ var setting = map[plugin.ID]string{
 	"proxmox":      "plugins.proxmox.url, tokenID and tokenSecret",
 	"hardware":     "plugins.prometheus.url",
 	"victorialogs": "plugins.victorialogs.url",
-	"grafana":      "plugins.grafana.url",
-	"headlamp":     "plugins.headlamp.url",
-	"launcher":     "plugins.launcher.links or plugins.launcher.file",
 }
 
 // legacyStatus is the state of shim id (design: how the Manager reports for its plugins). The
@@ -216,12 +208,6 @@ func (m *Manager) pollerlessStatus(id plugin.ID) plugin.Status {
 	switch id {
 	case "victorialogs":
 		set = c.VLogsURL != ""
-	case "grafana":
-		set = c.GrafanaURL != ""
-	case "headlamp":
-		set = c.HeadlampURL != ""
-	case "launcher":
-		set = len(c.Launcher) > 0
 	}
 	if set {
 		return plugin.Status{State: plugin.StateHealthy}
