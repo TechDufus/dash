@@ -74,13 +74,32 @@ describe("PluginRoutes", () => {
 
   it.each([
     ["unavailable", "Gatus is unavailable. no source reachable"],
-    ["unconfigured", "Gatus is not configured. set plugins.gatus.url"],
+    ["unconfigured", "Gatus is not configured. invalid configuration"],
     ["blocked", "Gatus is blocked. needs kubernetes"],
   ])("says what a %s plugin is", (state, text) => {
     const message = text.split(". ")[1] ?? "";
     connect(withState(shimRows(), "gatus", state, message));
     renderApp(<PluginRoutes />, { path: "/status" });
     expect(screen.getByRole("status")).toHaveTextContent(text);
+  });
+
+  // The row already says what to set; the page shows it once, not "is not configured. not
+  // configured: set ...", for a plugin enabled without its settings and one off for lack of them.
+  it.each(["unconfigured", "disabled"])("shows the hint of a %s row once", (state) => {
+    connect(withState(shimRows(), "gatus", state, "not configured: set plugins.gatus.url"));
+    renderApp(<PluginRoutes />, { path: "/status" });
+    const text = screen.getByRole("status").textContent ?? "";
+    expect(text).toContain("Gatus is not configured: set plugins.gatus.url.");
+    expect(text.match(/not configured/g)).toHaveLength(1);
+    expect(text).not.toContain("switched off");
+  });
+
+  it("still says a plugin that was switched off by its setting is switched off", () => {
+    connect(withState(shimRows(), "gatus", "disabled", "disabled"));
+    renderApp(<PluginRoutes />, { path: "/status" });
+    const status = screen.getByRole("status");
+    expect(status).toHaveTextContent("Gatus is switched off.");
+    expect(status).toHaveTextContent("plugins.gatus.enabled");
   });
 
   it("does not print an empty message as a dangling space", () => {

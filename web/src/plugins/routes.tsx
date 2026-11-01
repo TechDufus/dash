@@ -65,6 +65,9 @@ const STATE_WORDS: Record<string, string> = {
   blocked: "blocked",
 };
 
+/** A row message that already starts with "not configured" (optionally ": set plugins.<id>.url"). */
+const NOT_CONFIGURED = /^not configured\b/;
+
 /**
  * What a hidden plugin's route shows instead of its page. The text never carries more than
  * `info.message`, which the server already keeps viewer-safe.
@@ -74,13 +77,18 @@ export function PluginDisabledPage({ id, info }: { id: string; info: PluginInfo 
   let body: ReactNode;
   if (!info) {
     body = `This dash has no ${id} plugin.`;
-  } else if (info.state === "disabled") {
+  } else if (info.state === "disabled" && !NOT_CONFIGURED.test(info.message)) {
     body = (
       <>
         {name} is switched off. Set <code className="num">plugins.{info.id}.enabled</code> in the
         configuration to turn it on.
       </>
     );
+  } else if (NOT_CONFIGURED.test(info.message)) {
+    // The row already says what to set ("not configured: set plugins.gatus.url"): once, as the
+    // reason, for a plugin that is off for lack of settings (disabled) and one that was asked
+    // to run without them (unconfigured) alike.
+    body = `${name} is ${info.message}.`;
   } else {
     body = (
       <>
