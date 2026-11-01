@@ -182,11 +182,15 @@ restart with `DASH_PLUGINS_PROXMOX_TOKEN_SECRET_FILE`.
 | `plugins.grafana.url` | empty | Grafana links |
 | `plugins.launcher.file`, `.links` | empty | the launcher's links, from a YAML file or inline (not both) |
 | `plugins.kubernetes.kubeconfig` | in-cluster | used outside the cluster; `KUBECONFIG` is honoured too, as it is, with no `_FILE` form |
+| `plugins.<id>.enabled` | unset (on) | `false` stops that plugin and removes its topics. Its pages stay until the web UI follows `core.plugins` (P2.7), and keep showing a loading state. The Kubernetes connection is required whichever plugins are off. Unset leaves it on: a plugin without its settings reports itself unavailable ("not configured") |
+| `plugins.<id>.type` | the section name | the plugin type; dash runs one instance per type, so leave it unset or equal to the section name |
 
 `/healthz` answers `ok` while dash runs. `/readyz` answers `ok` once both listeners are bound and
 every plugin's start has returned; a plugin in `error`, or an upstream that is down, never makes
 dash unready. It no longer waits for the Kubernetes caches to fill: list `kubernetes` in
-`server.readyRequires` to keep that, so a rollout holds the old pod until the new one has data.
+`server.readyRequires` to hold `/readyz` until the new pod has data, so a rollout keeps the old
+pod serving. The hold lasts at most `server.readyTimeout` (60 s); after that dash reports ready
+without the data and logs a WARN.
 `GET /readyz?verbose=1` adds one `<plugin> <state> [message]` line per plugin, but only for a
 loopback peer (`kubectl port-forward`, a shell in the pod); any other peer gets the plain body.
 
@@ -301,29 +305,37 @@ the release notes. The unversioned `/api/config`, `/api/vms`, `/api/pods`, `/api
 move; `/api/me`, `/api/stream` and `/api/series` are now `/api/v1/me`, `/api/v1/stream` and
 `/api/v1/series`, and the old paths answer 404.
 
-Every response carries an `X-Request-Id` (128 random bits as hex; a proxy on the loopback address
-may supply its own), which also appears in the error body, the audit record and the log line of an
-upstream failure. `/api/v1` answers are `Cache-Control: no-store`, except a topic snapshot
-(`private, no-cache` with an `ETag`).
+Every response of the API listener carries an `X-Request-Id` (128 random bits as hex; a proxy on
+the loopback address may supply its own), which also appears in the error body, the audit record
+and the log line of an upstream failure. The health listener (`/healthz`, `/readyz`, `/metrics`)
+sends none. `/api/v1` answers are `Cache-Control: no-store`, except a topic snapshot
+(`private, no-cache` with an `ETag`) and `/api/v1/stream` (`no-cache`, as for any event stream).
 
 ### Plugin routes, actions and error codes
 
 `GET /api/v1/plugins` lists every plugin instance with its state, topics, mounted actions and
 navigation (the same rows arrive on the `core.plugins` stream topic). A running plugin's own
-read routes live under `/api/v1/plugins/<id>/…`, and its actions are
-`POST /api/v1/plugins/<id>/actions/<name>`; those exist only while `plugins.<id>.actions.enabled`
-is set and the instance runs, and are otherwise `404`. Each action request runs the same
-chain: the principal's role, a rate limit of 10 actions a minute per user, the body checks
-(JSON only, unknown fields refused, `required` and `enum` honoured), `plugins.<id>.actions.denyNamespaces`,
-the audit intent, the action, then the audit outcome. A refusal is audited and the action does
-not run.
+read routes live under `/api/v1/plugins/<id>/…`.
+
+The framework can also mount a plugin's actions as `POST /api/v1/plugins/<id>/actions/<name>`,
+but this release ships no plugin that can enable them: no plugin section has `actions` settings
+yet, `dash config validate` rejects `plugins.<id>.actions.enabled` and
+`plugins.<id>.actions.denyNamespaces` as unknown, and the restart, reconcile and silence
+actions stay on the SPA's internal routes. The settings arrive with the G3 plugin leaves, as
+each plugin moves its actions. Once a plugin has them, every action request runs one chain: the
+principal's role, a rate limit of 10 actions a minute per user, the body checks (JSON only,
+unknown fields refused, `required` and `enum` honoured), the namespace deny list, the audit
+intent, the action, then the audit outcome. A refusal is audited and the action does not run.
 
 Every error answer is `{"error": "<text for a person>", "code": "<reason>", "requestId": "<id>"}`.
-Clients branch on `code`: `unauthenticated`, `forbidden`, `insufficient_scope`, `invalid_token`,
-`ambiguous_credentials`, `csrf_failed`, `not_found`, `invalid_input`, `locked_field`,
-`readonly_settings`, `rate_limited`, `too_many_streams`, `upstream_unavailable`,
-`approval_required`, `approval_denied`, `approval_expired`, `conflict`, `precondition_failed`,
-`audit_unavailable`, `unknown_host` or `internal`.
+Clients branch on `code`. These are sent today: `unauthenticated`, `forbidden`, `csrf_failed`,
+`not_found`, `invalid_input`, `conflict`, `too_many_streams`, `upstream_unavailable`,
+`audit_unavailable`, `unknown_host`. `rate_limited` and `internal` come from plugin action
+routes, so they appear only once a plugin enables actions. `insufficient_scope`, `invalid_token`,
+`ambiguous_credentials`, `locked_field`, `readonly_settings`, `approval_required`,
+`approval_denied`, `approval_expired` and `precondition_failed` are reserved for the client,
+settings and approval work that follows; nothing sends them in 0.5.0, and the OpenAPI document
+lists them all.
 
 ### Breaking: no site defaults
 
@@ -404,11 +416,22 @@ make dev-web   # Vite on http://localhost:5173, proxying /api to the Go API
 start unless `server.listen` (`DASH_SERVER_LISTEN`) is a loopback address (`127.0.0.1:8080`,
 `[::1]:8080`, `localhost:8080`).
 
-Open http://localhost:5173. `make check` runs everything CI runs: the generated types must be
-current, `go vet`, `go test`, `tsc`, Biome and the production build.
+Open http://localhost:5173. `make check` runs everything CI runs: it regenerates the generated
+files and fails if they differ from what is committed (`web/src/api/types.ts`,
+`docs/configuration.md` and `docs/api/openapi.json`), lints the OpenAPI document with vacuum,
+then runs `go vet`, `go test`, `tsc`, Biome and the production build.
 
-After changing a struct in `internal/model`, run `make generate` and commit
-`web/src/api/types.ts` with it.
+Three files are generated; never edit them by hand. `make generate` rewrites all three and you
+commit them with the change:
+
+| File | Generated from | Rewrite after changing |
+|---|---|---|
+| `web/src/api/types.ts` | `internal/model` (tygo) | a struct in `internal/model` |
+| `docs/configuration.md` | the config schema (`dash config env --markdown`) | a setting, its `doc` tag or its default |
+| `docs/api/openapi.json` | the route table and the types it names (`dash api openapi`) | an `/api/v1` route, a topic envelope, a plugin manifest or an error code |
+
+A changed config schema also needs `go test ./internal/config -run TestConfigSchemaGolden -update`
+for `internal/config/testdata/config.schema.json`.
 
 ### Pre-push hook (opt-in)
 
@@ -419,9 +442,14 @@ checks only what changed, usually in a few seconds:
 - Go files: `go vet` and `go test` on the changed packages (`./...` if `go.mod`/`go.sum` changed
   or a package was deleted). Packages that import a changed package are not re-tested.
 - `internal/model`, `tygo.yaml` or `web/src/api/types.ts`: the `make generate` drift check.
+- `docs/api/`, `tools/`, `cmd/dash/openapi.go`, `cmd/dash/plugins.go` or the Go files in
+  `internal/api`, `internal/plugin`, `internal/model`, `internal/jsonschema` or
+  `internal/topics`: `docs/api/openapi.json` must equal `dash api openapi`, and vacuum must lint
+  it. `docs/configuration.md` has no step of its own: a Go change in `internal/config` runs its
+  currency test.
 - `web/`: `tsc --noEmit`, and Biome on the changed files (all of `web/` if its config, package
   or lock files changed). Skipped with a hint if `web/node_modules` is missing (`npm ci`).
-- Anything else (docs, CI, Dockerfile): nothing; the hook exits at once.
+- Anything else (other docs, CI, Dockerfile): nothing; the hook exits at once.
 
 It never runs `vite build` (too slow for a push); that, and checks across every package, stay in
 `make check`, which is still the full gate. Checks see the working tree, not a clean checkout of
