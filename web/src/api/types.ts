@@ -33,7 +33,7 @@ export type LinkKind = typeof LinkKindHeadlamp | typeof LinkKindProxmox | typeof
 /**
  * Topic is a name published on /api/stream.
  */
-export const TopicOverview = "overview";
+export const TopicOverview = "core.overview";
 export const TopicHost = "host";
 export const TopicVMs = "vms";
 export const TopicCluster = "cluster";
@@ -76,7 +76,12 @@ export interface Envelope {
 export interface AttentionItem {
   id: string;
   severity: Severity;
+  /**
+   * Source is the display label of the system the item came from; Plugin is the plugin that
+   * contributed it.
+   */
   source: string;
+  plugin: string;
   title: string;
   detail: string;
   since: string;
@@ -150,7 +155,12 @@ export interface Topology {
 export interface OverviewData {
   status: Health;
   attention: AttentionItem[];
+  /**
+   * Kpis is the fixed row of headline numbers the integrations that still run in the topic
+   * manager fill; KPIList is what plugins contribute, sorted by plugin and key.
+   */
   kpis: Kpis;
+  kpiList: KPI[];
   topology: Topology;
 }
 export interface Sensor {

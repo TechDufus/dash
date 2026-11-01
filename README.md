@@ -34,10 +34,10 @@ https://dash.home.techdufus.com.
 - **One screen for the whole lab.** The overview rolls alerts, GitOps, nodes, VMs, power and CPU
   temperature into a KPI row, draws the topology from the Proxmox host through its VMs to every
   namespace, and lists what needs attention, worst first.
-- **Live, not polled from the browser.** Informers and upstream pollers rebuild nine topics
-  (`overview`, `host`, `vms`, `cluster`, `flux`, `storage`, `alerts`, `status`, `apps`) and push
-  only what changed over a single SSE stream. A tenth, `core.plugins`, says which integrations
-  run and whether each is healthy.
+- **Live, not polled from the browser.** Informers and upstream pollers rebuild the topics
+  (`host`, `vms`, `cluster`, `flux`, `storage`, `alerts`, `status`, `apps`), the core composes
+  `core.overview` from what the integrations contribute, and only what changed goes out over a
+  single SSE stream. `core.plugins` says which integrations run and whether each is healthy.
 - **Proxmox and the hardware.** VMs with their Kubernetes node, config, snapshots and charts;
   IPMI power, temperatures, fans and PSUs; ZFS pools and per-bay SMART health.
 - **Kubernetes and GitOps.** Nodes, workloads, pods with logs and metrics, events, namespaces,

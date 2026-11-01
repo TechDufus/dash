@@ -445,11 +445,11 @@ func (s *Source) build() world {
 	// ---- overview ----
 	worst := w.storage.PVCs[0]
 	w.overview.Attention = []model.AttentionItem{
-		{ID: "pod/" + crashingNS + "/" + crashPod, Severity: model.SeverityCrit, Source: "kubernetes",
+		{ID: "pod/" + crashingNS + "/" + crashPod, Severity: model.SeverityCrit, Source: "kubernetes", Plugin: "kubernetes",
 			Title: "acme/" + crashPod + " is in CrashLoopBackOff", Detail: "14 restarts · last exit: Error (1)",
 			Since: ago(47 * time.Minute), Route: "/cluster/pods/" + crashingNS + "/" + crashPod,
 			Links: s.links.Headlamp("Pod", crashingNS, crashPod)},
-		{ID: "pvc/monitoring/vmsingle-data", Severity: model.SeverityWarn, Source: "storage",
+		{ID: "pvc/monitoring/vmsingle-data", Severity: model.SeverityWarn, Source: "storage", Plugin: "kubernetes",
 			Title: "monitoring/vmsingle-data is 83% full", Detail: "growing ~0.6 GiB/day · full in ~14 days",
 			Since: ago(3 * time.Hour), Route: "/storage", Links: worst.Links},
 	}
@@ -487,6 +487,7 @@ func (s *Source) build() world {
 	}
 	fluxTotal := len(w.flux.Sources) + len(w.flux.Kustomizations) + len(w.flux.HelmReleases)
 	w.overview.Status = model.HealthCrit
+	w.overview.KPIList = []model.KPI{}
 	w.overview.Kpis = model.Kpis{
 		AlertsFiring: firing, FluxReady: fluxTotal, FluxTotal: fluxTotal, FluxSuspended: 1, SourceVerified: true,
 		NodesReady: len(nodeNames), NodesTotal: len(nodeNames), VMsRunning: running, VMsTotal: total,

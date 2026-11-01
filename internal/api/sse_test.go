@@ -105,11 +105,11 @@ func TestStream(t *testing.T) {
 	}
 
 	expect(t, lines, "retry: 3000")
-	expect(t, lines, "event: overview") // snapshot
+	expect(t, lines, "event: core.overview") // snapshot
 	if _, err := s.d.Hub.Publish(model.TopicOverview, map[string]string{"a": "2"}, []model.SourceStatus{}); err != nil {
 		t.Fatal(err)
 	}
-	expect(t, lines, `event: overview`) // the live event follows its own event line
+	expect(t, lines, `event: core.overview`) // the live event follows its own event line
 	expectContaining(t, lines, `"a":"2"`)
 	expect(t, lines, ": ping") // heartbeats keep coming
 }

@@ -91,7 +91,7 @@ func TestReloadedSecretReachesTheProxmoxClientWhileReadinessHolds(t *testing.T) 
 	h := hub.New()
 	mgr := topics.New(topics.Deps{
 		Cfg: cfg, Cluster: cluster, Prom: upstream.NewProm(cfg.VMURL, nil), AM: upstream.NewAlertmanager(cfg.AlertmanagerURL, nil),
-		Gatus: upstream.NewGatus(cfg.GatusURL, nil), PVE: pveClient, Hub: h, Hosts: plugintest.AllRunning(h, topics.LegacyManifests()...),
+		Gatus: upstream.NewGatus(cfg.GatusURL, nil), PVE: pveClient, Hosts: plugintest.AllRunning(h, topics.LegacyManifests()...),
 		Links: links.New(cfg), Secrets: reg,
 	})
 	ctx, cancel := context.WithCancel(context.Background())

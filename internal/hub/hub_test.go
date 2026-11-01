@@ -54,7 +54,7 @@ func TestSubscribeSnapshotAndLive(t *testing.T) {
 	h.Publish(model.TopicOverview, 2, nil)
 	snap, ch, cancel := h.Subscribe("", nil)
 	defer cancel()
-	if len(snap) != 2 || snap[0].Topic != "overview" || snap[1].Topic != "apps" {
+	if len(snap) != 2 || snap[0].Topic != "core.overview" || snap[1].Topic != "apps" {
 		t.Fatalf("snapshot must follow topic order, got %+v", snap)
 	}
 	h.Publish(model.TopicHost, 3, nil)

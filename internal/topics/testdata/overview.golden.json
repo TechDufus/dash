@@ -1,0 +1,369 @@
+{
+  "status": "crit",
+  "attention": [
+    {
+      "id": "bucket:backups",
+      "severity": "crit",
+      "source": "storage",
+      "title": "Bucket backups is 95% of its quota",
+      "detail": "",
+      "since": "2026-10-30T12:00:00Z",
+      "route": "/storage",
+      "links": []
+    },
+    {
+      "id": "cert:media/tls",
+      "severity": "crit",
+      "source": "cert-manager",
+      "title": "Certificate media/tls expires soon",
+      "detail": "expires 2026-11-04 (5 days)",
+      "since": "2026-10-30T12:00:00Z",
+      "route": "/cluster",
+      "links": []
+    },
+    {
+      "id": "host:cpu-temp",
+      "severity": "crit",
+      "source": "hardware",
+      "title": "CPU package at 92 °C",
+      "detail": "",
+      "since": "2026-10-30T12:00:00Z",
+      "route": "/hardware",
+      "links": [
+        {
+          "label": "Proxmox UI",
+          "href": "https://pve.example.com:8006/",
+          "kind": "proxmox"
+        },
+        {
+          "label": "Host shell",
+          "href": "https://pve.example.com:8006/?console=shell\u0026novnc=1\u0026node=pve-demo\u0026resize=off\u0026cmd=",
+          "kind": "proxmox"
+        }
+      ]
+    },
+    {
+      "id": "node:cp-2",
+      "severity": "crit",
+      "source": "kubernetes",
+      "title": "Node cp-2 not ready",
+      "detail": "192.0.2.12",
+      "since": "2026-10-30T12:00:00Z",
+      "route": "/cluster",
+      "links": []
+    },
+    {
+      "id": "pvc:media/data",
+      "severity": "crit",
+      "source": "storage",
+      "title": "PVC media/data is 93% full",
+      "detail": "",
+      "since": "2026-10-30T12:00:00Z",
+      "route": "/storage",
+      "links": []
+    },
+    {
+      "id": "smart:4",
+      "severity": "crit",
+      "source": "smart",
+      "title": "Disk in bay 4 reports SMART failure",
+      "detail": "sdd S1",
+      "since": "2026-10-30T12:00:00Z",
+      "route": "/hardware",
+      "links": [
+        {
+          "label": "Proxmox UI",
+          "href": "https://pve.example.com:8006/",
+          "kind": "proxmox"
+        },
+        {
+          "label": "Host shell",
+          "href": "https://pve.example.com:8006/?console=shell\u0026novnc=1\u0026node=pve-demo\u0026resize=off\u0026cmd=",
+          "kind": "proxmox"
+        }
+      ]
+    },
+    {
+      "id": "workload:Deployment/media/app",
+      "severity": "crit",
+      "source": "kubernetes",
+      "title": "Deployment media/app not ready",
+      "detail": "0 of 2 ready",
+      "since": "2026-10-30T12:00:00Z",
+      "route": "/cluster",
+      "links": []
+    },
+    {
+      "id": "zfs:pool:bulk",
+      "severity": "crit",
+      "source": "zfs",
+      "title": "ZFS pool bulk is degraded",
+      "detail": "",
+      "since": "2026-10-30T12:00:00Z",
+      "route": "/hardware",
+      "links": [
+        {
+          "label": "Proxmox UI",
+          "href": "https://pve.example.com:8006/",
+          "kind": "proxmox"
+        },
+        {
+          "label": "Host shell",
+          "href": "https://pve.example.com:8006/?console=shell\u0026novnc=1\u0026node=pve-demo\u0026resize=off\u0026cmd=",
+          "kind": "proxmox"
+        }
+      ]
+    },
+    {
+      "id": "gatus:infrastructure_unifi",
+      "severity": "crit",
+      "source": "gatus",
+      "title": "UniFi check failing",
+      "detail": "infrastructure",
+      "since": "2026-10-30T11:56:00Z",
+      "route": "/status",
+      "links": []
+    },
+    {
+      "id": "pod:media/app-0",
+      "severity": "crit",
+      "source": "kubernetes",
+      "title": "Pod media/app-0 is failing",
+      "detail": "CrashLoopBackOff",
+      "since": "2026-10-30T11:13:00Z",
+      "route": "/cluster/pods/media/app-0",
+      "links": []
+    },
+    {
+      "id": "alert:f1",
+      "severity": "crit",
+      "source": "alertmanager",
+      "title": "NodeDown",
+      "detail": "cp-2 is down",
+      "since": "2026-10-30T11:10:00Z",
+      "route": "/alerts",
+      "links": [
+        {
+          "label": "Grafana alerts",
+          "href": "https://grafana.example.com/alerting/list",
+          "kind": "grafana"
+        }
+      ]
+    },
+    {
+      "id": "flux:source-unverified",
+      "severity": "crit",
+      "source": "flux",
+      "title": "flux-system source signature not verified",
+      "detail": "GitRepository flux-system/flux-system SourceVerified is not True",
+      "since": "2026-10-30T11:00:00Z",
+      "route": "/gitops",
+      "links": [
+        {
+          "label": "Open in Headlamp",
+          "href": "https://headlamp.example.com/c/demo/customresources/gitrepositories.source.toolkit.fluxcd.io/flux-system/flux-system",
+          "kind": "headlamp"
+        }
+      ]
+    },
+    {
+      "id": "pvc:monitoring/tsdb",
+      "severity": "warn",
+      "source": "storage",
+      "title": "PVC monitoring/tsdb is 82% full",
+      "detail": "",
+      "since": "2026-10-30T12:00:00Z",
+      "route": "/storage",
+      "links": []
+    },
+    {
+      "id": "vm:3000",
+      "severity": "warn",
+      "source": "proxmox",
+      "title": "VM scratch is stopped",
+      "detail": "VMID 3000",
+      "since": "2026-10-30T12:00:00Z",
+      "route": "/vms/3000",
+      "links": []
+    },
+    {
+      "id": "gatus:apps_grafana",
+      "severity": "warn",
+      "source": "gatus",
+      "title": "Grafana check failing",
+      "detail": "apps",
+      "since": "2026-10-30T11:58:00Z",
+      "route": "/status",
+      "links": []
+    },
+    {
+      "id": "pod:media/app-1",
+      "severity": "warn",
+      "source": "kubernetes",
+      "title": "Pod media/app-1 is stuck pending",
+      "detail": "Pending for over 5 minutes",
+      "since": "2026-10-30T11:40:00Z",
+      "route": "/cluster/pods/media/app-1",
+      "links": []
+    },
+    {
+      "id": "flux:Kustomization/flux-system/apps",
+      "severity": "warn",
+      "source": "flux",
+      "title": "Kustomization flux-system/apps not ready",
+      "detail": "build failed",
+      "since": "2026-10-30T11:30:00Z",
+      "route": "/gitops",
+      "links": [
+        {
+          "label": "Open in Headlamp",
+          "href": "https://headlamp.example.com/c/demo/customresources/kustomizations.kustomize.toolkit.fluxcd.io/flux-system/apps",
+          "kind": "headlamp"
+        }
+      ]
+    },
+    {
+      "id": "alert:f2",
+      "severity": "warn",
+      "source": "alertmanager",
+      "title": "DiskFilling",
+      "detail": "media/data",
+      "since": "2026-10-30T09:00:00Z",
+      "route": "/alerts",
+      "links": [
+        {
+          "label": "Grafana alerts",
+          "href": "https://grafana.example.com/alerting/list",
+          "kind": "grafana"
+        }
+      ]
+    },
+    {
+      "id": "zfs:scrub:fast",
+      "severity": "warn",
+      "source": "zfs",
+      "title": "ZFS pool fast last scrub found errors",
+      "detail": "3 errors",
+      "since": "2026-10-28T12:00:00Z",
+      "route": "/hardware",
+      "links": [
+        {
+          "label": "Proxmox UI",
+          "href": "https://pve.example.com:8006/",
+          "kind": "proxmox"
+        },
+        {
+          "label": "Host shell",
+          "href": "https://pve.example.com:8006/?console=shell\u0026novnc=1\u0026node=pve-demo\u0026resize=off\u0026cmd=",
+          "kind": "proxmox"
+        }
+      ]
+    }
+  ],
+  "kpis": {
+    "alertsFiring": 2,
+    "fluxReady": 2,
+    "fluxTotal": 4,
+    "fluxSuspended": 1,
+    "sourceVerified": false,
+    "nodesReady": 1,
+    "nodesTotal": 2,
+    "vmsRunning": 2,
+    "vmsTotal": 3,
+    "powerWatts": 412,
+    "cpuTempMaxC": 91.5,
+    "worstPvc": {
+      "namespace": "media",
+      "name": "data",
+      "usedRatio": 0.93
+    }
+  },
+  "topology": {
+    "host": {
+      "name": "pve-demo",
+      "health": "crit",
+      "powerWatts": 412,
+      "cpuTempC": 91.5,
+      "memUsedRatio": 0.375
+    },
+    "vms": [
+      {
+        "vmid": 100,
+        "name": "talos-cp-1",
+        "health": "ok",
+        "cpuRatio": 0.4,
+        "memRatio": 0.75,
+        "isK8sNode": true,
+        "running": true
+      },
+      {
+        "vmid": 101,
+        "name": "talos-cp-2",
+        "health": "warn",
+        "cpuRatio": 0.9,
+        "memRatio": 0.875,
+        "isK8sNode": true,
+        "running": true
+      },
+      {
+        "vmid": 3000,
+        "name": "scratch",
+        "health": "warn",
+        "cpuRatio": 0,
+        "memRatio": 0,
+        "isK8sNode": false,
+        "running": false
+      }
+    ],
+    "groups": [
+      {
+        "name": "Platform",
+        "health": "warn",
+        "namespaces": [
+          {
+            "name": "flux-system",
+            "health": "ok",
+            "pods": 4
+          },
+          {
+            "name": "monitoring",
+            "health": "warn",
+            "pods": 6
+          }
+        ],
+        "podsByNode": {
+          "cp-1": 2
+        }
+      },
+      {
+        "name": "Apps",
+        "health": "crit",
+        "namespaces": [
+          {
+            "name": "media",
+            "health": "crit",
+            "pods": 3
+          }
+        ],
+        "podsByNode": {
+          "cp-1": 1,
+          "cp-2": 1
+        }
+      },
+      {
+        "name": "Tenants",
+        "health": "ok",
+        "namespaces": [
+          {
+            "name": "acme",
+            "health": "ok",
+            "pods": 2
+          }
+        ],
+        "podsByNode": {
+          "cp-2": 1
+        }
+      }
+    ]
+  }
+}

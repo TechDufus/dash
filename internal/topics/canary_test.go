@@ -12,7 +12,6 @@ import (
 	"testing"
 
 	"github.com/TechDufus/dash/internal/config"
-	"github.com/TechDufus/dash/internal/hub"
 	"github.com/TechDufus/dash/internal/links"
 	"github.com/TechDufus/dash/internal/secret"
 	"github.com/TechDufus/dash/internal/upstream"
@@ -78,7 +77,6 @@ func TestViewerStreamNeverCarriesUpstreamDetail(t *testing.T) {
 		AM:      upstream.NewAlertmanager(amURL, nil),
 		Gatus:   upstream.NewGatus(gatus.URL, nil),
 		PVE:     upstream.NewProxmox(pve.URL, "pve", "u@pve!t", token, nil),
-		Hub:     hub.New(),
 		Links:   links.New(cfg),
 		Secrets: reg,
 	})

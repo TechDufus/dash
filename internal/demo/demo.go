@@ -7,14 +7,12 @@ import (
 	"context"
 	"fmt"
 	"hash/fnv"
-	"log/slog"
 	"math"
 	"net/http"
 	"strings"
 	"time"
 
 	"github.com/TechDufus/dash/internal/config"
-	"github.com/TechDufus/dash/internal/hub"
 	"github.com/TechDufus/dash/internal/links"
 	"github.com/TechDufus/dash/internal/model"
 	"github.com/TechDufus/dash/internal/plugin"
@@ -72,9 +70,10 @@ func (s *Source) Plugins(hosts plugin.HostProvider) []plugin.Factory {
 	return out
 }
 
-// Run publishes every topic now and again on each tick until ctx ends; it does not block.
-func (s *Source) Run(ctx context.Context, h *hub.Hub) {
-	s.publish(h)
+// Run publishes every topic now and again on each tick until ctx ends; it does not block. Plugins
+// must have been called.
+func (s *Source) Run(ctx context.Context) {
+	s.publish()
 	go func() {
 		t := time.NewTicker(tick)
 		defer t.Stop()
@@ -83,13 +82,13 @@ func (s *Source) Run(ctx context.Context, h *hub.Hub) {
 			case <-ctx.Done():
 				return
 			case <-t.C:
-				s.publish(h)
+				s.publish()
 			}
 		}
 	}()
 }
 
-func (s *Source) publish(h *hub.Hub) {
+func (s *Source) publish() {
 	w := s.build()
 	at := s.now()
 	src := func(names ...string) []model.SourceStatus {
@@ -116,8 +115,8 @@ func (s *Source) publish(h *hub.Hub) {
 	} {
 		if id, local, ok := topics.Owner(p.topic); ok {
 			s.hosts.HostFor(id).Publish(local, p.data, p.srcs)
-		} else if _, err := h.Publish(p.topic, p.data, p.srcs); err != nil {
-			slog.Error("demo publish", "topic", p.topic, "error", err)
+		} else {
+			s.hosts.HostFor(plugin.Core).Publish(strings.TrimPrefix(string(p.topic), string(plugin.Core)+"."), p.data, p.srcs)
 		}
 	}
 }

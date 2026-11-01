@@ -84,7 +84,7 @@ func TestRunOrderPublishesFirstPoll(t *testing.T) {
 	sup := plugin.NewSupervisor(plugin.Options{Publisher: h, Settings: treeSettings{func() config.Tree { return tree }}})
 	h.SetOrder(sup.TopicOrder)
 	mgr := topics.New(topics.Deps{
-		Cfg: cfg, Cluster: cluster, Hub: h, Hosts: sup, Links: links.New(cfg),
+		Cfg: cfg, Cluster: cluster, Hosts: sup, Contributors: sup.Contributors, Links: links.New(cfg),
 		Prom: upstream.NewProm("", nil), AM: upstream.NewAlertmanager("", nil), Gatus: upstream.NewGatus("", nil),
 		PVE: upstream.NewProxmox("", "", "", cfg.ProxmoxTokenSecret, nil),
 	})
@@ -99,7 +99,7 @@ func TestRunOrderPublishesFirstPoll(t *testing.T) {
 	defer sup.Shutdown(context.Background())
 	mgr.Run(ctx)
 
-	want := []string{"core.plugins", "overview", "alerts", "status", "vms", "host", "cluster", "storage", "apps", "flux"}
+	want := []string{"core.plugins", "core.overview", "alerts", "status", "vms", "host", "cluster", "storage", "apps", "flux"}
 	deadline := time.Now().Add(5 * time.Second)
 	for {
 		snap, _, cancelSub := h.Subscribe("", nil)

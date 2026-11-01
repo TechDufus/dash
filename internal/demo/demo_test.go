@@ -24,7 +24,7 @@ func published(t *testing.T) *hub.Hub {
 	h := hub.New()
 	s := New(Config(config.Defaults()))
 	s.Plugins(plugintest.AllRunning(h, topics.LegacyManifests()...))
-	s.publish(h)
+	s.publish()
 	return h
 }
 
@@ -125,7 +125,7 @@ func demoSupervisor(t *testing.T, set *plugintest.Settings) (*Source, *plugin.Su
 
 func TestDemoPublishesLegacyTopicsAndCorePlugins(t *testing.T) {
 	s, _, h := demoSupervisor(t, nil)
-	s.publish(h)
+	s.publish()
 	snap, _, cancel := h.Subscribe("", nil)
 	defer cancel()
 	var got []string
@@ -134,7 +134,7 @@ func TestDemoPublishesLegacyTopicsAndCorePlugins(t *testing.T) {
 	}
 	// core.plugins first, then the overview, then the integrations' topics under the names
 	// they keep until their plugin migrates.
-	want := []string{"core.plugins", "overview", "alerts", "status", "vms", "host", "cluster", "storage", "apps", "flux"}
+	want := []string{"core.plugins", "core.overview", "alerts", "status", "vms", "host", "cluster", "storage", "apps", "flux"}
 	if strings.Join(got, " ") != strings.Join(want, " ") {
 		t.Fatalf("topics = %v, want %v", got, want)
 	}
@@ -173,7 +173,7 @@ func TestDemoDisabledPluginPublishesNothing(t *testing.T) {
 	set := &plugintest.Settings{}
 	set.Set(plugin.InstanceConfig{Name: "hardware", Enabled: &off, Config: &config.HardwareConfig{}})
 	s, _, h := demoSupervisor(t, set)
-	s.publish(h)
+	s.publish()
 	if _, ok := h.Latest("", model.TopicHost); ok {
 		t.Error("the host topic is published although hardware is disabled")
 	}

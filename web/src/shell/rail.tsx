@@ -10,7 +10,7 @@ import { isActive, NAV } from "./nav";
 export function Rail() {
   const [location] = useLocation();
   const me = useMe();
-  const overview = useTopic("overview")?.data;
+  const overview = useTopic("core.overview")?.data;
   const firing = overview?.kpis.alertsFiring ?? 0;
   return (
     <nav

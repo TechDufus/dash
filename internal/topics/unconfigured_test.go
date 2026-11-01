@@ -12,7 +12,6 @@ import (
 	"testing"
 
 	"github.com/TechDufus/dash/internal/config"
-	"github.com/TechDufus/dash/internal/hub"
 	"github.com/TechDufus/dash/internal/links"
 	"github.com/TechDufus/dash/internal/secret"
 	"github.com/TechDufus/dash/internal/upstream"
@@ -40,7 +39,6 @@ func TestUnconfiguredUpstreamsMakeNoRequests(t *testing.T) {
 		AM:    upstream.NewAlertmanager(cfg.AlertmanagerURL, rt),
 		Gatus: upstream.NewGatus(cfg.GatusURL, rt),
 		PVE:   upstream.NewProxmox(cfg.ProxmoxURL, cfg.ProxmoxNode, cfg.ProxmoxTokenID, cfg.ProxmoxTokenSecret, rt),
-		Hub:   hub.New(),
 		Links: links.New(cfg),
 	})
 
@@ -84,7 +82,7 @@ func TestScrubAndNASQueriesNeedTheirConventions(t *testing.T) {
 		cfg.HostNodename, cfg.Conventions = "pve-a", c
 		m := New(Deps{
 			Cfg: cfg, Prom: upstream.NewProm(prom.URL, nil), PVE: upstream.NewProxmox("", "", "", secret.Value{}, nil),
-			Hub: hub.New(), Links: links.New(cfg),
+			Links: links.New(cfg),
 		})
 		m.pollHost(context.Background())
 		m.pollStorage(context.Background())
@@ -123,7 +121,7 @@ func TestHostDataSaysWhetherScrubIsTracked(t *testing.T) {
 		rt := &failingTransport{} // the queries fail; the flag does not depend on their answer
 		m := New(Deps{
 			Cfg: cfg, Prom: upstream.NewProm("http://prom.example.com", rt), PVE: upstream.NewProxmox("", "", "", secret.Value{}, nil),
-			Hub: hub.New(), Links: links.New(cfg),
+			Links: links.New(cfg),
 		})
 		m.pollHost(context.Background())
 		if got := m.buildHost().ScrubTracked; got != want {

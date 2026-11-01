@@ -122,7 +122,7 @@ func run(reg *secret.Registry) error {
 		if err := sup.Run(ctx); err != nil {
 			return err
 		}
-		src.Run(ctx, h)
+		src.Run(ctx)
 		srv = api.New(api.Deps{
 			Cfg: cfg, Version: version, Hub: h, Prom: src, AM: src, VLogs: src, Data: src, Ready: sup.Ready, Secrets: reg, Audit: alog,
 		})
@@ -155,7 +155,8 @@ func run(reg *secret.Registry) error {
 		pve := upstream.NewProxmox(cfg.ProxmoxURL, cfg.ProxmoxNode, cfg.ProxmoxTokenID, cfg.ProxmoxTokenSecret, nil) // not a .svc host
 
 		mgr := topics.New(topics.Deps{
-			Cfg: cfg, Cluster: cluster, Prom: prom, AM: am, Gatus: gatus, PVE: pve, Hub: h, Hosts: sup, Links: links.New(cfg), Secrets: reg,
+			Cfg: cfg, Cluster: cluster, Prom: prom, AM: am, Gatus: gatus, PVE: pve, Hosts: sup, Contributors: sup.Contributors,
+			Links: links.New(cfg), Secrets: reg,
 		})
 		// The supervisor starts before the Manager so that no first publish is dropped.
 		if err := sup.Add(mgr.Plugins()...); err != nil {

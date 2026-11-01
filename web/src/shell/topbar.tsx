@@ -20,7 +20,7 @@ import { cn } from "@/lib/utils";
 import { isActive, NAV, titleFor } from "./nav";
 
 function StatusPill() {
-  const overview = useTopic("overview")?.data;
+  const overview = useTopic("core.overview")?.data;
   if (!overview) {
     return (
       <span className="rounded-full border border-line bg-panel px-2.5 py-1 text-xs text-muted">

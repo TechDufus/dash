@@ -16,7 +16,7 @@ import type {
 
 export interface TopicData {
   "core.plugins": PluginsData;
-  overview: OverviewData;
+  "core.overview": OverviewData;
   host: HostData;
   vms: VMsData;
   cluster: ClusterData;
@@ -37,7 +37,7 @@ export const _topicsExact: _exact = true;
 
 export const TOPICS = [
   "core.plugins",
-  "overview",
+  "core.overview",
   "host",
   "vms",
   "cluster",

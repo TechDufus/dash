@@ -190,7 +190,7 @@ function OverviewSkeleton() {
 }
 
 export function OverviewPage() {
-  const overview = useTopic("overview");
+  const overview = useTopic("core.overview");
   const apps = useTopic("apps");
   const infra = useInfraLinks();
   const data = overview?.data;

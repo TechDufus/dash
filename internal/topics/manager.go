@@ -1,7 +1,7 @@
 // Package topics builds the eight integration topics (host, vms, cluster, flux, storage, alerts,
-// status, apps) and the overview from the Kubernetes informers and the upstream clients, and
-// publishes them whenever their content changes. Each topic is published through the Host of
-// the plugin that owns it (legacy.go), so a disabled plugin publishes nothing.
+// status, apps) from the Kubernetes informers and the upstream clients, and composes core.overview
+// from them and from what plugins contribute. Each topic is published through the Host of the
+// plugin that owns it (legacy.go), so a disabled plugin publishes nothing.
 package topics
 
 import (
@@ -13,7 +13,6 @@ import (
 	"time"
 
 	"github.com/TechDufus/dash/internal/config"
-	"github.com/TechDufus/dash/internal/hub"
 	"github.com/TechDufus/dash/internal/kube"
 	"github.com/TechDufus/dash/internal/links"
 	"github.com/TechDufus/dash/internal/model"
@@ -33,10 +32,12 @@ type Deps struct {
 	AM      *upstream.Alertmanager
 	Gatus   *upstream.Gatus
 	PVE     *upstream.Proxmox
-	Hub     *hub.Hub
 	Links   *links.Builder
 	// Hosts hands out the Host each topic is published through, and says which plugins run.
 	Hosts plugin.HostProvider
+	// Contributors lists the running plugins that add to the overview (Supervisor.Contributors);
+	// nil means none do.
+	Contributors func() []plugin.Contributor
 	// Secrets scrubs logged upstream errors; nil only matches credential shapes.
 	Secrets *secret.Registry
 }
@@ -82,6 +83,9 @@ type Manager struct {
 
 	dmu   sync.Mutex
 	dirty map[model.Topic]bool
+
+	// badSources are the plugins whose overview sources panicked on the last round (under mu).
+	badSources map[plugin.ID]struct{}
 }
 
 // built holds the latest typed data of every topic; the overview derives from them.
@@ -99,12 +103,13 @@ type built struct {
 // New returns a Manager; call Run to start it.
 func New(d Deps) *Manager {
 	return &Manager{
-		d:       d,
-		now:     time.Now,
-		srcs:    map[string]srcState{},
-		done:    map[string]bool{},
-		tracker: NewTracker(),
-		dirty:   map[model.Topic]bool{},
+		d:          d,
+		now:        time.Now,
+		srcs:       map[string]srcState{},
+		done:       map[string]bool{},
+		tracker:    NewTracker(),
+		dirty:      map[model.Topic]bool{},
+		badSources: map[plugin.ID]struct{}{},
 	}
 }
 
@@ -255,7 +260,7 @@ func (m *Manager) mark(topics ...model.Topic) {
 
 func (m *Manager) markAll() {
 	m.mark(model.TopicHost, model.TopicVMs, model.TopicCluster, model.TopicFlux, model.TopicStorage,
-		model.TopicAlerts, model.TopicStatus, model.TopicApps, model.TopicOverview)
+		model.TopicAlerts, model.TopicStatus, model.TopicApps)
 }
 
 func (m *Manager) onKubeChange(k kube.Kind) {
@@ -276,16 +281,13 @@ func (m *Manager) onKubeChange(k kube.Kind) {
 }
 
 // publish hands one topic to the Host of the plugin that owns it, which names, types and
-// forwards it to the hub. A topic nobody owns (the overview, until P2.5) goes to the hub
-// directly. Failures are logged and never fatal.
+// forwards it to the hub. The overview belongs to no plugin: the core publishes it.
 func (m *Manager) publish(topic model.Topic, data any, srcs []model.SourceStatus) {
 	if o, ok := owners[topic]; ok {
 		m.d.Hosts.HostFor(o.plugin).Publish(o.local, data, srcs)
 		return
 	}
-	if _, err := m.d.Hub.Publish(topic, data, srcs); err != nil {
-		slog.Error("publish failed", "topic", topic, "error", err)
-	}
+	m.d.Hosts.HostFor(plugin.Core).Publish(strings.TrimPrefix(string(topic), string(plugin.Core)+"."), data, srcs)
 }
 
 // anyRunning reports whether at least one of ids runs; an empty list means "always".
@@ -301,13 +303,16 @@ func (m *Manager) anyRunning(ids []plugin.ID) bool {
 	return false
 }
 
-// rebuild rebuilds every dirty topic whose prerequisites are ready; the overview follows any change.
+// rebuild rebuilds every dirty topic whose prerequisites are ready, then composes the overview
+// from what exists. The overview waits for no topic: it is recomposed after any change, and on
+// every round while a plugin contributes to it (the hub drops an unchanged result).
 func (m *Manager) rebuild() {
 	m.dmu.Lock()
 	dirty := m.dirty
 	m.dirty = map[model.Topic]bool{}
 	m.dmu.Unlock()
-	if len(dirty) == 0 {
+	contributors := m.contributors()
+	if len(dirty) == 0 && len(contributors) == 0 {
 		return
 	}
 	synced := m.d.Cluster.HasSynced()
@@ -389,16 +394,7 @@ func (m *Manager) rebuild() {
 	m.mu.RLock()
 	b := m.built
 	m.mu.RUnlock()
-	// The overview waits for every topic whose owner runs, not for a disabled plugin's.
-	up := func(built bool, t model.Topic) bool { return built || !m.d.Hosts.Running(owners[t].plugin) }
-	if !(up(b.host != nil, model.TopicHost) && up(b.vms != nil, model.TopicVMs) && up(b.cluster != nil, model.TopicCluster) &&
-		up(b.flux != nil, model.TopicFlux) && up(b.storage != nil, model.TopicStorage) && up(b.alerts != nil, model.TopicAlerts) &&
-		up(b.status != nil, model.TopicStatus) && up(b.apps != nil, model.TopicApps)) {
-		retry(model.TopicOverview)
-		return
-	}
-	ov := m.buildOverview(b, now)
-	m.publish(model.TopicOverview, ov, m.sources(
+	m.publish(model.TopicOverview, m.buildOverview(b, contributors, now), m.sources(
 		"kubernetes", "host:proxmox", "host:victoriametrics", "vms:proxmox", "vms:victoriametrics",
 		"cluster:victoriametrics", "storage:victoriametrics", "alerts:alertmanager", "status:gatus"))
 }

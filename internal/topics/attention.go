@@ -10,6 +10,7 @@ import (
 
 	"github.com/TechDufus/dash/internal/links"
 	"github.com/TechDufus/dash/internal/model"
+	"github.com/TechDufus/dash/internal/plugin"
 )
 
 // AttentionInput is everything the rule table reads. Every field is the typed data of a topic
@@ -35,8 +36,25 @@ type Tracker struct {
 // NewTracker returns an empty tracker.
 func NewTracker() *Tracker { return &Tracker{seen: map[string]time.Time{}} }
 
-// Attention applies the rule table and returns the items, critical first, then newest first.
-func Attention(in AttentionInput, tr *Tracker) []model.AttentionItem {
+// legacyRules are the rule groups that still run in the Manager, each attributed to the plugin it
+// moves into (its G3 leaf), in the order the table has always been applied.
+var legacyRules = []struct {
+	plugin plugin.ID
+	run    func(AttentionInput, addFn)
+}{
+	{"alertmanager", attentionAlerts},
+	{"flux", attentionFlux},
+	{"kubernetes", attentionCluster},
+	{"proxmox", attentionVMs},
+	{"kubernetes", attentionStorage},
+	{"gatus", attentionStatus},
+	{"hardware", attentionHost},
+}
+
+// legacyAttention applies the rule table and returns the items in rule order, each stamped with
+// the plugin whose rule raised it. tr gives an item without a time of its own the time it was
+// first seen.
+func legacyAttention(in AttentionInput, tr *Tracker) []model.AttentionItem {
 	if tr == nil {
 		tr = NewTracker()
 	}
@@ -55,6 +73,7 @@ func Attention(in AttentionInput, tr *Tracker) []model.AttentionItem {
 		return in.Now
 	}
 	items := []model.AttentionItem{}
+	var from plugin.ID
 	add := func(id string, sev model.Health, source, title, detail string, natural time.Time, route string, ls []model.Link) {
 		if sev != model.HealthWarn && sev != model.HealthCrit {
 			return
@@ -63,23 +82,25 @@ func Attention(in AttentionInput, tr *Tracker) []model.AttentionItem {
 			ls = []model.Link{}
 		}
 		items = append(items, model.AttentionItem{
-			ID: id, Severity: model.Severity(sev), Source: source, Title: title, Detail: detail,
+			ID: id, Severity: model.Severity(sev), Source: source, Plugin: string(from), Title: title, Detail: detail,
 			Since: since(id, natural), Route: route, Links: ls,
 		})
 	}
-	attentionAlerts(in, add)
-	attentionFlux(in, add)
-	attentionCluster(in, add)
-	attentionVMs(in, add)
-	attentionStorage(in, add)
-	attentionStatus(in, add)
-	attentionHost(in, add)
+	for _, r := range legacyRules {
+		from = r.plugin
+		r.run(in, add)
+	}
 
 	for id := range tr.seen {
 		if !live[id] {
 			delete(tr.seen, id)
 		}
 	}
+	return items
+}
+
+// sortAttention orders items critical first, then newest first, then by ID.
+func sortAttention(items []model.AttentionItem) {
 	sort.SliceStable(items, func(i, j int) bool {
 		if items[i].Severity != items[j].Severity {
 			return items[i].Severity == model.SeverityCrit
@@ -89,7 +110,12 @@ func Attention(in AttentionInput, tr *Tracker) []model.AttentionItem {
 		}
 		return items[i].ID < items[j].ID
 	})
-	return items
+}
+
+// Attention applies the rule table of every legacy source and returns the items, critical first,
+// then newest first. It is what the overview shows when the legacy sources are all there is.
+func Attention(in AttentionInput, tr *Tracker) []model.AttentionItem {
+	return compose([]contribution{{attention: legacyAttention(in, tr)}}, legacyOverview{}).Attention
 }
 
 // OverallStatus is the worst severity of the items.

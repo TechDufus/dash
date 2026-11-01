@@ -52,9 +52,14 @@ func fakeCluster() *kube.Cluster {
 }
 
 // testManager is a Manager over an empty cluster and the given upstream URLs ("" = not configured).
-func testManager(cfg config.Config, amURL string, hosts plugin.HostProvider, h *hub.Hub) *Manager {
+func testManager(cfg config.Config, amURL string, hosts plugin.HostProvider) *Manager {
+	return testManagerWith(cfg, amURL, hosts, nil)
+}
+
+// testManagerWith is testManager with plugins that contribute to the overview.
+func testManagerWith(cfg config.Config, amURL string, hosts plugin.HostProvider, contributors func() []plugin.Contributor) *Manager {
 	return New(Deps{
-		Cfg: cfg, Cluster: fakeCluster(), Hub: h, Hosts: hosts, Links: links.New(cfg),
+		Cfg: cfg, Cluster: fakeCluster(), Hosts: hosts, Contributors: contributors, Links: links.New(cfg),
 		Prom:  upstream.NewProm(cfg.VMURL, nil),
 		AM:    upstream.NewAlertmanager(amURL, nil),
 		Gatus: upstream.NewGatus(cfg.GatusURL, nil),
@@ -84,7 +89,7 @@ var legacyTopics = []model.Topic{
 // the SPA reads: "vms", "host", …, not "proxmox.vms". The payloads are what the Manager builds.
 func TestManagerPublishesLegacyTopicsThroughHosts(t *testing.T) {
 	h := hub.New()
-	m := testManager(config.Defaults(), "", plugintest.AllRunning(h, LegacyManifests()...), h)
+	m := testManager(config.Defaults(), "", plugintest.AllRunning(h, LegacyManifests()...))
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	m.Run(ctx)
@@ -104,7 +109,7 @@ func TestManagerPublishesLegacyTopicsThroughHosts(t *testing.T) {
 		got = append(got, ev.Topic)
 	}
 	slices.Sort(got)
-	want := []string{"alerts", "apps", "cluster", "flux", "host", "overview", "status", "storage", "vms"}
+	want := []string{"alerts", "apps", "cluster", "core.overview", "flux", "host", "status", "storage", "vms"}
 	if !slices.Equal(got, want) {
 		t.Fatalf("published %v, want exactly %v", got, want)
 	}
@@ -164,7 +169,7 @@ func TestDisabledOwnerPublishesNothingAndItsPollerIsSkipped(t *testing.T) {
 		for _, id := range off {
 			hp.off[id] = true
 		}
-		m := testManager(config.Defaults(), am.URL, hp, h)
+		m := testManager(config.Defaults(), am.URL, hp)
 		ctx, cancel := context.WithCancel(context.Background())
 		t.Cleanup(cancel)
 		m.Run(ctx)
@@ -203,7 +208,7 @@ func TestExplicitDisableRemovesShimTopics(t *testing.T) {
 	set.Set(plugin.InstanceConfig{Name: "flux", Enabled: &off, Config: &config.FluxConfig{}})
 	sup := plugin.NewSupervisor(plugin.Options{Publisher: h, Settings: set, StatusEvery: 10 * time.Millisecond})
 	h.SetOrder(sup.TopicOrder)
-	m := testManager(config.Defaults(), "", sup, h)
+	m := testManager(config.Defaults(), "", sup)
 	if err := sup.Add(m.Plugins()...); err != nil {
 		t.Fatal(err)
 	}

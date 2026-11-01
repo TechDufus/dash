@@ -40,7 +40,7 @@ const (
 type Topic string
 
 const (
-	TopicOverview Topic = "overview"
+	TopicOverview Topic = "core.overview"
 	TopicHost     Topic = "host"
 	TopicVMs      Topic = "vms"
 	TopicCluster  Topic = "cluster"
@@ -81,12 +81,15 @@ type Envelope struct {
 // ---- overview ----
 
 type AttentionItem struct {
-	ID       string    `json:"id"`
-	Severity Severity  `json:"severity"`
-	Source   string    `json:"source"`
-	Title    string    `json:"title"`
-	Detail   string    `json:"detail"`
-	Since    time.Time `json:"since"`
+	ID       string   `json:"id"`
+	Severity Severity `json:"severity"`
+	// Source is the display label of the system the item came from; Plugin is the plugin that
+	// contributed it.
+	Source string    `json:"source"`
+	Plugin string    `json:"plugin"`
+	Title  string    `json:"title"`
+	Detail string    `json:"detail"`
+	Since  time.Time `json:"since"`
 	// Route is an in-app path, e.g. /cluster/pods/<ns>/<name>.
 	Route string `json:"route"`
 	Links []Link `json:"links"`
@@ -163,8 +166,11 @@ type Topology struct {
 type OverviewData struct {
 	Status    Health          `json:"status"`
 	Attention []AttentionItem `json:"attention"`
-	Kpis      Kpis            `json:"kpis"`
-	Topology  Topology        `json:"topology"`
+	// Kpis is the fixed row of headline numbers the integrations that still run in the topic
+	// manager fill; KPIList is what plugins contribute, sorted by plugin and key.
+	Kpis     Kpis     `json:"kpis"`
+	KPIList  []KPI    `json:"kpiList"`
+	Topology Topology `json:"topology"`
 }
 
 // ---- host ----
