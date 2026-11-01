@@ -47,6 +47,7 @@ func (s *Server) csrf(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet && r.Method != http.MethodHead {
 			if r.Header.Get("X-Dash-Csrf") != "1" || r.Header.Get("Origin") != origin {
+				s.deny(r, "csrf")
 				writeErr(w, http.StatusForbidden, "csrf check failed")
 				return
 			}
@@ -70,6 +71,7 @@ func (s *Server) auth(next http.Handler) http.Handler {
 			user = "dev"
 		}
 		if user == "" {
+			s.deny(r, "unauthenticated")
 			writeErr(w, http.StatusUnauthorized, "unauthenticated")
 			return
 		}

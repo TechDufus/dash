@@ -1,0 +1,59 @@
+package api
+
+import (
+	"net"
+	"net/http"
+
+	"github.com/TechDufus/dash/internal/audit"
+)
+
+// maxAuditAction caps the request line recorded for a denial: it comes from the client.
+const maxAuditAction = 200
+
+// authMode names how requests are authenticated, for the audit log.
+func (s *Server) authMode() string {
+	switch {
+	case s.d.Cfg.Demo:
+		return "demo"
+	case s.d.Cfg.Dev:
+		return "dev"
+	}
+	return "proxy"
+}
+
+// peerOf is the host of the TCP peer: behind oauth2-proxy that is the proxy, which is what a
+// denial rate limit can key on without trusting a header.
+func peerOf(r *http.Request) string {
+	if host, _, err := net.SplitHostPort(r.RemoteAddr); err == nil {
+		return host
+	}
+	return r.RemoteAddr
+}
+
+func (s *Server) auditRecord(r *http.Request, action string, t audit.Target) audit.Record {
+	return audit.Record{
+		Action: action, Target: t, Peer: peerOf(r), AuthMode: s.authMode(),
+		Actor: audit.Actor{Type: s.authMode(), User: userFrom(r.Context()), Surface: "ui"},
+	}
+}
+
+// begin records the intent of an action before it touches an upstream. Without a durable
+// record the action must not run, so a failure answers 503 and reports false.
+func (s *Server) begin(w http.ResponseWriter, r *http.Request, action string, t audit.Target) (audit.Pending, bool) {
+	p, err := s.d.Audit.Intent(s.auditRecord(r, action, t))
+	if err != nil {
+		writeErr(w, http.StatusServiceUnavailable, "audit log unavailable")
+		return audit.Pending{}, false
+	}
+	return p, true
+}
+
+// deny records a refused request; the log keeps at most one record per peer and reason a
+// minute, so a flood of refusals cannot fill the disk.
+func (s *Server) deny(r *http.Request, reason string) {
+	line := r.Method + " " + r.URL.Path
+	if len(line) > maxAuditAction {
+		line = line[:maxAuditAction]
+	}
+	s.d.Audit.Denial(peerOf(r), reason, s.auditRecord(r, line, audit.Target{}))
+}

@@ -14,6 +14,7 @@ import (
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes"
 
+	"github.com/TechDufus/dash/internal/audit"
 	"github.com/TechDufus/dash/internal/config"
 	"github.com/TechDufus/dash/internal/hub"
 	"github.com/TechDufus/dash/internal/model"
@@ -60,6 +61,7 @@ type Deps struct {
 	Ready   func() bool
 	// Secrets scrubs upstream errors and log lines; nil only matches credential shapes.
 	Secrets *secret.Registry
+	Audit   *audit.Log // nil logs to slog only
 }
 
 // Server holds the handlers' state.

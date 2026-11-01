@@ -83,6 +83,7 @@ func (e *sseWriter) pings(ctx context.Context, interval time.Duration) {
 func (s *Server) stream(w http.ResponseWriter, r *http.Request) {
 	release, ok := s.events.acquire(w, userFrom(r.Context()))
 	if !ok {
+		s.deny(r, "stream_limit")
 		return
 	}
 	defer release()
@@ -136,6 +137,7 @@ func (s *Server) logsTail(w http.ResponseWriter, r *http.Request) {
 	}
 	release, ok := s.tails.acquire(w, userFrom(r.Context()))
 	if !ok {
+		s.deny(r, "stream_limit")
 		return
 	}
 	defer release()

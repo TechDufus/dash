@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/TechDufus/dash/internal/api"
+	"github.com/TechDufus/dash/internal/audit"
 	"github.com/TechDufus/dash/internal/config"
 	"github.com/TechDufus/dash/internal/demo"
 	"github.com/TechDufus/dash/internal/hub"
@@ -33,6 +34,9 @@ func main() {
 	if len(os.Args) > 1 {
 		if err := command(os.Args[1:], os.Stdout); err != nil {
 			fmt.Fprintln(os.Stderr, "dash:", err)
+			if errors.Is(err, errAuditFailed) {
+				os.Exit(1)
+			}
 			os.Exit(2)
 		}
 		return
@@ -50,11 +54,14 @@ func main() {
 
 // command runs a subcommand, which prints to out and exits instead of starting the server.
 func command(args []string, out io.Writer) error {
+	if len(args) >= 2 && args[0] == "audit" && args[1] == "verify" {
+		return auditVerify(args[2:], out)
+	}
 	switch strings.Join(args, " ") {
 	case "config env": // every setting with its environment variable
 		return config.WriteEnvTable(out)
 	}
-	return fmt.Errorf("unknown command %q; usage: dash [config env]", strings.Join(args, " "))
+	return fmt.Errorf("unknown command %q; usage: dash [config env | audit verify [--dir DIR]]", strings.Join(args, " "))
 }
 
 func run(reg *secret.Registry) error {
@@ -67,6 +74,20 @@ func run(reg *secret.Registry) error {
 	}
 	cfg := res.Config
 
+	// Demo has nothing to audit and no data dir: its actions go to slog only. Elsewhere a data
+	// dir that cannot be written also means slog only (audit.Open says so); a log that cannot be
+	// continued is an error. The file has no redacting handler in front of it, so error text is
+	// scrubbed here. The log closes after the servers stop (defers run last-in first-out).
+	auditDir := cfg.DataDir
+	if cfg.Demo {
+		auditDir = ""
+	}
+	alog, err := audit.Open(auditDir, audit.Options{Scrub: reg.ScrubLogLine})
+	if err != nil {
+		return err
+	}
+	defer alog.Close()
+
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
@@ -78,7 +99,7 @@ func run(reg *secret.Registry) error {
 		src := demo.New(cfg)
 		src.Run(ctx, h)
 		srv = api.New(api.Deps{
-			Cfg: cfg, Version: version, Hub: h, Prom: src, AM: src, VLogs: src, Data: src, Ready: src.Ready, Secrets: reg,
+			Cfg: cfg, Version: version, Hub: h, Prom: src, AM: src, VLogs: src, Data: src, Ready: src.Ready, Secrets: reg, Audit: alog,
 		})
 		handler = demo.Wrap(srv.Handler())
 		slog.Info("demo mode: serving fake data, no cluster or upstreams are contacted")
@@ -115,7 +136,7 @@ func run(reg *secret.Registry) error {
 
 		srv = api.New(api.Deps{
 			Cfg: cfg, Version: version, Hub: h, Kube: cluster.Client, Dyn: cluster.Dynamic,
-			Prom: prom, AM: am, VLogs: vlogs, Data: mgr, Ready: mgr.Ready, Secrets: reg,
+			Prom: prom, AM: am, VLogs: vlogs, Data: mgr, Ready: mgr.Ready, Secrets: reg, Audit: alog,
 		})
 		handler = srv.Handler()
 	}

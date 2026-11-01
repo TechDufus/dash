@@ -6,6 +6,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/TechDufus/dash/internal/audit"
 	"github.com/TechDufus/dash/internal/model"
 	"github.com/TechDufus/dash/internal/upstream"
 )
@@ -65,6 +66,12 @@ func (s *Server) createSilence(w http.ResponseWriter, r *http.Request) {
 			break
 		}
 	}
+	// The silence has no ID until Alertmanager creates it: the intent names the alert and the
+	// outcome the silence.
+	pending, ok := s.begin(w, r, "silence.create", audit.Target{Kind: "Silence", Name: alertname})
+	if !ok {
+		return
+	}
 	now := s.now()
 	id, err := s.d.AM.CreateSilence(r.Context(), upstream.SilenceSpec{
 		Matchers:  req.Matchers,
@@ -73,11 +80,10 @@ func (s *Server) createSilence(w http.ResponseWriter, r *http.Request) {
 		CreatedBy: "dash:" + userFrom(r.Context()),
 		Comment:   comment,
 	})
-	name := id
-	if err != nil {
-		name = alertname
+	if err == nil {
+		pending = pending.WithTarget(audit.Target{Kind: "Silence", Name: id})
 	}
-	audit(r, "silence.create", "Silence", "", name, err)
+	pending.Outcome(err)
 	switch {
 	case errInvalid(err):
 		writeErr(w, http.StatusBadRequest, err.Error())
@@ -90,8 +96,12 @@ func (s *Server) createSilence(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) expireSilence(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
+	pending, ok := s.begin(w, r, "silence.expire", audit.Target{Kind: "Silence", Name: id})
+	if !ok {
+		return
+	}
 	err := s.d.AM.ExpireSilence(r.Context(), id)
-	audit(r, "silence.expire", "Silence", "", id, err)
+	pending.Outcome(err)
 	switch {
 	case errInvalid(err):
 		writeErr(w, http.StatusBadRequest, err.Error())
