@@ -131,11 +131,6 @@ func (s *Source) publish() {
 
 // ---- REST: series, logs, details, silences ----
 
-// Range answers /api/v1/series with generated lines shaped like the real query's result.
-func (s *Source) Range(_ context.Context, expr string, start, end time.Time, step time.Duration) ([]model.SeriesLine, error) {
-	return world.Series(expr, start, end, step), nil
-}
-
 // Query answers /api/logs with a few minutes of plausible lines for the pod.
 func (s *Source) Query(_ context.Context, q upstream.LogQuery) ([]model.LogLine, error) {
 	return s.world.Logs(q.Pod, q.Container), nil

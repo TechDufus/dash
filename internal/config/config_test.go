@@ -48,7 +48,7 @@ func TestPublicURLAloneConfiguresNoUpstream(t *testing.T) {
 	if !reflect.DeepEqual(c, want) {
 		t.Errorf("Config =\n%+v\nwant\n%+v", c, want)
 	}
-	for _, u := range []string{c.VMURL, c.AlertmanagerURL, c.VLogsURL, c.GatusURL} {
+	for _, u := range []string{c.AlertmanagerURL, c.VLogsURL, c.GatusURL} {
 		if u != "" {
 			t.Errorf("upstream URL %q set without configuration", u)
 		}
@@ -213,9 +213,13 @@ func TestDeploymentEnvCompat(t *testing.T) {
 		"DASH_PLUGINS_PROXMOX_TOKEN_SECRET": "00000000-0000-0000-0000-000000000000",
 	}
 	c := mustLoad(t, e)
+	res, err := Resolve(Sources{Environ: environ(e)}) // the prometheus URL has no flat field: the plugin reads its section
+	if err != nil {
+		t.Fatal(err)
+	}
 	fields := map[string]string{
 		"DASH_SERVER_PUBLIC_URL":            c.PublicURL,
-		"DASH_PLUGINS_PROMETHEUS_URL":       c.VMURL,
+		"DASH_PLUGINS_PROMETHEUS_URL":       res.Tree.Plugins.Prometheus.URL,
 		"DASH_PLUGINS_ALERTMANAGER_URL":     c.AlertmanagerURL,
 		"DASH_PLUGINS_VICTORIALOGS_URL":     c.VLogsURL,
 		"DASH_PLUGINS_GATUS_URL":            c.GatusURL,

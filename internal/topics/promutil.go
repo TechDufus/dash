@@ -5,9 +5,38 @@ import (
 	"sort"
 	"strconv"
 	"sync"
+	"time"
 
+	"github.com/TechDufus/dash/internal/model"
+	"github.com/TechDufus/dash/internal/svc"
 	"github.com/TechDufus/dash/internal/upstream"
 )
+
+// noQuerier answers every query with upstream.ErrDisabled: what the Manager sees while the
+// prometheus plugin is not running (disabled, unconfigured or failed to start).
+type noQuerier struct{}
+
+func (noQuerier) Instant(context.Context, string) ([]svc.Sample, error) {
+	return nil, upstream.ErrDisabled
+}
+
+func (noQuerier) Range(context.Context, string, time.Time, time.Time, time.Duration) ([]model.SeriesLine, error) {
+	return nil, upstream.ErrDisabled
+}
+
+// querier is the prometheus plugin's svc.Querier while it runs, otherwise a stub whose queries
+// answer upstream.ErrDisabled, so a poller's source reads "not configured" with no nil checks.
+// It is looked up per call: the plugin restarts on a reload and its client changes with it.
+func (m *Manager) querier() svc.Querier {
+	if m.d.Services != nil {
+		if v, ok := m.d.Services("prometheus"); ok {
+			if q, ok := v.(svc.Querier); ok {
+				return q
+			}
+		}
+	}
+	return noQuerier{}
+}
 
 type qres struct {
 	samples []upstream.Sample
@@ -17,13 +46,14 @@ type qres struct {
 // queryAll runs the named instant queries concurrently.
 func (m *Manager) queryAll(ctx context.Context, qs map[string]string) map[string]qres {
 	out := make(map[string]qres, len(qs))
+	q := m.querier()
 	var mu sync.Mutex
 	var wg sync.WaitGroup
 	for name, expr := range qs {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			s, err := m.d.Prom.Instant(ctx, expr)
+			s, err := q.Instant(ctx, expr)
 			mu.Lock()
 			out[name] = qres{s, err}
 			mu.Unlock()

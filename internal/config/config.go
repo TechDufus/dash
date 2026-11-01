@@ -57,7 +57,6 @@ type Config struct {
 	DataDir    string
 	SettingsUI string
 
-	VMURL           string
 	AlertmanagerURL string
 	VLogsURL        string
 	GatusURL        string

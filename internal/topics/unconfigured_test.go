@@ -35,7 +35,6 @@ func TestUnconfiguredUpstreamsMakeNoRequests(t *testing.T) {
 	rt := &failingTransport{}
 	m := New(Deps{
 		Cfg:   cfg,
-		Prom:  upstream.NewProm(cfg.VMURL, rt),
 		AM:    upstream.NewAlertmanager(cfg.AlertmanagerURL, rt),
 		Gatus: upstream.NewGatus(cfg.GatusURL, rt),
 		PVE:   upstream.NewProxmox(cfg.ProxmoxURL, cfg.ProxmoxNode, cfg.ProxmoxTokenID, cfg.ProxmoxTokenSecret, rt),
@@ -81,7 +80,7 @@ func TestScrubAndNASQueriesNeedTheirConventions(t *testing.T) {
 		cfg := config.Defaults()
 		cfg.HostNodename, cfg.Conventions = "pve-a", c
 		m := New(Deps{
-			Cfg: cfg, Prom: upstream.NewProm(prom.URL, nil), PVE: upstream.NewProxmox("", "", "", secret.Value{}, nil),
+			Cfg: cfg, Services: promServices(upstream.NewProm(prom.URL, nil)), PVE: upstream.NewProxmox("", "", "", secret.Value{}, nil),
 			Links: links.New(cfg),
 		})
 		m.pollHost(context.Background())
@@ -120,7 +119,7 @@ func TestHostDataSaysWhetherScrubIsTracked(t *testing.T) {
 		cfg.HostNodename, cfg.Conventions.ZFSScrubMetricPrefix = "pve-a", prefix
 		rt := &failingTransport{} // the queries fail; the flag does not depend on their answer
 		m := New(Deps{
-			Cfg: cfg, Prom: upstream.NewProm("http://prom.example.com", rt), PVE: upstream.NewProxmox("", "", "", secret.Value{}, nil),
+			Cfg: cfg, Services: promServices(upstream.NewProm("http://prom.example.com", rt)), PVE: upstream.NewProxmox("", "", "", secret.Value{}, nil),
 			Links: links.New(cfg),
 		})
 		m.pollHost(context.Background())

@@ -28,11 +28,6 @@ import (
 	"github.com/TechDufus/dash/web"
 )
 
-// PromAPI is the slice of upstream.Prom the API uses.
-type PromAPI interface {
-	Range(ctx context.Context, expr string, start, end time.Time, step time.Duration) ([]model.SeriesLine, error)
-}
-
 // AlertmanagerAPI is the slice of upstream.Alertmanager the API uses.
 type AlertmanagerAPI interface {
 	CreateSilence(ctx context.Context, s upstream.SilenceSpec) (string, error)
@@ -74,7 +69,6 @@ type Deps struct {
 	Hub     *hub.Hub
 	Kube    kubernetes.Interface
 	Dyn     dynamic.Interface
-	Prom    PromAPI
 	AM      AlertmanagerAPI
 	VLogs   VLogsAPI
 	Data    DataAPI

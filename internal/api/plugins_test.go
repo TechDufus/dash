@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"log/slog"
 	"net/http"
+	"net/http/httptest"
 	"slices"
 	"strings"
 	"testing"
@@ -143,9 +144,9 @@ func TestPluginsListShowsEveryState(t *testing.T) {
 		t.Errorf("rows = %+v", got)
 	}
 
-	// Without plugins the answer is an empty array, not null. (newServer registers the fake
-	// prometheus plugin next to Deps.Prom, so a server with none has no Prom either.)
-	noPlugins := newServer(func(d *Deps) { d.Prom = nil })
+	// Without plugins the answer is an empty array, not null. (newServer registers a fake
+	// prometheus plugin unless the test brings its own supervisor.)
+	noPlugins := newServer(func(d *Deps) { d.Plugins = emptyPlugins() })
 	if w := (req{path: "/api/v1/plugins"}.do(noPlugins.Handler())); w.Code != http.StatusOK || strings.TrimSpace(w.Body.String()) != "[]" {
 		t.Errorf("no plugins = %d %q, want 200 []", w.Code, w.Body)
 	}
@@ -205,6 +206,13 @@ func TestPluginRoutesMountUnderPluginPrefix(t *testing.T) {
 	}
 }
 
+// seriesGet is GET /api/v1/series on h.
+func seriesGet(h http.Handler, query string) *httptest.ResponseRecorder {
+	return req{path: "/api/v1/series?" + query}.do(h)
+}
+
+// The prometheus plugin's querier answers every series, and a series a plugin registers beats
+// the built-in one of the same name only while that plugin runs.
 func TestSeriesFromPluginBeatsLegacy(t *testing.T) {
 	f := plugintest.New("hw")
 	f.M.Series = []plugin.SeriesSpec{
@@ -212,17 +220,18 @@ func TestSeriesFromPluginBeatsLegacy(t *testing.T) {
 		{Name: "hw.broken", Expr: func(plugin.SeriesArgs) (string, error) { return "", context.Canceled }},
 	}
 	prom := &fakeProm{}
-	e := newPluginEnv(t, nil, f)
-	e.d.Prom = prom
+	pf := plugintest.New("prometheus")
+	pf.ServiceVal = prom
+	e := newPluginEnv(t, nil, f, pf)
 	h := e.Handler()
 
-	if w := (req{path: "/api/v1/series?name=host.cpu&range=1h"}.do(h)); w.Code != http.StatusOK {
+	if w := seriesGet(h, "name=host.cpu&range=1h"); w.Code != http.StatusOK {
 		t.Fatalf("series = %d %s", w.Code, w.Body)
 	}
 	if want := `plugin_cpu{node="` + e.d.Cfg.HostNodename + `"}`; prom.expr != want {
 		t.Errorf("expr = %q, want the plugin's %q", prom.expr, want)
 	}
-	if w := (req{path: "/api/v1/series?name=hw.broken&range=1h"}.do(h)); w.Code != http.StatusBadRequest {
+	if w := seriesGet(h, "name=hw.broken&range=1h"); w.Code != http.StatusBadRequest {
 		t.Errorf("a plugin's series error = %d, want 400", w.Code)
 	}
 
@@ -231,11 +240,64 @@ func TestSeriesFromPluginBeatsLegacy(t *testing.T) {
 	e.sup.Reload()
 	e.eventually(t, "the instance to stop", func() bool { return !e.sup.Running("hw") })
 	prom.expr = ""
-	if w := (req{path: "/api/v1/series?name=host.cpu&range=1h"}.do(h)); w.Code != http.StatusOK {
+	if w := seriesGet(h, "name=host.cpu&range=1h"); w.Code != http.StatusOK {
 		t.Fatalf("series = %d %s", w.Code, w.Body)
 	}
 	if prom.expr == "" || strings.HasPrefix(prom.expr, "plugin_cpu") {
 		t.Errorf("expr = %q, want the built-in query", prom.expr)
+	}
+
+	// Without prometheus nothing answers, whoever registered the series: a valid request is a
+	// 404 "unknown series", a bad one is still the 400 it is with prometheus running.
+	e.set.Set(plugin.InstanceConfig{Name: "hw", Enabled: new(true)}, plugin.InstanceConfig{Name: "prometheus", Enabled: new(false)})
+	e.sup.Reload()
+	e.eventually(t, "prometheus to stop and hw to start", func() bool { return !e.sup.Running("prometheus") && e.sup.Running("hw") })
+	prom.expr, prom.calls = "", 0
+	for _, q := range []string{"name=host.cpu&range=1h", "name=vm.cpu&range=1h&vmid=100"} {
+		w := seriesGet(h, q)
+		if got := apiError(t, w); w.Code != http.StatusNotFound || got.Code != model.ErrCodeNotFound || got.Error != "unknown series" {
+			t.Errorf("%s without prometheus = %d %s, want 404 not_found unknown series", q, w.Code, w.Body)
+		}
+	}
+	for _, q := range []string{"name=nope&range=1h", "name=host.cpu&range=2y", "name=vm.cpu&range=1h&vmid=abc", "name=node.cpu&range=1h", "name=hw.broken&range=1h"} {
+		if w := seriesGet(h, q); w.Code != http.StatusBadRequest {
+			t.Errorf("%s without prometheus = %d %s, want 400", q, w.Code, w.Body)
+		}
+	}
+	if prom.calls != 0 {
+		t.Errorf("the querier was called %d times without a running prometheus", prom.calls)
+	}
+}
+
+// A row turning visible changes core.plugins and the series route starts answering, without a
+// restart: this is the visibility rule (a) of the topic-less prometheus plugin.
+func TestSeriesRouteFollowsThePrometheusRow(t *testing.T) {
+	prom := &fakeProm{}
+	pf := plugintest.New("prometheus")
+	pf.ServiceVal = prom
+	e := newPluginEnv(t, []plugin.InstanceConfig{{Name: "prometheus", Enabled: new(false)}}, pf)
+	h := e.Handler()
+
+	e.eventually(t, "the prometheus row to be disabled", func() bool { return e.infos(t)["prometheus"].State == model.PluginDisabled })
+	if w := seriesGet(h, "name=host.cpu&range=1h"); w.Code != http.StatusNotFound {
+		t.Fatalf("series with prometheus disabled = %d %s, want 404", w.Code, w.Body)
+	}
+
+	e.set.Set(plugin.InstanceConfig{Name: "prometheus", Enabled: new(true)})
+	e.sup.Reload()
+	e.eventually(t, "the prometheus row to be healthy", func() bool { return e.infos(t)["prometheus"].State == model.PluginHealthy })
+	if w := seriesGet(h, "name=host.cpu&range=1h"); w.Code != http.StatusOK {
+		t.Fatalf("series with prometheus running = %d %s, want 200", w.Code, w.Body)
+	}
+	if prom.calls != 1 {
+		t.Errorf("querier calls = %d, want 1", prom.calls)
+	}
+
+	e.set.Set(plugin.InstanceConfig{Name: "prometheus", Enabled: new(false)})
+	e.sup.Reload()
+	e.eventually(t, "the prometheus row to be disabled again", func() bool { return e.infos(t)["prometheus"].State == model.PluginDisabled })
+	if w := seriesGet(h, "name=host.cpu&range=1h"); w.Code != http.StatusNotFound {
+		t.Fatalf("series after disabling prometheus = %d %s, want 404", w.Code, w.Body)
 	}
 }
 

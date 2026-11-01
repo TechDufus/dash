@@ -76,11 +76,6 @@ func TestDetailsResolve(t *testing.T) {
 	if _, ok := s.NodeIP(w.cluster.Nodes[0].Name); !ok {
 		t.Fatal("node ip not found")
 	}
-	end := time.Now()
-	lines, err := s.Range(ctx, `ipmi_fan_speed_rpm{nodename="pve-demo"}`, end.Add(-time.Hour), end, 30*time.Second)
-	if err != nil || len(lines) != 6 || len(lines[0].Points) < 100 {
-		t.Fatalf("fan series: %d lines, err %v", len(lines), err)
-	}
 }
 
 func TestWrapAnswersActionsAndSignsIn(t *testing.T) {
@@ -146,16 +141,16 @@ func TestDemoPublishesLegacyTopicsAndCorePlugins(t *testing.T) {
 	if err := json.Unmarshal(env.Data, &pd); err != nil {
 		t.Fatal(err)
 	}
-	if len(pd.Plugins) != 11 {
-		t.Fatalf("core.plugins lists %d plugins, want 11", len(pd.Plugins))
+	if len(pd.Plugins) != 10 { // the shims; the real plugins' twins (prometheus) are registered by cmd/dash
+		t.Fatalf("core.plugins lists %d plugins, want 10", len(pd.Plugins))
 	}
 }
 
 func TestDemoPluginsAreHealthy(t *testing.T) {
 	_, sup, _ := demoSupervisor(t, nil)
 	infos := sup.Infos()
-	if len(infos) != 11 {
-		t.Fatalf("%d plugins, want 11", len(infos))
+	if len(infos) != 10 {
+		t.Fatalf("%d plugins, want 10", len(infos))
 	}
 	for _, in := range infos {
 		if in.State != model.PluginHealthy || in.Message != "" {

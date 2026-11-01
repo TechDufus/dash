@@ -23,8 +23,10 @@ type Prom struct{ c client }
 
 var _ svc.Querier = (*Prom)(nil)
 
-func NewProm(baseURL string, rt http.RoundTripper) *Prom {
-	return &Prom{c: newClient(baseURL, rt, 5*time.Second)}
+// NewProm builds the client for baseURL; an empty URL gives a client that answers ErrDisabled.
+// Its requests time out after 5s unless opts say otherwise (Timeout).
+func NewProm(baseURL string, rt http.RoundTripper, opts ...Option) *Prom {
+	return &Prom{c: newClient(baseURL, rt, 5*time.Second, opts...)}
 }
 
 type promResponse struct {

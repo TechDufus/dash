@@ -93,3 +93,33 @@ func TestPromRange(t *testing.T) {
 		t.Fatalf("got %+v\nwant %+v", got, want)
 	}
 }
+
+func TestNewPromOptions(t *testing.T) {
+	t.Run("the default timeout is 5s", func(t *testing.T) {
+		if got := NewProm("http://x.example", nil).c.hc.Timeout; got != 5*time.Second {
+			t.Errorf("timeout = %v", got)
+		}
+	})
+	t.Run("Timeout cuts a slow query", func(t *testing.T) {
+		release := make(chan struct{})
+		s := serve(t, func(w http.ResponseWriter, r *http.Request) {
+			select {
+			case <-r.Context().Done():
+			case <-release:
+			}
+		})
+		t.Cleanup(func() { close(release) }) // runs before the server's Close, which waits for the handler
+		_, err := NewProm(s.URL, nil, Timeout(50*time.Millisecond)).Instant(ctx, "up")
+		if err == nil || Category(err) != "timeout" {
+			t.Errorf("err = %v, category %q, want timeout", err, Category(err))
+		}
+	})
+	t.Run("CheckRedirect is the client's policy", func(t *testing.T) {
+		errStop := errors.New("stop")
+		s := serve(t, func(w http.ResponseWriter, r *http.Request) { http.Redirect(w, r, "/elsewhere", http.StatusFound) })
+		_, err := NewProm(s.URL, nil, CheckRedirect(func(*http.Request, []*http.Request) error { return errStop })).Instant(ctx, "up")
+		if !errors.Is(err, errStop) {
+			t.Errorf("err = %v, want the policy's error", err)
+		}
+	})
+}

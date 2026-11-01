@@ -119,7 +119,8 @@ func TestPluginconfDefaultsAndTheFlatView(t *testing.T) {
 		t.Fatal(err)
 	}
 	c := res.Config
-	if c.VMURL != "http://prom.example.com:9090" || c.AlertmanagerURL != "http://am.example.com:9093" || c.GatusURL != "http://gatus.example.com" ||
+	if c.AlertmanagerURL != "http://am.example.com:9093" || c.GatusURL != "http://gatus.example.com" ||
+		res.Tree.Plugins.Prometheus.URL != "http://prom.example.com:9090" ||
 		c.VLogsURL != "http://vl.example.com:9428" || c.GrafanaURL != "https://grafana.example.com" || c.HeadlampURL != "https://headlamp.example.com" ||
 		c.HeadlampCluster != "lab" {
 		t.Errorf("flat view = %+v", c)

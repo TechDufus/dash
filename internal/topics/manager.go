@@ -28,7 +28,6 @@ var ErrNotFound = errors.New("not found")
 type Deps struct {
 	Cfg     config.Config
 	Cluster *kube.Cluster
-	Prom    *upstream.Prom
 	AM      *upstream.Alertmanager
 	Gatus   *upstream.Gatus
 	PVE     *upstream.Proxmox
@@ -40,8 +39,8 @@ type Deps struct {
 	Contributors func() []plugin.Contributor
 	// Services is Supervisor.Service: what a running plugin exports (svc.Querier, svc.EndpointHealth,
 	// …), for the Manager, which is not a plugin and so cannot use Host.Service. It sits next to the
-	// concrete clients, which each plugin's migration replaces with an accessor over it. nil means
-	// no plugin exports anything.
+	// concrete clients, which each plugin's migration replaces with an accessor over it (querier
+	// for prometheus). nil means no plugin exports anything.
 	Services func(id plugin.ID) (any, bool)
 	// LinkProviders is Supervisor.Links: the resolver over the running link providers, read once
 	// per rebuild. nil means none. Links stays the concrete builder until the providers take over.

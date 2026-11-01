@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"maps"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -259,7 +260,9 @@ func TestRegistryOrderAndReplacement(t *testing.T) {
 	}
 
 	real := plugintest.New("gatus", plugintest.Status(plugin.StateHealthy, ""))
-	got := registryOf(map[plugin.ID]plugin.Factory{"gatus": real.Factory()}, shims)
+	impl := map[plugin.ID]plugin.Factory{"gatus": real.Factory()}
+	maps.Copy(impl, realPlugins)
+	got := registryOf(impl, shims)
 	if !slices.Equal(ids(got), displayOrder) {
 		t.Fatalf("registry with a real gatus = %v, want the same order", ids(got))
 	}
@@ -269,12 +272,12 @@ func TestRegistryOrderAndReplacement(t *testing.T) {
 		switch id := p.Manifest().ID; {
 		case id == "gatus" && (isShim || p != plugin.Plugin(real)):
 			t.Errorf("gatus is %T, want the real plugin", p)
-		case id != "gatus" && !isShim:
+		case id != "gatus" && !isShim && !hasRealPlugin(id):
 			t.Errorf("%s is %T, want its shim", id, p)
 		}
 	}
 
-	ms := manifestsOf(map[plugin.ID]plugin.Factory{"gatus": real.Factory()}, topics.LegacyManifests())
+	ms := manifestsOf(impl, topics.LegacyManifests())
 	if len(ms) != len(displayOrder) {
 		t.Fatalf("%d manifests, want %d", len(ms), len(displayOrder))
 	}

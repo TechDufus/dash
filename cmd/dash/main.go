@@ -131,7 +131,7 @@ func run(reg *secret.Registry) error {
 			return err
 		}
 		srv = api.New(api.Deps{
-			Cfg: cfg, Version: version, Hub: h, Plugins: sup, Prom: src, AM: src, VLogs: src, Data: src, Health: sup, Metrics: metrics, Secrets: reg, Audit: alog,
+			Cfg: cfg, Version: version, Hub: h, Plugins: sup, AM: src, VLogs: src, Data: src, Health: sup, Metrics: metrics, Secrets: reg, Audit: alog,
 		})
 		handler = demo.Wrap(srv.Handler())
 		slog.Info("demo mode: serving fake data, no cluster or upstreams are contacted")
@@ -160,14 +160,13 @@ func run(reg *secret.Registry) error {
 				return err
 			}
 		}
-		prom := upstream.NewProm(cfg.VMURL, metrics.Upstream("prometheus", rt))
 		am := upstream.NewAlertmanager(cfg.AlertmanagerURL, metrics.Upstream("alertmanager", rt))
 		vlogs := upstream.NewVLogs(cfg.VLogsURL, metrics.Upstream("victorialogs", rt))
 		gatus := upstream.NewGatus(cfg.GatusURL, metrics.Upstream("gatus", rt))
 		pve := upstream.NewProxmox(cfg.ProxmoxURL, cfg.ProxmoxNode, cfg.ProxmoxTokenID, cfg.ProxmoxTokenSecret, metrics.Upstream("proxmox", nil)) // not a .svc host
 
 		mgr := topics.New(topics.Deps{
-			Cfg: cfg, Cluster: cluster, Prom: prom, AM: am, Gatus: gatus, PVE: pve, Hosts: sup, Contributors: sup.Contributors,
+			Cfg: cfg, Cluster: cluster, AM: am, Gatus: gatus, PVE: pve, Hosts: sup, Contributors: sup.Contributors,
 			Services: sup.Service, LinkProviders: sup.Links, Links: links.New(cfg), Secrets: reg,
 		})
 		// The supervisor starts before the Manager so that no first publish is dropped.
@@ -177,7 +176,7 @@ func run(reg *secret.Registry) error {
 
 		srv = api.New(api.Deps{
 			Cfg: cfg, Version: version, Hub: h, Plugins: sup, Kube: cluster.Client, Dyn: cluster.Dynamic,
-			Prom: prom, AM: am, VLogs: vlogs, Data: mgr, Health: sup, Metrics: metrics, Secrets: reg, Audit: alog,
+			AM: am, VLogs: vlogs, Data: mgr, Health: sup, Metrics: metrics, Secrets: reg, Audit: alog,
 		})
 		handler = srv.Handler()
 	}

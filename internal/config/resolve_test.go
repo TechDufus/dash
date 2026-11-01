@@ -65,8 +65,8 @@ func TestFileLoadsIntoConfig(t *testing.T) {
 		Listen: "0.0.0.0:9090", HealthListen: "127.0.0.1:9091", PublicURL: "https://dash.example.com",
 		AllowedHosts: []string{"media.example.com", "192.0.2.10"}, ReadyRequires: []string{"kubernetes", "flux"}, ReadyTimeout: 2 * time.Minute,
 		DataDir: "/var/lib/dash", SettingsUI: SettingsReadOnly, Limits: defaultLimits,
-		VMURL: "http://prometheus.example.com:9090", AlertmanagerURL: "http://alertmanager.example.com:9093",
-		VLogsURL: "http://vlogs.example.com:9428", GatusURL: "http://gatus.example.com:8080",
+		AlertmanagerURL: "http://alertmanager.example.com:9093",
+		VLogsURL:        "http://vlogs.example.com:9428", GatusURL: "http://gatus.example.com:8080",
 		ProxmoxURL: "https://pve.example.com:8006", ProxmoxNode: "pve", ProxmoxTokenID: "dash@pve!dash", ProxmoxTokenSecret: secret.New("s3cret", ""),
 		HostNodename: "box", HostModel: "Dell R730",
 		HeadlampURL: "https://headlamp.example.com", HeadlampCluster: "prod", GrafanaURL: "https://grafana.example.com",
@@ -80,6 +80,10 @@ func TestFileLoadsIntoConfig(t *testing.T) {
 	}
 	if !reflect.DeepEqual(res.Config, want) {
 		t.Errorf("Config =\n%+v\nwant\n%+v", res.Config, want)
+	}
+	// The prometheus plugin reads its own section: the flat view has no field for it.
+	if got := res.Tree.Plugins.Prometheus.URL; got != "http://prometheus.example.com:9090" {
+		t.Errorf("plugins.prometheus.url = %q", got)
 	}
 }
 

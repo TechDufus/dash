@@ -72,7 +72,7 @@ func TestUpstreamErrorsReachClientsAsCategoryOnly(t *testing.T) {
 		plug func(*harness) // set: the request goes to a plugin harness instead of newServer
 		want string
 	}{
-		{name: "series", req: req{path: "/api/v1/series?name=host.cpu&range=1h"}, mod: func(d *Deps) { d.Prom = &fakeProm{err: refused} }, want: "metrics unavailable: unreachable"},
+		{name: "series", req: req{path: "/api/v1/series?name=host.cpu&range=1h"}, mod: func(d *Deps) { d.Plugins = promPlugin(&fakeProm{err: refused}) }, want: "metrics unavailable: unreachable"},
 		{name: "vm detail", req: req{path: "/api/vms/100"}, mod: func(d *Deps) { d.Data = fakeData{vmErr: unavailable} }, want: "vm details unavailable: http_503"},
 		{name: "plugin route", req: req{path: "/api/v1/plugins/rt/items?ns=media"}, plug: func(h *harness) {
 			h.items = func(*http.Request) (any, error) { return nil, denied }

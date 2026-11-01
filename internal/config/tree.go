@@ -225,7 +225,6 @@ func (t Tree) config(dev, demo bool) Config {
 		},
 		DataDir:         t.DataDir,
 		SettingsUI:      t.Settings.UI,
-		VMURL:           p.Prometheus.URL,
 		AlertmanagerURL: p.Alertmanager.URL,
 		VLogsURL:        p.VictoriaLogs.URL,
 		GatusURL:        p.Gatus.URL,

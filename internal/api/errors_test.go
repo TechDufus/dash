@@ -33,7 +33,7 @@ var statusCodes = map[int][]string{
 func TestEveryErrorPathHasACodeThatMatchesItsStatus(t *testing.T) {
 	capped := func(s *Server) { s.events, s.tails = newStreamLimiter(0, 10), newStreamLimiter(0, 10) }
 	full := func(s *Server) { s.events = newStreamLimiter(10, 0) }
-	failProm := func(d *Deps) { d.Prom = &fakeProm{err: context.DeadlineExceeded} }
+	failProm := func(d *Deps) { d.Plugins = promPlugin(&fakeProm{err: context.DeadlineExceeded}) }
 	vmErr := func(err error) func(*Deps) { return func(d *Deps) { d.Data = fakeData{vmErr: err} } }
 	noHook := func(*harness) {}
 	fullTails := func(s *Server) { s.tails = newStreamLimiter(10, 0) }

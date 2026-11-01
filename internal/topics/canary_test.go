@@ -72,13 +72,13 @@ func TestViewerStreamNeverCarriesUpstreamDetail(t *testing.T) {
 	cfg := config.Defaults()
 	cfg.ProxmoxNode, cfg.HostNodename = "pve", "pve"
 	m := New(Deps{
-		Cfg:     cfg,
-		Prom:    upstream.NewProm(prom.URL, nil),
-		AM:      upstream.NewAlertmanager(amURL, nil),
-		Gatus:   upstream.NewGatus(gatus.URL, nil),
-		PVE:     upstream.NewProxmox(pve.URL, "pve", "u@pve!t", token, nil),
-		Links:   links.New(cfg),
-		Secrets: reg,
+		Cfg:      cfg,
+		Services: promServices(upstream.NewProm(prom.URL, nil)),
+		AM:       upstream.NewAlertmanager(amURL, nil),
+		Gatus:    upstream.NewGatus(gatus.URL, nil),
+		PVE:      upstream.NewProxmox(pve.URL, "pve", "u@pve!t", token, nil),
+		Links:    links.New(cfg),
+		Secrets:  reg,
 	})
 	ctx := context.Background()
 	m.pollHost(ctx)

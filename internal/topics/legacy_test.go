@@ -60,11 +60,16 @@ func testManager(cfg config.Config, amURL string, hosts plugin.HostProvider) *Ma
 func testManagerWith(cfg config.Config, amURL string, hosts plugin.HostProvider, contributors func() []plugin.Contributor) *Manager {
 	return New(Deps{
 		Cfg: cfg, Cluster: fakeCluster(), Hosts: hosts, Contributors: contributors, Links: links.New(cfg),
-		Prom:  upstream.NewProm(cfg.VMURL, nil),
 		AM:    upstream.NewAlertmanager(amURL, nil),
 		Gatus: upstream.NewGatus(cfg.GatusURL, nil),
 		PVE:   upstream.NewProxmox(cfg.ProxmoxURL, cfg.ProxmoxNode, cfg.ProxmoxTokenID, cfg.ProxmoxTokenSecret, nil),
 	})
+}
+
+// promServices is Deps.Services as the supervisor gives it while the prometheus plugin runs
+// with the client p as its service; no other plugin exports anything.
+func promServices(p *upstream.Prom) func(plugin.ID) (any, bool) {
+	return func(id plugin.ID) (any, bool) { return p, id == "prometheus" }
 }
 
 // latest is the decoded envelope of topic, or ok=false.
@@ -188,15 +193,15 @@ func TestDisabledOwnerPublishesNothingAndItsPollerIsSkipped(t *testing.T) {
 func TestSkippedPollersDoNotStickShimsInStarting(t *testing.T) {
 	at := time.Unix(100, 0)
 	okSrc := srcState{ok: true, at: at}
-	// Without hardware the host poller is skipped (host:victoriametrics never gets polled), and
-	// without proxmox neither is the vms poller (vms:victoriametrics).
-	hp := plugintest.Without(plugintest.AllRunning(hub.New(), LegacyManifests()...), "hardware", "proxmox")
+	// Without hardware the host poller is skipped (host:proxmox never gets polled), so the
+	// proxmox shim, which owns that key too, reaches its state from vms:proxmox alone.
+	hp := plugintest.Without(plugintest.AllRunning(hub.New(), LegacyManifests()...), "hardware")
 	m := New(Deps{Cfg: config.Defaults(), Cluster: fakeCluster(), Hosts: hp})
-	m.srcs["cluster:victoriametrics"], m.srcs["storage:victoriametrics"] = okSrc, okSrc
+	m.srcs["vms:proxmox"] = okSrc
 
-	st := m.legacyStatus("prometheus")
+	st := m.legacyStatus("proxmox")
 	if st.State != plugin.StateHealthy || st.Message != "" {
-		t.Errorf("prometheus = %s %q, want healthy", st.State, st.Message)
+		t.Errorf("proxmox = %s %q, want healthy", st.State, st.Message)
 	}
 	for _, s := range st.Sources {
 		if s.Error == "not polled yet" {
@@ -205,6 +210,9 @@ func TestSkippedPollersDoNotStickShimsInStarting(t *testing.T) {
 	}
 
 	// Overview: only the polled source is listed; the skipped ones would read "not polled yet".
+	hp = plugintest.Without(plugintest.AllRunning(hub.New(), LegacyManifests()...), "hardware", "proxmox")
+	m = New(Deps{Cfg: config.Defaults(), Cluster: fakeCluster(), Hosts: hp})
+	m.srcs["cluster:victoriametrics"], m.srcs["storage:victoriametrics"] = okSrc, okSrc
 	for _, s := range m.sources("host:victoriametrics", "vms:proxmox", "vms:victoriametrics", "cluster:victoriametrics") {
 		if !s.OK {
 			t.Errorf("overview source %q = %q, want only polled sources", s.Name, s.Error)
@@ -212,17 +220,15 @@ func TestSkippedPollersDoNotStickShimsInStarting(t *testing.T) {
 	}
 
 	// Nothing that reads the source runs at all: a message instead of a wait that never ends.
-	hp = plugintest.Without(plugintest.AllRunning(hub.New(), LegacyManifests()...), "hardware", "proxmox", "kubernetes")
-	m = New(Deps{Cfg: config.Defaults(), Cluster: fakeCluster(), Hosts: hp})
-	if st := m.legacyStatus("prometheus"); st.State != plugin.StateUnavailable {
-		t.Errorf("prometheus with every reader off = %s %q, want unavailable", st.State, st.Message)
+	if st := m.legacyStatus("proxmox"); st.State != plugin.StateUnavailable {
+		t.Errorf("proxmox with every reader off = %s %q, want unavailable", st.State, st.Message)
 	}
 
 	// A key of a running poller still counts: not polled yet means starting.
 	hp = plugintest.Without(plugintest.AllRunning(hub.New(), LegacyManifests()...))
 	m = New(Deps{Cfg: config.Defaults(), Cluster: fakeCluster(), Hosts: hp})
-	if st := m.legacyStatus("prometheus"); st.State != plugin.StateStarting {
-		t.Errorf("prometheus before its first poll = %s, want starting", st.State)
+	if st := m.legacyStatus("proxmox"); st.State != plugin.StateStarting {
+		t.Errorf("proxmox before its first poll = %s, want starting", st.State)
 	}
 }
 
@@ -267,7 +273,7 @@ func TestExplicitDisableRemovesShimTopics(t *testing.T) {
 	if states["flux"].State != model.PluginDisabled || !slices.Equal(states["flux"].Topics, []string{"flux"}) {
 		t.Errorf("flux = %+v, want disabled with the topic flux", states["flux"])
 	}
-	if states["kubernetes"].State == model.PluginDisabled || len(pd.Plugins) != 11 {
+	if states["kubernetes"].State == model.PluginDisabled || len(pd.Plugins) != 10 {
 		t.Errorf("kubernetes = %s of %d plugins", states["kubernetes"].State, len(pd.Plugins))
 	}
 }
@@ -280,6 +286,11 @@ func TestLegacyManifestsMatchConfigSections(t *testing.T) {
 	for i := range pt.NumField() {
 		name, _, _ := strings.Cut(pt.Field(i).Tag.Get("json"), ",")
 		sections[name] = pt.Field(i).Type
+	}
+	// The sections of the integrations that moved out of the Manager have no shim: prometheus
+	// runs as the plugin of internal/plugins/prometheus.
+	for _, moved := range []string{"prometheus"} {
+		delete(sections, moved)
 	}
 	ms := LegacyManifests()
 	if len(ms) != len(sections) {
@@ -339,15 +350,6 @@ func TestLegacyStatusMapping(t *testing.T) {
 		{"proxmox one not polled", "proxmox", map[string]srcState{"vms:proxmox": okSrc}, plugin.StateStarting, "waiting for the first poll"},
 		{"hardware ok", "hardware", map[string]srcState{"host:victoriametrics": okSrc}, plugin.StateHealthy, ""},
 		{"hardware tls", "hardware", map[string]srcState{"host:victoriametrics": bad("tls")}, plugin.StateError, "tls"},
-		{"prometheus unset", "prometheus", map[string]srcState{
-			"host:victoriametrics": off, "cluster:victoriametrics": off, "storage:victoriametrics": off, "vms:victoriametrics": off,
-		}, plugin.StateUnavailable, "not configured: set plugins.prometheus.url"},
-		{"prometheus partly failing", "prometheus", map[string]srcState{
-			"host:victoriametrics": okSrc, "cluster:victoriametrics": bad("http_500"), "storage:victoriametrics": okSrc, "vms:victoriametrics": okSrc,
-		}, plugin.StateDegraded, "http_500"},
-		{"prometheus every key ok", "prometheus", map[string]srcState{
-			"host:victoriametrics": okSrc, "cluster:victoriametrics": okSrc, "storage:victoriametrics": okSrc, "vms:victoriametrics": okSrc,
-		}, plugin.StateHealthy, ""},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {

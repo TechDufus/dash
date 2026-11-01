@@ -10,6 +10,7 @@ import (
 	"github.com/TechDufus/dash/internal/hub"
 	"github.com/TechDufus/dash/internal/plugin"
 	"github.com/TechDufus/dash/internal/pluginconf"
+	"github.com/TechDufus/dash/internal/plugins/prometheus"
 	"github.com/TechDufus/dash/internal/secret"
 	"github.com/TechDufus/dash/internal/settings"
 	"github.com/TechDufus/dash/internal/topics"
@@ -64,7 +65,9 @@ var displayOrder = []plugin.ID{
 // realPlugins are the plugins that run as plugins of their own, by id. An integration that has
 // moved out of the Manager adds its factory here and its shim leaves topics.legacyManifests;
 // until then it is absent and the shim stands in.
-var realPlugins = map[plugin.ID]plugin.Factory{}
+var realPlugins = map[plugin.ID]plugin.Factory{
+	"prometheus": prometheus.New,
+}
 
 // hasRealPlugin reports whether id runs as a plugin of its own, so demo mode registers its twin
 // (the plugin's Demo) and not a stand-in shim.

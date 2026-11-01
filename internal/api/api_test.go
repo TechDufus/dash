@@ -19,6 +19,7 @@ import (
 	"github.com/TechDufus/dash/internal/plugin"
 	"github.com/TechDufus/dash/internal/plugin/plugintest"
 	"github.com/TechDufus/dash/internal/queries"
+	"github.com/TechDufus/dash/internal/svc"
 	"github.com/TechDufus/dash/internal/topics"
 )
 
@@ -29,14 +30,19 @@ const testHost = "dash.example.com"
 
 var fixedNow = time.Date(2026, 10, 30, 12, 0, 0, 123456789, time.UTC)
 
+// fakeProm is the svc.Querier of the fake "prometheus" plugin: it records the last range query.
 type fakeProm struct {
 	expr       string
 	start, end time.Time
 	step       time.Duration
 	err        error
+	calls      int
 }
 
+func (f *fakeProm) Instant(context.Context, string) ([]svc.Sample, error) { return nil, f.err }
+
 func (f *fakeProm) Range(_ context.Context, expr string, start, end time.Time, step time.Duration) ([]model.SeriesLine, error) {
+	f.calls++
 	f.expr, f.start, f.end, f.step = expr, start, end, step
 	return nil, f.err
 }
@@ -62,20 +68,29 @@ func (f fakeData) VMDetail(_ context.Context, vmid int) (model.VMDetail, error) 
 	return model.VMDetail{}, f.vmErr
 }
 
-// promPlugin is a running supervisor with one fake plugin, "prometheus", whose service is the
-// same fake querier the test passes as Deps.Prom: when the series handler reads the querier
-// from Plugins.Service("prometheus") instead of Deps.Prom, the series tests pass unchanged. It
-// publishes into a recorder, so nothing reaches the hub the test serves. A test that wants no
-// plugins sets Deps.Prom to nil; one that runs plugins of its own sets Deps.Plugins.
-func promPlugin(q PromAPI) PluginsAPI {
+// promPlugin is a running supervisor with one fake plugin, "prometheus", whose service is q: the
+// series handler reads its querier from Plugins.Service("prometheus"). It publishes into a
+// recorder, so nothing reaches the hub the test serves. A test that wants no plugins sets
+// Deps.Plugins to emptyPlugins(); one that runs plugins of its own sets Deps.Plugins, and
+// adds a prometheus fake of its own when it wants series.
+func promPlugin(q svc.Querier) PluginsAPI {
 	f := plugintest.New("prometheus")
 	f.ServiceVal = q
+	return runSup(f)
+}
+
+// emptyPlugins is a running supervisor with no plugin: /api/v1/plugins answers [].
+func emptyPlugins() PluginsAPI { return runSup() }
+
+func runSup(fakes ...*plugintest.Fake) PluginsAPI {
 	sup := plugin.NewSupervisor(plugin.Options{
 		Publisher: &plugintest.Hub{}, Settings: &plugintest.Settings{}, StatusEvery: time.Hour,
 		StopTimeout: time.Second, Log: slog.New(slog.DiscardHandler),
 	})
-	if err := sup.Add(f.Factory()); err != nil {
-		panic(err)
+	for _, f := range fakes {
+		if err := sup.Add(f.Factory()); err != nil {
+			panic(err)
+		}
 	}
 	if err := sup.Run(context.Background()); err != nil { // the supervisor lives as long as the test binary
 		panic(err)
@@ -89,7 +104,6 @@ func newServer(mod func(*Deps)) *Server {
 		Cfg:     config.Config{PublicURL: testOrigin + "/", HostNodename: "pve-730", Limits: config.Defaults().Limits, Conventions: config.Conventions{ProtectedLabel: protectedLabel}},
 		Version: "test",
 		Hub:     hub.New(),
-		Prom:    &fakeProm{},
 		AM:      &fakeAM{},
 		VLogs:   &fakeLogs{},
 		Data:    fakeData{nodes: map[string]string{"cp1": "10.0.0.5"}},
@@ -97,8 +111,8 @@ func newServer(mod func(*Deps)) *Server {
 	if mod != nil {
 		mod(&d)
 	}
-	if d.Plugins == nil && d.Prom != nil {
-		d.Plugins = promPlugin(d.Prom)
+	if d.Plugins == nil {
+		d.Plugins = promPlugin(&fakeProm{})
 	}
 	s := New(d)
 	s.now = func() time.Time { return fixedNow }
@@ -251,7 +265,7 @@ func TestSeriesArgs(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			prom := &fakeProm{}
-			s := newServer(func(d *Deps) { d.Prom = prom })
+			s := newServer(func(d *Deps) { d.Plugins = promPlugin(prom) })
 			w := req{path: "/api/v1/series?" + tc.query}.do(s.Handler())
 			if w.Code != tc.code {
 				t.Fatalf("code = %d, want %d (%s)", w.Code, tc.code, w.Body)
@@ -260,8 +274,8 @@ func TestSeriesArgs(t *testing.T) {
 				if decodeErr(t, w) == "" {
 					t.Error("empty error message")
 				}
-				if prom.expr != "" {
-					t.Error("Prom must not be called on bad input")
+				if prom.calls != 0 {
+					t.Error("the querier must not be called on bad input")
 				}
 				return
 			}
@@ -286,7 +300,7 @@ func TestSeriesArgs(t *testing.T) {
 	}
 
 	t.Run("upstream failure is 502", func(t *testing.T) {
-		s := newServer(func(d *Deps) { d.Prom = &fakeProm{err: context.DeadlineExceeded} })
+		s := newServer(func(d *Deps) { d.Plugins = promPlugin(&fakeProm{err: context.DeadlineExceeded}) })
 		w := req{path: "/api/v1/series?name=host.cpu&range=1h"}.do(s.Handler())
 		if w.Code != 502 {
 			t.Fatalf("code = %d, want 502", w.Code)

@@ -19,6 +19,7 @@ import (
 	"github.com/TechDufus/dash/internal/config"
 	"github.com/TechDufus/dash/internal/kube"
 	"github.com/TechDufus/dash/internal/links"
+	"github.com/TechDufus/dash/internal/plugin"
 	"github.com/TechDufus/dash/internal/plugin/plugintest"
 	"github.com/TechDufus/dash/internal/secret"
 	"github.com/TechDufus/dash/internal/topics"
@@ -66,14 +67,16 @@ func TestStreamEndpointNeverCarriesUpstreamDetail(t *testing.T) {
 
 	cfg := config.Defaults()
 	cfg.PublicURL, cfg.ProxmoxNode, cfg.HostNodename = testOrigin+"/", "pve", "pve"
+	promClient := upstream.NewProm(prom.URL, nil)
 	s := newServer(func(d *Deps) {
 		d.Cfg, d.Secrets = cfg, reg
 		m := topics.New(topics.Deps{
 			Cfg: cfg, Cluster: cluster, Hosts: plugintest.AllRunning(d.Hub, topics.LegacyManifests()...), Links: links.New(cfg), Secrets: reg,
-			Prom:  upstream.NewProm(prom.URL, nil),
-			AM:    upstream.NewAlertmanager(amURL, nil),
-			Gatus: upstream.NewGatus(gatus.URL, nil),
-			PVE:   upstream.NewProxmox(pve.URL, "pve", "u@pve!t", token, nil),
+			// The prometheus plugin's service, here a plain client: the Manager reads it through Services.
+			Services: func(id plugin.ID) (any, bool) { return promClient, id == "prometheus" },
+			AM:       upstream.NewAlertmanager(amURL, nil),
+			Gatus:    upstream.NewGatus(gatus.URL, nil),
+			PVE:      upstream.NewProxmox(pve.URL, "pve", "u@pve!t", token, nil),
 		})
 		ctx, cancel := context.WithCancel(context.Background())
 		t.Cleanup(cancel)

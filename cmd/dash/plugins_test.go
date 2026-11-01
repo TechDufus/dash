@@ -2,6 +2,9 @@ package main
 
 import (
 	"context"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"path/filepath"
 	"reflect"
 	"slices"
@@ -13,7 +16,9 @@ import (
 	dynfake "k8s.io/client-go/dynamic/fake"
 	kubefake "k8s.io/client-go/kubernetes/fake"
 
+	"github.com/TechDufus/dash/internal/api"
 	"github.com/TechDufus/dash/internal/config"
+	"github.com/TechDufus/dash/internal/demo"
 	"github.com/TechDufus/dash/internal/kube"
 	"github.com/TechDufus/dash/internal/links"
 	"github.com/TechDufus/dash/internal/model"
@@ -101,7 +106,7 @@ func TestFrameworkStartOrderPublishesFirstPoll(t *testing.T) {
 	cfg := res.Config
 	mgr := topics.New(topics.Deps{
 		Cfg: cfg, Cluster: testCluster(), Hosts: fw.sup, Contributors: fw.sup.Contributors, Links: links.New(cfg),
-		Prom: upstream.NewProm("", nil), AM: upstream.NewAlertmanager("", nil), Gatus: upstream.NewGatus("", nil),
+		AM: upstream.NewAlertmanager("", nil), Gatus: upstream.NewGatus("", nil),
 		PVE: upstream.NewProxmox("", "", "", cfg.ProxmoxTokenSecret, nil),
 	})
 	ctx, cancel := context.WithCancel(context.Background())
@@ -171,5 +176,40 @@ func TestFrameworkAppliesLiveSectionsAndReportsTheRest(t *testing.T) {
 	waitFor(t, func() bool { return len(fw.reloader.RestartRequired()) > 0 })
 	if got := fw.reloader.RestartRequired(); !slices.Equal(got, []string{"plugins.grafana.url"}) {
 		t.Errorf("restart required = %v, want only the section no plugin applies", got)
+	}
+}
+
+// Demo mode answers /api/v1/series through the prometheus plugin's demo twin: the series
+// handler asks the running plugin for its Querier, and the demo source no longer serves it.
+func TestDemoSeriesComeFromThePrometheusTwin(t *testing.T) {
+	startEnv(t, t.TempDir(), "DASH_DEMO=true")
+	res, store, err := loadConfig(secret.NewRegistry())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if store != nil {
+		t.Cleanup(func() { _ = store.Close() })
+	}
+	cfg := demo.Config(res.Config)
+	fw := newFramework(res, store, config.ReloadOptions{}, nil, nil, true)
+	src := demo.New(cfg)
+	src.HasReal = hasRealPlugin
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	if err := fw.start(ctx, registry(src.Plugins(fw.sup)), func() { src.Run(ctx) }); err != nil {
+		t.Fatal(err)
+	}
+	defer fw.sup.Shutdown(context.Background())
+
+	srv := api.New(api.Deps{Cfg: cfg, Hub: fw.hub, Plugins: fw.sup, AM: src, VLogs: src, Data: src, Health: fw.sup})
+	r := httptest.NewRequest(http.MethodGet, cfg.PublicURL+"/api/v1/series?name=host.cpu&range=1h", nil)
+	rec := httptest.NewRecorder()
+	demo.Wrap(srv.Handler()).ServeHTTP(rec, r)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("series = %d %s", rec.Code, rec.Body)
+	}
+	var got model.Series
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil || len(got.Series) == 0 || len(got.Series[0].Points) == 0 {
+		t.Fatalf("series body = %s (%v), want generated lines", rec.Body, err)
 	}
 }

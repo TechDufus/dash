@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/TechDufus/dash/internal/model"
+	"github.com/TechDufus/dash/internal/svc"
 )
 
 // Series answers a range query with generated lines shaped like the real query's result: the
@@ -58,6 +59,25 @@ func Series(expr string, start, end time.Time, step time.Duration) []model.Serie
 			pts = append(pts, [2]float64{float64(t.Unix()), math.Max(0, Around(key, t, sh.base, sh.spread))})
 		}
 		out = append(out, model.SeriesLine{Labels: sh.labels, Points: pts})
+	}
+	return out
+}
+
+// Instant answers an instant query the way Series answers a range query: one sample per line,
+// the latest point of the line drawn up to now. Labels are copied, so a caller may keep them.
+func Instant(expr string, now time.Time) []svc.Sample {
+	const step = 15 * time.Second
+	lines := Series(expr, now.Add(-step), now, step)
+	out := make([]svc.Sample, 0, len(lines))
+	for _, l := range lines {
+		if len(l.Points) == 0 {
+			continue
+		}
+		labels := make(map[string]string, len(l.Labels))
+		for k, v := range l.Labels {
+			labels[k] = v
+		}
+		out = append(out, svc.Sample{Labels: labels, Value: l.Points[len(l.Points)-1][1]})
 	}
 	return out
 }

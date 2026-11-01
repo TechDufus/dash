@@ -170,7 +170,11 @@ restart with `DASH_PLUGINS_PROXMOX_TOKEN_SECRET_FILE`.
 | `server.limits.maxHeaderBytes` | `65536` | request header size of the API listener |
 | `settings.ui` | `editable` | `editable` or `readonly` (fully managed) |
 | `dataDir` (`DASH_DATA_DIR`) | `/data` | where dash keeps its state and looks for `config.yaml` |
-| `plugins.prometheus.url` | empty (source not configured) | VictoriaMetrics or Prometheus |
+| `plugins.prometheus.url` | empty (source not configured) | VictoriaMetrics or Prometheus; a change of any `plugins.prometheus.*` setting applies without a restart |
+| `plugins.prometheus.timeout` | `5s` | how long one query may take before dash gives up on it |
+| `plugins.prometheus.auth.basic.username`, `.password` / `.auth.bearerToken` | empty (no credentials) | Basic or bearer credentials for the service, not both; the password and the token take a literal, `env:NAME` or `file:/path` and a rotated file applies without a restart |
+| `plugins.prometheus.headers` | empty | extra headers sent with every request, `{name: value}` (a JSON object in the environment). Plain configuration, not secrets: put credentials in `auth`. `Authorization`, `Proxy-Authorization`, `Cookie` and `Host` cannot be set |
+| `plugins.prometheus.tls.caFile`, `.insecureSkipVerify` | empty, `false` | a PEM file with the CA that signed the service's certificate, added to the system roots; `insecureSkipVerify` skips verification (prefer `caFile`) |
 | `plugins.alertmanager.url` | empty (source not configured) | Alertmanager |
 | `plugins.victorialogs.url` | empty (source not configured) | VictoriaLogs, for pod logs |
 | `plugins.gatus.url` | empty (source not configured) | Gatus |

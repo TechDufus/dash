@@ -8,6 +8,7 @@ import (
 
 	"github.com/TechDufus/dash/internal/model"
 	"github.com/TechDufus/dash/internal/queries"
+	"github.com/TechDufus/dash/internal/svc"
 	"github.com/TechDufus/dash/internal/topics"
 	"github.com/TechDufus/dash/internal/upstream"
 )
@@ -43,8 +44,14 @@ func (s *Server) series(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, model.ErrCodeInvalidInput, err.Error())
 		return
 	}
+	prom, running := s.querier()
+	if !running {
+		// Everything above is validated: only now does it matter that no prometheus runs.
+		writeErr(w, http.StatusNotFound, model.ErrCodeNotFound, "unknown series")
+		return
+	}
 	end := s.now()
-	lines, err := s.d.Prom.Range(r.Context(), expr, end.Add(-window), end, step)
+	lines, err := prom.Range(r.Context(), expr, end.Add(-window), end, step)
 	if err != nil {
 		s.badGateway(w, "metrics unavailable", err)
 		return
@@ -53,6 +60,20 @@ func (s *Server) series(w http.ResponseWriter, r *http.Request) {
 		lines = []model.SeriesLine{}
 	}
 	writeJSON(w, http.StatusOK, model.Series{Name: name, Range: rng, StepSeconds: int(step / time.Second), Series: lines})
+}
+
+// querier is the running prometheus plugin's svc.Querier. With the plugin off (disabled,
+// unconfigured or failed) no series can be answered, so there is none.
+func (s *Server) querier() (svc.Querier, bool) {
+	if s.d.Plugins == nil {
+		return nil, false
+	}
+	v, ok := s.d.Plugins.Service("prometheus")
+	if !ok {
+		return nil, false
+	}
+	q, ok := v.(svc.Querier)
+	return q, ok
 }
 
 // seriesExpr builds the query of a named series: a running plugin's series first, then dash's
