@@ -127,15 +127,55 @@ describe("command palette", () => {
     expect(itemsOf(dialog, "Pods")).toEqual(["media/app-0"]);
   });
 
-  it("merges the restart and reconcile items of two modules into one Actions group", async () => {
+  it("merges the restart and reconcile items of two modules into one Actions group, reconcile first", async () => {
     connect();
     renderApp(<CommandPalette />);
     const dialog = await open();
     expect(headings(dialog).filter((h) => h === "Actions")).toHaveLength(1);
-    expect(itemsOf(dialog, "Actions").sort()).toEqual([
+    // Kubernetes comes before flux in module order, but flux ranks its item first, as in v0.5.0.
+    expect(itemsOf(dialog, "Actions")).toEqual(["Reconcile flux-system", "Restart media/app"]);
+  });
+
+  it("keeps module order between items of the same rank", async () => {
+    const es = connect();
+    es.emit(
+      "cluster",
+      envelope("cluster", {
+        nodes: [],
+        workloads: ["a", "b", "c"].map((name) => ({
+          kind: "Deployment",
+          namespace: "media",
+          name,
+          restartable: true,
+          protected: false,
+        })),
+        pods: [],
+      }),
+    );
+    renderApp(<CommandPalette />);
+    const dialog = await open();
+    expect(itemsOf(dialog, "Actions")).toEqual([
       "Reconcile flux-system",
-      "Restart media/app",
+      "Restart media/a",
+      "Restart media/b",
+      "Restart media/c",
     ]);
+  });
+
+  it("draws ids and addresses in the monospace face and kinds and groups in the body face", async () => {
+    connect();
+    renderApp(<CommandPalette />);
+    const dialog = await open();
+    const hint = (item: string, text: string) => {
+      const row = within(dialog).getByText(item).closest("[cmdk-item]");
+      if (!(row instanceof HTMLElement)) throw new Error(`no row ${item}`);
+      return within(row).getByText(text);
+    };
+    expect(hint("media", "101")).toHaveClass("num");
+    expect(hint("node-a", "192.0.2.10")).toHaveClass("num");
+    expect(hint("media/app", "Deployment")).not.toHaveClass("num");
+    expect(hint("player", "HelmRelease")).not.toHaveClass("num");
+    expect(hint("Wiki", "docs")).not.toHaveClass("num");
   });
 
   it("leaves out the groups, items and page of a plugin that is switched off", async () => {
@@ -202,5 +242,41 @@ describe("command palette", () => {
     const dialog = await open();
     await userEvent.click(within(dialog).getByText("GitOps"));
     expect(history.at(-1)).toBe("/gitops");
+  });
+
+  // Radix keeps the dialog mounted while its exit animation runs; jsdom has no animations, so the
+  // content reports one ("exit") only while it is closing, and the test ends it by hand.
+  it("keeps its items on screen during the close animation", async () => {
+    connect();
+    const real = globalThis.getComputedStyle.bind(globalThis);
+    const styles = vi.spyOn(globalThis, "getComputedStyle").mockImplementation((el, pseudo) => {
+      if (el.getAttribute("data-slot") !== "dialog-content") return real(el, pseudo);
+      // Live, like a real CSSStyleDeclaration: Radix reads it again when the dialog closes.
+      return {
+        get animationName() {
+          return el.getAttribute("data-state") === "closed" ? "exit" : "none";
+        },
+        display: "block",
+      } as CSSStyleDeclaration;
+    });
+    try {
+      renderApp(<CommandPalette />);
+      const dialog = await open();
+      expect(itemsOf(dialog, "VMs")).toEqual(["media101"]);
+
+      act(() => ui.setPalette(false));
+      expect(screen.getByRole("dialog")).toBe(dialog); // still animating out
+      expect(itemsOf(dialog, "VMs")).toEqual(["media101"]);
+      expect(within(dialog).getByRole("combobox")).toBeInTheDocument();
+
+      const end = new Event("animationend", { bubbles: true });
+      Object.assign(end, { animationName: "exit" });
+      act(() => {
+        dialog.dispatchEvent(end);
+      });
+      expect(screen.queryByRole("dialog")).toBeNull();
+    } finally {
+      styles.mockRestore();
+    }
   });
 });

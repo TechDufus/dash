@@ -15,6 +15,7 @@ import {
   CommandList,
   CommandSeparator,
 } from "@/components/ui/command";
+import { cn } from "@/lib/utils";
 import { MODULES, moduleOrder } from "@/plugins/registry";
 import { isVisible, useNavEntries, usePluginsState } from "@/plugins/state";
 import type { PaletteCtx, PaletteGroup, PaletteItem } from "@/plugins/types";
@@ -33,14 +34,21 @@ function moduleGroups(ctx: PaletteCtx, visible: (id: string) => boolean): Palett
       merged.set(g.id, into);
     }
   }
-  const groups = [...merged].map(([id, g]) => ({ id, heading: g.heading, items: g.items }));
+  const groups = [...merged].map(([id, g]) => ({
+    id,
+    heading: g.heading,
+    items: g.items.toSorted((a, b) => (a.rank ?? 0) - (b.rank ?? 0)), // stable: ties keep module order
+  }));
   const actions = groups.filter((g) => g.id === "actions");
   return [...actions, ...groups.filter((g) => g.id !== "actions")].filter(
     (g) => g.items.length > 0,
   );
 }
 
-/** Built only while the palette is open, so a closed palette calls no module. */
+/**
+ * Rendered inside the dialog content, which exists only while the dialog is open or animating out:
+ * a closed palette calls no module, and the items stay on screen through the close animation.
+ */
 function PaletteBody() {
   useStreamVersion(); // re-render with the stream: modules read topics through getEnvelope
   const [, navigate] = useLocation();
@@ -85,7 +93,11 @@ function PaletteBody() {
                 <CommandItem key={item.id} value={item.value} onSelect={item.onSelect}>
                   {item.icon && <item.icon aria-hidden="true" />}
                   {item.label}
-                  {item.hint && <span className="num ml-auto text-xs text-faint">{item.hint}</span>}
+                  {item.hint && (
+                    <span className={cn("ml-auto text-xs text-faint", item.hintMono && "num")}>
+                      {item.hint}
+                    </span>
+                  )}
                 </CommandItem>
               ))}
             </CommandGroup>
@@ -126,7 +138,7 @@ export function CommandPalette() {
       description="Jump to pages, machines, workloads and run safe actions"
       className="sm:max-w-xl"
     >
-      {palette && <PaletteBody />}
+      <PaletteBody />
     </CommandDialog>
   );
 }

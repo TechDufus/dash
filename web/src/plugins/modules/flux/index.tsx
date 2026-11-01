@@ -25,6 +25,7 @@ export default definePlugin({
             value: "action reconcile flux-system",
             label: "Reconcile flux-system",
             icon: Zap,
+            rank: -1, // first in Actions, ahead of the Restart items of the earlier modules
             onSelect: () => {
               ctx.close();
               void reconcileFlux("GitRepository", "flux-system", "flux-system");

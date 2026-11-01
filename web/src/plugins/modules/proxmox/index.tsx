@@ -25,6 +25,7 @@ export default definePlugin({
           value: `vm ${v.name} ${v.vmid}`,
           label: v.name,
           hint: String(v.vmid),
+          hintMono: true,
           icon: Server,
           onSelect: () => ctx.go(`/vms/${v.vmid}`),
         })),

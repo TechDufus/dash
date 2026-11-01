@@ -30,7 +30,11 @@ export interface PaletteItem {
   label: string;
   /** Right-aligned muted text. */
   hint?: string;
+  /** Draw the hint in the tabular monospace face (ids, addresses); kinds and groups use the body face. */
+  hintMono?: boolean;
   icon?: LucideIcon;
+  /** Position inside a merged group: lower first, ties in module order. Default 0. */
+  rank?: number;
   onSelect(): void;
 }
 

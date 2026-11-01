@@ -48,6 +48,7 @@ export default definePlugin({
           value: `node ${n.name} ${n.ip}`,
           label: n.name,
           hint: n.ip,
+          hintMono: true,
           icon: Boxes,
           onSelect: () => ctx.go("/cluster?tab=nodes"),
         })),
