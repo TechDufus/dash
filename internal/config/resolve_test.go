@@ -120,26 +120,21 @@ func TestEmptyFileIsValid(t *testing.T) {
 	}
 }
 
-// With no file, behaviour is what it was before the tree existed.
-func TestNoFileKeepsTodaysDefaults(t *testing.T) {
-	res, err := Resolve(Sources{Environ: []string{"DASH_PUBLIC_URL=https://dash.example.com"}})
+// No file and no environment beyond the required public URL: no layer sets anything else, and
+// every leaf reports where it came from.
+func TestNoFileAndNoEnvLeaveEveryLeafAtItsDefault(t *testing.T) {
+	res, err := Resolve(Sources{Environ: []string{"DASH_SERVER_PUBLIC_URL=https://dash.example.com"}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := Config{
-		Listen: "127.0.0.1:8080", HealthListen: "0.0.0.0:8081", PublicURL: "https://dash.example.com",
-		DataDir: "/data", SettingsUI: SettingsEditable,
-		VMURL: "http://vmsingle-vm.monitoring.svc:8428", AlertmanagerURL: "http://vmalertmanager-vm.monitoring.svc:9093",
-		VLogsURL: "http://vl-server.monitoring.svc:9428", GatusURL: "http://gatus.gatus.svc:8080",
-		HeadlampCluster: "main",
-		Conventions: Conventions{
-			ProtectedLabel: "homelab.io/protected", TenantLabel: "homelab.io/tenant",
-			SuspendReasonAnnotation: "homelab.io/suspended", AppsFluxPrefix: "app-",
-			ZFSScrubMetricPrefix: "homelab_zfs_scrub", NASBackupNamespace: "rustfs", NASBackupCronJob: "nas-backup",
-		},
-	}
-	if !reflect.DeepEqual(res.Config, want) {
-		t.Errorf("Config =\n%+v\nwant\n%+v", res.Config, want)
+	for _, l := range schema.leaves {
+		want := Provenance{Source: SourceDefault}
+		if l.path == "server.publicURL" {
+			want = Provenance{SourceEnv, "DASH_SERVER_PUBLIC_URL"}
+		}
+		if got := res.Provenance[l.path]; got != want {
+			t.Errorf("Provenance[%s] = %+v, want %+v", l.path, got, want)
+		}
 	}
 }
 

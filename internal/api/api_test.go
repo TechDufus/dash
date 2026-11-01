@@ -108,7 +108,7 @@ func (f fakeData) VMDetail(_ context.Context, vmid int) (model.VMDetail, error) 
 // newServer builds a Server with fakes; mod may adjust the deps before construction.
 func newServer(mod func(*Deps)) *Server {
 	d := Deps{
-		Cfg:     config.Config{PublicURL: testOrigin + "/", HostNodename: "pve-730", Conventions: config.Defaults().Conventions},
+		Cfg:     config.Config{PublicURL: testOrigin + "/", HostNodename: "pve-730", Conventions: config.Conventions{ProtectedLabel: protectedLabel}},
 		Version: "test",
 		Hub:     hub.New(),
 		Prom:    &fakeProm{},

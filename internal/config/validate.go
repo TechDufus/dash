@@ -78,7 +78,7 @@ func validate(t Tree, dev, demo bool, prov map[string]Provenance) error {
 	if len(p.Hardware.Hosts) > 1 {
 		v.fail("plugins.hardware.hosts", "has %d entries; one host is supported until the hardware plugin handles several", len(p.Hardware.Hosts))
 	}
-	if !metricNameRE.MatchString(p.Hardware.ZFSScrubMetricPrefix) {
+	if pre := p.Hardware.ZFSScrubMetricPrefix; pre != "" && !metricNameRE.MatchString(pre) { // empty hides the scrub panel
 		v.fail("plugins.hardware.zfsScrubMetricPrefix", "%q is not a metric name", p.Hardware.ZFSScrubMetricPrefix)
 	}
 

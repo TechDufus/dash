@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -29,14 +30,44 @@ func mustLoad(t *testing.T, m map[string]string) Config {
 	return c
 }
 
+// Nothing site-specific has a default: every upstream and convention is off until configured.
 func TestNoSiteDefaults(t *testing.T) {
-	c := Defaults()
-	if c.PublicURL != "" || c.ProxmoxURL != "" || c.ProxmoxNode != "" || c.HeadlampURL != "" ||
-		c.GrafanaURL != "" || c.HostModel != "" || c.HostNodename != "" {
-		t.Errorf("site-specific default leaked: %+v", c)
+	want := Config{
+		Listen: "127.0.0.1:8080", HealthListen: "0.0.0.0:8081", DataDir: "/data",
+		SettingsUI: SettingsEditable, HeadlampCluster: "main",
 	}
-	if c.Conventions.ProtectedLabel != "homelab.io/protected" || c.Conventions.AppsFluxPrefix != "app-" {
-		t.Errorf("conventions: %+v", c.Conventions)
+	if got := Defaults(); !reflect.DeepEqual(got, want) {
+		t.Errorf("Defaults() =\n%+v\nwant\n%+v", got, want)
+	}
+}
+
+// The empty environment of a production start (only the required public URL) switches nothing on.
+func TestPublicURLAloneConfiguresNoUpstream(t *testing.T) {
+	c := mustLoad(t, map[string]string{"DASH_SERVER_PUBLIC_URL": "https://dash.example.com"})
+	want := Defaults()
+	want.PublicURL = "https://dash.example.com"
+	if !reflect.DeepEqual(c, want) {
+		t.Errorf("Config =\n%+v\nwant\n%+v", c, want)
+	}
+	for _, u := range []string{c.VMURL, c.AlertmanagerURL, c.VLogsURL, c.GatusURL} {
+		if u != "" {
+			t.Errorf("upstream URL %q set without configuration", u)
+		}
+	}
+}
+
+func TestZFSScrubPrefixIsValidatedOnlyWhenSet(t *testing.T) {
+	base := map[string]string{"DASH_DEV": "true"}
+	if _, err := load(base); err != nil {
+		t.Errorf("unset prefix: %v", err)
+	}
+	base["DASH_PLUGINS_HARDWARE_ZFS_SCRUB_METRIC_PREFIX"] = "example_zfs_scrub"
+	if _, err := load(base); err != nil {
+		t.Errorf("valid prefix: %v", err)
+	}
+	base["DASH_PLUGINS_HARDWARE_ZFS_SCRUB_METRIC_PREFIX"] = "a-b"
+	if _, err := load(base); err == nil || !strings.Contains(err.Error(), "plugins.hardware.zfsScrubMetricPrefix") {
+		t.Errorf("bad prefix: %v", err)
 	}
 }
 

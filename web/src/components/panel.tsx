@@ -24,7 +24,10 @@ export function Panel({ interactive, className, ...props }: PanelProps) {
   );
 }
 
-/** Muted "source unavailable: <name>" chips for upstreams with ok=false. */
+/** upstream.ErrDisabled's text: the source has no URL (or token) configured, so it was never contacted. */
+const NOT_CONFIGURED = "source not configured";
+
+/** Muted "source unavailable: <name>" chips for upstreams with ok=false ("source not configured: <name>" when it was never set up). */
 export function SourceChips({ sources }: { sources?: SourceStatus[] }) {
   const bad = sources?.filter((s) => !s.ok) ?? [];
   if (bad.length === 0) return null;
@@ -36,7 +39,7 @@ export function SourceChips({ sources }: { sources?: SourceStatus[] }) {
           title={s.error}
           className="rounded-full border border-line bg-panel px-2 py-0.5 text-[11px] text-muted"
         >
-          source unavailable: {s.name}
+          {s.error === NOT_CONFIGURED ? NOT_CONFIGURED : "source unavailable"}: {s.name}
         </span>
       ))}
     </span>

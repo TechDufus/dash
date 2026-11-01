@@ -79,7 +79,8 @@ func (s *Server) restart(w http.ResponseWriter, r *http.Request) {
 		writeKubeErr(w, err)
 		return
 	}
-	if ns.Labels[s.d.Cfg.Conventions.ProtectedLabel] == "true" && req.Confirm != req.Name {
+	// An unconfigured label never matches: without a protected label no namespace asks for the name.
+	if label := s.d.Cfg.Conventions.ProtectedLabel; label != "" && ns.Labels[label] == "true" && req.Confirm != req.Name {
 		err := errors.New("type the workload name to confirm")
 		audit(r, "restart", kind, req.Namespace, req.Name, err)
 		writeErr(w, http.StatusBadRequest, err.Error())

@@ -132,8 +132,9 @@ type FluxConfig struct {
 	SuspendReasonAnnotation string `json:"suspendReasonAnnotation"`
 }
 
-// defaults is the built-in layer. Dev and demo (DASH_DEV, DASH_DEMO) listen for the Vite dev
-// server: a public URL pointing at it, and a health listener on loopback.
+// defaults is the built-in layer. Nothing site-specific is in it: an empty upstream URL or
+// convention turns that source or feature off. Dev and demo (DASH_DEV, DASH_DEMO) listen for
+// the Vite dev server: a public URL pointing at it, and a health listener on loopback.
 func defaults(dev, demo bool) Tree {
 	t := Tree{
 		Server: ServerConfig{
@@ -142,23 +143,7 @@ func defaults(dev, demo bool) Tree {
 		},
 		Settings: SettingsConfig{UI: SettingsEditable},
 		DataDir:  "/data",
-		Plugins: PluginsConfig{
-			Prometheus:   Endpoint{URL: "http://vmsingle-vm.monitoring.svc:8428"},
-			Alertmanager: Endpoint{URL: "http://vmalertmanager-vm.monitoring.svc:9093"},
-			VictoriaLogs: Endpoint{URL: "http://vl-server.monitoring.svc:9428"},
-			Gatus:        Endpoint{URL: "http://gatus.gatus.svc:8080"},
-			Headlamp:     HeadlampConfig{Cluster: "main"},
-			Hardware:     HardwareConfig{ZFSScrubMetricPrefix: "homelab_zfs_scrub"},
-			Kubernetes: KubernetesConfig{
-				Conventions: KubernetesConventions{
-					ProtectedLabel: "homelab.io/protected",
-					TenantLabel:    "homelab.io/tenant",
-					AppsFluxPrefix: "app-",
-				},
-				BackupJobs: []BackupJob{{Namespace: "rustfs", CronJob: "nas-backup"}},
-			},
-			Flux: FluxConfig{SuspendReasonAnnotation: "homelab.io/suspended"},
-		},
+		Plugins:  PluginsConfig{Headlamp: HeadlampConfig{Cluster: "main"}},
 	}
 	if dev || demo {
 		t.Server.HealthListen, t.Server.PublicURL = "127.0.0.1:8081", "http://localhost:5173"

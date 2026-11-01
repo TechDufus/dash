@@ -371,21 +371,25 @@ func TestTrackerKeepsFirstSeen(t *testing.T) {
 }
 
 func TestClassifyNamespace(t *testing.T) {
-	conv := config.Defaults().Conventions
+	conv := config.Conventions{ProtectedLabel: "example.com/protected", TenantLabel: "example.com/tenant", AppsFluxPrefix: "app-"}
 	tests := []struct {
 		name   string
+		conv   config.Conventions
 		labels map[string]string
 		want   nsInfo
 	}{
-		{"platform", map[string]string{"kustomize.toolkit.fluxcd.io/name": "monitoring", "homelab.io/protected": "true", "pod-security.kubernetes.io/enforce": "privileged"},
+		{"platform", conv, map[string]string{"kustomize.toolkit.fluxcd.io/name": "monitoring", "example.com/protected": "true", "pod-security.kubernetes.io/enforce": "privileged"},
 			nsInfo{group: model.GroupPlatform, protected: true, privileged: true}},
-		{"app", map[string]string{"kustomize.toolkit.fluxcd.io/name": "app-homepage"}, nsInfo{group: model.GroupApps}},
-		{"tenant wins over app", map[string]string{"homelab.io/tenant": "yahwai", "kustomize.toolkit.fluxcd.io/name": "app-x"},
-			nsInfo{group: model.GroupTenants, tenant: "yahwai"}},
-		{"unlabelled is platform", nil, nsInfo{group: model.GroupPlatform}},
+		{"app", conv, map[string]string{"kustomize.toolkit.fluxcd.io/name": "app-homepage"}, nsInfo{group: model.GroupApps}},
+		{"tenant wins over app", conv, map[string]string{"example.com/tenant": "acme", "kustomize.toolkit.fluxcd.io/name": "app-x"},
+			nsInfo{group: model.GroupTenants, tenant: "acme"}},
+		{"unlabelled is platform", conv, nil, nsInfo{group: model.GroupPlatform}},
+		{"no conventions configured: nothing is protected, tenant or app", config.Conventions{},
+			map[string]string{"example.com/protected": "true", "example.com/tenant": "acme", "kustomize.toolkit.fluxcd.io/name": "app-x"},
+			nsInfo{group: model.GroupPlatform}},
 	}
 	for _, tc := range tests {
-		if got := classifyNamespace(tc.labels, conv); got != tc.want {
+		if got := classifyNamespace(tc.labels, tc.conv); got != tc.want {
 			t.Errorf("%s: %+v, want %+v", tc.name, got, tc.want)
 		}
 	}

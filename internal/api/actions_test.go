@@ -19,13 +19,17 @@ import (
 	"k8s.io/client-go/kubernetes/fake"
 	k8stesting "k8s.io/client-go/testing"
 
+	"github.com/TechDufus/dash/internal/config"
 	"github.com/TechDufus/dash/internal/model"
 )
+
+// protectedLabel is the configured Conventions.ProtectedLabel of newServer.
+const protectedLabel = "example.com/protected"
 
 func namespace(name string, protected bool) *corev1.Namespace {
 	ns := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: name}}
 	if protected {
-		ns.Labels = map[string]string{"homelab.io/protected": "true"}
+		ns.Labels = map[string]string{protectedLabel: "true"}
 	}
 	return ns
 }
@@ -142,6 +146,20 @@ func TestRestart(t *testing.T) {
 				t.Errorf("body = %q", w.Body)
 			}
 		})
+	}
+}
+
+// With no protected label configured nothing is protected: a namespace that carries some label
+// is restarted without the typed confirmation.
+func TestRestartWithoutProtectedLabelSkipsConfirmation(t *testing.T) {
+	kc := fake.NewClientset(workloadObjects()...)
+	s := newServer(func(d *Deps) { d.Kube = kc; d.Cfg.Conventions = config.Conventions{} })
+	w := req{method: "POST", path: "/api/actions/restart", body: model.RestartRequest{Kind: "Deployment", Namespace: "platform", Name: "web"}}.do(s.Handler())
+	if w.Code != http.StatusAccepted {
+		t.Fatalf("code = %d, want 202 (%s)", w.Code, w.Body)
+	}
+	if got := patches(kc.Actions()); len(got) != 1 {
+		t.Fatalf("patch actions = %d, want 1", len(got))
 	}
 }
 

@@ -25,14 +25,18 @@ type storageSnap struct {
 }
 
 func (m *Manager) pollStorage(ctx context.Context) {
-	res := m.queryAll(ctx, map[string]string{
+	qs := map[string]string{
 		"pvcUsed": queries.PVCUsed, "pvcCap": queries.PVCCapacity, "pvcGrowth": queries.PVCGrowth,
 		"bucketUsed": queries.BucketUsed, "bucketQuota": queries.BucketQuota,
 		"rustfsUsed": queries.RustFSUsed, "rustfsUsable": queries.RustFSUsable,
 		"pveUsed": queries.PVEStorageUsed, "pveSize": queries.PVEStorageSize, "pveInfo": queries.PVEStorageInfo,
-		"nas": queries.NASBackupAge(m.d.Cfg.Conventions.NASBackupNamespace, m.d.Cfg.Conventions.NASBackupCronJob), "cnpg": queries.CNPGBackupAge,
+		"cnpg":   queries.CNPGBackupAge,
 		"etcdDB": queries.EtcdDB, "etcdQuota": queries.EtcdQuota,
-	})
+	}
+	if c := m.d.Cfg.Conventions; c.NASBackupNamespace != "" && c.NASBackupCronJob != "" { // no job configured: no NAS backup rows
+		qs["nas"] = queries.NASBackupAge(c.NASBackupNamespace, c.NASBackupCronJob)
+	}
+	res := m.queryAll(ctx, qs)
 	m.setSource("storage:victoriametrics", firstErr(res))
 
 	m.mu.Lock()

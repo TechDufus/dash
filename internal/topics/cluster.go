@@ -91,7 +91,7 @@ type nsInfo struct {
 func classifyNamespace(labels map[string]string, conv config.Conventions) nsInfo {
 	info := nsInfo{
 		group:      model.GroupPlatform,
-		protected:  labels[conv.ProtectedLabel] == "true",
+		protected:  conv.ProtectedLabel != "" && labels[conv.ProtectedLabel] == "true",
 		tenant:     labels[conv.TenantLabel],
 		privileged: labels[labelPSAEnforce] == "privileged",
 	}

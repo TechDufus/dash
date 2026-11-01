@@ -29,7 +29,7 @@ func (m *Manager) pollHost(ctx context.Context) {
 		m.setSource("host:proxmox", upstream.ErrDisabled)
 	}
 
-	res := m.queryAll(ctx, map[string]string{
+	qs := map[string]string{
 		"cpu":      queries.HostCPU(n),
 		"memTotal": queries.HostMemTotal(n),
 		"memAvail": queries.HostMemAvailable(n),
@@ -40,14 +40,15 @@ func (m *Manager) pollHost(ctx context.Context) {
 		"psu":      queries.HostPSUs(n),
 		"sel":      queries.HostSELFree(n),
 		"pools":    queries.HostPools(n),
-		"scrubEnd": queries.HostScrubEnd(scrub, n),
-		"scrubErr": queries.HostScrubErrors(scrub, n),
-		"scrubRun": queries.HostScrubRunning(scrub, n),
 		"healthy":  queries.HostSMARTHealthy(n),
 		"temp":     queries.HostSMARTTemp(n),
 		"life":     queries.HostSMARTLifeRemain(n),
 		"wear":     queries.HostSMARTWearout(n),
-	})
+	}
+	if scrub != "" { // no prefix, no scrub series: the panel stays empty and nothing is queried
+		qs["scrubEnd"], qs["scrubErr"], qs["scrubRun"] = queries.HostScrubEnd(scrub, n), queries.HostScrubErrors(scrub, n), queries.HostScrubRunning(scrub, n)
+	}
+	res := m.queryAll(ctx, qs)
 	m.setSource("host:victoriametrics", firstErr(res))
 	ok := func(k string) ([]upstream.Sample, bool) { return res[k].samples, res[k].err == nil }
 

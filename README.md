@@ -126,10 +126,10 @@ error. A misspelled `DASH_PLUGINS_*` variable stops dash from starting, and any 
 | `server.healthListen` | `0.0.0.0:8081` | `/healthz` and `/readyz` |
 | `settings.ui` | `editable` | `editable` or `readonly` (fully managed) |
 | `dataDir` (`DASH_DATA_DIR`) | `/data` | where dash keeps its state and looks for `config.yaml` |
-| `plugins.prometheus.url` | `http://vmsingle-vm.monitoring.svc:8428` | VictoriaMetrics |
-| `plugins.alertmanager.url` | `http://vmalertmanager-vm.monitoring.svc:9093` | Alertmanager |
-| `plugins.victorialogs.url` | `http://vl-server.monitoring.svc:9428` | VictoriaLogs |
-| `plugins.gatus.url` | `http://gatus.gatus.svc:8080` | Gatus |
+| `plugins.prometheus.url` | empty (source not configured) | VictoriaMetrics or Prometheus |
+| `plugins.alertmanager.url` | empty (source not configured) | Alertmanager |
+| `plugins.victorialogs.url` | empty (source not configured) | VictoriaLogs, for pod logs |
+| `plugins.gatus.url` | empty (source not configured) | Gatus |
 | `plugins.proxmox.tokenID`, `.tokenSecret` | empty (Proxmox off) | API token `<user>!<token>` and its secret; set together |
 | `plugins.proxmox.url` | required with a token | Proxmox API |
 | `plugins.proxmox.node` | discovered from the API when the cluster has one node | the node to read; set it for multi-node clusters or to skip discovery |
@@ -144,17 +144,35 @@ The launcher is a list of `name`, `href`, `icon` and `description`; `icon` is a
 file from a ConfigMap and point `plugins.launcher.file` at it, or list the links in
 `plugins.launcher.links`. See [`docs/launcher.example.yaml`](docs/launcher.example.yaml).
 
-dash also reads a few labels, annotations and metric names from the cluster. The defaults match
-the homelab it was built for; change them to match yours.
+dash also reads a few labels, annotations and metric names from the cluster. None has a default:
+while one is empty, the feature that depends on it is off.
 
 | Setting (file path) | Default | What |
 |---|---|---|
-| `plugins.kubernetes.conventions.protectedLabel` | `homelab.io/protected` | namespace label (`"true"`) that makes a restart ask you to type the name |
-| `plugins.kubernetes.conventions.tenantLabel` | `homelab.io/tenant` | namespace label that puts it under Tenants |
-| `plugins.flux.suspendReasonAnnotation` | `homelab.io/suspended` | Flux annotation shown as the reason an object is suspended |
-| `plugins.kubernetes.conventions.appsFluxPrefix` | `app-` | namespaces applied by a Kustomization with this prefix go under Apps |
-| `plugins.hardware.zfsScrubMetricPrefix` | `homelab_zfs_scrub` | `<prefix>_last_end_timestamp_seconds`, `_last_errors`, `_in_progress` |
-| `plugins.kubernetes.backupJobs` | `[{namespace: rustfs, cronjob: nas-backup}]` | `[{namespace, cronjob}]`: the CronJob behind the NAS backup age; one entry for now |
+| `plugins.kubernetes.conventions.protectedLabel` | empty (no namespace is protected) | namespace label (`"true"`) that makes a restart ask you to type the name |
+| `plugins.kubernetes.conventions.tenantLabel` | empty | namespace label that puts it under Tenants |
+| `plugins.flux.suspendReasonAnnotation` | empty | Flux annotation shown as the reason an object is suspended |
+| `plugins.kubernetes.conventions.appsFluxPrefix` | empty | namespaces applied by a Kustomization with this prefix go under Apps |
+| `plugins.hardware.zfsScrubMetricPrefix` | empty (scrub panel hidden) | `<prefix>_last_end_timestamp_seconds`, `_last_errors`, `_in_progress`; a valid metric name when set |
+| `plugins.kubernetes.backupJobs` | empty (no NAS backup row) | `[{namespace, cronjob}]`: the CronJob behind the NAS backup age; one entry for now |
+
+### Breaking: no site defaults
+
+Earlier versions defaulted to one homelab's service addresses and names. They are gone. An empty
+upstream URL turns that source off: dash makes no request to it and its panels show
+"source not configured". If you relied on a default, set it explicitly:
+
+| Removed default | Set |
+|---|---|
+| `http://vmsingle-vm.monitoring.svc:8428` | `plugins.prometheus.url` |
+| `http://vmalertmanager-vm.monitoring.svc:9093` | `plugins.alertmanager.url` |
+| `http://vl-server.monitoring.svc:9428` | `plugins.victorialogs.url` |
+| `http://gatus.gatus.svc:8080` | `plugins.gatus.url` |
+| `homelab.io/protected`, `homelab.io/tenant` | `plugins.kubernetes.conventions.protectedLabel`, `.tenantLabel` |
+| `homelab.io/suspended` | `plugins.flux.suspendReasonAnnotation` |
+| `app-` | `plugins.kubernetes.conventions.appsFluxPrefix` |
+| `homelab_zfs_scrub` | `plugins.hardware.zfsScrubMetricPrefix` |
+| `rustfs` / `nas-backup` | `plugins.kubernetes.backupJobs` (`[{namespace: rustfs, cronjob: nas-backup}]`) |
 
 ### Legacy variable names
 
