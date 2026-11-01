@@ -95,10 +95,11 @@ one of the two. The environment overrides the config file. Lists and objects are
 is also honoured for plugins.kubernetes.kubeconfig; it has no _FILE form and the generated name
 wins over it.
 
-A change to a plugins.<id> section applies live (that plugin restarts alone) for prometheus,
-alertmanager, gatus, victorialogs, grafana, headlamp and launcher, except for a setting marked
-in the RESTART column. A change to proxmox, hardware, kubernetes or flux, or to any section that
-is not a plugin's, needs a restart. A rotated secret (a changed file: reference) applies live.
+A change to a plugins.<id> section applies live for prometheus, alertmanager, gatus,
+victorialogs, grafana, headlamp and launcher, except for a setting marked in the RESTART column:
+that plugin restarts, and so do the plugins that use or require it (a grafana change restarts
+alertmanager). A change to proxmox, hardware, kubernetes or flux, or to any section that is not a
+plugin's, needs a restart. A rotated secret (a changed file: reference) applies live.
 `)
 	return err
 }
@@ -143,11 +144,11 @@ Every setting has a variable: ` + "`DASH_`" + ` plus its path in UPPER_SNAKE cas
 (` + "`DASH_PLUGINS_HARDWARE_HOSTS='[{\"nodename\":\"pve\"}]'`" + `). Append ` + "`_FILE`" + ` to read the value from a file
 (` + "`DASH_PLUGINS_PROXMOX_TOKEN_SECRET_FILE=/run/secrets/pve`" + `); set only one of the two forms.
 
-A secret takes a literal, ` + "`env:NAME`" + ` or ` + "`file:/path`" + `. A change to a ` + "`plugins.<id>`" + ` section applies live (that
-plugin restarts alone) for prometheus, alertmanager, gatus, victorialogs, grafana, headlamp and
-launcher, except for a setting marked "restart-only". A change to proxmox, hardware, kubernetes
-or flux, or to any section that is not a plugin's, needs a restart. A rotated secret file applies
-live.
+A secret takes a literal, ` + "`env:NAME`" + ` or ` + "`file:/path`" + `. A change to a ` + "`plugins.<id>`" + ` section applies live
+for prometheus, alertmanager, gatus, victorialogs, grafana, headlamp and launcher, except for a
+setting marked "restart-only": that plugin restarts, and so do the plugins that use or require it
+(a grafana change restarts alertmanager). A change to proxmox, hardware, kubernetes or flux, or to
+any section that is not a plugin's, needs a restart. A rotated secret file applies live.
 `)
 	docs := sectionDocs()
 	// A section that holds both fields and sub-sections (plugins.kubernetes and its conventions)

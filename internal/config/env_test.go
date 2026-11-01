@@ -493,7 +493,7 @@ func TestEnvTable(t *testing.T) {
 	if v := byPath["settings.ui"]; !v.Restart {
 		t.Errorf("settings.ui is read once at startup: %+v", v)
 	}
-	for _, want := range []string{"PATH", "DASH_PLUGINS_PROXMOX_TOKEN_SECRET", "DASH_DATA_DIR", "KUBECONFIG", "_FILE", "applies live (that plugin restarts alone)", "proxmox, hardware, kubernetes or flux"} {
+	for _, want := range []string{"PATH", "DASH_PLUGINS_PROXMOX_TOKEN_SECRET", "DASH_DATA_DIR", "KUBECONFIG", "_FILE", "applies live for prometheus", "plugins that use or require it", "proxmox, hardware, kubernetes or flux"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("table lacks %q:\n%s", want, out)
 		}
