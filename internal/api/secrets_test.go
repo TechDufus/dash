@@ -12,7 +12,11 @@ import (
 	"time"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/client-go/kubernetes/fake"
+	k8stesting "k8s.io/client-go/testing"
 
 	"github.com/TechDufus/dash/internal/model"
 	"github.com/TechDufus/dash/internal/secret"
@@ -121,6 +125,35 @@ func TestKubeErrorsKeepPolicyMessagesAndCategoriseTheRest(t *testing.T) {
 	s.writeKubeErr(w, fmt.Errorf("dial tcp 192.0.2.9:6443: connect: connection refused"))
 	if w.Code != 502 || decodeErr(t, w) != "kubernetes: unreachable" {
 		t.Errorf("unreachable: %d %s", w.Code, w.Body)
+	}
+}
+
+// The four Kubernetes codes that keep their message are the one error path that passes upstream
+// text to the browser; the scrubbing there is what stops a credential an admission webhook
+// echoes (P1.4 acceptance). Through the real restart action, so removing the Scrub fails it.
+func TestKubePolicyMessagesAreScrubbedOnTheWayOut(t *testing.T) {
+	const pat = "dash_pat_abcdefghij0123456789ABCDEFGHIJ0123456789abc"
+	msg := "homelab guardrail: denied; webhook echoed " + strings.Join(canaryForms(), " ") + " and " + pat
+	for _, code := range []int32{403, 404, 409, 422} {
+		t.Run(fmt.Sprint(code), func(t *testing.T) {
+			reg := canaryRegistry()
+			kc := fake.NewClientset(workloadObjects()...)
+			kerr := &apierrors.StatusError{ErrStatus: metav1.Status{Status: metav1.StatusFailure, Code: code, Message: msg}}
+			kc.PrependReactor("patch", "deployments", func(k8stesting.Action) (bool, runtime.Object, error) { return true, nil, kerr })
+			s := newServer(func(d *Deps) { d.Kube = kc; d.Secrets = reg })
+			w := req{method: "POST", path: "/api/actions/restart", body: model.RestartRequest{Kind: "Deployment", Namespace: "apps", Name: "web"}}.do(s.Handler())
+			if w.Code != int(code) {
+				t.Fatalf("code = %d, want %d (%s)", w.Code, code, w.Body)
+			}
+			if !strings.Contains(w.Body.String(), "homelab guardrail: denied") {
+				t.Errorf("the policy message must still reach the user: %s", w.Body)
+			}
+			for _, leak := range append(canaryForms(), pat) {
+				if strings.Contains(w.Body.String(), leak) {
+					t.Errorf("response carries %q: %s", leak, w.Body)
+				}
+			}
+		})
 	}
 }
 

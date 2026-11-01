@@ -303,6 +303,32 @@ func TestSSEWriteDeadline(t *testing.T) {
 	}
 }
 
+// The configured server.limits.sseWriteTimeout, not a built-in, is the deadline /api/stream
+// puts on each of its writes, and the closing chunk's deadline is bounded the same way (P2.11).
+func TestStreamUsesTheConfiguredWriteTimeout(t *testing.T) {
+	cfg := limitsFromConfig(t, "    sseWriteTimeout: 3s\n")
+	s := newServer(func(d *Deps) { d.Cfg = cfg })
+	s.heartbeat = 5 * time.Millisecond
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+	r := httptest.NewRequestWithContext(ctx, http.MethodGet, "/api/stream", nil)
+	r.Host = testHost
+	r.Header.Set("X-Forwarded-Preferred-Username", "alice")
+	d := &deadlineWriter{ResponseRecorder: httptest.NewRecorder()}
+	start := time.Now()
+	s.Handler().ServeHTTP(d, r)
+	end := time.Now()
+
+	if len(d.write) < 3 {
+		t.Fatalf("write deadlines = %d, want one per write plus the closing one", len(d.write))
+	}
+	for i, dl := range d.write {
+		if dl.Before(start.Add(3*time.Second)) || dl.After(end.Add(3*time.Second)) {
+			t.Errorf("write deadline %d is %v after the start, want the configured 3s", i, dl.Sub(start))
+		}
+	}
+}
+
 // slowAM delays CreateSilence to model an action that outlasts the body deadline.
 type slowAM struct {
 	*fakeAM

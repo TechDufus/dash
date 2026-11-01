@@ -7,7 +7,6 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
-	"net/url"
 	"strings"
 	"sync"
 	"testing"
@@ -15,7 +14,6 @@ import (
 	"github.com/TechDufus/dash/internal/config"
 	"github.com/TechDufus/dash/internal/hub"
 	"github.com/TechDufus/dash/internal/links"
-	"github.com/TechDufus/dash/internal/model"
 	"github.com/TechDufus/dash/internal/secret"
 	"github.com/TechDufus/dash/internal/upstream"
 )
@@ -98,33 +96,8 @@ func TestViewerStreamNeverCarriesUpstreamDetail(t *testing.T) {
 		}
 	}
 
-	// What a viewer's SSE stream carries is the hub's envelope of the topic, sources included.
-	h := hub.New()
-	if _, err := h.Publish(model.TopicHost, model.HostData{}, sources); err != nil {
-		t.Fatal(err)
-	}
-	snapshot, _, cancel := h.Subscribe()
-	defer cancel()
-	var sse strings.Builder
-	for _, ev := range snapshot {
-		sse.Write(ev.Data)
-	}
-	if sse.Len() == 0 {
-		t.Fatal("the stream carried nothing")
-	}
-	for _, srv := range []string{pve.URL, prom.URL, amURL, gatus.URL} {
-		u, _ := url.Parse(srv)
-		for _, leak := range []string{srv, u.Host} {
-			if strings.Contains(sse.String(), leak) {
-				t.Errorf("the stream carries %q:\n%s", leak, sse.String())
-			}
-		}
-	}
-	for _, leak := range []string{canarySecret, "login at gatus", "internal error", "127.0.0.1"} {
-		if strings.Contains(sse.String(), leak) {
-			t.Errorf("the stream carries upstream text %q:\n%s", leak, sse.String())
-		}
-	}
+	// What a viewer's stream carries is these sources and nothing more; internal/api
+	// TestStreamEndpointNeverCarriesUpstreamDetail checks it through /api/stream.
 
 	// The detail is in the log, once, with the credential scrubbed out of it.
 	out := logged.String()
