@@ -84,7 +84,7 @@ func New(d Deps) *Server {
 	if err != nil { // only if the embed root is renamed
 		panic(err)
 	}
-	l := d.Cfg.Limits
+	l := withDefaultLimits(d.Cfg.Limits)
 	return &Server{
 		d: d, static: dist, now: time.Now, heartbeat: 15 * time.Second,
 		events:  newStreamLimiter(l.StreamsPerUser, l.Streams),

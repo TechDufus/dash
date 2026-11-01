@@ -1,9 +1,29 @@
 package api
 
 import (
+	"cmp"
 	"net/http"
 	"sync"
+
+	"github.com/TechDufus/dash/internal/config"
 )
+
+// withDefaultLimits fills each zero field of l from config.Defaults().Limits. A zero cap would
+// refuse every stream (acquire's 0 >= 0), so a Server built from a partial Config must not
+// inherit it; per field, so one explicit cap does not switch the others off.
+func withDefaultLimits(l config.Limits) config.Limits {
+	d := config.Defaults().Limits
+	return config.Limits{
+		StreamsPerUser:  cmp.Or(l.StreamsPerUser, d.StreamsPerUser),
+		Streams:         cmp.Or(l.Streams, d.Streams),
+		TailsPerUser:    cmp.Or(l.TailsPerUser, d.TailsPerUser),
+		Tails:           cmp.Or(l.Tails, d.Tails),
+		TailMaxDuration: cmp.Or(l.TailMaxDuration, d.TailMaxDuration),
+		SSEWriteTimeout: cmp.Or(l.SSEWriteTimeout, d.SSEWriteTimeout),
+		BodyReadTimeout: cmp.Or(l.BodyReadTimeout, d.BodyReadTimeout),
+		MaxHeaderBytes:  cmp.Or(l.MaxHeaderBytes, d.MaxHeaderBytes),
+	}
+}
 
 // streamLimiter caps concurrent long-lived streams per user and in total.
 type streamLimiter struct {
