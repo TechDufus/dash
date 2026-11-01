@@ -95,7 +95,7 @@ function syncTopics(es: EventSource, plugins: PluginsData["plugins"]) {
   for (const name of [...envelopes.keys()]) {
     if (!name.startsWith("core.") && !next.has(name)) envelopes.delete(name);
   }
-  const fresh = [...next].filter((t) => !visibleTopics.has(t) && !envelopes.has(t));
+  const fresh = [...next].filter((t) => attached.has(t) && !envelopes.has(t));
   const seed = !firstPlugins;
   visibleTopics = next;
   firstPlugins = false;
