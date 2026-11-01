@@ -25,7 +25,8 @@ func parseResumePoints(id string) (p resumePoints, ok bool) {
 	if id == "" {
 		return nil, false
 	}
-	entries := strings.Split(id, ",")
+	// SplitN stops one piece past the cap, so a header full of commas cannot force a large split.
+	entries := strings.SplitN(id, ",", maxResumePoints+1)
 	if len(entries) > maxResumePoints {
 		return nil, false
 	}
