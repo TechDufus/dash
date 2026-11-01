@@ -852,7 +852,7 @@ func (s *Supervisor) start(in *instance, ic InstanceConfig) bool {
 	if rec == nil && err == nil {
 		var mux *http.ServeMux
 		if rt, ok := p.(Router); ok {
-			mux, err = buildMux(in, rt)
+			mux, err = buildMux(in, ctx, rt)
 		}
 		if err == nil {
 			in.mu.Lock()
@@ -882,7 +882,7 @@ func (s *Supervisor) start(in *instance, ic InstanceConfig) bool {
 
 // buildMux registers a Router's routes, each behind the instance's guard (see RouteGuard). A
 // pattern ServeMux rejects is a start failure.
-func buildMux(in *instance, r Router) (mux *http.ServeMux, err error) {
+func buildMux(in *instance, run context.Context, r Router) (mux *http.ServeMux, err error) {
 	mux = http.NewServeMux()
 	mux.HandleFunc("/", notFound)
 	defer func() {
@@ -891,7 +891,7 @@ func buildMux(in *instance, r Router) (mux *http.ServeMux, err error) {
 		}
 	}()
 	for _, ri := range CollectRoutes(r) {
-		mux.HandleFunc("GET "+ri.Pattern, routeHandler(in, ri))
+		mux.HandleFunc("GET "+ri.Pattern, routeHandler(in, ri, run))
 	}
 	return mux, nil
 }
@@ -899,7 +899,7 @@ func buildMux(in *instance, r Router) (mux *http.ServeMux, err error) {
 // routeHandler serves one route: through the guard of the request when it has one, which applies
 // the core's policy and runs the handler; without one a GET route runs as registered and a
 // stream route, which the core serves, is refused.
-func routeHandler(in *instance, ri RouteInfo) http.HandlerFunc {
+func routeHandler(in *instance, ri RouteInfo, run context.Context) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		g := guardFrom(r.Context()).guard
 		if g.Serve == nil {
@@ -913,7 +913,7 @@ func routeHandler(in *instance, ri RouteInfo) http.HandlerFunc {
 		in.mu.RLock()
 		deny := slices.Clone(in.cfg.ReadDenyNamespaces)
 		in.mu.RUnlock()
-		g.Serve(w, r, MountedRoute{Instance: in.id, Info: ri, ReadDenyNamespaces: deny}, ri.Handler)
+		g.Serve(w, r, MountedRoute{Instance: in.id, Info: ri, ReadDenyNamespaces: deny, Context: run}, ri.Handler)
 	}
 }
 

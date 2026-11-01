@@ -102,6 +102,11 @@ func (s *Server) servePluginStream(w http.ResponseWriter, r *http.Request, mr pl
 	// When the deadline ends the stream, the browser's EventSource reconnects by itself.
 	ctx, cancel := context.WithTimeout(r.Context(), s.tailMax)
 	defer cancel()
+	// The stream ends with the instance that serves it: a reconfiguration (a new deny list), a
+	// disable or a shutdown stops the plugin, and its open streams must not outlive it.
+	if mr.Context != nil {
+		defer context.AfterFunc(mr.Context, cancel)()
+	}
 	st := &pluginStream{s: s, w: w, ctx: ctx}
 	// The heartbeat writes to w, so it must be finished before the handler returns.
 	defer st.finish()

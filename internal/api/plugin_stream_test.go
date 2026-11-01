@@ -505,3 +505,35 @@ func TestPluginRouteGuardRefusesAPrincipalBelowViewerWithoutTakingASlot(t *testi
 		t.Errorf("called %v, open tails %d", called, h.openTails())
 	}
 }
+
+// A stream ends with the plugin instance that serves it: a reconfiguration (here a new deny
+// list) or a disable stops the plugin, and an open tail must not run on for tailMax against it.
+func TestPluginStreamEndsWhenItsPluginIsReconfigured(t *testing.T) {
+	h := newHarness(t)
+	h.tailMax = time.Hour
+	s := h.openStream(t, tailPath, "alice", nil)
+	s.expect("retry: 3000")
+
+	h.set.Set(plugin.InstanceConfig{Name: "rt", ReadDenyNamespaces: []string{"media"}})
+	h.sup.Reload()
+	s.all() // fails if the stream is still open after a few seconds
+	h.eventually(t, "the slot to be released", func() bool { return h.openTails() == 0 })
+	if w := h.get(tailPath); w.Code != http.StatusForbidden {
+		t.Errorf("a new open for the denied namespace = %d, want 403", w.Code)
+	}
+}
+
+func TestPluginStreamEndsWhenItsPluginIsDisabled(t *testing.T) {
+	h := newHarness(t)
+	h.tailMax = time.Hour
+	s := h.openStream(t, tailPath, "alice", nil)
+	s.expect("retry: 3000")
+
+	h.set.Set(plugin.InstanceConfig{Name: "rt", Enabled: new(false)})
+	h.sup.Reload()
+	s.all()
+	h.eventually(t, "the slot to be released", func() bool { return h.openTails() == 0 })
+	if w := h.get(tailPath); w.Code != http.StatusNotFound {
+		t.Errorf("a new open of the disabled plugin = %d, want 404", w.Code)
+	}
+}

@@ -49,6 +49,10 @@ type MountedRoute struct {
 	Info     RouteInfo
 	// ReadDenyNamespaces is the instance's InstanceConfig.ReadDenyNamespaces now.
 	ReadDenyNamespaces []string
+	// Context ends when the instance that mounted the route stops (a reconfiguration, a disable, a
+	// shutdown): a stream the core serves for it must end then too, not run on for its maximum
+	// duration against a plugin that has stopped.
+	Context context.Context
 }
 
 // RouteGuard is how the core serves the routes of a plugin without the plugin package knowing
