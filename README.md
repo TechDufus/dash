@@ -116,7 +116,16 @@ Every setting also has an environment variable: `DASH_` plus the path in UPPER_S
 (`DASH_PLUGINS_HARDWARE_HOSTS='[{"nodename":"pve"}]'`). Append `_FILE` to read the value from a
 file (`DASH_PLUGINS_PROXMOX_TOKEN_SECRET_FILE=/run/secrets/pve`); setting both forms is an
 error. A misspelled `DASH_PLUGINS_*` variable stops dash from starting, and any other unknown
-`DASH_*` variable is logged. `dash config env` prints every path with its variable name.
+`DASH_*` variable is logged. `dash config env` prints every path with its variable name;
+[`docs/configuration.md`](docs/configuration.md) lists every setting with its default and
+description (generated from the code).
+
+`dash config schema` prints the JSON Schema of the file; save it and add
+`# yaml-language-server: $schema=./config.schema.json` to the file for editor completion. `dash config validate [file]`
+checks a file and the environment the way startup does, without starting dash or touching the
+data directory, prints every problem with its path and layer, and exits 1 when there is one. It
+does not read `env:` and `file:` secret references, which often point at files that exist only
+where dash runs; `--resolve-secrets` reads them.
 
 Secret fields (`plugins.proxmox.tokenSecret`) take a literal, `env:NAME` (the value of that
 variable) or `file:/path` (the file's contents, trimmed); `..._FILE` is shorthand for a `file:`

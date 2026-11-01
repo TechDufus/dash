@@ -33,10 +33,7 @@ func main() {
 	if len(os.Args) > 1 {
 		if err := command(os.Args[1:], os.Stdout); err != nil {
 			fmt.Fprintln(os.Stderr, "dash:", err)
-			if errors.Is(err, errAuditFailed) {
-				os.Exit(1)
-			}
-			os.Exit(2)
+			os.Exit(exitCode(err))
 		}
 		return
 	}
@@ -53,14 +50,22 @@ func main() {
 
 // command runs a subcommand, which prints to out and exits instead of starting the server.
 func command(args []string, out io.Writer) error {
+	if len(args) >= 1 && args[0] == "config" {
+		return configCommand(args[1:], out)
+	}
 	if len(args) >= 2 && args[0] == "audit" && args[1] == "verify" {
 		return auditVerify(args[2:], out)
 	}
-	switch strings.Join(args, " ") {
-	case "config env": // every setting with its environment variable
-		return config.WriteEnvTable(out)
+	return fmt.Errorf("unknown command %q; usage: dash [%s | audit verify [--dir DIR]]", strings.Join(args, " "), configUsage)
+}
+
+// exitCode is the exit status of a subcommand that returned err: 1 when it ran and found a
+// problem (its report is on stdout), 2 for a usage error.
+func exitCode(err error) int {
+	if errors.Is(err, errAuditFailed) || errors.Is(err, errConfigInvalid) {
+		return 1
 	}
-	return fmt.Errorf("unknown command %q; usage: dash [config env | audit verify [--dir DIR]]", strings.Join(args, " "))
+	return 2
 }
 
 func run(reg *secret.Registry) error {

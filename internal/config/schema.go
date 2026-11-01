@@ -89,7 +89,12 @@ func (s *schemaT) walk(n *node, t reflect.Type, index []int, prefix string) {
 				case "url":
 					l.url = true
 				case "":
+				case "required":
+					// Only the JSON Schema reflector reads these (internal/jsonschema).
 				default:
+					if strings.HasPrefix(opt, "format=") || strings.HasPrefix(opt, "enum=") {
+						continue
+					}
 					panic(fmt.Sprintf("config: %s: unknown dash tag option %q", path, opt))
 				}
 			}

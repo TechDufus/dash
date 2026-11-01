@@ -1,0 +1,440 @@
+{
+  "$defs": {
+    "BackupJob": {
+      "additionalProperties": false,
+      "properties": {
+        "cronjob": {
+          "description": "Name of the backup CronJob, or name-* to match every CronJob with that prefix.",
+          "type": "string"
+        },
+        "namespace": {
+          "description": "Namespace of the backup CronJob.",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "Endpoint": {
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "description": "Turns the plugin on or off. Unset means automatic: on when it is configured. false removes its pages and topics.",
+          "type": "boolean"
+        },
+        "type": {
+          "description": "The plugin type. dash runs one instance per type, so this is empty or the section name.",
+          "type": "string"
+        },
+        "url": {
+          "description": "Base URL of the service, e.g. http://host:9090. Empty turns the source off: dash makes no request and its panels show \"source not configured\".",
+          "format": "uri",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "FluxConfig": {
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "description": "Turns the plugin on or off. Unset means automatic: on when it is configured. false removes its pages and topics.",
+          "type": "boolean"
+        },
+        "suspendReasonAnnotation": {
+          "description": "Flux object annotation whose value is shown as the reason the object is suspended. Empty hides the reason.",
+          "type": "string"
+        },
+        "type": {
+          "description": "The plugin type. dash runs one instance per type, so this is empty or the section name.",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "HardwareConfig": {
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "description": "Turns the plugin on or off. Unset means automatic: on when it is configured. false removes its pages and topics.",
+          "type": "boolean"
+        },
+        "hosts": {
+          "description": "The machine behind the cluster, as [{nodename, model}]. One entry is supported for now.",
+          "items": {
+            "$ref": "#/$defs/HardwareHost"
+          },
+          "type": "array"
+        },
+        "type": {
+          "description": "The plugin type. dash runs one instance per type, so this is empty or the section name.",
+          "type": "string"
+        },
+        "zfsScrubMetricPrefix": {
+          "description": "Prefix of the ZFS scrub series: <prefix>_last_end_timestamp_seconds, <prefix>_last_errors and <prefix>_in_progress. Must be a valid metric name. Empty queries no scrub data and the pool cards show none.",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "HardwareHost": {
+      "additionalProperties": false,
+      "properties": {
+        "model": {
+          "description": "Shown next to the host's name, e.g. Dell R730.",
+          "type": "string"
+        },
+        "nodename": {
+          "description": "The nodename label of the host's node-exporter and IPMI series. Empty uses plugins.proxmox.node, or the node discovered from the Proxmox API.",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "HeadlampConfig": {
+      "additionalProperties": false,
+      "properties": {
+        "cluster": {
+          "default": "main",
+          "description": "Name of the cluster in Headlamp's URLs.",
+          "type": "string"
+        },
+        "enabled": {
+          "description": "Turns the plugin on or off. Unset means automatic: on when it is configured. false removes its pages and topics.",
+          "type": "boolean"
+        },
+        "type": {
+          "description": "The plugin type. dash runs one instance per type, so this is empty or the section name.",
+          "type": "string"
+        },
+        "url": {
+          "description": "Base URL of Headlamp, e.g. https://headlamp.example.com. Empty turns the deep links off.",
+          "format": "uri",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "KubernetesConfig": {
+      "additionalProperties": false,
+      "properties": {
+        "backupJobs": {
+          "description": "The CronJob behind the NAS backup age, as [{namespace, cronjob}]. One entry is supported for now. Empty hides the NAS backup row.",
+          "items": {
+            "$ref": "#/$defs/BackupJob"
+          },
+          "type": "array"
+        },
+        "conventions": {
+          "$ref": "#/$defs/KubernetesConventions",
+          "description": "Labels dash reads from namespaces. None has a default: while one is empty the feature that depends on it is off."
+        },
+        "enabled": {
+          "description": "Turns the plugin on or off. Unset means automatic: on when it is configured. false removes its pages and topics.",
+          "type": "boolean"
+        },
+        "kubeconfig": {
+          "description": "Path of a kubeconfig file, used outside the cluster (development). Empty means the in-cluster configuration. The standard KUBECONFIG variable fills it too; this setting's own variable wins.",
+          "type": "string"
+        },
+        "type": {
+          "description": "The plugin type. dash runs one instance per type, so this is empty or the section name.",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "KubernetesConventions": {
+      "additionalProperties": false,
+      "properties": {
+        "appsFluxPrefix": {
+          "description": "Namespaces applied by a Flux Kustomization whose name starts with this prefix are listed under Apps. Empty turns the grouping off.",
+          "type": "string"
+        },
+        "protectedLabel": {
+          "description": "Namespace label (value \"true\") that makes a restart ask you to type the namespace name. Empty protects no namespace.",
+          "type": "string"
+        },
+        "tenantLabel": {
+          "description": "Namespace label that puts the namespace under Tenants; its value is the tenant. Empty turns the grouping off.",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "LauncherConfig": {
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "description": "Turns the plugin on or off. Unset means automatic: on when it is configured. false removes its pages and topics.",
+          "type": "boolean"
+        },
+        "file": {
+          "description": "Path of a YAML file with the launcher's links (see docs/launcher.example.yaml). Not together with links.",
+          "type": "string"
+        },
+        "links": {
+          "description": "The launcher's links, inline: a list of {name, href, icon, description}. Not together with file.",
+          "items": {
+            "$ref": "#/$defs/LauncherLink"
+          },
+          "type": "array"
+        },
+        "type": {
+          "description": "The plugin type. dash runs one instance per type, so this is empty or the section name.",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "LauncherLink": {
+      "additionalProperties": false,
+      "properties": {
+        "description": {
+          "type": "string"
+        },
+        "href": {
+          "type": "string"
+        },
+        "icon": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "LimitsConfig": {
+      "additionalProperties": false,
+      "properties": {
+        "bodyReadTimeout": {
+          "default": "10s",
+          "description": "A request body must arrive within this long.",
+          "examples": [
+            "30s",
+            "5m",
+            "1h30m"
+          ],
+          "format": "duration",
+          "type": "string",
+          "x-dash-restart": true
+        },
+        "maxHeaderBytes": {
+          "default": 65536,
+          "description": "Largest request header block the API listener accepts, in bytes.",
+          "type": "integer",
+          "x-dash-restart": true
+        },
+        "sseWriteTimeout": {
+          "default": "10s",
+          "description": "A stalled stream write fails after this long.",
+          "examples": [
+            "30s",
+            "5m",
+            "1h30m"
+          ],
+          "format": "duration",
+          "type": "string",
+          "x-dash-restart": true
+        },
+        "streams": {
+          "default": 256,
+          "description": "Open /api/stream connections in all; more get 503.",
+          "type": "integer",
+          "x-dash-restart": true
+        },
+        "streamsPerUser": {
+          "default": 16,
+          "description": "Open /api/stream connections one user may hold; more get 429.",
+          "type": "integer",
+          "x-dash-restart": true
+        },
+        "tailMaxDuration": {
+          "default": "30m",
+          "description": "A log tail ends after this long and the browser reconnects.",
+          "examples": [
+            "30s",
+            "5m",
+            "1h30m"
+          ],
+          "format": "duration",
+          "type": "string",
+          "x-dash-restart": true
+        },
+        "tails": {
+          "default": 32,
+          "description": "Open /api/logs/tail connections in all; more get 503.",
+          "type": "integer",
+          "x-dash-restart": true
+        },
+        "tailsPerUser": {
+          "default": 4,
+          "description": "Open /api/logs/tail connections one user may hold; more get 429.",
+          "type": "integer",
+          "x-dash-restart": true
+        }
+      },
+      "type": "object"
+    },
+    "PluginsConfig": {
+      "additionalProperties": false,
+      "properties": {
+        "alertmanager": {
+          "$ref": "#/$defs/Endpoint",
+          "description": "Alertmanager: alerts and silences."
+        },
+        "flux": {
+          "$ref": "#/$defs/FluxConfig",
+          "description": "Flux: how dash reads Flux objects."
+        },
+        "gatus": {
+          "$ref": "#/$defs/Endpoint",
+          "description": "Gatus: endpoint health."
+        },
+        "grafana": {
+          "$ref": "#/$defs/Endpoint",
+          "description": "Grafana: links to dashboards."
+        },
+        "hardware": {
+          "$ref": "#/$defs/HardwareConfig",
+          "description": "The physical host behind the cluster."
+        },
+        "headlamp": {
+          "$ref": "#/$defs/HeadlampConfig",
+          "description": "Headlamp: deep links into the Kubernetes UI."
+        },
+        "kubernetes": {
+          "$ref": "#/$defs/KubernetesConfig",
+          "description": "Kubernetes: how dash reaches and reads the cluster."
+        },
+        "launcher": {
+          "$ref": "#/$defs/LauncherConfig",
+          "description": "The launcher: links to your infrastructure."
+        },
+        "prometheus": {
+          "$ref": "#/$defs/Endpoint",
+          "description": "VictoriaMetrics or Prometheus: the series behind charts, KPIs and host metrics."
+        },
+        "proxmox": {
+          "$ref": "#/$defs/ProxmoxConfig",
+          "description": "Proxmox VE: virtual machines, containers and the hypervisor."
+        },
+        "victorialogs": {
+          "$ref": "#/$defs/Endpoint",
+          "description": "VictoriaLogs: the pod logs the UI shows."
+        }
+      },
+      "type": "object"
+    },
+    "ProxmoxConfig": {
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "description": "Turns the plugin on or off. Unset means automatic: on when it is configured. false removes its pages and topics.",
+          "type": "boolean"
+        },
+        "node": {
+          "description": "The Proxmox node to read. Empty is discovered from the API when the cluster has exactly one node; set it for several nodes or to skip discovery.",
+          "type": "string"
+        },
+        "tokenID": {
+          "description": "API token ID, user@realm!tokenname. Set together with tokenSecret. Empty turns Proxmox off.",
+          "type": "string"
+        },
+        "tokenSecret": {
+          "description": "API token secret: a literal, env:NAME or file:/path. Set together with tokenID.",
+          "type": "string",
+          "writeOnly": true,
+          "x-dash-secret": true
+        },
+        "type": {
+          "description": "The plugin type. dash runs one instance per type, so this is empty or the section name.",
+          "type": "string"
+        },
+        "url": {
+          "description": "Base URL of the Proxmox API, e.g. https://pve.example.com:8006. Required with a token.",
+          "format": "uri",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "ServerConfig": {
+      "additionalProperties": false,
+      "properties": {
+        "allowedHosts": {
+          "description": "Host names the API answers besides the host of publicURL: names or IP addresses without scheme or port. [\"*\"] accepts any. A JSON list in the environment.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array",
+          "x-dash-restart": true
+        },
+        "healthListen": {
+          "default": "0.0.0.0:8081",
+          "description": "Address of /healthz and /readyz. In dev and demo mode it defaults to 127.0.0.1:8081.",
+          "type": "string",
+          "x-dash-restart": true
+        },
+        "limits": {
+          "$ref": "#/$defs/LimitsConfig",
+          "description": "What one client, and all clients together, may hold open or send."
+        },
+        "listen": {
+          "default": "127.0.0.1:8080",
+          "description": "Address of the API and the web UI, reached through the identity proxy. Dev mode only accepts a loopback address.",
+          "type": "string",
+          "x-dash-restart": true
+        },
+        "publicURL": {
+          "description": "The URL people open, with scheme and host (https://dash.example.com). Required; the only Origin accepted on writes. In dev and demo mode it defaults to http://localhost:5173.",
+          "format": "uri",
+          "type": "string",
+          "x-dash-restart": true
+        }
+      },
+      "type": "object"
+    },
+    "SettingsConfig": {
+      "additionalProperties": false,
+      "properties": {
+        "ui": {
+          "default": "editable",
+          "description": "Whether the settings page may save values: editable, or readonly (fully managed, GitOps). A data directory that is missing or not writable is read-only either way.",
+          "enum": [
+            "editable",
+            "readonly"
+          ],
+          "type": "string",
+          "x-dash-restart": true
+        }
+      },
+      "type": "object"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "The dash config file. The environment overrides it, setting by setting: DASH_ plus the path in UPPER_SNAKE case.",
+  "properties": {
+    "dataDir": {
+      "default": "/data",
+      "description": "Where dash keeps its state (ui-settings.yaml, audit.jsonl) and looks for config.yaml. Demo mode uses none.",
+      "type": "string",
+      "x-dash-restart": true
+    },
+    "plugins": {
+      "$ref": "#/$defs/PluginsConfig",
+      "description": "One section per plugin. An empty URL turns that source off."
+    },
+    "server": {
+      "$ref": "#/$defs/ServerConfig",
+      "description": "How dash listens and what it calls itself."
+    },
+    "settings": {
+      "$ref": "#/$defs/SettingsConfig",
+      "description": "The settings store behind the settings page."
+    }
+  },
+  "title": "dash configuration",
+  "type": "object"
+}

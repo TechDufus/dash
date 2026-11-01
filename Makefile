@@ -5,9 +5,11 @@ KUBECONFIG ?= ../homelab/.kube/config
 
 generate:
 	go tool tygo generate
+	go run ./cmd/dash config env --markdown > docs/configuration.md.tmp
+	mv docs/configuration.md.tmp docs/configuration.md
 
 check: generate
-	git diff --exit-code web/src/api/types.ts
+	git diff --exit-code web/src/api/types.ts docs/configuration.md
 	go vet ./...
 	go test ./...
 	cd web && npm ci && npm run check && npm run build

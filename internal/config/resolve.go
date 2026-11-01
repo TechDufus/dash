@@ -59,6 +59,10 @@ type Sources struct {
 	Keys *secret.Keyring
 	// Log receives warnings; nil means slog.Default().
 	Log *slog.Logger
+	// SkipSecrets leaves the env: and file: references of secret fields unread: they count as
+	// set, but the variable or file need not exist. `dash config validate` uses it to check a
+	// file on a machine other than the one dash runs on.
+	SkipSecrets bool
 }
 
 // Resolved is the outcome of Resolve.
@@ -124,7 +128,7 @@ func layer(src Sources) (r *resolver, dev, demo bool, err error) {
 	env := envMap(src.Environ)
 	dev, demo = envTrue(env["DASH_DEV"]), envTrue(env["DASH_DEMO"])
 
-	r = &resolver{tree: defaults(dev, demo), prov: map[string]Provenance{}, raw: map[string]string{}, plain: map[string]string{}, keys: src.Keys, log: log}
+	r = &resolver{tree: defaults(dev, demo), prov: map[string]Provenance{}, raw: map[string]string{}, plain: map[string]string{}, keys: src.Keys, log: log, skipSecrets: src.SkipSecrets}
 	for _, l := range schema.leaves {
 		r.prov[l.path] = Provenance{Source: SourceDefault}
 	}
@@ -157,6 +161,8 @@ type resolver struct {
 	plain map[string]string // secret leaves the UI layer gave encrypted, already decrypted; they win over raw
 	keys  *secret.Keyring
 	log   *slog.Logger
+	// skipSecrets leaves env: and file: references unread (Sources.SkipSecrets).
+	skipSecrets bool
 
 	// sealedErrs are the stored enc:v1: secrets that cannot be decrypted. They are collected,
 	// not logged as ignored UI settings like other stale values: a stored credential is never
@@ -172,7 +178,11 @@ func (r *resolver) applyFile(f *File) error {
 		return fmt.Errorf("config file %s: %w", f.Path, err)
 	}
 	if errs := r.applyMap(schema.root, "", doc, Provenance{Source: SourceFile, Ref: f.Path}, false); len(errs) > 0 {
-		return fmt.Errorf("config file %s: %w", f.Path, errors.Join(errs...))
+		// One problem per line, each naming the file, so `dash config validate` output stands alone.
+		for i, err := range errs {
+			errs[i] = fmt.Errorf("config file %s: %w", f.Path, err)
+		}
+		return errors.Join(errs...)
 	}
 	return nil
 }
@@ -306,7 +316,11 @@ func (r *resolver) resolveSecrets(reg *secret.Registry) error {
 			v = secret.New(plain, "")
 		} else if raw := r.raw[l.path]; raw != "" {
 			var err error
-			if v, err = secret.Resolve(raw, l.path+where(r.prov, l.path)); err != nil {
+			if r.skipSecrets && (strings.HasPrefix(raw, "env:") || strings.HasPrefix(raw, "file:")) {
+				// Validation only needs to know the secret is set; the variable or file it points
+				// at may exist only where dash runs. The placeholder is never used for a request.
+				v = secret.New("unread", raw)
+			} else if v, err = secret.Resolve(raw, l.path+where(r.prov, l.path)); err != nil {
 				errs = append(errs, err)
 				continue
 			}

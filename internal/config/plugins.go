@@ -10,9 +10,9 @@ import (
 type PluginBase struct {
 	// Type is the plugin type. dash runs one instance per type, so it is empty or the section
 	// name (design J.16).
-	Type string `json:"type"`
+	Type string `json:"type" doc:"The plugin type. dash runs one instance per type, so this is empty or the section name."`
 	// Enabled turns the plugin on or off. Unset means automatic: on when it is configured.
-	Enabled *bool `json:"enabled"`
+	Enabled *bool `json:"enabled" doc:"Turns the plugin on or off. Unset means automatic: on when it is configured. false removes its pages and topics."`
 }
 
 // PluginSection is one plugins.<Name> section as the plugin framework reads it.

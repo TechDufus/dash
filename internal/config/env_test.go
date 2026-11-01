@@ -478,6 +478,9 @@ func TestEnvTable(t *testing.T) {
 	if v := byPath["server.listen"]; !v.Restart || v.Secret || v.Type != "string" {
 		t.Errorf("listen row: %+v", v)
 	}
+	if v := byPath["plugins.proxmox.enabled"]; v.Type != "boolean" || v.Name != "DASH_PLUGINS_PROXMOX_ENABLED" || v.Default != "" {
+		t.Errorf("enabled row: %+v", v)
+	}
 	if v := byPath["plugins.hardware.hosts"]; v.Type != "list of objects (JSON)" {
 		t.Errorf("hosts row: %+v", v)
 	}
