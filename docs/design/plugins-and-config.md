@@ -156,6 +156,7 @@ var builtin = []plugin.Factory{
 package plugin
 
 // ID is [a-z][a-z0-9]{1,31}: no '_' or '-', so DASH_PLUGINS_<ID>_<FIELD> parses unambiguously.
+// "core" is reserved for the core.* topics and is never a plugin.
 type ID string
 
 type Factory func() Plugin
@@ -170,13 +171,15 @@ type Manifest struct {
 	Config      func() any // pointer to a zero config struct; the JSON Schema is reflected from it
 	Topics      []TopicSpec
 	Actions     []ActionSpec
-	Series      []SeriesSpec // named range queries served by /api/series (needs prometheus)
+	Series      []SeriesSpec // named range queries served by /api/v1/series (needs prometheus)
 	UI          UISpec       // nav entries, routes and panel slots the SPA module provides
 }
 
 type TopicSpec struct {
-	Name string // "vms" is published as SSE event "proxmox.vms"
-	Doc  string
+	Name   string // "vms" is published as SSE event "proxmox.vms"
+	Doc    string
+	Type   any    // zero value of the payload: Host.Publish drops another type, and OpenAPI types the envelope per topic (clients-and-ai.md L.3)
+	Legacy string // pre-namespace SSE name ("vms"); set only by the G2 legacy shims, deleted by the leaf that migrates the plugin (A.7)
 }
 
 type ActionSpec struct {
@@ -199,7 +202,9 @@ type SeriesSpec struct {
 
 `Destructive`, `Idempotent` and `Input` also define the MCP tool for the action (clients-and-ai.md N.2).
 
-Config is keyed by instance name. `plugins.<instance>.type` defaults to the instance name, so `plugins.proxmox: {...}` just works, and a second instance can later be `plugins.pvelab2: {type: proxmox, ...}`. Instance names follow the ID rule above, and topics, routes and env names use the instance name. v1 enforces one instance per type (decided, J.16), but nothing in the schema or the env naming has to change to lift that limit.
+As implemented (G2, `internal/plugin/plugin.go`): `SeriesArgs` is an alias of `queries.Args`; `UISpec` is `{Nav []model.NavItem}` (generic views arrive with P2.8); `Supervisor.Add` fills an action's empty `MinRole` with `admin` and its empty `Confirm` with `none`, and rejects an invalid or duplicate ID or topic name, a duplicate series name, a `Requires`/`Uses` cycle, and a second instance of one type.
+
+Config is keyed by instance name. `plugins.<instance>.type` defaults to the instance name, so `plugins.proxmox: {...}` just works, and a second instance can later be `plugins.pvelab2: {type: proxmox, ...}`. Instance names follow the ID rule above, and topics, routes and env names use the instance name. v1 enforces one instance per type (decided, J.16), but nothing in the schema or the env naming has to change to lift that limit. In G2 the section map is still a closed struct (`config.PluginsConfig`, `internal/config/tree.go`): each of the 11 sections embeds `config.PluginBase` (`internal/config/plugins.go`), which adds the leaves `plugins.<id>.type` and `plugins.<id>.enabled` (a `*bool`; unset means auto), and `validate()` rejects a `type` that differs from the section name. `Tree.PluginSections()` hands the sections to the supervisor through the `Settings` interface that `cmd/dash/plugins.go` implements. `internal/plugin` and the plugin packages import neither `internal/config` nor `internal/api`.
 
 ### A.3 Lifecycle and optional capabilities
 
@@ -215,38 +220,54 @@ type Plugin interface {
 	Status() Status
 }
 
-// Optional interfaces, detected with type assertions.
-type Validator interface{ Validate(cfg any) error }                  // cross-field rules
-type Checker interface{ Check(ctx context.Context, cfg any) error }  // settings "Test connection"
+// Optional interfaces, detected with type assertions. These are the ones the core calls.
+type Validator interface{ Validate(cfg any) error }   // cross-field rules; a failure makes the instance "unconfigured"
+type Configured interface{ Configured(cfg any) bool } // auto-enable: enabled unset + false -> "disabled"; enabled true + false -> "unconfigured"
+type Provider interface{ Service() any }              // what Host.Service(id) returns to a plugin that declares it in Requires/Uses (A.5)
+type RestartOnly interface{ RestartOnly() }           // cannot be stopped and started in-process: the G2 legacy shims, until G3
 type Actor interface {
 	Act(ctx context.Context, action string, p auth.Principal, input any) (any, error) // auth.Principal: clients-and-ai.md M.1
 }
-type Router interface{ Routes(m *http.ServeMux) } // GET-only, mounted under /api/v1/plugins/{id}/
+// ActionError is a deliberate refusal from Act; status and code reach the client as written. Any other error is a 502 with the upstream category.
+type ActionError struct {
+	Status  int
+	Code    string // a model.ErrCode*
+	Message string
+	Details any
+}
+type Router interface{ Routes(r Routes) } // GET-only, mounted under /api/v1/plugins/{id}/
+type Routes interface {
+	Get(pattern string, h http.HandlerFunc, spec RouteSpec) // every route carries its OpenAPI description (clients-and-ai.md L.3)
+}
 type AttentionSource interface{ Attention(now time.Time) []model.AttentionItem }
 type KPISource interface{ KPIs() []model.KPI }
-type Demo interface{ Demo() Plugin }          // fixture-backed twin for DASH_DEMO=true
-
-// Objects lets the core search, fetch and describe a plugin's objects by ref (clients-and-ai.md N.4, L.6).
-type Objects interface {
-	Search(query string, limit int) []model.SearchHit
-	Get(ctx context.Context, ref string) (any, error)
-	Context(ctx context.Context, ref string, o model.ContextOptions) (model.ContextPart, error)
-}
+type TopologySource interface{ Topology() model.Topology } // merged into core.overview (A.7)
 
 // Host is what the core gives a running plugin.
 type Host interface {
-	Publish(topic string, data any, sources []model.SourceStatus) // namespaced by the core
-	Logger() *slog.Logger                                          // redacting handler (C.6)
-	HTTPClient(c HTTPConfig) (*http.Client, error)                 // TLS/CA, auth header, timeouts; dial guards below
+	Publish(topic string, data any, sources []model.SourceStatus) // namespaced by the core; an undeclared topic or a payload of the wrong type is logged and dropped
+	Logger() *slog.Logger                                          // slog.Default().With("plugin", instance): behind the redacting handler (C.6)
+	HTTPClient(c HTTPConfig) (*http.Client, error)                 // TLS/CA, per-request credentials, timeout; dial guards below
 	Service(id ID) (any, bool)                                     // see A.5
-	Links() links.Registry                                         // deep-link providers (F.2)
 	Now() time.Time
+	Go(name string, fn func())                                     // a goroutine that recovers panics: the instance becomes "error"
+}
+
+// HTTPConfig is how a plugin wants its upstream client built.
+type HTTPConfig struct {
+	Timeout            time.Duration       // 0 = 25s
+	CAFile             string              // extra root CAs (PEM), added to the system roots
+	InsecureSkipVerify bool                // logs a startup WARN (F.6)
+	Authorize          func(*http.Request) // sets credentials per request, so a rotated secret applies at the next request
+	FromUI             bool                // the URL came from the UI layer: loopback dials are refused too
 }
 ```
 
-The core supervises each instance the way `topics.Manager` supervises pollers today: it recovers panics in pollers and builders (`manager.go:141-176`), and a panicking plugin becomes `error` state without taking the process down.
+Three interfaces of the first draft are not in G2 and arrive, additively, with their first caller: `Checker` (`Check(ctx, cfg) error`, the settings "Test connection", P4.7), `Demo` (`Demo() Plugin`, the fixture-backed twin for `DASH_DEMO=true`, the first G3 leaf), and `Objects` (search, get and context by ref, clients-and-ai.md N.4, P7.3). `Host.Links() links.Registry` is also absent: `links.Registry` (F.2) does not exist yet and `links.Builder` imports `config`; the first G3 consumer adds it. `Host.Go` was added because a panic in a plugin's own goroutine cannot be recovered from outside, and "a panic in a poller gives `error`" needs a launcher the core controls. `Router` takes a typed registrar instead of a `*http.ServeMux` so the OpenAPI generator and the drift test can enumerate every route; a mux cannot be listed.
 
-`Host.HTTPClient` guards every dial, so a settings value cannot turn dash into a request proxy: connections to link-local addresses (`169.254.0.0/16` and `fe80::/10`) and to the cloud metadata address `fd00:ec2::254` are always refused, and connections to loopback are refused when the URL came from the UI layer (clients-and-ai.md K.22).
+`internal/plugin.Supervisor` supervises each instance the way `topics.Manager` supervises pollers today (`manager.go:141-176`): a panic in `Start`, `Status`, `Act` or a `Host.Go` goroutine is recovered and the instance becomes `error` without taking the process down. It evaluates an instance in a fixed order: `enabled: false` → `disabled`; `Configured` false → `disabled` (auto) or `unconfigured` (explicitly enabled); a config of the wrong type → `error`; `Validator` failure → `unconfigured`; a `Requires` instance that is unknown, not started or `unavailable` → `blocked`; `Start` failing → `error`; otherwise the plugin's own `Status()`. It starts instances in dependency order over `Requires` and `Uses` (ties by registration order) and stops them in reverse. On a config change (`config.Reloader` emits one `Change` per `plugins.<id>` section; `ReloadOptions.Live` keeps a live-applied change out of the "restart required" list) the changed instance and its dependents go through Stop (at most 10s) then Start. `RestartOnly` instances are never touched. Whenever any instance's state, message, topics, actions or nav changes, the supervisor publishes `core.plugins`, and when an instance stops it removes its topics from the hub.
+
+`Host.HTTPClient` guards every dial, so a settings value cannot turn dash into a request proxy: the guard inspects the resolved address at dial time and always refuses link-local addresses (`169.254.0.0/16` and `fe80::/10`) and the cloud metadata address `fd00:ec2::254`, and it refuses loopback and the unspecified address when `HTTPConfig.FromUI` is set (clients-and-ai.md K.22). Redirects are re-checked and may not change host, and the client ignores `HTTP_PROXY` because a proxy would hide the real destination from the guard. `InsecureSkipVerify` logs a startup WARN; the "tls: verification disabled" source note comes with the first G3 plugin that builds a real client.
 
 ### A.4 Config schema and validation
 
@@ -298,11 +319,11 @@ The core starts plugins in dependency order. A plugin whose `Requires` provider 
 
 - `Status.Sources` reuses `model.SourceStatus`. The per-topic source keys `"<scope>:<source>"` (`manager.go:188-242`) become per-plugin.
 - `/healthz` is unchanged: the process is alive.
-- `/readyz` means: config loaded, HTTP serving, and every enabled plugin has returned from `Start`. Plugin health never makes `/readyz` fail, which reverses today's `manager.go:104-105`. `/readyz?verbose=1` lists plugin states, but only to loopback peers (other peers get the plain status; clients-and-ai.md K.15), and the health listener stays unauthenticated and separate (`api.go:99-115`). If someone wants today's semantics, they can set `server.readyRequires: [kubernetes]`, which waits for the informer sync, capped at `server.readyTimeout` (default 60s).
+- `/readyz` means: config loaded, HTTP serving, and every enabled plugin has returned from `Start`. Plugin health never makes `/readyz` fail, which reverses today's `manager.go:104-105`. `/readyz?verbose=1` lists plugin states, but only to loopback peers (other peers get the plain status; clients-and-ai.md K.15), and the health listener stays unauthenticated and separate (`internal/api/health.go`). If someone wants today's semantics, they can set `server.readyRequires: [kubernetes]`, which waits for the informer sync, capped at `server.readyTimeout` (default 60s). Shipped in G2: `Supervisor.Ready` plus the serving flag the API sets once both listeners are bound (`cmd/dash/serve.go`); `readyRequires` entries must be known `plugins.<id>` sections, and a listed plugin that is disabled counts as settled. The health listener also serves `GET /metrics` when `server.metrics` is true (`internal/obs`: a private Prometheus registry with fixed label sets, `github.com/prometheus/client_golang`) and answers 404 otherwise.
 
 ### A.7 Data, topics and SSE
 
-**Naming.** `<pluginID>.<topic>` for plugin topics, and `core.<topic>` for composed ones. The hub is already keyed by string (`hub.go:23-26`); only `model.Topic` and the fixed order in `hub.Subscribe` (`hub.go:113`) change.
+**Naming.** `<pluginID>.<topic>` for plugin topics, and `core.<topic>` for composed ones. The hub is already keyed by string (`hub.go:23-26`); only `model.Topic` and the fixed order in `hub.Subscribe` (`hub.go:113`) change. In G2 the order comes from `Hub.SetOrder` (the supervisor's `TopicOrder`: `core.plugins`, then `model.TopicOverview`, then each instance's topics in registration order).
 
 | Today (`model.go:42-52`) | Owner after migration | New topic(s) | Notes |
 |---|---|---|---|
@@ -318,12 +339,14 @@ The core starts plugins in dependency order. A plugin whose `Requires` provider 
 | (new) | core | `core.plugins` | Plugin states (A.6) pushed live, so the SPA hides or shows pages without a reload |
 
 - `Envelope` (`model.go:69-75`) is unchanged: `{topic, updatedAt, sources, data}`. The topic string carries the plugin ID.
-- **Cutover:** each migration PR renames its topic in Go and in `web/src/api/topics.ts` together; the compile-time guard at `topics.ts:29-34` enforces this. No alias topics.
+- **Cutover:** each migration PR renames its topic in Go and in `web/src/api/topics.ts` together; the compile-time guard at `topics.ts:29-34` enforces this. No alias topics. **As shipped in G2, only two topics changed:** `core.plugins` is new, and `overview` became `core.overview` (in the P2.5 commit, in Go and web together; it is core-composed and has no plugin leaf that could rename it). The other eight keep their names (`host`, `vms`, `cluster`, `flux`, `storage`, `alerts`, `status`, `apps`) and are renamed, with their payload splits, by the G3 leaf that migrates their plugin. Until then the legacy shims declare them with `TopicSpec.Legacy`, so `Host.Publish("vms", …)` emits SSE `vms`, `PluginInfo.Topics` lists `vms`, and removing the instance removes `vms`; the G3 leaf deletes `Legacy` and the topic becomes `<plugin>.<topic>`.
 - When a plugin is disabled, the core removes its latest events from the hub and publishes `core.plugins`. The SPA drops the corresponding pages.
 - Per-plugin API: `GET /api/v1/plugins` returns `[{id, name, version, state, message, topics, actions, nav, configurable}]`. Plugin GET routes live under `/api/v1/plugins/{id}/...`: today's `/api/vms/{vmid}` becomes `/api/v1/plugins/proxmox/vms/{vmid}`, `/api/pods/{ns}/{name}` becomes `/api/v1/plugins/kubernetes/pods/{ns}/{name}`, and `/api/logs` becomes `/api/v1/plugins/victorialogs/logs`. `/api/v1/series` stays a core endpoint that dispatches to the `SeriesSpec` registered under the series name, so the browser can still only ask for named, validated series. The whole public API moves under `/api/v1` (clients-and-ai.md L.1, P2.10).
 - **Snapshot GET.** `GET /api/v1/topics/{topic}` returns the Envelope with an `ETag` (the hub digest); `If-None-Match` gets 304 (clients-and-ai.md L.5).
 - **Topic filter and user-scoped topics.** `GET /api/v1/stream?topics=a,b` sends only the listed topics. There is no resumption: a reconnect replays current state. User-scoped topics such as `core.approvals` reach only their owner (clients-and-ai.md L.5).
 - **Object refs.** Every object in a plugin payload carries `ref`, `<plugin>:<Kind>/<id>` (for example `kubernetes:Pod/media/app-0`). Refs are opaque to clients; the prefix routes to the owning plugin's `Objects` (clients-and-ai.md L.6).
+- **Overview composition (P2.5).** `core.overview` no longer waits for the other topics: `topics.compose` merges the attention items of every running `AttentionSource` (each item carries `plugin`), `KPISource` outputs (`OverviewData.kpiList`, new) and `TopologySource` fragments, with the legacy per-source builders adapted as one contributor. The `Kpis` struct of today's payload stays for the SPA until each KPI moves into a `KPISource` in G3.
+- **G2 routes.** Only the core routes are under `/api/v1` in G2 (`me`, `stream`, `series`, `plugins`, `topics/{topic}`, `plugins/{id}/…`). The integration routes that still run inside `topics.Manager` (`/api/config`, `/api/vms/{vmid}`, `/api/pods/{ns}/{name}`, `/api/logs`, `/api/logs/tail`, `/api/actions/*`, `/api/silences`) keep their unversioned paths until their plugin migrates and the P3.13 cleanup deletes them; they already use the L.2 error envelope, but they are not part of the OpenAPI document (`Route.Legacy` in `internal/api/routes.go`, with an allowlist test).
 
 ### A.8 Actions (writes)
 
@@ -344,6 +367,7 @@ Today there are three hand-written handlers (`api.go:88-91`), plus the audit hel
 - The admission guardrail stays the real fence for Kubernetes writes. The Helm chart ships an optional generic ValidatingAdmissionPolicy (D.4), written fresh rather than copied from the private homelab repo. `writeKubeErr` keeps passing 403/404/409/422 messages through verbatim (`actions.go:40-52`).
 - **Silence rules** (F.3): `protectedAlerts` can never be silenced, and `silence.expire` works only on silences dash created.
 - **Agents.** `ConfirmDialog` is a UI-only confirmation, so scripts and agents bypass it. Requests from MCP clients are held for human approval instead (clients-and-ai.md K.20, O).
+- **As shipped (G2).** The framework is `(*Server).runAction` (`internal/api/plugin_actions.go`). Steps that need a token or an agent have no principal to apply to yet and are skipped until phase 7: the `actions:<plugin>` scope, the token's `actionNamespaces`, and the agent policy. The principal is `auth.Principal{Kind, User, Role}` (`internal/auth`), and every authenticated proxy, dev or demo principal is `admin`, as today, until P4.2. The rate limit is a sliding window of 10 per minute per principal (`internal/api/ratelimit.go`; 429 `rate_limited` with `Retry-After`). Input is decoded strictly into `reflect.New(Input())`, required fields are checked, and `Validate() error` is called when the input has it. `actions.enabled` and `actions.denyNamespaces` are read from `plugin.InstanceConfig`; none of the 11 G2 sections has them yet, because the legacy restart, reconcile and silence handlers are not framework actions until G3 (their migration must not flip the homelab's actions off, J.11). Audit records carry `plugin` and `requestId`. A missing action, a stopped instance, disabled actions and a plugin that is not an `Actor` all answer the same 404 `not_found`.
 
 ### A.9 How the SPA renders plugins
 
@@ -420,7 +444,7 @@ built-in defaults  <  UI settings (/data)  <  config file (DASH_CONFIG)  <  envi
 - Plugin fields: `DASH_PLUGINS_<ID>_<FIELD_PATH>`. Each path segment is the JSON field name converted from camelCase to UPPER_SNAKE, and segments are joined with `_`. Example: `plugins.kubernetes.conventions.protectedLabel` becomes `DASH_PLUGINS_KUBERNETES_CONVENTIONS_PROTECTED_LABEL`, and `plugins.proxmox.tokenSecret` becomes `DASH_PLUGINS_PROXMOX_TOKEN_SECRET`. The mapping is not parsed back by guessing: dash generates the full name table from the schemas, and a unit test fails if two schema paths produce the same name. Lists and objects are JSON: `DASH_PLUGINS_HARDWARE_MACHINES='[{"name":"nas","nodeExporterNodename":"nas"}]'`.
 - An unknown `DASH_PLUGINS_*` variable is a startup error (typo protection). Other unknown `DASH_*` variables produce a warning. `DASH_API` is used by the Vite dev proxy (`web/vite.config.ts:13`) and must not trip the check.
 - `DASH_<NAME>_FILE=/path` is resolved in Go when the env layer loads, not in a shell entrypoint: the image is distroless and has no shell. Grafana does it in its `run.sh` entrypoint, so `GF_*__FILE` does not work on its distroless images ([run.sh](https://raw.githubusercontent.com/grafana/grafana/main/packaging/docker/run.sh)). Setting both `DASH_X` and `DASH_X_FILE` is a startup error naming both variables, as in Grafana's `run.sh`.
-- A generated reference table lives at `docs/configuration.md`, produced by `dash config env` (P2.2).
+- A generated reference table lives at `docs/configuration.md`, produced by `dash config env --markdown` (P2.2); `make check` fails when it drifts. `dash config schema` prints the JSON Schema 2020-12 of the whole tree (reflected by the in-house `internal/jsonschema`, which also types the OpenAPI document; no `invopop/jsonschema`), and `dash config validate [file]` resolves a file plus the environment exactly as startup does and prints every problem with its path; it reads no `file:`/`env:` secret reference unless `--resolve-secrets` is given.
 
 ### B.4 Example config file
 
@@ -463,7 +487,7 @@ plugins:
 
 ### B.5 Back-compat mapping for existing `DASH_*` variables
 
-Decided (J.5): accept the legacy names as aliases for one release, logging one deprecation warning per variable at startup, then remove them. Only one deployment (the homelab) uses them; a direct cutover without the alias layer was rejected.
+Decided (J.5): accept the legacy names as aliases for one release, logging one deprecation warning per variable at startup, then remove them. Only one deployment (the homelab) uses them; a direct cutover without the alias layer was rejected. **Done in v0.5.0 (G2):** v0.4.0 was the alias release. The aliases are gone (`internal/config/env.go`): a process that still sets one of the 24 legacy names (or its `_FILE` form) refuses to start and the error names each replacement, because silently ignoring `DASH_VM_URL` would leave a source unconfigured and ignoring `DASH_PUBLIC_URL` gives an unrelated error. `KUBECONFIG` stays as a documented exception. The table below is kept as the mapping; the error table itself is deleted one release later.
 
 | Legacy (`config.go`) | New path | Change in semantics |
 |---|---|---|
@@ -505,7 +529,7 @@ Sequencing risk: if the homelab deployment relies on today's `.svc` defaults, re
 | Env var | Not detectable | Needs a restart; documented |
 | `x-dash-restart` field | Any source | Saved, and Settings shows "restart required"; nothing is applied live |
 
-**Apply** diffs the old and new resolved config for each plugin. An unchanged plugin is untouched. A changed one goes through `Stop` (cancel its context, wait up to 10s) and then `Start` with the new config. Its last published events stay in the hub until the new instance publishes, so the UI does not flicker. If the plugin is now disabled, its events are cleared (A.7).
+**Apply** diffs the old and new resolved config for each plugin. An unchanged plugin is untouched. A changed one goes through `Stop` (cancel its context, wait up to 10s) and then `Start` with the new config. Its last published events stay in the hub until the new instance publishes, so the UI does not flicker. If the plugin is now disabled, its events are cleared (A.7). In G2 the supervisor does this for plugins that can be restarted in-process; the legacy shims hosted by `topics.Manager` are `RestartOnly`, so a change to their sections is still logged as "applies after a restart" until their G3 leaf (`config.ReloadOptions.Live`, `internal/config/reload.go`).
 
 ### B.7 Settings store format (decision J.3, decided)
 

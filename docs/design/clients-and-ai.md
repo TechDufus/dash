@@ -68,8 +68,8 @@ The public API lives under `/api/v1` and the SPA uses it too, so there is one co
 
 - P2.3 creates `/api/v1/plugins…`.
 - P2.4 adds `/api/v1/topics/{topic}`.
-- P2.10 moves `me`, `stream` and `series`.
-- Unversioned paths return 404 once moved; there are no aliases.
+- P2.10 moves `me`, `stream` and `series`. The unversioned `/api/me`, `/api/stream` and `/api/series` return 404 once moved; there are no aliases.
+- **G2 exception.** The integration routes that still run inside `topics.Manager` (`/api/config`, `/api/vms/{vmid}`, `/api/pods/{ns}/{name}`, `/api/logs`, `/api/logs/tail`, `/api/actions/*`, `/api/silences`) keep their unversioned paths until their plugin migrates (each G3 leaf moves its routes to `/api/v1/plugins/{id}/…`) and the P3.13 cleanup deletes them. They are not part of the public contract: they are marked `Legacy` in the route table (`internal/api/routes.go`), stay out of the OpenAPI document, and are pinned by an allowlist test. They do use the L.2 error envelope and request IDs.
 - The API is stable from 1.0. Breaking changes during 0.x are called out in the release notes (J.19).
 
 ### L.2 Errors and request IDs
@@ -97,10 +97,14 @@ const (
 	ErrCodeConflict             = "conflict"
 	ErrCodePreconditionFailed   = "precondition_failed"
 	ErrCodeAuditUnavailable     = "audit_unavailable"
+	ErrCodeUnknownHost          = "unknown_host" // 421: the Host header names a host dash is not configured for (K.10)
+	ErrCodeInternal             = "internal"     // 500: a recovered panic
 )
 ```
 
-Every response carries an `X-Request-Id` header: 128-bit random hex. An inbound value is honoured only when the request comes from a trusted proxy (E.2). The ID appears in logs and in audit records (C.7).
+These 21 codes are `ErrCode*` in `internal/model/errors.go`, and `model.ErrCodes()` lists them (the OpenAPI document uses it as the `code` enum). One status can carry several codes: a 403 is `forbidden`, `insufficient_scope` or `csrf_failed`; a 429 is `rate_limited` or `too_many_streams`; a 503 is `audit_unavailable` or `too_many_streams`.
+
+Every response carries an `X-Request-Id` header: 128-bit random hex (`internal/api/requestid.go`). An inbound value is honoured only when the request comes from a trusted proxy (E.2; until P4.1 that means a loopback peer) and matches `^[A-Za-z0-9._-]{1,64}$`. The ID appears in logs and in audit records (C.7).
 
 `locked_field` errors (B.2) use the same envelope, with `details: {"path", "source", "ref"}` where `source` is `file`, `env` or `ui-ineligible` and `ref` names the env variable or file that locks the field (absent for `ui-ineligible`). `audit_unavailable` is the 503 returned when the audit intent record for a write (an action, a settings change, a secret Replace or Clear, a PAT, grant or consent change, an approval decision) cannot be written; nothing changed (C.7).
 
@@ -108,9 +112,10 @@ Every response carries an `X-Request-Id` header: 128-bit random hex. An inbound 
 
 `dash api openapi` generates OpenAPI 3.1 into `docs/api/openapi.json`. Drift fails `make check`, the same way tygo drift does today.
 
-- Every route registers method, path, summary, scope, request type and response type through typed helpers, so a route cannot exist without a spec entry.
-- Schemas come from the P2.2 reflector.
-- Topic envelopes are typed per topic.
+- Every route registers method, path, summary, scope, request type and response type in one typed route table (`routeTable()` in `internal/api/routes.go`), and `Handler()` builds its mux from that table and nothing else, so a route cannot exist without a spec entry. Plugin `Router` routes and actions are listed per registered manifest.
+- Schemas come from the P2.2 reflector, the in-house `internal/jsonschema` (no third-party reflector or OpenAPI library).
+- Topic envelopes are typed per topic (`TopicSpec.Type`, `model.TopicTypes()`).
+- `make check` lints `docs/api/openapi.json` with vacuum (ruleset `docs/api/ruleset.yaml`), pinned as a `tool` in the separate module `tools/go.mod`, run as `go tool -modfile=tools/go.mod vacuum lint`: the application's `go.mod` and its `go 1.27` line stay free of the linter's dependencies, and `go vet ./...` and `go test ./...` skip `tools/`.
 
 ### L.4 Discovery
 
@@ -122,7 +127,7 @@ Every response carries an `X-Request-Id` header: 128-bit random hex. An inbound 
 - `GET /api/v1/topics/{topic}` returns the Envelope with an `ETag` (the hub digest, 16 hex chars). `If-None-Match` with a matching value returns 304.
 - `GET /api/v1/stream?topics=a,b` filters topics. There is no resumption: a reconnect replays current state, which is what the hub does today.
 - User-scoped topics, such as `core.approvals`, reach only their owner.
-- The constants introduced by the hardening PR (stream and tail caps, write and read deadlines, header size) become `server.limits.*` settings in P2.11.
+- The constants introduced by the hardening PR (stream and tail caps, write and read deadlines, header size) became the `server.limits.*` settings in P2.11.
 
 ### L.6 Object references
 

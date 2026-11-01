@@ -39,8 +39,8 @@ Design: `docs/design/plugins-and-config.md` and `docs/design/clients-and-ai.md` 
 
 **Groups**
 
-- [ ] G0: docs(adr): phase 0, decisions and ADR
-- [ ] G1: feat(config): phase 1, config core and secrets
+- [x] G0: docs(adr): phase 0, decisions and ADR
+- [x] G1: feat(config): phase 1, config core and secrets
 - [ ] G2: feat(plugin): phase 2, plugin framework and SPA registry
 - [ ] G3: feat(plugins): phase 3, migrate integrations to plugins
 - [ ] G4: feat(auth): phase 4, settings UI and auth
@@ -66,9 +66,9 @@ Design: `docs/design/plugins-and-config.md` and `docs/design/clients-and-ai.md` 
 
 **Body:** land the configurable-settings branch and record the decisions this epic depends on. The phase 0 PR is based on `claude/project-thread-8gve8b` (not `main`), so the ADR lands on the same base.
 
-- [ ] P0.1 chore: land claude/project-thread-8gve8b (e2b7f93) on main
-- [ ] P0.2 docs(adr): record plugin, config, auth and release decisions
-- [ ] P0.3 docs(adr): record API client, agent, mobile and AI decisions
+- [x] P0.1 chore: land claude/project-thread-8gve8b (e2b7f93) on main
+- [x] P0.2 docs(adr): record plugin, config, auth and release decisions
+- [x] P0.3 docs(adr): record API client, agent, mobile and AI decisions
 
 **Acceptance criteria:** all three leaves closed; all 19 decisions in design section J (answered 2026-10-31) are recorded in ADR 0001, and the S decisions of `clients-and-ai.md` in ADR 0002.
 
@@ -142,14 +142,14 @@ The phase 0 PR is based on `claude/project-thread-8gve8b`, so the ADR lands on t
 
 **Body:** replace the flat env reader (`internal/config/config.go:80-124`) with a typed, layered config tree that records provenance. Add the secret primitives, the settings store and the audit log. No plugin framework yet: the existing `Config` fields are populated from the new tree, so the rest of the code keeps working.
 
-- [ ] P1.1 feat(config): typed config tree with YAML file loader
-- [ ] P1.2 feat(config): env layer with generated DASH_* names and provenance
-- [ ] P1.3 feat(config)!: drop homelab defaults for upstream URLs and conventions
-- [ ] P1.4 feat(secrets): secret value type, env and file references, redaction
-- [ ] P1.5 feat(secrets): encrypt UI-entered secrets at rest with key rotation
-- [ ] P1.6 feat(settings): data directory and atomic YAML settings store
-- [ ] P1.7 feat(config): hot reload of the config file and referenced secret files
-- [ ] P1.8 feat(audit): persistent audit log shared by actions and settings
+- [x] P1.1 feat(config): typed config tree with YAML file loader
+- [x] P1.2 feat(config): env layer with generated DASH_* names and provenance
+- [x] P1.3 feat(config)!: drop homelab defaults for upstream URLs and conventions
+- [x] P1.4 feat(secrets): secret value type, env and file references, redaction
+- [x] P1.5 feat(secrets): encrypt UI-entered secrets at rest with key rotation
+- [x] P1.6 feat(settings): data directory and atomic YAML settings store
+- [x] P1.7 feat(config): hot reload of the config file and referenced secret files
+- [x] P1.8 feat(audit): persistent audit log shared by actions and settings
 
 **Acceptance criteria:** all leaves closed. `dash` starts from a config file alone, from env alone, or from both, and the effective value of every field reports its source.
 
@@ -173,7 +173,7 @@ The phase 0 PR is based on `claude/project-thread-8gve8b`, so the ADR lands on t
 - Env overrides the file.
 - Names are generated from the config schema: camelCase becomes UPPER_SNAKE (design B.3).
 - `DASH_*_FILE` suffix support, resolved in the Go binary (the image is distroless, so there is no shell entrypoint). Setting both `DASH_X` and `DASH_X_FILE` is a startup error.
-- A legacy alias table for today's variables (design B.5), with one deprecation warning per variable. The alias layer ships for one release and is then removed (J.5); the release notes announce the removal. There is no direct-cutover option.
+- A legacy alias table for today's variables (design B.5), with one deprecation warning per variable. The alias layer ships for one release and is then removed (J.5); the release notes announce the removal. There is no direct-cutover option. **Shipped:** v0.4.0 carried the alias layer; the G2 PR (v0.5.0, `feat(config)!: remove the legacy DASH_* environment aliases`) removed it. The 24 legacy names, and their `_FILE` forms, now fail startup with a message naming each replacement (`internal/config/env.go`); `KUBECONFIG` is unaffected. The README keeps the old-to-new table as "Removed variable names" for one more release.
 
 Every resolved field carries `source` (`default|ui|file|env`) and an origin (env var name or file path).
 
@@ -308,18 +308,18 @@ Also (design C.7, K.21):
 
 **Body:** add the plugin contract (design A) and make the SPA render from a registry. Existing integrations keep running inside `topics.Manager`, which consumes the registry, until G3 moves them.
 
-- [ ] P2.1 feat(plugin): plugin contract, registry and lifecycle supervisor
-- [ ] P2.2 feat(plugin): JSON Schema from config structs and dash config commands
-- [ ] P2.3 feat(api): /api/plugins, plugin-scoped routes and action framework
-- [ ] P2.4 feat(hub)!: namespaced topics and core.plugins status topic
-- [ ] P2.5 feat(core): compose the overview from plugin contributions
-- [ ] P2.6 feat(api)!: readiness independent of plugin health
+- [x] P2.1 feat(plugin): plugin contract, registry and lifecycle supervisor
+- [x] P2.2 feat(plugin): JSON Schema from config structs and dash config commands
+- [x] P2.3 feat(api): /api/plugins, plugin-scoped routes and action framework
+- [x] P2.4 feat(hub)!: namespaced topics and core.plugins status topic
+- [x] P2.5 feat(core): compose the overview from plugin contributions
+- [x] P2.6 feat(api)!: readiness independent of plugin health
 - [ ] P2.7 feat(web): plugin module registry for routes, nav and palette
 - [ ] P2.8 feat(web): panel slots for composite pages and generic panels
 - [ ] P2.9 build(web): generate TS types per plugin model package
-- [ ] P2.10 feat(api)!: /api/v1, error codes, request ids and generated OpenAPI
-- [ ] P2.11 feat(config): stream and request limits as settings
-- [ ] P2.12 feat(obs): opt-in Prometheus metrics on the health listener
+- [x] P2.10 feat(api)!: /api/v1, error codes, request ids and generated OpenAPI
+- [x] P2.11 feat(config): stream and request limits as settings
+- [x] P2.12 feat(obs): opt-in Prometheus metrics on the health listener
 
 **Acceptance criteria:** all leaves closed. A test plugin registered in a test build publishes a topic, shows up in `/api/plugins` and the nav, and disappears when disabled, all without a reload.
 
@@ -388,7 +388,7 @@ Validation runs schema first, then `Validator`. Add the CLI subcommands `dash co
 - `Host.Publish` namespaces topics as `<instance>.<topic>`, and `hub.Subscribe` takes its order from the registry (replacing the fixed list at `internal/hub/hub.go:113`).
 - Add `core.plugins`, pushed on every state change.
 - Disabling a plugin removes its latest events.
-- Legacy topics keep their names until their plugin migrates in G3.
+- Legacy topics keep their names until their plugin migrates in G3. In G2 this is implemented with `TopicSpec.Legacy` (the legacy shims publish, list and remove `vms`, `host`, `cluster`, `flux`, `storage`, `alerts`, `status` and `apps` under their old names); the one rename is `overview` → `core.overview` in P2.5, which is core-composed (design A.7).
 - `GET /api/v1/topics/{topic}` returns the Envelope with an `ETag` (the hub digest, 16 hex chars). `If-None-Match` with a matching tag returns 304 (design L.5).
 - `GET /api/v1/stream?topics=a,b` filters the streamed topics. There is no resumption: a reconnect replays the current state.
 - The hub supports user-scoped topics, `PublishFor(user, ...)` and `Subscribe(user)`. A user-scoped topic (such as `core.approvals`, P7.5) reaches only its owner.
@@ -482,10 +482,10 @@ Visibility follows `/api/plugins` and `core.plugins`. A disabled plugin's route 
 
 **Body:** make the HTTP API a stable, documented surface for non-browser clients (design L.1 to L.4, L.8).
 
-- Move the core routes under `/api/v1`. `me`, `stream` and `series` join `/api/v1/plugins...` (P2.3) and `/api/v1/topics/{topic}` (P2.4). The SPA uses the same paths. Unversioned paths return 404 once moved; there are no aliases. The API is stable from 1.0, and breaking changes in 0.x are called out in the release notes (J.19).
-- Errors are `{"error", "code", "requestId", "details?"}`. The codes are `ErrCode*` constants in `internal/model`: `unauthenticated`, `forbidden`, `insufficient_scope`, `invalid_token`, `ambiguous_credentials`, `csrf_failed`, `not_found`, `invalid_input`, `locked_field`, `readonly_settings`, `rate_limited`, `too_many_streams`, `upstream_unavailable`, `audit_unavailable`, `approval_required`, `approval_denied`, `approval_expired`, `conflict` and `precondition_failed`.
+- Move the core routes under `/api/v1`. `me`, `stream` and `series` join `/api/v1/plugins...` (P2.3) and `/api/v1/topics/{topic}` (P2.4). The SPA uses the same paths. Unversioned paths return 404 once moved; there are no aliases. The integration routes still served by `topics.Manager` (`/api/config`, `/api/vms`, `/api/pods`, `/api/logs`, `/api/logs/tail`, `/api/actions/*`, `/api/silences`) keep their unversioned paths until their plugin migrates in G3; P3.13 deletes them. They get the error envelope and request IDs, but they are not in the OpenAPI document. The API is stable from 1.0, and breaking changes in 0.x are called out in the release notes (J.19).
+- Errors are `{"error", "code", "requestId", "details?"}`. The codes are `ErrCode*` constants in `internal/model/errors.go`: `unauthenticated`, `forbidden`, `insufficient_scope`, `invalid_token`, `ambiguous_credentials`, `csrf_failed`, `not_found`, `invalid_input`, `locked_field`, `readonly_settings`, `rate_limited`, `too_many_streams`, `upstream_unavailable`, `audit_unavailable`, `approval_required`, `approval_denied`, `approval_expired`, `conflict`, `precondition_failed`, `unknown_host` and `internal`.
 - Every response has an `X-Request-Id` header: 128-bit random hex, taken from the inbound header only when the peer is a trusted proxy. It appears in logs and audit records.
-- `dash api openapi` generates OpenAPI 3.1 into `docs/api/openapi.json`, and drift fails `make check`. Every route registers its method, path, summary, scope, request type and response type through typed helpers. Schemas come from the P2.2 reflector, and topic envelopes are typed per topic.
+- `dash api openapi` generates OpenAPI 3.1 into `docs/api/openapi.json`, and drift fails `make check`; vacuum lints it (pinned in `tools/go.mod`). Every route registers its method, path, summary, scope, request type and response type in one typed route table. Schemas come from the P2.2 reflector (`internal/jsonschema`), and topic envelopes are typed per topic.
 - Discovery: `GET /api/v1/me` returns `{user, role, authMode, scopes, audience, version, capabilities{actions, mcp, push, oauth}}`, and `GET /api/v1/plugins` lists actions as `{name, title, destructive, idempotent, confirm, inputSchema}`.
 - Caching: `Cache-Control: no-store` on `/api/v1`, except the snapshot GETs of P2.4, which send `private, no-cache` with their `ETag` (L.8).
 
@@ -666,7 +666,7 @@ No aliases survive the phase.
 - A self-signed server works with `caFile`, and fails without it.
 - A stopped VM in `criticalVMs` is critical; any other stopped VM warns.
 - Fixtures cover Proxmox VE 8 and 9 API responses (J.18).
-- The legacy `DASH_PROXMOX_TOKEN` alias (kept for one release, J.5) is split correctly.
+- The Proxmox token is `tokenID` plus `tokenSecret`. The legacy `DASH_PROXMOX_TOKEN` alias was removed in v0.5.0 (J.5): it fails startup with a message naming `DASH_PLUGINS_PROXMOX_TOKEN_ID` and `DASH_PLUGINS_PROXMOX_TOKEN_SECRET`.
 - With `insecureSkipVerify: true`, the startup log has the WARN and the source status carries the `tls: verification disabled` note.
 
 **Dependencies:** P3.1, P3.2, P1.4.
