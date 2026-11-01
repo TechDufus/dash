@@ -3,8 +3,9 @@ import { Link } from "wouter";
 import { useTopic } from "@/api/stream";
 import type { Kpis, OverviewData } from "@/api/types";
 import { Kpi } from "@/components/kpi";
+import { useLauncherShown } from "@/components/launcher";
 import { Page, Reveal } from "@/components/page";
-import { PanelSkeleton } from "@/components/panel";
+import { PanelSkeleton, SourceChips } from "@/components/panel";
 import { Skeleton } from "@/components/ui/skeleton";
 import { formatPercent } from "@/lib/format";
 import { HEALTH_TEXT, ratioHealth } from "@/lib/health";
@@ -74,6 +75,8 @@ function OverviewSkeleton() {
 export function OverviewPage() {
   const overview = useTopic("core.overview");
   const data = overview?.data;
+  const launcherShown = useLauncherShown();
+  const appSources = useTopic("apps")?.sources;
   return (
     <Page>
       {data ? (
@@ -101,15 +104,18 @@ export function OverviewPage() {
       ) : (
         <OverviewSkeleton />
       )}
-      <Reveal index={2} className="space-y-3">
-        <h2 className="flex items-center gap-2 text-sm font-medium tracking-wide text-fg">
-          <LayoutGrid className="size-4 text-accent" aria-hidden="true" />
-          Launcher
-        </h2>
-        <div className="space-y-5">
+      {launcherShown && (
+        <Reveal index={2} className="space-y-5">
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+            <h2 className="flex items-center gap-2 text-sm font-medium tracking-wide text-fg">
+              <LayoutGrid className="size-4 text-accent" aria-hidden="true" />
+              Launcher
+            </h2>
+            <SourceChips sources={appSources} />
+          </div>
           <Slot id="apps.sources" query="" compact />
-        </div>
-      </Reveal>
+        </Reveal>
+      )}
     </Page>
   );
 }

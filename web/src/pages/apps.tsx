@@ -1,4 +1,5 @@
 import { Search } from "lucide-react";
+import { NoMatches } from "@/components/launcher";
 import { Page, Reveal } from "@/components/page";
 import { Input } from "@/components/ui/input";
 import { useQueryParam } from "@/lib/query-param";
@@ -30,8 +31,11 @@ export function AppsPage() {
           />
         </div>
       </Reveal>
-      <Reveal index={1} className="space-y-5">
-        <Slot id="apps.sources" query={query} />
+      <Reveal index={1}>
+        <div className="space-y-5">
+          <Slot id="apps.sources" query={query} />
+        </div>
+        <NoMatches query={query} />
       </Reveal>
     </Page>
   );

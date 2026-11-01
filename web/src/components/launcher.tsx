@@ -6,6 +6,7 @@ import { Panel, SourceChips } from "@/components/panel";
 import { Skeleton } from "@/components/ui/skeleton";
 import { type InfraLink, useInfraLinks } from "@/config/links";
 import { cn } from "@/lib/utils";
+import { usePluginVisible, useTopicAvailable } from "@/plugins/state";
 
 const GROUP_ORDER: Group[] = ["Platform", "Apps", "Tenants"];
 const GRID = "grid grid-cols-[repeat(auto-fill,minmax(210px,1fr))] gap-3";
@@ -136,12 +137,15 @@ interface SectionProps {
 function Section({ title, noun, count, total, compact, children }: SectionProps) {
   const text = count === total ? String(count) : `${count} of ${total}`;
   return (
-    <section className="space-y-2">
+    // A section a search empties is hidden from sight but not from assistive tech: its count
+    // must stay mounted to be announced when it drops to "0 of N" and when it comes back.
+    <section className={cn("space-y-2", count === 0 && "sr-only")}>
       <h3 className="flex items-center gap-2 text-xs font-medium tracking-wide text-muted uppercase">
         {title}
         <span
           role={compact ? undefined : "status"}
           aria-live={compact ? undefined : "polite"}
+          aria-atomic={compact ? undefined : "true"}
           className="num rounded-full border border-line px-1.5 text-[10px] text-faint"
         >
           {!compact && (
@@ -150,7 +154,7 @@ function Section({ title, noun, count, total, compact, children }: SectionProps)
           {text}
         </span>
       </h3>
-      <div className={GRID}>{children}</div>
+      {count > 0 && <div className={GRID}>{children}</div>}
     </section>
   );
 }
@@ -189,11 +193,11 @@ export function AppsSection({ query, compact }: SectionsProps) {
       total: apps.filter((a) => inGroup(name, a)).length,
       items: apps.filter((a) => inGroup(name, a) && appMatches(a, query)),
     }))
-    .filter((g) => g.items.length > 0);
+    .filter((g) => g.total > 0); // a group a search empties stays mounted, at "0 of N"
 
   return (
     <>
-      {env.sources.some((s) => !s.ok) && (
+      {!compact && env.sources.some((s) => !s.ok) && (
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
           <SourceChips sources={env.sources} />
         </div>
@@ -220,11 +224,6 @@ export function AppsSection({ query, compact }: SectionsProps) {
           ))}
         </Section>
       ))}
-      {groups.length === 0 && apps.length > 0 && (
-        <p role={compact ? undefined : "status"} className="py-8 text-center text-sm text-muted">
-          No apps match “{query.trim()}”.
-        </p>
-      )}
     </>
   );
 }
@@ -232,8 +231,8 @@ export function AppsSection({ query, compact }: SectionsProps) {
 /** The infrastructure links from the launcher file, filtered by `query`. */
 export function InfraSection({ query, compact }: SectionsProps) {
   const infra = useInfraLinks();
+  if (infra.length === 0) return null;
   const items = infra.filter((l) => infraMatches(l, query));
-  if (items.length === 0) return null;
   return (
     <Section
       title="Infrastructure"
@@ -253,5 +252,36 @@ export function InfraSection({ query, compact }: SectionsProps) {
         />
       ))}
     </Section>
+  );
+}
+
+/** Whether either launcher section is on the page (the overview drops its heading when not). */
+export function useLauncherShown(): boolean {
+  const apps = useTopicAvailable("apps");
+  const launcher = usePluginVisible("launcher");
+  const infra = useInfraLinks();
+  return apps === true || (launcher === true && infra.length > 0);
+}
+
+/**
+ * The Apps page's empty state, decided from both sections: it speaks only when something is
+ * listed and nothing matches. The status element is always mounted so that its text is announced
+ * when it changes; an empty one takes no room.
+ */
+export function NoMatches({ query }: { query: string }) {
+  const appsOn = useTopicAvailable("apps") === true;
+  const launcherOn = usePluginVisible("launcher") === true;
+  const apps = useTopic("apps")?.data.apps;
+  const infra = useInfraLinks();
+  const listedApps = appsOn ? (apps ?? []) : [];
+  const listedInfra = launcherOn ? infra : [];
+  const nothing =
+    listedApps.length + listedInfra.length > 0 &&
+    !listedApps.some((a) => appMatches(a, query)) &&
+    !listedInfra.some((l) => infraMatches(l, query));
+  return (
+    <p role="status" className={cn("text-center text-sm text-muted", nothing && "py-8")}>
+      {nothing ? `No apps match “${query.trim()}”.` : ""}
+    </p>
   );
 }

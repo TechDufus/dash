@@ -76,6 +76,13 @@ const apps = (): AppsData => ({
   ],
 });
 
+const DOWN = {
+  name: "kubernetes",
+  ok: false,
+  error: "unreachable",
+  checkedAt: "2026-11-01T00:00:00Z",
+};
+
 const config = {
   hostModel: "",
   launcher: [
@@ -183,6 +190,35 @@ describe("pages built from slots", () => {
       expect(screen.getByRole("heading", { name: /^Infrastructure/ })).toBeInTheDocument();
       expect(screen.queryByRole("status")).toBeNull();
     });
+
+    it("drops the Launcher heading when neither section is on the page, and brings it back", () => {
+      renderApp(<OverviewPage />);
+      const rows = shimRows();
+      stream.plugins(rows);
+      stream.send("core.overview", overview());
+      stream.send("apps", apps());
+      expect(screen.getByRole("heading", { name: "Launcher" })).toBeInTheDocument();
+
+      stream.plugins(withState(withState(rows, "launcher", "disabled"), "kubernetes", "disabled"));
+      expect(screen.queryByRole("heading", { name: "Launcher" })).toBeNull();
+
+      stream.plugins(withState(rows, "kubernetes", "disabled"));
+      expect(screen.getByRole("heading", { name: "Launcher" })).toBeInTheDocument();
+    });
+
+    it("keeps the v0.5.0 spacing and draws the apps' source chips beside the Launcher heading", () => {
+      renderApp(<OverviewPage />);
+      stream.plugins(shimRows());
+      stream.send("core.overview", overview());
+      stream.send("apps", apps(), [DOWN]);
+
+      const heading = screen.getByRole("heading", { name: "Launcher" });
+      const row = heading.parentElement as HTMLElement;
+      expect(row).toHaveTextContent("source unreachable: kubernetes");
+      // The chips sit on the heading row and nowhere else on the page.
+      expect(screen.getAllByText(/source unreachable: kubernetes/)).toHaveLength(1);
+      expect(row.parentElement).toHaveClass("space-y-5");
+    });
   });
 
   describe("Storage", () => {
@@ -254,7 +290,7 @@ describe("pages built from slots", () => {
       stream.send("apps", apps());
 
       // The page-level line is gone; one live region per section.
-      expect(screen.getAllByRole("status")).toHaveLength(4);
+      expect(screen.getAllByRole("status")).toHaveLength(5); // plus the empty state, which is silent
       expect(status(/^Platform/)).toHaveTextContent("2");
       expect(status(/^Platform/)).toHaveAttribute("aria-live", "polite");
       expect(status(/^Apps/)).toHaveTextContent("1");
@@ -279,10 +315,8 @@ describe("pages built from slots", () => {
       await user.clear(screen.getByRole("searchbox"));
       await user.type(screen.getByRole("searchbox"), "graf");
       expect(status(/^Platform/)).toHaveTextContent("1 of 2");
-      expect(screen.queryByRole("heading", { name: /^Apps/, level: 3 })).toBeNull();
-      expect(screen.queryByRole("heading", { name: /^Tenants/ })).toBeNull();
-      expect(screen.queryByRole("heading", { name: /^Infrastructure/ })).toBeNull();
-      expect(screen.getAllByRole("status")).toHaveLength(1);
+      // The other sections stay mounted at "0 of N" (hidden from sight; see the persistence tests).
+      expect(screen.getAllByRole("status")).toHaveLength(5);
       expect(screen.getByText("grafana")).toBeInTheDocument();
       expect(screen.queryByText("headlamp")).toBeNull();
 
@@ -290,8 +324,8 @@ describe("pages built from slots", () => {
       await user.type(screen.getByRole("searchbox"), "pve");
       expect(status(/^Infrastructure/)).toHaveTextContent("1 of 2");
       expect(screen.getByText("Proxmox")).toBeInTheDocument();
-      // Apps that match nothing say so, in a live region of their own.
-      expect(screen.getByText("No apps match “pve”.")).toHaveAttribute("role", "status");
+      // pve matches the Proxmox link's hostname, so the page does not claim nothing matches.
+      expect(screen.queryByText(/No apps match/)).toBeNull();
     });
 
     it("takes a section's live region away with its plugin", () => {
@@ -303,11 +337,11 @@ describe("pages built from slots", () => {
       // launcher off: the infrastructure section and its live region go.
       stream.plugins(withState(rows, "launcher", "disabled"));
       expect(screen.queryByRole("heading", { name: /^Infrastructure/ })).toBeNull();
-      expect(screen.getAllByRole("status")).toHaveLength(3);
+      expect(screen.getAllByRole("status")).toHaveLength(4); // three sections and the empty state
 
       // kubernetes off too: the app sections go with the apps topic; only the page chrome stays.
       stream.plugins(withState(withState(rows, "launcher", "disabled"), "kubernetes", "disabled"));
-      expect(screen.queryAllByRole("status")).toEqual([]);
+      expect(screen.getAllByRole("status").map((s) => s.textContent)).toEqual([""]);
       expect(screen.queryByRole("heading", { name: /^Platform/ })).toBeNull();
       expect(screen.getByRole("searchbox")).toBeInTheDocument();
 
@@ -316,10 +350,118 @@ describe("pages built from slots", () => {
       expect(status(/^Infrastructure/)).toHaveTextContent("2");
     });
 
+    describe("live regions across a search", () => {
+      const sameElements = (a: HTMLElement[], b: HTMLElement[]) =>
+        expect(b.length === a.length && b.every((el, i) => el === a[i])).toBe(true);
+      const texts = () => screen.getAllByRole("status").map((s) => s.textContent);
+
+      async function ready() {
+        const user = userEvent.setup();
+        renderApp(<AppsPage />);
+        stream.plugins(shimRows());
+        stream.send("apps", apps());
+        await screen.findByRole("heading", { name: /^Infrastructure/ });
+        return user;
+      }
+
+      it("keeps every live region when a search matches nothing, and when it is cleared", async () => {
+        const user = await ready();
+        const before = screen.getAllByRole("status");
+        expect(before).toHaveLength(5); // four sections and the empty state
+
+        await user.type(screen.getByRole("searchbox"), "zzz");
+        sameElements(before, screen.getAllByRole("status"));
+        expect(texts()).toEqual([
+          "apps matching the search in Platform: 0 of 2",
+          "apps matching the search in Apps: 0 of 1",
+          "apps matching the search in Tenants: 0 of 1",
+          "links matching the search in Infrastructure: 0 of 2",
+          "No apps match “zzz”.",
+        ]);
+        // Hidden from sight, not removed: the emptied sections draw no tiles.
+        expect(section(/^Platform/)).toHaveClass("sr-only");
+        expect(section(/^Platform/).querySelector("a")).toBeNull();
+        expect(screen.queryByText("grafana")).toBeNull();
+
+        await user.clear(screen.getByRole("searchbox"));
+        sameElements(before, screen.getAllByRole("status"));
+        expect(texts()).toEqual([
+          "apps matching the search in Platform: 2",
+          "apps matching the search in Apps: 1",
+          "apps matching the search in Tenants: 1",
+          "links matching the search in Infrastructure: 2",
+          "",
+        ]);
+        expect(section(/^Platform/)).not.toHaveClass("sr-only");
+        expect(screen.getByText("grafana")).toBeInTheDocument();
+      });
+
+      it("keeps a one-item section's live region when its only item is filtered out and back", async () => {
+        const user = await ready();
+        const before = screen.getAllByRole("status");
+        const apps1 = status(/^Apps/);
+        expect(apps1).toHaveTextContent(/^apps matching the search in Apps: 1$/);
+
+        await user.type(screen.getByRole("searchbox"), "grafana");
+        expect(status(/^Apps/)).toBe(apps1);
+        expect(apps1).toHaveTextContent("apps matching the search in Apps: 0 of 1");
+        sameElements(before, screen.getAllByRole("status"));
+        expect(screen.queryByText("plex")).toBeNull();
+
+        await user.clear(screen.getByRole("searchbox"));
+        await user.type(screen.getByRole("searchbox"), "plex");
+        expect(status(/^Apps/)).toBe(apps1);
+        expect(apps1).toHaveTextContent(/^apps matching the search in Apps: 1$/);
+        expect(status(/^Platform/)).toHaveTextContent("0 of 2");
+        expect(screen.getByText("plex")).toBeInTheDocument();
+        sameElements(before, screen.getAllByRole("status"));
+      });
+
+      it("makes the count one atomic announcement", async () => {
+        await ready();
+        for (const s of screen.getAllByRole("status").slice(0, 4)) {
+          expect(s).toHaveAttribute("aria-atomic", "true");
+        }
+      });
+
+      it("does not say nothing matches while a section still has a match", async () => {
+        const user = await ready();
+        // Only the Proxmox infrastructure tile matches: no apps do, but something is shown.
+        await user.type(screen.getByRole("searchbox"), "hypervisor");
+        expect(status(/^Infrastructure/)).toHaveTextContent("1 of 2");
+        expect(screen.getByText("Proxmox")).toBeInTheDocument();
+        expect(screen.queryByText(/No apps match/)).toBeNull();
+        expect(screen.getAllByRole("status").at(-1)).toHaveTextContent(/^$/);
+
+        // And the other way round: an app matches, no link does.
+        await user.clear(screen.getByRole("searchbox"));
+        await user.type(screen.getByRole("searchbox"), "grafana");
+        expect(screen.queryByText(/No apps match/)).toBeNull();
+      });
+
+      it("stays silent about matches when nothing is listed at all", async () => {
+        const user = userEvent.setup();
+        const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+        queryClient.setQueryData(["config"], { hostModel: "", launcher: [] });
+        renderWith(<AppsPage />, { queryClient });
+        stream.plugins(shimRows());
+        stream.send("apps", { apps: [] });
+        await user.type(screen.getByRole("searchbox"), "zzz");
+        expect(screen.queryByText(/No apps match/)).toBeNull();
+      });
+    });
+
     it("shows placeholder tiles until the apps topic arrives", () => {
       renderApp(<AppsPage />);
       stream.plugins(shimRows());
       expect(document.querySelector("[aria-busy=true]")).not.toBeNull();
+    });
+
+    it("shows the apps' source chips once, above the sections", () => {
+      renderApp(<AppsPage />);
+      stream.plugins(shimRows());
+      stream.send("apps", apps(), [DOWN]);
+      expect(screen.getAllByText(/source unreachable: kubernetes/)).toHaveLength(1);
     });
   });
 });
