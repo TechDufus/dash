@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/TechDufus/dash/internal/config"
 	"github.com/TechDufus/dash/internal/model"
 	"github.com/TechDufus/dash/internal/topics"
 	"github.com/TechDufus/dash/internal/upstream"
@@ -194,6 +195,57 @@ func TestStreamCapPerUser(t *testing.T) {
 	}
 }
 
+// limitsFromConfig resolves a config file that sets server.limits.
+func limitsFromConfig(t *testing.T, limits string) config.Config {
+	t.Helper()
+	file := "server:\n  publicURL: https://dash.example.com\n  limits:\n" + limits
+	res, err := config.Resolve(config.Sources{File: &config.File{Path: "config.yaml", Data: []byte(file)}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return res.Config
+}
+
+func TestStreamCapFromConfig(t *testing.T) {
+	cfg := limitsFromConfig(t, "    streamsPerUser: 1\n")
+	h := newServer(func(d *Deps) { d.Cfg = cfg }).Handler()
+	_, lines := sseClient(t, h, "/api/stream") // alice's only slot
+	expect(t, lines, "retry: 3000")
+	if got := streamStatus(t, h, "/api/stream", "alice"); got != http.StatusTooManyRequests {
+		t.Errorf("second stream for alice = %d, want 429", got)
+	}
+	// The cap is per user: bob still gets his own.
+	if got := streamStatus(t, h, "/api/stream", "bob"); got != http.StatusOK {
+		t.Errorf("stream for bob = %d, want 200", got)
+	}
+}
+
+func TestServerTakesLimitsFromConfig(t *testing.T) {
+	cfg := limitsFromConfig(t, "    tailMaxDuration: 7m\n    sseWriteTimeout: 3s\n    bodyReadTimeout: 4s\n    tailsPerUser: 1\n    tails: 2\n")
+	s := newServer(func(d *Deps) { d.Cfg = cfg })
+	if s.tailMax != 7*time.Minute || s.sseWrite != 3*time.Second || s.bodyTimeout != 4*time.Second {
+		t.Errorf("tailMax, sseWrite, bodyTimeout = %v, %v, %v", s.tailMax, s.sseWrite, s.bodyTimeout)
+	}
+	// tailsPerUser 1, tails 2: alice fills her slot, bob the second, nobody else fits.
+	acquire := func(user string) (bool, int) {
+		w := httptest.NewRecorder()
+		_, ok := s.tails.acquire(w, user)
+		return ok, w.Code
+	}
+	if ok, _ := acquire("alice"); !ok {
+		t.Error("first tail for alice was refused")
+	}
+	if ok, _ := acquire("bob"); !ok {
+		t.Error("first tail for bob was refused")
+	}
+	if ok, code := acquire("alice"); ok || code != http.StatusTooManyRequests {
+		t.Errorf("second tail for alice = %v, %d; want refused with 429", ok, code)
+	}
+	if ok, code := acquire("carol"); ok || code != http.StatusServiceUnavailable {
+		t.Errorf("tail past the total = %v, %d; want refused with 503", ok, code)
+	}
+}
+
 func TestLogsTailEndsAfterMax(t *testing.T) {
 	s := newServer(nil) // the default fakeLogs blocks until its context ends
 	s.tailMax = 50 * time.Millisecond
@@ -225,7 +277,7 @@ func (d *deadlineWriter) SetWriteDeadline(t time.Time) error {
 
 func TestSSEWriteDeadline(t *testing.T) {
 	d := &deadlineWriter{ResponseRecorder: httptest.NewRecorder()}
-	e, err := startSSE(d)
+	e, err := startSSE(d, 10*time.Second)
 	if err != nil {
 		t.Fatal(err)
 	}

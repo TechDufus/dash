@@ -148,7 +148,7 @@ func run(reg *secret.Registry) error {
 		Addr:              cfg.Listen,
 		Handler:           handler,
 		ReadHeaderTimeout: 10 * time.Second,
-		MaxHeaderBytes:    64 << 10,
+		MaxHeaderBytes:    cfg.Limits.MaxHeaderBytes,
 		IdleTimeout:       120 * time.Second, // no WriteTimeout: SSE streams are open-ended; each SSE write has its own deadline (internal/api/sse.go)
 		BaseContext:       func(net.Listener) context.Context { return baseCtx },
 	}

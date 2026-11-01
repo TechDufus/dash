@@ -16,19 +16,21 @@ import (
 
 // sseWriter serialises writes to one SSE response (events and the heartbeat goroutine).
 type sseWriter struct {
-	mu sync.Mutex
-	w  http.ResponseWriter
-	rc *http.ResponseController
+	mu      sync.Mutex
+	w       http.ResponseWriter
+	rc      *http.ResponseController
+	timeout time.Duration // deadline of each write
 }
 
-// startSSE sends the SSE headers, the retry hint and flushes them.
-func startSSE(w http.ResponseWriter) (*sseWriter, error) {
+// startSSE sends the SSE headers, the retry hint and flushes them. Each write must finish within
+// timeout.
+func startSSE(w http.ResponseWriter, timeout time.Duration) (*sseWriter, error) {
 	h := w.Header()
 	h.Set("Content-Type", "text/event-stream")
 	h.Set("Cache-Control", "no-cache")
 	h.Set("X-Accel-Buffering", "no")
 	w.WriteHeader(http.StatusOK)
-	e := &sseWriter{w: w, rc: http.NewResponseController(w)}
+	e := &sseWriter{w: w, rc: http.NewResponseController(w), timeout: timeout}
 	return e, e.write("retry: 3000\n\n")
 }
 
@@ -36,7 +38,7 @@ func (e *sseWriter) write(s string) error {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	// A stalled client must not pin the handler: each write gets its own deadline.
-	if err := e.rc.SetWriteDeadline(time.Now().Add(sseWriteTimeout)); err != nil && !errors.Is(err, http.ErrNotSupported) {
+	if err := e.rc.SetWriteDeadline(time.Now().Add(e.timeout)); err != nil && !errors.Is(err, http.ErrNotSupported) {
 		return err
 	}
 	if _, err := e.w.Write([]byte(s)); err != nil {
@@ -52,7 +54,7 @@ func (e *sseWriter) write(s string) error {
 func (e *sseWriter) done() {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	_ = e.rc.SetWriteDeadline(time.Now().Add(sseWriteTimeout))
+	_ = e.rc.SetWriteDeadline(time.Now().Add(e.timeout))
 }
 
 func (e *sseWriter) event(name string, data []byte) error {
@@ -89,7 +91,7 @@ func (s *Server) stream(w http.ResponseWriter, r *http.Request) {
 	defer release()
 	snapshot, ch, cancel := s.d.Hub.Subscribe()
 	defer cancel()
-	e, err := startSSE(w)
+	e, err := startSSE(w, s.sseWrite)
 	defer e.done()
 	if err != nil {
 		return
@@ -141,7 +143,7 @@ func (s *Server) logsTail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer release()
-	e, err := startSSE(w)
+	e, err := startSSE(w, s.sseWrite)
 	defer e.done()
 	if err != nil {
 		return

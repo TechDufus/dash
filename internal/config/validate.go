@@ -63,6 +63,7 @@ func validate(t Tree, dev, demo bool, prov map[string]Provenance) error {
 			v.fail("server.allowedHosts", "entry %q is not a host name or IP address (no scheme or port)", h)
 		}
 	}
+	validateLimits(v, s.Limits)
 	if t.Settings.UI != SettingsEditable && t.Settings.UI != SettingsReadOnly {
 		v.fail("settings.ui", "%q must be %q or %q", t.Settings.UI, SettingsEditable, SettingsReadOnly)
 	}
@@ -98,6 +99,31 @@ func validate(t Tree, dev, demo bool, prov map[string]Provenance) error {
 		v.fail("plugins.launcher.links", "%v", err)
 	}
 	return errors.Join(v.errs...)
+}
+
+// validateLimits needs every limit above zero (zero would turn the stream cap into "none may
+// open", or net/http's default header size into a silent surprise) and a per-user cap that fits
+// inside the total.
+func validateLimits(v *validator, l LimitsConfig) {
+	for _, c := range []struct {
+		path string
+		n    int64
+	}{
+		{"streamsPerUser", int64(l.StreamsPerUser)}, {"streams", int64(l.Streams)},
+		{"tailsPerUser", int64(l.TailsPerUser)}, {"tails", int64(l.Tails)},
+		{"tailMaxDuration", int64(l.TailMaxDuration)}, {"sseWriteTimeout", int64(l.SSEWriteTimeout)},
+		{"bodyReadTimeout", int64(l.BodyReadTimeout)}, {"maxHeaderBytes", int64(l.MaxHeaderBytes)},
+	} {
+		if c.n <= 0 {
+			v.fail("server.limits."+c.path, "must be greater than zero")
+		}
+	}
+	if l.StreamsPerUser > l.Streams {
+		v.fail("server.limits.streamsPerUser", "%d is more than server.limits.streams (%d)", l.StreamsPerUser, l.Streams)
+	}
+	if l.TailsPerUser > l.Tails {
+		v.fail("server.limits.tailsPerUser", "%d is more than server.limits.tails (%d)", l.TailsPerUser, l.Tails)
+	}
 }
 
 func httpURL(s string) bool {

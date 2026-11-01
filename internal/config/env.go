@@ -221,7 +221,7 @@ func envLayer(env map[string]string, log *slog.Logger) ([]envEntry, error) {
 			continue
 		}
 		data := []byte(v.val)
-		if l.typ.Kind() == reflect.String || l.secret {
+		if l.typ.Kind() == reflect.String || l.secret || l.typ == durationType { // 30m, not "30m", in the environment
 			data, _ = json.Marshal(v.val)
 		}
 		out = append(out, envEntry{path: l.path, data: data, ref: v.ref})

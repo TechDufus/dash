@@ -300,6 +300,8 @@ func describeDecode(l *leaf, err error) string {
 
 func humanType(t reflect.Type) string {
 	switch {
+	case t.Kind() == reflect.Int:
+		return "a whole number"
 	case t.Kind() == reflect.String:
 		return "a string"
 	case t.Kind() == reflect.Slice && t.Elem().Kind() == reflect.String:

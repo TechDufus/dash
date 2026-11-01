@@ -33,6 +33,10 @@ func EnvVars() []EnvVar {
 	for _, l := range schema.leaves {
 		t := "string"
 		switch {
+		case l.typ == durationType:
+			t = "duration (e.g. 30s)"
+		case l.typ.Kind() == reflect.Int:
+			t = "integer"
 		case l.typ.Kind() == reflect.Slice && l.typ.Elem().Kind() == reflect.String:
 			t = "list of strings (JSON)"
 		case l.typ.Kind() == reflect.Slice:

@@ -1,8 +1,12 @@
 package config
 
 import (
+	"encoding/json"
+	"errors"
+	"fmt"
 	"reflect"
 	"strings"
+	"time"
 
 	"github.com/TechDufus/dash/internal/model"
 	"github.com/TechDufus/dash/internal/secret"
@@ -26,11 +30,46 @@ type Tree struct {
 
 // ServerConfig is how dash listens and what it calls itself.
 type ServerConfig struct {
-	PublicURL    string   `json:"publicURL" dash:"url,restart"`
-	Listen       string   `json:"listen" dash:"restart"`
-	HealthListen string   `json:"healthListen" dash:"restart"`
-	AllowedHosts []string `json:"allowedHosts" dash:"restart"`
+	PublicURL    string       `json:"publicURL" dash:"url,restart"`
+	Listen       string       `json:"listen" dash:"restart"`
+	HealthListen string       `json:"healthListen" dash:"restart"`
+	AllowedHosts []string     `json:"allowedHosts" dash:"restart"`
+	Limits       LimitsConfig `json:"limits"`
 }
+
+// LimitsConfig bounds what one client and all clients together may hold open or send (design
+// K.5, L.5). The counts are connections; the defaults suit a homelab.
+type LimitsConfig struct {
+	StreamsPerUser  int      `json:"streamsPerUser" dash:"restart"`  // /api/stream connections per user
+	Streams         int      `json:"streams" dash:"restart"`         // /api/stream connections in all
+	TailsPerUser    int      `json:"tailsPerUser" dash:"restart"`    // /api/logs/tail connections per user
+	Tails           int      `json:"tails" dash:"restart"`           // /api/logs/tail connections in all
+	TailMaxDuration Duration `json:"tailMaxDuration" dash:"restart"` // a tail ends after this; the browser reconnects
+	SSEWriteTimeout Duration `json:"sseWriteTimeout" dash:"restart"` // a stalled stream write fails after this
+	BodyReadTimeout Duration `json:"bodyReadTimeout" dash:"restart"` // a request body must arrive within this
+	MaxHeaderBytes  int      `json:"maxHeaderBytes" dash:"restart"`  // request headers of the API listener
+}
+
+// Duration is a time.Duration written as a Go duration string ("30m") in the config file and
+// the environment.
+type Duration time.Duration
+
+var durationType = reflect.TypeFor[Duration]()
+
+func (d *Duration) UnmarshalJSON(b []byte) error {
+	var s string
+	if err := json.Unmarshal(b, &s); err != nil {
+		return errors.New(`expected a duration string such as "30s"`)
+	}
+	v, err := time.ParseDuration(strings.TrimSpace(s))
+	if err != nil {
+		return fmt.Errorf("%q is not a duration such as 30s or 5m", s)
+	}
+	*d = Duration(v)
+	return nil
+}
+
+func (d Duration) MarshalJSON() ([]byte, error) { return json.Marshal(time.Duration(d).String()) }
 
 // Values of SettingsConfig.UI.
 const (
@@ -142,6 +181,14 @@ func defaults(dev, demo bool) Tree {
 		Server: ServerConfig{
 			Listen:       "127.0.0.1:8080",
 			HealthListen: "0.0.0.0:8081",
+			Limits: LimitsConfig{
+				StreamsPerUser: 16, Streams: 256,
+				TailsPerUser: 4, Tails: 32,
+				TailMaxDuration: Duration(30 * time.Minute),
+				SSEWriteTimeout: Duration(10 * time.Second),
+				BodyReadTimeout: Duration(10 * time.Second),
+				MaxHeaderBytes:  64 << 10,
+			},
 		},
 		Settings: SettingsConfig{UI: SettingsEditable},
 		DataDir:  "/data",
@@ -180,12 +227,20 @@ func (t *Tree) normalize() {
 func (t Tree) config(dev, demo bool) Config {
 	p := t.Plugins
 	c := Config{
-		Dev:             dev,
-		Demo:            demo,
-		Listen:          t.Server.Listen,
-		HealthListen:    t.Server.HealthListen,
-		PublicURL:       t.Server.PublicURL,
-		AllowedHosts:    t.Server.AllowedHosts,
+		Dev:          dev,
+		Demo:         demo,
+		Listen:       t.Server.Listen,
+		HealthListen: t.Server.HealthListen,
+		PublicURL:    t.Server.PublicURL,
+		AllowedHosts: t.Server.AllowedHosts,
+		Limits: Limits{
+			StreamsPerUser: t.Server.Limits.StreamsPerUser, Streams: t.Server.Limits.Streams,
+			TailsPerUser: t.Server.Limits.TailsPerUser, Tails: t.Server.Limits.Tails,
+			TailMaxDuration: time.Duration(t.Server.Limits.TailMaxDuration),
+			SSEWriteTimeout: time.Duration(t.Server.Limits.SSEWriteTimeout),
+			BodyReadTimeout: time.Duration(t.Server.Limits.BodyReadTimeout),
+			MaxHeaderBytes:  t.Server.Limits.MaxHeaderBytes,
+		},
 		DataDir:         t.DataDir,
 		SettingsUI:      t.Settings.UI,
 		VMURL:           p.Prometheus.URL,

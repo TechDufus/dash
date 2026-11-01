@@ -22,6 +22,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"time"
 
 	"sigs.k8s.io/yaml"
 
@@ -44,6 +45,8 @@ type Config struct {
 	// AllowedHosts are extra Host names the API answers besides PublicURL's host
 	// (server.allowedHosts); "*" accepts any. See HostAllowed.
 	AllowedHosts []string
+	// Limits bound open streams and request reads (server.limits); always positive once resolved.
+	Limits Limits
 
 	// DataDir holds dash's state (settings.ui store, credentials); SettingsUI is SettingsEditable
 	// or SettingsReadOnly.
@@ -82,6 +85,16 @@ type Config struct {
 
 	// Kubeconfig is used outside the cluster (dev); empty means in-cluster config.
 	Kubeconfig string
+}
+
+// Limits is server.limits as the flat view reads it.
+type Limits struct {
+	StreamsPerUser, Streams int // /api/stream connections per user and in all
+	TailsPerUser, Tails     int // /api/logs/tail connections per user and in all
+	TailMaxDuration         time.Duration
+	SSEWriteTimeout         time.Duration
+	BodyReadTimeout         time.Duration
+	MaxHeaderBytes          int // of the API listener
 }
 
 // Conventions are the labels, annotations and metric names dash reads from the cluster.

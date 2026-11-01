@@ -140,6 +140,11 @@ INFO line and runs on the file and the environment alone. Demo mode uses no data
 | `server.listen` | `127.0.0.1:8080` | API and SPA, reached through oauth2-proxy |
 | `server.allowedHosts` | empty | extra Host names the API answers besides the `server.publicURL` host (a JSON list in the environment; `["*"]` accepts any) |
 | `server.healthListen` | `0.0.0.0:8081` | `/healthz` and `/readyz` |
+| `server.limits.streamsPerUser`, `.streams` | 16, 256 | open `/api/stream` connections per user and in all; more get 429 or 503 |
+| `server.limits.tailsPerUser`, `.tails` | 4, 32 | the same for `/api/logs/tail` |
+| `server.limits.tailMaxDuration` | `30m` | a log tail ends after this; the browser reconnects (a duration string, also in the environment) |
+| `server.limits.sseWriteTimeout`, `.bodyReadTimeout` | `10s`, `10s` | a stalled stream write, or a request body that does not arrive, is cut off after this |
+| `server.limits.maxHeaderBytes` | `65536` | request header size of the API listener |
 | `settings.ui` | `editable` | `editable` or `readonly` (fully managed) |
 | `dataDir` (`DASH_DATA_DIR`) | `/data` | where dash keeps its state and looks for `config.yaml` |
 | `plugins.prometheus.url` | empty (source not configured) | VictoriaMetrics or Prometheus |

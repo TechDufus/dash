@@ -73,6 +73,7 @@ type Server struct {
 	events      *streamLimiter // open /api/stream connections
 	tails       *streamLimiter // open /api/logs/tail connections
 	tailMax     time.Duration  // longest a log tail stays open
+	sseWrite    time.Duration  // deadline of each SSE write
 	bodyTimeout time.Duration  // longest a request body may take to arrive
 	hostWarn    atomic.Int64   // unix nanos of the last unknown-host warning
 }
@@ -83,11 +84,12 @@ func New(d Deps) *Server {
 	if err != nil { // only if the embed root is renamed
 		panic(err)
 	}
+	l := d.Cfg.Limits
 	return &Server{
 		d: d, static: dist, now: time.Now, heartbeat: 15 * time.Second,
-		events:  newStreamLimiter(maxStreamsPerUser, maxStreams),
-		tails:   newStreamLimiter(maxTailsPerUser, maxTails),
-		tailMax: maxTailDuration, bodyTimeout: bodyReadTimeout,
+		events:  newStreamLimiter(l.StreamsPerUser, l.Streams),
+		tails:   newStreamLimiter(l.TailsPerUser, l.Tails),
+		tailMax: l.TailMaxDuration, sseWrite: l.SSEWriteTimeout, bodyTimeout: l.BodyReadTimeout,
 	}
 }
 
@@ -145,17 +147,9 @@ func writeErr(w http.ResponseWriter, code int, msg string) {
 // maxBody caps JSON request bodies.
 const maxBody = 64 << 10
 
-// Stream and request limits; constants until the layered config makes them settings.
-const (
-	maxStreamsPerUser = 16 // /api/stream connections per user
-	maxStreams        = 256
-	maxTailsPerUser   = 4 // /api/logs/tail connections per user
-	maxTails          = 32
-	maxTailDuration   = 30 * time.Minute
-	maxTailResume     = time.Minute // furthest back a reconnecting tail replays
-	sseWriteTimeout   = 10 * time.Second
-	bodyReadTimeout   = 10 * time.Second
-)
+// maxTailResume is how far back a reconnecting log tail replays. The other stream and request
+// limits are settings (server.limits in internal/config).
+const maxTailResume = time.Minute
 
 // decodeBody reads a JSON body into v; it answers 400 itself and reports false on failure.
 //
