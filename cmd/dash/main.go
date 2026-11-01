@@ -87,6 +87,7 @@ func run(reg *secret.Registry) error {
 		return err
 	}
 	defer alog.Close()
+	config.RekeyStore(store, res.Keys, alog, nil)
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()

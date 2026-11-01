@@ -177,6 +177,38 @@ while one is empty, the feature that depends on it is off.
 | `plugins.hardware.zfsScrubMetricPrefix` | empty (scrub panel hidden) | `<prefix>_last_end_timestamp_seconds`, `_last_errors`, `_in_progress`; a valid metric name when set |
 | `plugins.kubernetes.backupJobs` | empty (no NAS backup row) | `[{namespace, cronjob}]`: the CronJob behind the NAS backup age; one entry for now |
 
+### Secret key (secrets typed into the UI)
+
+A secret an admin types into the settings UI is stored in `ui-settings.yaml` encrypted
+(XChaCha20-Poly1305, the field path bound in, so a value copied to another field does not
+decrypt). The key comes from the process environment only; there is no default and dash never
+generates one. Without a key, secrets can only be set through env and file references, and
+saving one from the UI is refused with an error that names `DASH_SECRET_KEY`. The rest of dash
+runs as usual.
+
+```sh
+openssl rand -base64 32 > /run/secrets/dash-key   # 32 random bytes, base64
+DASH_SECRET_KEY_FILE=/run/secrets/dash-key        # or DASH_SECRET_KEY=<the key>
+```
+
+Setting both `DASH_SECRET_KEY` and `DASH_SECRET_KEY_FILE` is an error. Keep the key where you
+keep other secrets and back it up: a stored secret cannot be recovered without it. If the store
+holds an encrypted value that the configured keys cannot open (no key, the wrong key, a damaged
+value, a value moved to another field), dash does not start and lists every affected field. It
+never drops, blanks or regenerates a stored secret.
+
+To rotate the key:
+
+1. Generate a new key and start dash with it as `DASH_SECRET_KEY` and the old one as
+   `DASH_SECRET_KEY_PREVIOUS` (or `DASH_SECRET_KEY_PREVIOUS_FILE`). Both open stored values.
+2. On that start dash re-encrypts every value that the previous key sealed, records
+   `secrets.rekey` in the audit log and logs one INFO line. On a read-only store it logs a
+   warning that the rekey is pending and keeps running on both keys.
+3. Once the log shows the rekey, remove `DASH_SECRET_KEY_PREVIOUS` and restart.
+
+Replacing or clearing a secret also rewrites the retained `ui-settings.yaml.bak.N` copies
+without the old ciphertext, so restoring a backup cannot bring a cleared secret back.
+
 ### Breaking: no site defaults
 
 Earlier versions defaulted to one homelab's service addresses and names. They are gone. An empty

@@ -54,6 +54,9 @@ type Sources struct {
 	// Registry learns every secret the resolution reads, so the log handler and the API can
 	// scrub them. Nil is fine.
 	Registry *secret.Registry
+	// Keys opens the enc:v1: secrets of the UI layer (SecretKeys); nil means no key is
+	// configured, which fails resolution if the store holds any.
+	Keys *secret.Keyring
 	// Log receives warnings; nil means slog.Default().
 	Log *slog.Logger
 }
@@ -66,6 +69,11 @@ type Resolved struct {
 	// Config is the flat view of Tree. Its launcher file, if any, is not read yet
 	// (LoadLauncherFile does).
 	Config Config
+	// Keys is the keyring the resolution decrypted with, for writing and re-encrypting
+	// secrets (SecretWriter, RekeyStore).
+	Keys *secret.Keyring
+
+	src Sources // what produced this resolution, for the reloader
 }
 
 // Resolve layers the sources, validates the result and maps it onto the flat Config. An invalid
@@ -82,7 +90,7 @@ func Resolve(src Sources) (*Resolved, error) {
 	if err := validate(r.tree, dev, demo, r.prov); err != nil {
 		return nil, err
 	}
-	return &Resolved{Tree: r.tree, Provenance: r.prov, Config: r.tree.config(dev, demo)}, nil
+	return &Resolved{Tree: r.tree, Provenance: r.prov, Config: r.tree.config(dev, demo), Keys: src.Keys, src: src}, nil
 }
 
 // Bootstrap is what the file and the environment alone say about the settings store. The store
@@ -116,7 +124,7 @@ func layer(src Sources) (r *resolver, dev, demo bool, err error) {
 	env := envMap(src.Environ)
 	dev, demo = envTrue(env["DASH_DEV"]), envTrue(env["DASH_DEMO"])
 
-	r = &resolver{tree: defaults(dev, demo), prov: map[string]Provenance{}, raw: map[string]string{}, log: log}
+	r = &resolver{tree: defaults(dev, demo), prov: map[string]Provenance{}, raw: map[string]string{}, plain: map[string]string{}, keys: src.Keys, log: log}
 	for _, l := range schema.leaves {
 		r.prov[l.path] = Provenance{Source: SourceDefault}
 	}
@@ -143,10 +151,17 @@ func layer(src Sources) (r *resolver, dev, demo bool, err error) {
 }
 
 type resolver struct {
-	tree Tree
-	prov map[string]Provenance
-	raw  map[string]string // secret leaves as the winning layer gave them: a literal or a reference
-	log  *slog.Logger
+	tree  Tree
+	prov  map[string]Provenance
+	raw   map[string]string // secret leaves as the winning layer gave them: a literal or a reference
+	plain map[string]string // secret leaves the UI layer gave encrypted, already decrypted; they win over raw
+	keys  *secret.Keyring
+	log   *slog.Logger
+
+	// sealedErrs are the stored enc:v1: secrets that cannot be decrypted. They are collected,
+	// not logged as ignored UI settings like other stale values: a stored credential is never
+	// dropped, blanked or regenerated, so startup fails with all of them (design C.4).
+	sealedErrs []error
 }
 
 // applyFile parses the YAML file strictly and applies it. Every problem is reported, each with
@@ -242,40 +257,65 @@ func (r *resolver) set(l *leaf, data []byte, p Provenance) error {
 // layer is applied; resolveSecrets reads it once. The UI layer may only hold what is safe to
 // keep in ui-settings.yaml: an env: or file: reference from the UI would let anyone who can
 // edit settings read any variable or file of the dash process (S.14), and a literal would be
-// stored in clear.
+// stored in clear. What it holds is an encrypted value (enc:v1:, P1.5) or a k8s: reference.
 func (r *resolver) setSecret(l *leaf, data []byte, p Provenance) error {
 	var s string
 	if err := json.Unmarshal(data, &s); err != nil {
 		return fmt.Errorf("%s: expected a string", l.path)
 	}
 	s = strings.TrimSpace(s)
-	if p.Source == SourceUI && !strings.HasPrefix(s, "k8s:") {
-		return fmt.Errorf("%s: only a k8s: reference can be set from the UI", l.path)
+	if p.Source == SourceUI && secret.IsEncrypted(s) {
+		r.openSealed(l, s, p)
+		return nil
 	}
+	if p.Source == SourceUI && !strings.HasPrefix(s, "k8s:") {
+		return fmt.Errorf("%s: only an encrypted (enc:v1:) value or a k8s: reference can be set from the UI", l.path)
+	}
+	delete(r.plain, l.path)
 	r.raw[l.path] = s
 	r.prov[l.path] = p
 	return nil
 }
 
+// openSealed decrypts a stored secret with the field path as the associated data, so a value
+// moved to another field fails like a wrong key does. A value that does not open is recorded
+// for resolveSecrets to fail on, whether or not a later layer overrides the field.
+func (r *resolver) openSealed(l *leaf, sealed string, p Provenance) {
+	plain, err := r.keys.Decrypt(l.path, sealed)
+	if err != nil {
+		r.sealedErrs = append(r.sealedErrs, fmt.Errorf("%s: %w", l.path, err))
+		return
+	}
+	delete(r.raw, l.path)
+	r.plain[l.path] = plain
+	r.prov[l.path] = p
+}
+
 // resolveSecrets reads the references of every secret leaf into its secret.Value and registers
 // it. A reference that cannot be read fails startup naming the field and the layer that set it,
-// never the value.
+// never the value. So does a stored encrypted secret that cannot be decrypted, listing every
+// such field (the settings store is left as it is).
 func (r *resolver) resolveSecrets(reg *secret.Registry) error {
 	var errs []error
+	if len(r.sealedErrs) > 0 {
+		errs = append(errs, fmt.Errorf("the settings store holds encrypted secrets that cannot be decrypted (nothing was changed or dropped); fix DASH_SECRET_KEY and DASH_SECRET_KEY_PREVIOUS, or restore the store:\n%w", errors.Join(r.sealedErrs...)))
+	}
 	for _, l := range schema.leaves {
-		raw := r.raw[l.path]
-		if raw == "" {
+		var v secret.Value
+		if plain, ok := r.plain[l.path]; ok {
+			v = secret.New(plain, "")
+		} else if raw := r.raw[l.path]; raw != "" {
+			var err error
+			if v, err = secret.Resolve(raw, l.path+where(r.prov, l.path)); err != nil {
+				errs = append(errs, err)
+				continue
+			}
+			if r.prov[l.path].Source == SourceFile && v.Ref() == "" {
+				// Config files end up in git; a reference keeps the secret out of them.
+				r.log.Warn("secret in the config file is a literal; use env:NAME or file:/path instead", "path", l.path, "file", r.prov[l.path].Ref)
+			}
+		} else {
 			continue
-		}
-		p := r.prov[l.path]
-		v, err := secret.Resolve(raw, l.path+where(r.prov, l.path))
-		if err != nil {
-			errs = append(errs, err)
-			continue
-		}
-		if p.Source == SourceFile && v.Ref() == "" {
-			// Config files end up in git; a reference keeps the secret out of them.
-			r.log.Warn("secret in the config file is a literal; use env:NAME or file:/path instead", "path", l.path, "file", p.Ref)
 		}
 		if reg != nil {
 			reg.Add(v)

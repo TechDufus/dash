@@ -2,7 +2,9 @@
 //
 // A Value holds one secret and prints as "[redacted]" through fmt, slog and
 // encoding/json. A Registry knows every resolved secret and scrubs them (and
-// their base64 and URL-encoded forms) from free text.
+// their base64 and URL-encoded forms) from free text. The crypto half
+// (Keyring) seals secrets that an operator types into the UI so they can sit
+// in ui-settings.yaml.
 package secret
 
 import (

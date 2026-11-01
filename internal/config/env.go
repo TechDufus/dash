@@ -23,8 +23,9 @@ import (
 var processEnv = map[string]bool{
 	"DASH_DEV": true, "DASH_DEMO": true, "DASH_CONFIG": true,
 	"DASH_API": true, // the Vite dev proxy's backend address (web/vite.config.ts)
-	// The secret-key variables are read by the secrets package (P1.5).
-	"DASH_SECRET_KEY": true, "DASH_SECRET_KEY_FILE": true, "DASH_SECRET_KEY_PREVIOUS": true,
+	// The secret-key variables are read by SecretKeys (keys.go), not by the tree.
+	"DASH_SECRET_KEY": true, "DASH_SECRET_KEY_FILE": true,
+	"DASH_SECRET_KEY_PREVIOUS": true, "DASH_SECRET_KEY_PREVIOUS_FILE": true,
 }
 
 // serviceLinkRE matches the variables Kubernetes injects for a Service named "dash" in the same

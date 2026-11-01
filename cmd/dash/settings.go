@@ -18,6 +18,9 @@ func loadConfig(reg *secret.Registry) (*config.Resolved, *settings.Store, error)
 	if err != nil {
 		return nil, nil, err
 	}
+	if src.Keys, err = config.SecretKeys(src.Environ, reg); err != nil {
+		return nil, nil, err
+	}
 	boot, err := config.BootstrapOf(src)
 	if err != nil {
 		return nil, nil, err
