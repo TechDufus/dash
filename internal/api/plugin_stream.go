@@ -38,13 +38,13 @@ func (s *Server) routeGuard() plugin.RouteGuard {
 // before a stream takes a slot, so a denied tail answers 403 even when every slot is taken.
 func (s *Server) serveRoute(w http.ResponseWriter, r *http.Request, mr plugin.MountedRoute, next http.HandlerFunc) {
 	if !principalFrom(r.Context()).Role.AtLeast(auth.RoleViewer) {
-		s.deny(r, obs.AuthForbidden)
+		s.denyRoute(r, obs.AuthForbidden, mr.Instance)
 		writeErr(w, http.StatusForbidden, model.ErrCodeForbidden, "forbidden")
 		return
 	}
 	if f := mr.Info.Spec.Namespace; f != nil {
 		if ns := f(r); ns != "" && slices.Contains(mr.ReadDenyNamespaces, ns) {
-			s.deny(r, obs.AuthNamespaceDenied)
+			s.denyRoute(r, obs.AuthNamespaceDenied, mr.Instance)
 			writeErr(w, http.StatusForbidden, model.ErrCodeForbidden, "this namespace is not available")
 			return
 		}
@@ -54,6 +54,20 @@ func (s *Server) serveRoute(w http.ResponseWriter, r *http.Request, mr plugin.Mo
 		return
 	}
 	next(w, r)
+}
+
+// denyRoute is deny for a refusal inside a plugin's mux. Router has already cut
+// /api/v1/plugins/<id> off r.URL.Path, so the record names the whole request line and the plugin
+// itself, as the records of the plugin's actions do.
+func (s *Server) denyRoute(r *http.Request, reason obs.AuthReason, id plugin.ID) {
+	s.d.Metrics.AuthFailure(reason)
+	line := r.Method + " /api/v1/plugins/" + string(id) + r.URL.Path
+	if len(line) > maxAuditAction {
+		line = line[:maxAuditAction]
+	}
+	rec := s.auditRecord(r, line, audit.Target{})
+	rec.Plugin = string(id)
+	s.d.Audit.Denial(peerOf(r), reason.String(), rec)
 }
 
 // pluginFail answers an error of a plugin's route handler (plugin.Fail): a refusal the plugin
@@ -130,7 +144,7 @@ func (s *Server) servePluginStream(w http.ResponseWriter, r *http.Request, mr pl
 	}
 	release, ok := s.tails.acquire(w, userFrom(r.Context()))
 	if !ok {
-		s.deny(r, obs.AuthStreamLimit)
+		s.denyRoute(r, obs.AuthStreamLimit, mr.Instance)
 		return
 	}
 	defer release()

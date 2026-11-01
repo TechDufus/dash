@@ -17,6 +17,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -263,10 +264,20 @@ func TestVictoriaLogsDeniedNamespaceIs403OnBothRoutes(t *testing.T) {
 	if len(recs) != 2 {
 		t.Fatalf("records = %+v, want one denial per peer", recs)
 	}
+	var lines []string
 	for _, r := range recs {
 		if r.Kind != audit.KindDenial || r.Reason != obs.AuthNamespaceDenied.String() {
 			t.Errorf("record = %+v, want a namespace_denied denial", r)
 		}
+		if r.Plugin != "victorialogs" {
+			t.Errorf("record plugin = %q, want victorialogs", r.Plugin)
+		}
+		lines = append(lines, r.Action)
+	}
+	// The whole request line, not the path left after the router cut the plugin's prefix.
+	slices.Sort(lines)
+	if want := []string{"GET " + vlLogsPath, "GET " + vlTailPath}; !slices.Equal(lines, want) {
+		t.Errorf("record actions = %q, want %q", lines, want)
 	}
 	if v, _ := seriesValue(t, e.scrape(t), "dash_auth_failures_total", map[string]string{"reason": "namespace_denied"}); v != 3 {
 		t.Errorf("namespace_denied counted %v, want 3 (the log keeps one a minute, the metric every refusal)", v)
