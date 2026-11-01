@@ -216,6 +216,31 @@ To rotate the key:
 Replacing or clearing a secret also rewrites the retained `ui-settings.yaml.bak.N` copies
 without the old ciphertext, so restoring a backup cannot bring a cleared secret back.
 
+### Audit log
+
+Every action, silence change and stored-secret change is logged as an `audit` record on
+stdout. When `dataDir` is writable dash also appends each record to `audit.jsonl` there: one
+JSON line with the actor, what was done, the target and the result, never a secret or a changed
+value (only the field paths). Refused requests (CSRF, unauthenticated, stream caps) are recorded
+too, at most once per peer and reason per minute. Each line carries the SHA-256 of the previous
+one, so an edited, deleted or reordered line is detectable. At 10 MiB the file rotates to
+`audit.jsonl.1` (newest) to `audit.jsonl.5` (oldest); older records are dropped.
+
+- **Without a writable data dir** (missing, read-only, or demo mode) the records go to stdout
+  only and dash logs one INFO line saying so.
+- **One writer per data dir.** dash locks `.audit.lock` in `dataDir`; a second instance on the
+  same directory refuses to start, even when its settings are read-only.
+- **No record, no change.** An action, silence or secret change first records its intent in
+  the file. If that cannot be written the change is refused (actions and silences answer
+  `503 audit log unavailable`) and nothing changes. If `audit.jsonl` itself cannot be opened
+  in a writable data dir, dash does not start.
+
+`dash audit verify [--dir DIR]` (default: the configured data directory) checks the chain
+across the rotated files and lists intents that never got an outcome, such as an action in
+flight when dash crashed; it exits 1 on a broken chain or a dangling intent. A last line without
+a newline (a crash mid-write) is reported as a torn tail and does not fail the check; dash drops
+it on the next start. The chain cannot see an edit to the very last line or a truncated tail.
+
 ### Breaking: no site defaults
 
 Earlier versions defaulted to one homelab's service addresses and names. They are gone. An empty
