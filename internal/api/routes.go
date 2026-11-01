@@ -136,11 +136,14 @@ func RoutePatterns() []string {
 }
 
 // mux registers every route of the table. Mark is the innermost layer, the one that sees the
-// pattern the mux matched.
-func (s *Server) mux() *http.ServeMux {
+// pattern the mux matched; recovered is outside it.
+func (s *Server) mux() *http.ServeMux { return s.muxOf(s.routeTable()) }
+
+// muxOf is mux for the given table (the tests wrap its handlers).
+func (s *Server) muxOf(table []Route) *http.ServeMux {
 	mux := http.NewServeMux()
-	for _, r := range s.routeTable() {
-		mux.HandleFunc(r.pattern(), s.d.Metrics.Mark(r.Handler))
+	for _, r := range table {
+		mux.HandleFunc(r.pattern(), s.recovered(s.d.Metrics.Mark(r.Handler)))
 	}
 	return mux
 }

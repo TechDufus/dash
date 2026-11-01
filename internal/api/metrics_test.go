@@ -1,11 +1,9 @@
 package api
 
 import (
+	"errors"
 	"net/http"
 	"net/http/httptest"
-	"os"
-	"path/filepath"
-	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -18,6 +16,15 @@ import (
 	"github.com/TechDufus/dash/internal/obs"
 	"github.com/TechDufus/dash/internal/plugin"
 )
+
+// authReasonLabels are the label values of dash_auth_failures_total's reason.
+func authReasonLabels() []string {
+	out := make([]string, len(obs.AuthReasons))
+	for i, r := range obs.AuthReasons {
+		out[i] = r.String()
+	}
+	return out
+}
 
 // metricsEnv is the action fixture ("aa": restart, scale, ping) with metrics on.
 func metricsEnv(t *testing.T, ics ...plugin.InstanceConfig) (*actionEnv, *obs.Metrics) {
@@ -179,6 +186,59 @@ func TestMetricsOnHasEverySeries(t *testing.T) {
 	}
 }
 
+// The four legacy actions are the only ones production can count in 0.5.0, and the log tail
+// has its own gauge: with metrics on each shows up under the name and outcome of what happened.
+func TestLegacyActionsAndTailAreCountedWithMetricsOn(t *testing.T) {
+	m := obs.New("test", RoutePatterns(), nil)
+	s, _, _, am := serverWithFakes(func(d *Deps) { d.Audit, d.Metrics = openAudit(t, "", nil), m })
+	h := s.Handler()
+	type call struct {
+		plugin, action string
+		r              req
+		err            bool
+	}
+	var want []struct{ plugin, action, outcome string }
+	for _, c := range []call{
+		{"kubernetes", "restart", req{method: "POST", path: "/api/actions/restart", body: model.RestartRequest{Kind: "Deployment", Namespace: "apps", Name: "web"}}, false},
+		{"flux", "reconcile", req{method: "POST", path: "/api/actions/reconcile", body: model.ReconcileRequest{Kind: "Kustomization", Namespace: "flux-system", Name: "ghost"}}, false},
+		{"alertmanager", "silence.create", req{method: "POST", path: "/api/silences", body: silenceBody(nil)}, false},
+		{"alertmanager", "silence.expire", req{method: "DELETE", path: "/api/silences/abc"}, true},
+		{"alertmanager", "silence.expire", req{method: "DELETE", path: "/api/silences/abc"}, false},
+	} {
+		am.err = nil
+		if c.err {
+			am.err = errors.New("boom")
+		}
+		w := c.r.do(h)
+		want = append(want, struct{ plugin, action, outcome string }{c.plugin, c.action, obs.ActionOutcomeOf(w.Code)})
+	}
+
+	_, lines := sseClient(t, h, "/api/logs/tail?ns=media&pod=plex-0")
+	expect(t, lines, "retry: 3000")
+
+	ss := scrapeMetrics(t, s)
+	seen := map[string]float64{}
+	for _, w := range want {
+		seen[w.plugin+"/"+w.action+"/"+w.outcome]++
+	}
+	for key, n := range seen {
+		parts := strings.Split(key, "/")
+		got, ok := seriesValue(t, ss, "dash_actions_total", map[string]string{"plugin": parts[0], "action": parts[1], "outcome": parts[2]})
+		if !ok || got != n {
+			t.Errorf("dash_actions_total %s = %v (present %v), want %v", key, got, ok, n)
+		}
+	}
+	if got, ok := seriesValue(t, ss, "dash_actions_total", map[string]string{"plugin": "alertmanager", "action": "silence.expire", "outcome": obs.ActionOK}); !ok || got != 1 {
+		t.Errorf("the expire that succeeded is counted %v (present %v), want 1 under ok", got, ok)
+	}
+	if got, ok := seriesValue(t, ss, "dash_sse_streams", map[string]string{"kind": obs.StreamTail}); !ok || got != 1 {
+		t.Errorf("open log tails = %v (present %v), want 1", got, ok)
+	}
+	if got, _ := seriesValue(t, ss, "dash_sse_streams", map[string]string{"kind": obs.StreamEvents}); got != 0 {
+		t.Errorf("open event streams = %v, want 0", got)
+	}
+}
+
 // fakeRT answers every request with status.
 type fakeRT int
 
@@ -234,7 +294,7 @@ func TestMetricLabelValuesComeFromFixedSets(t *testing.T) {
 		"route":   append(RoutePatterns(), obs.RouteOther, obs.RouteStatic),
 		"kind":    obs.StreamKinds,
 		"plugin":  obs.UpstreamPlugins,
-		"reason":  obs.AuthReasons,
+		"reason":  authReasonLabels(),
 		"outcome": nil, // depends on the series
 	}
 	var pluginIDs []string
@@ -322,35 +382,6 @@ func TestMetricLabelValuesComeFromFixedSets(t *testing.T) {
 		if !seen[name] {
 			t.Errorf("no %s series after the traffic", name)
 		}
-	}
-}
-
-// Every reason a handler passes to Server.deny must be one the metric knows, or AuthFailure
-// would drop it silently.
-func TestEveryDenyReasonIsInTheMetricSet(t *testing.T) {
-	files, err := filepath.Glob("*.go")
-	if err != nil || len(files) == 0 {
-		t.Fatalf("glob: %v %v", files, err)
-	}
-	call := regexp.MustCompile(`\.deny\(r, "([a-z_]+)"\)`)
-	n := 0
-	for _, f := range files {
-		if strings.HasSuffix(f, "_test.go") {
-			continue
-		}
-		src, err := os.ReadFile(f)
-		if err != nil {
-			t.Fatal(err)
-		}
-		for _, mt := range call.FindAllStringSubmatch(string(src), -1) {
-			n++
-			if !slices.Contains(obs.AuthReasons, mt[1]) {
-				t.Errorf("%s: deny reason %q is not in obs.AuthReasons", f, mt[1])
-			}
-		}
-	}
-	if n < 6 {
-		t.Errorf("found %d deny calls; the pattern no longer matches the source", n)
 	}
 }
 

@@ -70,8 +70,14 @@ func newActionEnv(t *testing.T, fn func(action string, in any) (any, error)) *ac
 // newActionEnvWith is newActionEnv with the plugin settings and more plugins of the test's own.
 func newActionEnvWith(t *testing.T, fn func(action string, in any) (any, error), ics []plugin.InstanceConfig, extra ...factoryOf) *actionEnv {
 	t.Helper()
+	return newActionEnvSpecs(t, fn, ics, nil, extra...)
+}
+
+// newActionEnvSpecs is newActionEnvWith with more actions on the fixture plugin "aa".
+func newActionEnvSpecs(t *testing.T, fn func(action string, in any) (any, error), ics []plugin.InstanceConfig, more []plugin.ActionSpec, extra ...factoryOf) *actionEnv {
+	t.Helper()
 	f := plugintest.New("aa")
-	f.M.Actions = []plugin.ActionSpec{
+	f.M.Actions = append([]plugin.ActionSpec{
 		{
 			Name: "restart", Title: "Restart", Destructive: true,
 			Input:  func() any { return &restartIn{} },
@@ -79,7 +85,7 @@ func newActionEnvWith(t *testing.T, fn func(action string, in any) (any, error),
 		},
 		{Name: "scale", Title: "Scale", Input: func() any { return &scaleIn{} }},
 		{Name: "ping", Title: "Ping", Idempotent: true},
-	}
+	}, more...)
 	e := &actionEnv{}
 	f.ActionFn = func(_ context.Context, action string, p auth.Principal, in any) (any, error) {
 		e.mu.Lock()
@@ -433,8 +439,10 @@ func TestAuditFailureIs503AuditUnavailableAndActDoesNotRun(t *testing.T) {
 	}
 }
 
-// The framework only offers Target and Summary; the plugin's Act checks the typed name.
-func TestTypedNameEnforcedByActFixture(t *testing.T) {
+// The framework does not enforce ConfirmTypeName: Act checks the typed name (contract §3.6). What
+// this proves is that a refusal Act returns reaches the client with its status and code, is
+// audited as an error outcome each time, and does not stop a later run that succeeds.
+func TestActionRefusalFromActIsAuditedAsErrorAndALaterRunSucceeds(t *testing.T) {
 	e := newActionEnv(t, func(_ string, in any) (any, error) {
 		if r := in.(*restartIn); r.Confirm != r.Name {
 			return nil, &plugin.ActionError{Status: http.StatusBadRequest, Code: model.ErrCodeInvalidInput, Message: "type the workload name to confirm"}

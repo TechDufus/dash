@@ -49,14 +49,23 @@ const (
 	ActionRateLimited = "rate_limited"
 )
 
-// Reasons a request is refused (the reasons Server.deny records).
-const (
-	AuthUnauthenticated = "unauthenticated"
-	AuthCSRF            = "csrf"
-	AuthForbidden       = "forbidden"
-	AuthRateLimit       = "rate_limit"
-	AuthNamespaceDenied = "namespace_denied"
-	AuthStreamLimit     = "stream_limit"
+// AuthReason is why a request was refused, a value of dash_auth_failures_total's reason label.
+// It is a struct with an unexported field, so the only values are the ones below: code that
+// refuses a request (Server.deny) cannot name a reason the metric does not know, and the zero
+// value is counted as nothing.
+type AuthReason struct{ name string }
+
+// String is the label value, and the reason recorded in the audit log.
+func (r AuthReason) String() string { return r.name }
+
+// The reasons Server.deny records.
+var (
+	AuthUnauthenticated = AuthReason{"unauthenticated"}
+	AuthCSRF            = AuthReason{"csrf"}
+	AuthForbidden       = AuthReason{"forbidden"}
+	AuthRateLimit       = AuthReason{"rate_limit"}
+	AuthNamespaceDenied = AuthReason{"namespace_denied"}
+	AuthStreamLimit     = AuthReason{"stream_limit"}
 )
 
 // Outcomes of an upstream call.
@@ -81,7 +90,7 @@ var (
 	// ActionOutcomes is every value of dash_actions_total's outcome label.
 	ActionOutcomes = []string{ActionOK, ActionError, ActionDenied, ActionInvalid, ActionRateLimited}
 	// AuthReasons is every value of dash_auth_failures_total's reason label.
-	AuthReasons = []string{AuthUnauthenticated, AuthCSRF, AuthForbidden, AuthRateLimit, AuthNamespaceDenied, AuthStreamLimit}
+	AuthReasons = []AuthReason{AuthUnauthenticated, AuthCSRF, AuthForbidden, AuthRateLimit, AuthNamespaceDenied, AuthStreamLimit}
 	// StreamKinds is every value of dash_sse_streams' kind label.
 	StreamKinds = []string{StreamEvents, StreamTail}
 	// PluginStates is every value of dash_plugin_state's state label.
@@ -168,7 +177,7 @@ func New(version string, routes []string, plugins func() []model.PluginInfo) *Me
 		}
 	}
 	for _, r := range AuthReasons {
-		m.authFails.WithLabelValues(r)
+		m.authFails.WithLabelValues(r.String())
 	}
 	return m
 }
@@ -257,11 +266,16 @@ func (w *statusWriter) Write(b []byte) (int, error) {
 	return w.ResponseWriter.Write(b)
 }
 
-func (w *statusWriter) Flush() {
+func (w *statusWriter) Flush() { _ = w.FlushError() }
+
+// FlushError is what http.ResponseController.Flush calls first: it hands the error of the
+// underlying flush (an expired write deadline, a closed connection) to the caller instead of
+// swallowing it, so an SSE writer sees a stalled client at once.
+func (w *statusWriter) FlushError() error {
 	if w.code == 0 {
 		w.code = http.StatusOK
 	}
-	_ = http.NewResponseController(w.ResponseWriter).Flush()
+	return http.NewResponseController(w.ResponseWriter).Flush()
 }
 
 func (w *statusWriter) Unwrap() http.ResponseWriter { return w.ResponseWriter }
@@ -286,12 +300,12 @@ func (m *Metrics) StreamOpened(kind string) (closed func()) {
 	return func() { once.Do(g.Dec) }
 }
 
-// AuthFailure counts a refused request. A reason outside AuthReasons is dropped.
-func (m *Metrics) AuthFailure(reason string) {
+// AuthFailure counts a refused request. The zero AuthReason is dropped.
+func (m *Metrics) AuthFailure(reason AuthReason) {
 	if m == nil || !slices.Contains(AuthReasons, reason) {
 		return
 	}
-	m.authFails.WithLabelValues(reason).Inc()
+	m.authFails.WithLabelValues(reason.String()).Inc()
 }
 
 // Action counts an action request. The plugin and action must be one that exists (a mounted

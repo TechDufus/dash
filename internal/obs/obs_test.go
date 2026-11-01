@@ -219,6 +219,25 @@ func TestInstrumentKeepsStreamingWorking(t *testing.T) {
 	}
 }
 
+// flushFails is a writer whose flush fails, as a stream's does after its write deadline.
+type flushFails struct{ http.ResponseWriter }
+
+func (flushFails) FlushError() error { return errors.New("i/o timeout") }
+
+// A stream's flush error must reach the handler through the metrics wrapper: it is how an SSE
+// writer learns a client has stalled.
+func TestInstrumentPassesFlushErrorsOn(t *testing.T) {
+	m := New("dev", []string{"GET /s"}, nil)
+	var got error
+	h := m.Instrument(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		got = http.NewResponseController(w).Flush()
+	}))
+	h.ServeHTTP(flushFails{httptest.NewRecorder()}, httptest.NewRequest(http.MethodGet, "/s", nil))
+	if got == nil || got.Error() != "i/o timeout" {
+		t.Errorf("Flush through the wrapper = %v, want the underlying error", got)
+	}
+}
+
 func TestStreamGauge(t *testing.T) {
 	m := New("dev", nil, nil)
 	if v := value(t, scrape(t, m), "dash_sse_streams", map[string]string{"kind": StreamTail}); v != 0 {
@@ -420,14 +439,15 @@ func TestTrackActionOutcomeFromStatus(t *testing.T) {
 	}
 }
 
+// A reason is one of the package's values, so a user name or a request line cannot become a
+// label (the type admits nothing else); the zero value counts as nothing.
 func TestAuthFailureReasons(t *testing.T) {
 	m := New("dev", nil, nil)
 	for _, r := range AuthReasons {
 		m.AuthFailure(r)
 	}
 	m.AuthFailure(AuthCSRF)
-	m.AuthFailure("alice")       // a user name is not a reason
-	m.AuthFailure("GET /secret") // neither is a request line
+	m.AuthFailure(AuthReason{})
 	ss := scrape(t, m)
 	n := 0
 	for _, s := range ss {
@@ -435,14 +455,14 @@ func TestAuthFailureReasons(t *testing.T) {
 			continue
 		}
 		n++
-		if !slices.Contains(AuthReasons, s.labels["reason"]) {
+		if !slices.ContainsFunc(AuthReasons, func(r AuthReason) bool { return r.String() == s.labels["reason"] }) {
 			t.Errorf("reason %q is not in the fixed set", s.labels["reason"])
 		}
 	}
 	if n != len(AuthReasons) {
 		t.Errorf("%d series, want %d", n, len(AuthReasons))
 	}
-	if value(t, ss, "dash_auth_failures_total", map[string]string{"reason": AuthCSRF}) != 2 {
+	if value(t, ss, "dash_auth_failures_total", map[string]string{"reason": AuthCSRF.String()}) != 2 {
 		t.Error("csrf not counted twice")
 	}
 }

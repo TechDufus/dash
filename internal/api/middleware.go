@@ -9,6 +9,7 @@ import (
 
 	"github.com/TechDufus/dash/internal/auth"
 	"github.com/TechDufus/dash/internal/model"
+	"github.com/TechDufus/dash/internal/obs"
 )
 
 type userKey struct{}
@@ -60,7 +61,7 @@ func (s *Server) csrf(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet && r.Method != http.MethodHead {
 			if r.Header.Get("X-Dash-Csrf") != "1" || r.Header.Get("Origin") != origin {
-				s.deny(r, "csrf")
+				s.deny(r, obs.AuthCSRF)
 				writeErr(w, http.StatusForbidden, model.ErrCodeCSRFFailed, "csrf check failed")
 				return
 			}
@@ -98,7 +99,7 @@ func (s *Server) auth(next http.Handler) http.Handler {
 		}
 		user := s.requestUser(r)
 		if user == "" {
-			s.deny(r, "unauthenticated")
+			s.deny(r, obs.AuthUnauthenticated)
 			writeErr(w, http.StatusUnauthorized, model.ErrCodeUnauthenticated, "unauthenticated")
 			return
 		}

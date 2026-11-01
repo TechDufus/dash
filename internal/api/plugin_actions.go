@@ -12,6 +12,7 @@ import (
 
 	"github.com/TechDufus/dash/internal/audit"
 	"github.com/TechDufus/dash/internal/model"
+	"github.com/TechDufus/dash/internal/obs"
 	"github.com/TechDufus/dash/internal/plugin"
 )
 
@@ -32,18 +33,29 @@ func (s *Server) runAction(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusNotFound, model.ErrCodeNotFound, "no such action")
 		return
 	}
+	started, _ := w.(*startedWriter)
 	w, done := s.d.Metrics.TrackAction(w, string(id), name)
 	defer done()
+	// Deferred after done, so it runs first: the 500 is on the tracked writer when done reads
+	// the status, and the action counts as an error, not as the 200 of an unwritten response. A
+	// panic in Target, Input or Validate happens before the audit intent; the refusal is still
+	// recorded.
+	defer func() {
+		if rec := recover(); rec != nil {
+			s.refuse(r, "internal")
+			s.answerPanic(w, started, r, rec)
+		}
+	}()
 	p := principalFrom(r.Context())
 
 	if !p.Role.AtLeast(ref.Spec.MinRole) {
-		s.deny(r, "forbidden")
+		s.deny(r, obs.AuthForbidden)
 		writeErr(w, http.StatusForbidden, model.ErrCodeForbidden, "forbidden")
 		return
 	}
 
 	if ok, retry := s.actionLimit.allow(p.User, s.now()); !ok {
-		s.deny(r, "rate_limit")
+		s.deny(r, obs.AuthRateLimit)
 		w.Header().Set("Retry-After", strconv.Itoa(int(math.Ceil(retry.Seconds()))))
 		writeErr(w, http.StatusTooManyRequests, model.ErrCodeRateLimited, "too many actions; try again later")
 		return
@@ -60,7 +72,7 @@ func (s *Server) runAction(w http.ResponseWriter, r *http.Request) {
 		target = audit.Target{Kind: kind, Namespace: ns, Name: tname}
 	}
 	if target.Namespace != "" && slices.Contains(ref.DenyNamespaces, target.Namespace) {
-		s.deny(r, "namespace_denied")
+		s.deny(r, obs.AuthNamespaceDenied)
 		writeErr(w, http.StatusForbidden, model.ErrCodeForbidden, "actions are not allowed in this namespace")
 		return
 	}
@@ -121,17 +133,20 @@ func (s *Server) actionInput(w http.ResponseWriter, r *http.Request, spec plugin
 }
 
 // writeActionError answers a deliberate refusal from Act with the status and code the plugin
-// chose. A status that is not an error status, or a missing code, is the plugin's mistake:
-// the status becomes 500 and the code the one the status implies.
+// chose. A status that is not an error status is the plugin's mistake: the status becomes 500
+// and the code internal. A missing code, or one outside model.ErrCodes (the set the OpenAPI
+// document declares), becomes the code the status implies.
 func (s *Server) writeActionError(w http.ResponseWriter, ae *plugin.ActionError) {
 	status, code := ae.Status, ae.Code
 	if status < 400 || status > 599 {
 		status, code = http.StatusInternalServerError, model.ErrCodeInternal
 	}
-	if code == "" {
+	if !slices.Contains(model.ErrCodes(), code) {
 		code = codeForStatus(status)
 	}
-	writeJSON(w, status, model.APIError{Error: s.d.Secrets.Scrub(ae.Message), Code: code, Details: ae.Details})
+	writeJSON(w, status, model.APIError{
+		Error: s.d.Secrets.Scrub(ae.Message), Code: code, Details: ae.Details, RequestID: w.Header().Get(requestIDHeader),
+	})
 }
 
 // codeForStatus is the default code of a status, for an answer whose author named none.
@@ -197,7 +212,12 @@ func validateInput(v reflect.Value) string {
 					if fv.IsZero() {
 						continue
 					}
-					if got := fmt.Sprint(fv.Interface()); !slices.Contains(strings.Split(val, "|"), got) {
+					// A pointer field is compared by the value it points to, as its schema says.
+					ev := fv
+					for ev.Kind() == reflect.Pointer && !ev.IsNil() {
+						ev = ev.Elem()
+					}
+					if got := fmt.Sprint(ev.Interface()); !slices.Contains(strings.Split(val, "|"), got) {
 						return fmt.Sprintf("%s must be one of %s", name, strings.ReplaceAll(val, "|", ", "))
 					}
 				}

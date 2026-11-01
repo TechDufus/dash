@@ -152,6 +152,16 @@ func TestPluginRoutesMountUnderPluginPrefix(t *testing.T) {
 	if w.Code != http.StatusOK || strings.TrimSpace(w.Body.String()) != `{"vmid":"101"}` {
 		t.Fatalf("GET plugin route = %d %s", w.Code, w.Body)
 	}
+	// The instance spelled with percent-escapes is the same instance, and a miss under it gets
+	// the JSON envelope like any other (not the plain-text 404 of http.StripPrefix).
+	w = req{path: "/api/v1/plugins/%61a/vms/101"}.do(h)
+	if w.Code != http.StatusOK || strings.TrimSpace(w.Body.String()) != `{"vmid":"101"}` {
+		t.Fatalf("GET plugin route with an escaped instance = %d %s", w.Code, w.Body)
+	}
+	w = req{path: "/api/v1/plugins/%61a/nope"}.do(h)
+	if e := apiError(t, w); w.Code != http.StatusNotFound || e.Code != model.ErrCodeNotFound {
+		t.Errorf("miss under an escaped instance = %d %s", w.Code, w.Body)
+	}
 
 	// Only GET (and HEAD) is mounted, and only what the plugin registered.
 	for _, tc := range []struct{ method, path string }{
@@ -196,7 +206,7 @@ func TestSeriesFromPluginBeatsLegacy(t *testing.T) {
 	if w := (req{path: "/api/v1/series?name=host.cpu&range=1h"}.do(h)); w.Code != http.StatusOK {
 		t.Fatalf("series = %d %s", w.Code, w.Body)
 	}
-	if want := `plugin_cpu{node="pve-730"}`; prom.expr != want {
+	if want := `plugin_cpu{node="` + e.d.Cfg.HostNodename + `"}`; prom.expr != want {
 		t.Errorf("expr = %q, want the plugin's %q", prom.expr, want)
 	}
 	if w := (req{path: "/api/v1/series?name=hw.broken&range=1h"}.do(h)); w.Code != http.StatusBadRequest {

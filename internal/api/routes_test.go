@@ -5,12 +5,12 @@ import (
 	"maps"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"slices"
 	"strings"
 	"testing"
 
 	"github.com/TechDufus/dash/internal/model"
+	"github.com/TechDufus/dash/internal/obs"
 )
 
 // legacyRoutes is the unversioned integration routes the SPA still calls, as ServeMux patterns.
@@ -156,26 +156,37 @@ func TestLegacyRoutesAreAllowlistedAndExcludedFromSpec(t *testing.T) {
 	}
 }
 
-// The mux is built from the table alone: no handler is registered anywhere else.
-func TestMuxHasNoRouteOutsideTheTable(t *testing.T) {
-	files, err := os.ReadDir(".")
-	if err != nil {
-		t.Fatal(err)
+// Every route of the table is registered with the route label and the panic recovery around it:
+// with each handler replaced by one that panics, every route still answers 500 internal and is
+// counted under its own pattern. The mux is built from the table alone (muxOf(routeTable())),
+// so this holds for every route there is.
+func TestEveryTableRouteRunsInsideTheRouteLabelAndRecovery(t *testing.T) {
+	s := newServer(nil)
+	s.d.Metrics = obs.New("test", RoutePatterns(), nil)
+	table := s.routeTable()
+	for i := range table {
+		table[i].Handler = func(http.ResponseWriter, *http.Request) { panic("kaboom") }
 	}
-	for _, f := range files {
-		name := f.Name()
-		// routes.go is the table; health.go builds the health listener's own two-route mux.
-		if !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") || name == "routes.go" || name == "health.go" {
-			continue
+	h := s.d.Metrics.Instrument(s.muxOf(table))
+	for _, r := range table {
+		method := r.Method
+		if method == "" {
+			method = http.MethodGet
 		}
-		src, err := os.ReadFile(name)
-		if err != nil {
-			t.Fatal(err)
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, httptest.NewRequest(method, samplePath(r.Path), nil))
+		if e := apiError(t, w); w.Code != http.StatusInternalServerError || e.Code != model.ErrCodeInternal {
+			t.Errorf("%s: %d %s, want 500 internal", r.pattern(), w.Code, w.Body)
 		}
-		for i, line := range strings.Split(string(src), "\n") {
-			if strings.Contains(line, ".HandleFunc(") || strings.Contains(line, ".Handle(") {
-				t.Errorf("%s:%d registers a route outside the table: %s", name, i+1, strings.TrimSpace(line))
-			}
+	}
+	ss := scrapeMetrics(t, s)
+	for _, r := range table {
+		route := r.pattern()
+		if route == "/" {
+			route = obs.RouteStatic
+		}
+		if v, ok := seriesValue(t, ss, "dash_http_requests_total", map[string]string{"route": route, "code": "500"}); !ok || v != 1 {
+			t.Errorf("%s counted %v (present %v), want one 500 under its own pattern", route, v, ok)
 		}
 	}
 }

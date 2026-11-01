@@ -6,6 +6,7 @@ import (
 
 	"github.com/TechDufus/dash/internal/audit"
 	"github.com/TechDufus/dash/internal/model"
+	"github.com/TechDufus/dash/internal/obs"
 )
 
 // maxAuditAction caps the request line recorded for a denial: it comes from the client.
@@ -59,13 +60,10 @@ func (s *Server) beginRecord(w http.ResponseWriter, rec audit.Record) (audit.Pen
 	return p, true
 }
 
-// deny records a refused request; the log keeps at most one record per peer and reason a
-// minute, so a flood of refusals cannot fill the disk.
-func (s *Server) deny(r *http.Request, reason string) {
+// deny records a refused request and counts it; the log keeps at most one record per peer and
+// reason a minute, so a flood of refusals cannot fill the disk. The reason is a value of
+// obs.AuthReason: a reason the metric does not know cannot be passed.
+func (s *Server) deny(r *http.Request, reason obs.AuthReason) {
 	s.d.Metrics.AuthFailure(reason)
-	line := r.Method + " " + r.URL.Path
-	if len(line) > maxAuditAction {
-		line = line[:maxAuditAction]
-	}
-	s.d.Audit.Denial(peerOf(r), reason, s.auditRecord(r, line, audit.Target{}))
+	s.refuse(r, reason.String())
 }

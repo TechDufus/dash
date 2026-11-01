@@ -146,12 +146,37 @@ func (s *Supervisor) Router(instance ID) (http.Handler, bool) {
 		in.mu.RLock()
 		mux := in.routes
 		in.mu.RUnlock()
-		if rest, cut := strings.CutPrefix(r.URL.Path, prefix); mux == nil || !cut || !strings.HasPrefix(rest, "/") {
+		rest, cut := strings.CutPrefix(r.URL.Path, prefix)
+		if mux == nil || !cut || !strings.HasPrefix(rest, "/") {
 			notFound(w, r)
 			return
 		}
-		http.StripPrefix(prefix, mux).ServeHTTP(w, r)
+		// Not http.StripPrefix: it also strips RawPath, and a request that spells the instance
+		// with percent-escapes (/plugins/%63c/…) has a RawPath without the literal prefix, which
+		// would make it answer with its own plain-text 404.
+		r2 := new(http.Request)
+		*r2 = *r
+		u := *r.URL
+		u.Path = rest
+		if u.RawPath != "" {
+			u.RawPath = dropSegments(u.RawPath, 5) // "", api, v1, plugins, <instance>
+		}
+		r2.URL = &u
+		mux.ServeHTTP(w, r2)
 	}), true
+}
+
+// dropSegments removes the first n '/'-separated elements of an escaped path that starts with
+// '/' (the empty one before it counts), leaving the path that starts at the next '/'.
+func dropSegments(raw string, n int) string {
+	for range n - 1 {
+		i := strings.IndexByte(raw[1:], '/')
+		if i < 0 {
+			return ""
+		}
+		raw = raw[1+i:]
+	}
+	return raw
 }
 
 // RouteInfos lists the routes a running Router plugin registered (for the API route table).
