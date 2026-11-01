@@ -147,7 +147,8 @@ export function PluginRoutes() {
       )}
       <Route path="/x/:id">
         {(params) => (
-          <RouteBoundary>
+          // Keyed by plugin: a page that failed must not keep its failure for the next plugin.
+          <RouteBoundary key={params.id}>
             <GenericPluginPage id={params.id ?? ""} />
           </RouteBoundary>
         )}

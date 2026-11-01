@@ -1,11 +1,12 @@
 import { act, screen, waitFor } from "@testing-library/react";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { startStream, stopStream } from "@/api/stream";
 import {
   envelope,
   type FakeEventSource,
   type FetchStub,
   installEventSource,
+  pluginInfo,
   pluginsEnvelope,
   renderApp,
   stubFetch,
@@ -122,6 +123,27 @@ describe("PluginRoutes", () => {
     expect(screen.queryByText(STATUS_PAGE)).toBeNull();
     expect(screen.getByRole("status")).toHaveTextContent("Gatus is switched off.");
     expect(ES.instances).toHaveLength(1);
+  });
+
+  it("gives each generic page its own error boundary", () => {
+    const view = { id: "v", kind: "stat", title: "Depth", topic: "queue", path: "/n", columns: [] };
+    const rows = [
+      // A name that is not text makes this plugin's page throw while it renders.
+      pluginInfo({ id: "broken", name: {} as unknown as string, generic: [view as never] }),
+      pluginInfo({ id: "fine", name: "Fine plugin", generic: [view as never] }),
+    ];
+    const quiet = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      connect(rows);
+      const { navigate } = renderApp(<PluginRoutes />, { path: "/x/broken" });
+      expect(screen.getByRole("alert")).toHaveTextContent("This page failed to load.");
+
+      act(() => navigate("/x/fine"));
+      expect(screen.queryByRole("alert")).toBeNull();
+      expect(screen.getByRole("heading", { name: "Fine plugin" })).toBeInTheDocument();
+    } finally {
+      quiet.mockRestore();
+    }
   });
 
   it("renders the core pages whatever the plugins are", () => {
