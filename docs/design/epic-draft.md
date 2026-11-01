@@ -41,7 +41,7 @@ Design: `docs/design/plugins-and-config.md` and `docs/design/clients-and-ai.md` 
 
 - [x] G0: docs(adr): phase 0, decisions and ADR
 - [x] G1: feat(config): phase 1, config core and secrets
-- [ ] G2: feat(plugin): phase 2, plugin framework and SPA registry
+- [x] G2: feat(plugin): phase 2, plugin framework and SPA registry
 - [ ] G3: feat(plugins): phase 3, migrate integrations to plugins
 - [ ] G4: feat(auth): phase 4, settings UI and auth
 - [ ] G5: build(deploy): phase 5, packaging and deployment targets
@@ -314,9 +314,9 @@ Also (design C.7, K.21):
 - [x] P2.4 feat(hub)!: namespaced topics and core.plugins status topic
 - [x] P2.5 feat(core): compose the overview from plugin contributions
 - [x] P2.6 feat(api)!: readiness independent of plugin health
-- [ ] P2.7 feat(web): plugin module registry for routes, nav and palette
-- [ ] P2.8 feat(web): panel slots for composite pages and generic panels
-- [ ] P2.9 build(web): generate TS types per plugin model package
+- [x] P2.7 feat(web): plugin module registry for routes, nav and palette
+- [x] P2.8 feat(web): panel slots for composite pages and generic panels
+- [x] P2.9 build(web): generate TS types per plugin model package
 - [x] P2.10 feat(api)!: /api/v1, error codes, request ids and generated OpenAPI
 - [x] P2.11 feat(config): stream and request limits as settings
 - [x] P2.12 feat(obs): opt-in Prometheus metrics on the health listener
@@ -444,6 +444,8 @@ Validation runs schema first, then `Validator`. Add the CLI subcommands `dash co
 
 Visibility follows `/api/plugins` and `core.plugins`. A disabled plugin's route renders a "plugin disabled" page. Pages are lazy-loaded per module.
 
+**As shipped:** `web/src/plugins/` holds the registry (nine modules: alertmanager, gatus, proxmox, hardware, kubernetes, flux, launcher, grafana, headlamp), the state hooks, the routes and the "plugin disabled" page (design A.9). Nav entries come from `GET /api/v1/plugins` and `core.plugins`, not from the module, and the rail order is a per-module `order`. A plugin is hidden in `disabled`, `unavailable`, `unconfigured` and `blocked`. `stream.ts` listens to `core.plugins` and `core.overview` first and then to the topics `core.plugins` lists, and drops the data of a hidden plugin's topics. Pages are lazy chunks, checked by `web/scripts/check-chunks.mjs` in `make check`, and a `vite:preloadError` handler reloads once for a tab that predates a deploy. Tests run on Vitest, jsdom and Testing Library (`make check` runs them). The demo plugins are switchable at runtime (they are not `RestartOnly`), which is what the browser smoke uses: disable `plugins.<id>` in the config file and the entry, route, palette group, tile and panel go within one reload poll and demo tick, without a page reload.
+
 **Acceptance criteria**
 - With a plugin disabled, its nav item, route and palette entries disappear live.
 - A deep link to it shows the disabled page.
@@ -456,9 +458,9 @@ Visibility follows `/api/plugins` and `core.plugins`. A disabled plugin's route 
 
 **Body:**
 
-- Overview (KPIs, side panels), Storage and Apps render slot contributions in registry order.
-- Plugins without a module can declare `UI.Generic` views (table, stat or list) rendered with the existing `Panel` and table components.
-- The closed unions widen: `LinkKind` (`model.go:28-37`, `web/src/components/links.tsx:6-12`) becomes a provider ID or `app`/`external`.
+- Overview (KPI tiles), Storage and Apps render slot contributions in registry order: `overview.kpis`, `storage` and `apps.sources`. The `overview.side` and `hardware.facts` slots of design A.9 are not defined yet: each arrives with the first G3 leaf that has a contributor.
+- Plugins without a module can declare `UI.Generic` views (table, stat or list) rendered with the existing `Panel` and table components, on a synthesised `/x/<id>` page. This adds `GenericView` to the plugin manifest and `PluginInfo.generic`.
+- The closed unions widen: `Link.kind` is a string in the generated types, and `LinkButtons` takes icons from the modules' `linkIcons` and falls back to a generic icon. Each launcher section's matching count is a polite live region.
 
 **Acceptance criteria**
 - The Storage page renders only the slots of enabled plugins.
@@ -469,12 +471,16 @@ Visibility follows `/api/plugins` and `core.plugins`. A disabled plugin's route 
 
 ### P2.9 build(web): generate TS types per plugin model package
 
-**Body:** extend `tygo.yaml` to one entry per plugin `model` package. Make `TopicData` (`web/src/api/topics.ts:16-26`) registry-driven while keeping a compile-time check per module.
+**Body:** extend `tygo.yaml` to one entry per plugin `model` package. Make `TopicData` (now `web/src/plugins/topic-data.ts`) registry-driven while keeping a compile-time check per module.
+
+**What this leaf delivers now, and what comes with each G3 leaf:** no plugin `model` package exists yet (every payload type is in `internal/model`), so there is no per-plugin tygo entry to add. Delivered: `TopicData` is derived from the modules' typed `topics` declarations plus the core topics, with a compile-time guard that the set equals the generated `Topic` union; `make check` diffs `web/src/api/types.ts` and every `**/model.gen.ts` and fails on an uncommitted generated file; Biome and the pre-push hook know the per-package files; `tygo.yaml` documents the entry. With each G3 leaf that creates `internal/plugins/<id>/model`: add its `tygo.yaml` entry (output `web/src/plugins/modules/<id>/model.gen.ts`, with a `frontmatter` import and `type_mappings` for any core type it uses; whether tygo imports across packages by itself is confirmed by the first such leaf) and declare its topics in the module.
 
 **Acceptance criteria**
 - `make generate` is deterministic.
 - `make check` fails if the generated types drift.
 - Adding a topic to a plugin model without regenerating fails the check.
+
+These hold for the one existing package. For a plugin package the same checks apply from the leaf that creates it.
 
 **Dependencies:** P2.1.
 

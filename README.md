@@ -182,7 +182,7 @@ restart with `DASH_PLUGINS_PROXMOX_TOKEN_SECRET_FILE`.
 | `plugins.grafana.url` | empty | Grafana links |
 | `plugins.launcher.file`, `.links` | empty | the launcher's links, from a YAML file or inline (not both) |
 | `plugins.kubernetes.kubeconfig` | in-cluster | used outside the cluster; `KUBECONFIG` is honoured too, as it is, with no `_FILE` form |
-| `plugins.<id>.enabled` | unset (on) | `false` stops that plugin and removes its topics. Its pages stay until the web UI follows `core.plugins` (P2.7), and keep showing a loading state. The Kubernetes connection is required whichever plugins are off. Unset leaves it on: a plugin without its settings reports itself unavailable ("not configured") |
+| `plugins.<id>.enabled` | unset (on) | `false` turns that plugin off (a restart applies it): its topics are removed, and the web UI drops its rail entry, palette entries, overview tiles and panels and shows a "switched off" page at its address. The Kubernetes connection is required whichever plugins are off. Unset leaves it on: a plugin without its settings reports itself unavailable ("not configured"), and the web UI hides its pages |
 | `plugins.<id>.type` | the section name | the plugin type; dash runs one instance per type, so leave it unset or equal to the section name |
 
 `/healthz` answers `ok` while dash runs. `/readyz` answers `ok` once both listeners are bound and
@@ -399,6 +399,7 @@ name wins), with no `_FILE` form because it is another tool's variable.
 | `internal/links` | Headlamp, Proxmox and Grafana deep links |
 | `internal/demo` | fake data for `DASH_DEMO=true` |
 | `web/` | React 19, Vite, Tailwind v4, shadcn/ui and Magic UI |
+| `web/src/plugins` | the SPA's plugin modules, registry, slots and generic panels; a module's directory name is its plugin ID |
 
 ## Develop
 
@@ -440,6 +441,8 @@ commit them with the change:
 
 A changed config schema also needs `go test ./internal/config -run TestConfigSchemaGolden -update`
 for `internal/config/testdata/config.schema.json`.
+
+Per-plugin generated types arrive with the plugin packages: a plugin's `model` package gets its own tygo entry and a `web/src/plugins/modules/<id>/model.gen.ts`, which `make check` also diffs.
 
 ### Pre-push hook (opt-in)
 
