@@ -70,6 +70,9 @@ func (p *Plugin) Configured(cfg any) bool {
 	return ok && c.URL != ""
 }
 
+// ConfigHint implements plugin.ConfigHinter.
+func (p *Plugin) ConfigHint() string { return "plugins.victorialogs.url" }
+
 // Validate implements plugin.Validator: the field names are concatenated into LogsQL, so they
 // are checked again here, with the limit and the auth rules.
 func (p *Plugin) Validate(cfg any) error {

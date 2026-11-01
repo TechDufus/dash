@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -322,5 +323,20 @@ func TestUnreadableLauncherFileMakesTheRowErrorAndNotTheStartup(t *testing.T) {
 	if err := json.Unmarshal(env.Data, &e); err != nil || json.Unmarshal(e.Data, &data) != nil ||
 		len(data.Links) != 1 || data.Links[0].Name != "Router" || data.Links[0].Icon != "unifi" {
 		t.Errorf("launcher.links = %s (%v)", env.Data, err)
+	}
+}
+
+// Every plugin that runs on its own says which setting turns it on, so its "not configured" row
+// reads "not configured: set plugins.<id>.…" as the shims' rows did.
+func TestEveryRealPluginSaysWhatToSet(t *testing.T) {
+	for id, f := range realPlugins {
+		h, ok := f().(plugin.ConfigHinter)
+		if !ok {
+			t.Errorf("%s: no ConfigHint", id)
+			continue
+		}
+		if hint := h.ConfigHint(); !strings.HasPrefix(hint, "plugins."+string(id)+".") {
+			t.Errorf("%s: hint %q", id, hint)
+		}
 	}
 }

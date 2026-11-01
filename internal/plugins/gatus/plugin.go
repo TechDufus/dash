@@ -73,6 +73,9 @@ func (p *Plugin) Configured(cfg any) bool {
 	return err == nil && c.URL != ""
 }
 
+// ConfigHint implements plugin.ConfigHinter.
+func (p *Plugin) ConfigHint() string { return "plugins.gatus.url" }
+
 // Validate checks the auth rules and the page size.
 func (p *Plugin) Validate(cfg any) error {
 	c, err := settings(cfg)

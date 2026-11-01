@@ -95,6 +95,9 @@ func (*Plugin) Configured(cfg any) bool {
 	return ok && c.URL != ""
 }
 
+// ConfigHint implements plugin.ConfigHinter.
+func (*Plugin) ConfigHint() string { return "plugins.headlamp.url" }
+
 func (p *Plugin) Start(_ context.Context, _ plugin.Host, cfg any) error {
 	c, ok := conf(cfg)
 	if !ok {

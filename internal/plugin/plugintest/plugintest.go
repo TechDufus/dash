@@ -38,6 +38,8 @@ type Fake struct {
 	ValidateFn   func(cfg any) error
 	ServiceVal   any
 	LinksFn      func(req plugin.LinkRequest) []model.Link
+	// Hint is what ConfigHint answers: empty (no hint) unless a test sets it.
+	Hint string
 
 	starts, stops atomic.Int32
 	mu            sync.Mutex
@@ -117,6 +119,8 @@ func (f *Fake) Topology() model.Topology {
 }
 
 func (f *Fake) Configured(cfg any) bool { return f.ConfiguredFn == nil || f.ConfiguredFn(cfg) }
+
+func (f *Fake) ConfigHint() string { return f.Hint }
 
 func (f *Fake) Validate(cfg any) error {
 	if f.ValidateFn == nil {

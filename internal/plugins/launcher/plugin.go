@@ -70,6 +70,9 @@ func (*Plugin) Configured(cfg any) bool {
 	return ok && (c.File != "" || len(c.Links) > 0)
 }
 
+// ConfigHint implements plugin.ConfigHinter.
+func (*Plugin) ConfigHint() string { return "plugins.launcher.links or plugins.launcher.file" }
+
 // Validate repeats the static rules the configuration load already enforces (a file or links but
 // not both, every link with a name and an http(s) href), so a section that reached the
 // supervisor by another way cannot publish a malformed list. It reads no file.

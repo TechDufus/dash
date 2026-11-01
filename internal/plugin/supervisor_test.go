@@ -602,6 +602,23 @@ func TestAutoEnableUsesConfigured(t *testing.T) {
 	}
 }
 
+// A plugin that says what to set (ConfigHinter) gets it in its "not configured" row, disabled
+// and unconfigured alike; one that does not says only "not configured".
+func TestNotConfiguredRowNamesTheSetting(t *testing.T) {
+	f := plugintest.New("aa")
+	f.ConfiguredFn = func(any) bool { return false }
+	f.Hint = "plugins.aa.url"
+	e := start(t, f.Factory())
+	if st, msg := e.state(t, "aa"); st != model.PluginDisabled || msg != "not configured: set plugins.aa.url" {
+		t.Fatalf("auto: %s %q", st, msg)
+	}
+	e.set.Set(plugin.InstanceConfig{Name: "aa", Enabled: new(true)})
+	e.reloadUntil(t, "a to be unconfigured", func() bool { st, _ := e.state(t, "aa"); return st == model.PluginUnconfigured })
+	if _, msg := e.state(t, "aa"); msg != "not configured: set plugins.aa.url" {
+		t.Fatalf("enabled: %q", msg)
+	}
+}
+
 func TestValidatorFailureIsUnconfigured(t *testing.T) {
 	f := plugintest.New("aa", plugintest.Config(cfgOf))
 	f.ValidateFn = func(c any) error {

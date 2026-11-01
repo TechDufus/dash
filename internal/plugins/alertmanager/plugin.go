@@ -82,6 +82,9 @@ func (p *Plugin) Configured(cfg any) bool {
 	return ok && c.URL != ""
 }
 
+// ConfigHint implements plugin.ConfigHinter.
+func (p *Plugin) ConfigHint() string { return "plugins.alertmanager.url" }
+
 // Validate applies the section's own rules, so that a configuration the supervisor gets by
 // another way than the config loader is refused for the same reasons.
 func (p *Plugin) Validate(cfg any) error {

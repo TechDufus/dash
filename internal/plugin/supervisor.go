@@ -647,10 +647,16 @@ func (s *Supervisor) evaluate(in *instance, ic InstanceConfig) plan {
 			return pl
 		}
 		if !configured {
+			msg := msgNotConfigured
+			if h, ok := probe.(ConfigHinter); ok {
+				if hint := h.ConfigHint(); hint != "" {
+					msg += ": set " + hint
+				}
+			}
 			if ic.Enabled == nil {
-				pl.state, pl.msg = StateDisabled, msgNotConfigured
+				pl.state, pl.msg = StateDisabled, msg
 			} else {
-				pl.state, pl.msg = StateUnconfigured, msgNotConfigured
+				pl.state, pl.msg = StateUnconfigured, msg
 			}
 			return pl
 		}

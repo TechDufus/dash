@@ -78,6 +78,9 @@ func (*Plugin) Configured(cfg any) bool {
 	return ok && c.URL != ""
 }
 
+// ConfigHint implements plugin.ConfigHinter.
+func (*Plugin) ConfigHint() string { return "plugins.prometheus.url" }
+
 // Validate reports the cross-field rules of the section (auth, header names). The schema has
 // already accepted its shape.
 func (*Plugin) Validate(cfg any) error {

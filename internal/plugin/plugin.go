@@ -162,6 +162,11 @@ type Validator interface{ Validate(cfg any) error }
 // means "disabled" (auto-enable); with enabled true, "unconfigured".
 type Configured interface{ Configured(cfg any) bool }
 
+// ConfigHinter names what to set to configure the plugin ("plugins.gatus.url"), so that its
+// "not configured" row says what is missing: "not configured: set plugins.gatus.url". Without it
+// the row says only "not configured". The hint is shown to every viewer: a setting name only.
+type ConfigHinter interface{ ConfigHint() string }
+
 // Provider exports what Host.Service(id) returns to a plugin that declares it in Requires or Uses.
 type Provider interface{ Service() any }
 
