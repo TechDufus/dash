@@ -216,6 +216,42 @@ func TestOutcomeCanReportAnotherTarget(t *testing.T) {
 	}
 }
 
+// The slog line is the only audit trail where there is no data directory, so it carries the
+// request id an error response quotes: for outcomes, denials and events alike.
+func TestSlogLineCarriesTheRequestID(t *testing.T) {
+	var buf bytes.Buffer
+	l := open(t, t.TempDir(), Options{Logger: jsonLogger(&buf, slog.LevelInfo)})
+	rec := Record{Action: "kubernetes.restart", Actor: Actor{User: "alice"}, RequestID: "req-42"}
+	p, err := l.Intent(rec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p.Outcome(nil)
+	l.Denial("192.0.2.7", "csrf", rec)
+	l.Event(rec)
+	lines := strings.Split(strings.TrimSpace(buf.String()), "\n")
+	n := 0
+	for _, line := range lines {
+		if !strings.Contains(line, `"msg":"audit"`) {
+			continue
+		}
+		n++
+		if !strings.Contains(line, `"requestId":"req-42"`) {
+			t.Errorf("audit slog line has no request id: %s", line)
+		}
+	}
+	if n < 3 {
+		t.Errorf("%d audit slog lines, want the outcome, the denial and the event at least: %s", n, buf.String())
+	}
+
+	// A record without one adds no empty field.
+	buf.Reset()
+	l.Event(Record{Action: "login", Actor: Actor{User: "alice"}})
+	if strings.Contains(buf.String(), "requestId") {
+		t.Errorf("a record with no request id logged one: %s", buf.String())
+	}
+}
+
 func TestRotationKeepsFiveFilesAndChainVerifies(t *testing.T) {
 	dir := t.TempDir()
 	l := open(t, dir, Options{MaxSize: 600})

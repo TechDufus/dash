@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sync"
 	"testing"
 	"time"
@@ -191,7 +192,7 @@ func TestActionsWriteIntentThenOutcome(t *testing.T) {
 }
 
 // The structured "audit" slog record is what log dashboards read; the audit log must emit it
-// exactly as the old helper did, for successes and failures, with and without a file.
+// as the old helper did (plus the request id), for successes and failures, with and without a file.
 func TestAuditSlogMatchesLegacyHelper(t *testing.T) {
 	for _, withFile := range []bool{true, false} {
 		name := map[bool]string{true: "with file", false: "slog only"}[withFile]
@@ -255,10 +256,16 @@ func TestAuditSlogMatchesLegacyHelper(t *testing.T) {
 			replay(func() { legacyAudit("alice", "silence.expire", "Silence", "", "abc", nil) })
 
 			// Other records (the WARN naming an upstream failure) are not the audit record's business.
+			// Each audit line also carries the request's id, which the old helper had no way to
+			// know: it must be there, and is taken out for the comparison.
 			var gotAudit bytes.Buffer
+			idField := regexp.MustCompile(`,"requestId":"[0-9a-f]{32}"`)
 			for line := range bytes.SplitSeq([]byte(got.String()), []byte("\n")) {
 				if bytes.Contains(line, []byte(`"msg":"audit"`)) {
-					gotAudit.Write(line)
+					if !idField.Match(line) {
+						t.Errorf("audit line without a request id: %s", line)
+					}
+					gotAudit.Write(idField.ReplaceAll(line, nil))
 					gotAudit.WriteByte('\n')
 				}
 			}

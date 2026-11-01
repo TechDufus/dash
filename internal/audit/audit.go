@@ -367,12 +367,17 @@ func (l *Log) scrubbed(rec Record) Record {
 
 // emit writes the slog record. Its shape for outcomes is the helper dash has always
 // had in internal/api/actions.go (user, action, kind, namespace, name, result, error);
-// logs and dashboards built on it keep working. A denial adds peer and reason.
+// logs and dashboards built on it keep working. A request id, when the record has one, is
+// added so an error's requestId finds its audit line where the log is the only trail. A denial
+// adds peer and reason.
 func (l *Log) emit(rec Record, denialReason string) {
 	attrs := []any{"user", rec.Actor.User, "action", rec.Action, "kind", rec.Target.Kind,
 		"namespace", rec.Target.Namespace, "name", rec.Target.Name, "result", rec.Result, "error", rec.Error}
 	if rec.Plugin != "" {
 		attrs = append(attrs, "plugin", rec.Plugin)
+	}
+	if rec.RequestID != "" {
+		attrs = append(attrs, "requestId", rec.RequestID)
 	}
 	if denialReason != "" {
 		attrs = append(attrs, "peer", rec.Peer, "reason", denialReason)
