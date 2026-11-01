@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"sync"
@@ -227,10 +229,15 @@ func TestPluginStreamAuditsTheOpenOnce(t *testing.T) {
 		t.Errorf("record = %+v, want %+v", got, want)
 	}
 
-	// A second open is a second record.
+	// The same target again within the minute is not a second record (see the limit tests); another
+	// pod is.
 	h.openStream(t, tailPath, "alice", nil).expect("retry: 3000")
+	if n := len(h.audit(t)); n != 1 {
+		t.Errorf("records after a repeated open = %d, want still 1", n)
+	}
+	h.openStream(t, "/api/v1/plugins/rt/tail?ns=media&pod=plex-1", "alice", nil).expect("retry: 3000")
 	if n := len(h.audit(t)); n != 2 {
-		t.Errorf("records after two opens = %d, want 2", n)
+		t.Errorf("records after opening another pod = %d, want 2", n)
 	}
 }
 
@@ -535,5 +542,96 @@ func TestPluginStreamEndsWhenItsPluginIsDisabled(t *testing.T) {
 	h.eventually(t, "the slot to be released", func() bool { return h.openTails() == 0 })
 	if w := h.get(tailPath); w.Code != http.StatusNotFound {
 		t.Errorf("a new open of the disabled plugin = %d, want 404", w.Code)
+	}
+}
+
+// dirSize is the size of the audit file.
+func (h *harness) dirSize(t *testing.T) int {
+	t.Helper()
+	b, err := os.ReadFile(filepath.Join(h.dir, audit.FileName))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return len(b)
+}
+
+// beginOnly is a tail that answers at once, so a test can open many without holding slots.
+func beginOnly(_ context.Context, _ *http.Request, _ auth.Principal, s plugin.Stream) error {
+	return s.Begin()
+}
+
+// A client chooses what it opens, so the open record is cut to maxAuditAction and the log keeps one
+// record per user and target a minute: a 50 KiB pod name opened 100 times is one short record.
+func TestPluginStreamOpenRecordIsCutAndWrittenOncePerUserAndTarget(t *testing.T) {
+	h := newHarness(t)
+	h.tails = newStreamLimiter(1000, 1000)
+	h.tail = beginOnly
+	huge := strings.Repeat("p", 50<<10)
+	path := "/api/v1/plugins/rt/tail?ns=media&pod=" + huge
+	for i := range 100 {
+		if w := h.get(path); w.Code != http.StatusOK {
+			t.Fatalf("open %d = %d", i, w.Code)
+		}
+	}
+	opens := recordsOf(h.audit(t), audit.KindEvent)
+	if len(opens) != 1 {
+		t.Fatalf("open records after 100 opens of one target = %d, want 1", len(opens))
+	}
+	if n := len(opens[0].Target.Name); n > maxAuditAction {
+		t.Errorf("target name is %d bytes, want at most %d", n, maxAuditAction)
+	}
+	if h.dirSize(t) > 8<<10 {
+		t.Errorf("the audit log grew to %d bytes", h.dirSize(t))
+	}
+	// Another user is recorded on their own.
+	if w := h.getAs(path, "bob", nil); w.Code != http.StatusOK {
+		t.Fatalf("bob's open = %d", w.Code)
+	}
+	if n := len(recordsOf(h.audit(t), audit.KindEvent)); n != 2 {
+		t.Errorf("records after bob's open = %d, want 2", n)
+	}
+	// A minute later the same target is recorded again.
+	h.clk.advance(openRecordWindow + time.Second)
+	h.get(path)
+	if n := len(recordsOf(h.audit(t), audit.KindEvent)); n != 3 {
+		t.Errorf("records a window later = %d, want 3", n)
+	}
+}
+
+// Varying the target does not get around the limit: one user's open records are capped as a whole.
+func TestPluginStreamOpenRecordsAreCappedPerUser(t *testing.T) {
+	h := newHarness(t)
+	h.tails = newStreamLimiter(1000, 1000)
+	h.tail = beginOnly
+	for i := range 3 * openRecordPerUser {
+		h.get(fmt.Sprintf("/api/v1/plugins/rt/tail?ns=media&pod=plex-%d", i))
+	}
+	if n := len(recordsOf(h.audit(t), audit.KindEvent)); n != openRecordPerUser {
+		t.Errorf("records = %d, want the per-user cap %d", n, openRecordPerUser)
+	}
+}
+
+// A request the plugin can never serve is refused before it takes a slot or writes a record.
+func TestPluginStreamValidateRunsBeforeTheSlotAndTheAuditRecord(t *testing.T) {
+	validate := func(r *http.Request) error {
+		if nsQuery(r) == "" || r.URL.Query().Get("pod") == "" {
+			return fmt.Errorf("%w: a namespace and a pod are required", upstream.ErrInvalid)
+		}
+		return nil
+	}
+	h := newHarness(t, harnessRoutes(func(h *harness, r plugin.Routes) {
+		r.Stream("/tail", h.serveTail, plugin.StreamSpec{Summary: "Tail", Scope: "logs", Target: podTarget, Namespace: nsQuery, Validate: validate})
+	}))
+	h.tails = newStreamLimiter(0, 0) // every slot taken: a refusal for a bad query must still be a 400
+	w := h.get("/api/v1/plugins/rt/tail?ns=media")
+	if w.Code != http.StatusBadRequest || !strings.Contains(w.Body.String(), `"code":"invalid_input"`) {
+		t.Fatalf("bad query = %d %s, want 400 invalid_input", w.Code, w.Body)
+	}
+	if recs := h.audit(t); len(recordsOf(recs, audit.KindEvent)) != 0 || len(recordsOf(recs, audit.KindDenial)) != 0 {
+		t.Errorf("records for a request that was never served: %+v", recs)
+	}
+	// A good query reaches the slot check.
+	if w := h.get(tailPath); w.Code != http.StatusTooManyRequests && w.Code != http.StatusServiceUnavailable {
+		t.Errorf("a valid query with no slot free = %d, want 429 or 503", w.Code)
 	}
 }

@@ -2,11 +2,14 @@ package api
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"log/slog"
 	"net/http"
 	"slices"
+	"strings"
 	"sync"
 
 	"github.com/TechDufus/dash/internal/audit"
@@ -77,11 +80,54 @@ func streamAuditAction(spec *plugin.StreamSpec) string {
 	return "stream.open"
 }
 
-// servePluginStream runs a plugin's stream: the slot of the tail limiter (429 per user, 503 in
-// total), the audit record of the open, the maximum duration, the write deadline and the
-// heartbeat. What flows is the plugin's StreamHandler, written through Stream.
+// maxAuditTarget caps each text of a stream's audit target: it comes from the client.
+const maxAuditTarget = maxAuditAction
+
+// clip cuts s to at most n bytes without splitting a character.
+func clip(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	return strings.ToValidUTF8(s[:n], "")
+}
+
+// auditStreamOpen records that user opened the stream of mr, once per user and target a minute and
+// at most openRecordPerUser a minute for the user: a client chooses what it opens, so an
+// unlimited record would let one user fill the audit log. The target's texts are cut first.
+func (s *Server) auditStreamOpen(r *http.Request, mr plugin.MountedRoute) {
+	spec := mr.Info.Stream
+	var target audit.Target
+	if spec.Target != nil {
+		kind, ns, name := spec.Target(r)
+		target = audit.Target{Kind: clip(kind, maxAuditTarget), Namespace: clip(ns, maxAuditTarget), Name: clip(name, maxAuditTarget)}
+	}
+	user, now := userFrom(r.Context()), s.now()
+	if s.openTarget != nil {
+		sum := sha256.Sum256([]byte(strings.Join([]string{string(mr.Instance), r.URL.Path, target.Kind, target.Namespace, target.Name}, "\x00")))
+		if ok, _ := s.openTarget.allow(user+"\x00"+hex.EncodeToString(sum[:8]), now); !ok {
+			return
+		}
+		if ok, _ := s.openUser.allow(user, now); !ok {
+			return
+		}
+	}
+	rec := s.auditRecord(r, streamAuditAction(spec), target)
+	rec.Plugin = string(mr.Instance)
+	s.d.Audit.Event(rec)
+}
+
+// servePluginStream runs a plugin's stream: the spec's own check of the request (a 400 before
+// anything is taken), the slot of the tail limiter (429 per user, 503 in total), the audit record
+// of the open, the maximum duration, the write deadline and the heartbeat. What flows is the
+// plugin's StreamHandler, written through Stream.
 func (s *Server) servePluginStream(w http.ResponseWriter, r *http.Request, mr plugin.MountedRoute) {
 	spec := mr.Info.Stream
+	if spec.Validate != nil {
+		if err := spec.Validate(r); err != nil {
+			s.pluginFail(w, r, mr.Instance, err)
+			return
+		}
+	}
 	release, ok := s.tails.acquire(w, userFrom(r.Context()))
 	if !ok {
 		s.deny(r, obs.AuthStreamLimit)
@@ -89,15 +135,7 @@ func (s *Server) servePluginStream(w http.ResponseWriter, r *http.Request, mr pl
 	}
 	defer release()
 	defer s.d.Metrics.StreamOpened(obs.StreamTail)()
-
-	var target audit.Target
-	if spec.Target != nil {
-		kind, ns, name := spec.Target(r)
-		target = audit.Target{Kind: kind, Namespace: ns, Name: name}
-	}
-	rec := s.auditRecord(r, streamAuditAction(spec), target)
-	rec.Plugin = string(mr.Instance)
-	s.d.Audit.Event(rec)
+	s.auditStreamOpen(r, mr)
 
 	// When the deadline ends the stream, the browser's EventSource reconnects by itself.
 	ctx, cancel := context.WithTimeout(r.Context(), s.tailMax)

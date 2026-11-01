@@ -13,6 +13,14 @@ const (
 	maxRateKeys      = 4096
 )
 
+// The stream-open audit records (design F.5): a tail is audited at every open, but a client chooses
+// what it opens, so the log keeps at most one record per user and target a minute, and a user's
+// opens as a whole are capped too. A refused record never refuses the stream.
+const (
+	openRecordWindow  = time.Minute
+	openRecordPerUser = 30
+)
+
 // rateLimiter is a sliding-window limiter: at most limit events per key in any window. It
 // holds at most maxKeys keys; the keys are authenticated users, so a full table means the
 // identity provider hands out thousands of names, not that a client is flooding it, and a

@@ -98,6 +98,8 @@ type Server struct {
 	sseWrite    time.Duration  // deadline of each SSE write
 	bodyTimeout time.Duration  // longest a request body may take to arrive
 	actionLimit *rateLimiter   // framework actions per principal
+	openTarget  *rateLimiter   // stream-open audit records per user and target
+	openUser    *rateLimiter   // stream-open audit records per user
 	hostWarn    atomic.Int64   // unix nanos of the last unknown-host warning
 	serving     atomic.Bool    // the listeners are bound (MarkServing)
 	schemas     sync.Map       // reflect.Type -> json.RawMessage: action input schemas
@@ -116,6 +118,8 @@ func New(d Deps) *Server {
 		tails:   newStreamLimiter(l.TailsPerUser, l.Tails),
 		tailMax: l.TailMaxDuration, sseWrite: l.SSEWriteTimeout, bodyTimeout: l.BodyReadTimeout,
 		actionLimit: newRateLimiter(actionRateLimit, actionRateWindow, maxRateKeys),
+		openTarget:  newRateLimiter(1, openRecordWindow, maxRateKeys),
+		openUser:    newRateLimiter(openRecordPerUser, openRecordWindow, maxRateKeys),
 	}
 }
 

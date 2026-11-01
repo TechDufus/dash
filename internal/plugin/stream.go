@@ -18,6 +18,12 @@ type StreamSpec struct {
 	Scope string
 	// Query documents the query parameters of the route in OpenAPI.
 	Query []Param
+	// Validate checks the request before the core takes a stream slot or writes an audit record: a
+	// request that can never succeed (a missing namespace or pod) is refused without costing
+	// either. Its error is answered like a handler's error before Begin: an *ActionError as it
+	// is, an error wrapping upstream.ErrInvalid as 400, anything else as an upstream failure.
+	// nil accepts every request.
+	Validate func(r *http.Request) error
 	// Target names the object a client opens a stream on, for the audit record the core writes
 	// at every open (design F.5). Nil records no target.
 	Target func(r *http.Request) (kind, namespace, name string)
