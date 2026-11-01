@@ -36,11 +36,24 @@ func (s *Server) writeKubeErr(w http.ResponseWriter, err error) {
 	if errors.As(err, &st) {
 		switch code := int(st.Status().Code); code {
 		case http.StatusForbidden, http.StatusNotFound, http.StatusConflict, http.StatusUnprocessableEntity:
-			writeErr(w, code, s.d.Secrets.Scrub(err.Error()))
+			writeErr(w, code, kubeErrCode(code), s.d.Secrets.Scrub(err.Error()))
 			return
 		}
 	}
 	s.badGateway(w, "kubernetes", err)
+}
+
+// kubeErrCode is the error code of a Kubernetes status writeKubeErr passes through.
+func kubeErrCode(status int) string {
+	switch status {
+	case http.StatusForbidden:
+		return model.ErrCodeForbidden
+	case http.StatusNotFound:
+		return model.ErrCodeNotFound
+	case http.StatusConflict:
+		return model.ErrCodeConflict
+	}
+	return model.ErrCodeInvalidInput // 422
 }
 
 func accepted(w http.ResponseWriter) {
@@ -55,11 +68,11 @@ func (s *Server) restart(w http.ResponseWriter, r *http.Request) {
 	switch req.Kind {
 	case model.WorkloadKindDeployment, model.WorkloadKindStatefulSet, model.WorkloadKindDaemonSet:
 	default:
-		writeErr(w, http.StatusBadRequest, "unsupported kind")
+		writeErr(w, http.StatusBadRequest, model.ErrCodeInvalidInput, "unsupported kind")
 		return
 	}
 	if !queries.ValidDNS(req.Namespace) || !queries.ValidDNS(req.Name) {
-		writeErr(w, http.StatusBadRequest, "invalid namespace or name")
+		writeErr(w, http.StatusBadRequest, model.ErrCodeInvalidInput, "invalid namespace or name")
 		return
 	}
 	kind := string(req.Kind)
@@ -79,7 +92,7 @@ func (s *Server) restart(w http.ResponseWriter, r *http.Request) {
 	if label := s.d.Cfg.Conventions.ProtectedLabel; label != "" && ns.Labels[label] == "true" && req.Confirm != req.Name {
 		err := errors.New("type the workload name to confirm")
 		pending.Outcome(err)
-		writeErr(w, http.StatusBadRequest, err.Error())
+		writeErr(w, http.StatusBadRequest, model.ErrCodeInvalidInput, err.Error())
 		return
 	}
 
@@ -110,11 +123,11 @@ func (s *Server) reconcile(w http.ResponseWriter, r *http.Request) {
 	}
 	gvr, ok := fluxResources[req.Kind]
 	if !ok {
-		writeErr(w, http.StatusBadRequest, "unsupported kind")
+		writeErr(w, http.StatusBadRequest, model.ErrCodeInvalidInput, "unsupported kind")
 		return
 	}
 	if !queries.ValidDNS(req.Namespace) || !queries.ValidDNS(req.Name) {
-		writeErr(w, http.StatusBadRequest, "invalid namespace or name")
+		writeErr(w, http.StatusBadRequest, model.ErrCodeInvalidInput, "invalid namespace or name")
 		return
 	}
 	patch, _ := json.Marshal(map[string]any{"metadata": map[string]any{

@@ -85,7 +85,7 @@ func (e *sseWriter) pings(ctx context.Context, interval time.Duration) {
 func (s *Server) stream(w http.ResponseWriter, r *http.Request) {
 	want, err := topicFilter(r.URL.Query().Get("topics"))
 	if err != nil {
-		writeErr(w, http.StatusBadRequest, err.Error())
+		writeErr(w, http.StatusBadRequest, model.ErrCodeInvalidInput, err.Error())
 		return
 	}
 	release, ok := s.events.acquire(w, userFrom(r.Context()))
@@ -130,7 +130,7 @@ func (s *Server) stream(w http.ResponseWriter, r *http.Request) {
 func (s *Server) logsTail(w http.ResponseWriter, r *http.Request) {
 	q := logQueryFrom(r)
 	if _, err := upstream.BuildQuery(q, true); err != nil {
-		writeErr(w, http.StatusBadRequest, err.Error())
+		writeErr(w, http.StatusBadRequest, model.ErrCodeInvalidInput, err.Error())
 		return
 	}
 	// A reconnecting EventSource sends the id of the last line it saw: one resume point per

@@ -7,6 +7,7 @@ import (
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 
+	"github.com/TechDufus/dash/internal/model"
 	"github.com/TechDufus/dash/internal/upstream"
 )
 
@@ -25,5 +26,5 @@ func errCategory(err error) string {
 func (s *Server) badGateway(w http.ResponseWriter, what string, err error) {
 	cat := errCategory(err)
 	slog.Warn("upstream request failed", "what", what, "category", cat, "error", s.d.Secrets.Scrub(err.Error()))
-	writeErr(w, http.StatusBadGateway, what+": "+cat)
+	writeErr(w, http.StatusBadGateway, model.ErrCodeUpstreamUnavailable, what+": "+cat)
 }

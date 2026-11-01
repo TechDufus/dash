@@ -22,13 +22,13 @@ var topicNameRE = regexp.MustCompile(`^[a-z][a-z0-9_]{0,31}(\.[a-z][a-z0-9_]{0,3
 func (s *Server) topic(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("topic")
 	if !topicNameRE.MatchString(name) {
-		writeErr(w, http.StatusBadRequest, "invalid topic name")
+		writeErr(w, http.StatusBadRequest, model.ErrCodeInvalidInput, "invalid topic name")
 		return
 	}
 	// Another user's scoped copy is invisible: Latest only returns the caller's own.
 	ev, ok := s.d.Hub.Latest(userFrom(r.Context()), model.Topic(name))
 	if !ok {
-		writeErr(w, http.StatusNotFound, "not found")
+		writeErr(w, http.StatusNotFound, model.ErrCodeNotFound, "not found")
 		return
 	}
 	h := w.Header()

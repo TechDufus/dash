@@ -100,6 +100,7 @@ type Record struct {
 	Peer      string    `json:"peer,omitempty"`
 	RequestID string    `json:"requestId,omitempty"`
 	AuthMode  string    `json:"authMode,omitempty"`
+	Plugin    string    `json:"plugin,omitempty"` // the plugin instance behind a framework action
 	Reason    string    `json:"reason,omitempty"`
 	Prev      string    `json:"prev"`
 }
@@ -370,6 +371,9 @@ func (l *Log) scrubbed(rec Record) Record {
 func (l *Log) emit(rec Record, denialReason string) {
 	attrs := []any{"user", rec.Actor.User, "action", rec.Action, "kind", rec.Target.Kind,
 		"namespace", rec.Target.Namespace, "name", rec.Target.Name, "result", rec.Result, "error", rec.Error}
+	if rec.Plugin != "" {
+		attrs = append(attrs, "plugin", rec.Plugin)
+	}
 	if denialReason != "" {
 		attrs = append(attrs, "peer", rec.Peer, "reason", denialReason)
 	}

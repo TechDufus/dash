@@ -661,11 +661,6 @@ type UIConfig struct {
 	Launcher  []LauncherLink `json:"launcher"`
 }
 
-// APIError is the body of every non-2xx JSON answer.
-type APIError struct {
-	Error string `json:"error"`
-}
-
 // RestartRequest is the body of POST /api/actions/restart.
 type RestartRequest struct {
 	// Kind is Deployment, StatefulSet or DaemonSet; anything else is 400.

@@ -18,6 +18,7 @@ import (
 	"github.com/TechDufus/dash/internal/config"
 	"github.com/TechDufus/dash/internal/hub"
 	"github.com/TechDufus/dash/internal/model"
+	"github.com/TechDufus/dash/internal/plugin"
 	"github.com/TechDufus/dash/internal/secret"
 	"github.com/TechDufus/dash/internal/upstream"
 	"github.com/TechDufus/dash/web"
@@ -47,6 +48,16 @@ type DataAPI interface {
 	VMDetail(ctx context.Context, vmid int) (model.VMDetail, error)
 }
 
+// PluginsAPI is the slice of plugin.Supervisor the API uses.
+type PluginsAPI interface {
+	Infos() []model.PluginInfo
+	Manifests() []plugin.Manifest
+	Action(instance plugin.ID, name string) (plugin.ActionRef, bool)
+	Router(instance plugin.ID) (http.Handler, bool)
+	Series(name string) (plugin.SeriesSpec, plugin.ID, bool)
+	Ready() bool
+}
+
 // Deps are the collaborators of a Server.
 type Deps struct {
 	Cfg     config.Config
@@ -58,6 +69,7 @@ type Deps struct {
 	AM      AlertmanagerAPI
 	VLogs   VLogsAPI
 	Data    DataAPI
+	Plugins PluginsAPI // nil = no plugins
 	Ready   func() bool
 	// Secrets scrubs upstream errors and log lines; nil only matches credential shapes.
 	Secrets *secret.Registry
@@ -75,6 +87,7 @@ type Server struct {
 	tailMax     time.Duration  // longest a log tail stays open
 	sseWrite    time.Duration  // deadline of each SSE write
 	bodyTimeout time.Duration  // longest a request body may take to arrive
+	actionLimit *rateLimiter   // framework actions per principal
 	hostWarn    atomic.Int64   // unix nanos of the last unknown-host warning
 }
 
@@ -90,6 +103,7 @@ func New(d Deps) *Server {
 		events:  newStreamLimiter(l.StreamsPerUser, l.Streams),
 		tails:   newStreamLimiter(l.TailsPerUser, l.Tails),
 		tailMax: l.TailMaxDuration, sseWrite: l.SSEWriteTimeout, bodyTimeout: l.BodyReadTimeout,
+		actionLimit: newRateLimiter(actionRateLimit, actionRateWindow, maxRateKeys),
 	}
 }
 
@@ -109,8 +123,12 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/actions/reconcile", s.reconcile)
 	mux.HandleFunc("POST /api/silences", s.createSilence)
 	mux.HandleFunc("DELETE /api/silences/{id}", s.expireSilence)
+	mux.HandleFunc("GET /api/v1/plugins", s.plugins)
+	mux.HandleFunc("GET /api/v1/plugins/{id}", s.pluginRoute)
+	mux.HandleFunc("GET /api/v1/plugins/{id}/{rest...}", s.pluginRoute)
+	mux.HandleFunc("POST /api/v1/plugins/{id}/actions/{name}", s.runAction)
 	mux.HandleFunc("/api/", func(w http.ResponseWriter, r *http.Request) {
-		writeErr(w, http.StatusNotFound, "not found")
+		writeErr(w, http.StatusNotFound, model.ErrCodeNotFound, "not found")
 	})
 	mux.HandleFunc("/", s.serveStatic)
 	return s.hosts(s.csrf(s.auth(mux)))
@@ -141,8 +159,9 @@ func writeJSON(w http.ResponseWriter, code int, v any) {
 	_ = json.NewEncoder(w).Encode(v)
 }
 
-func writeErr(w http.ResponseWriter, code int, msg string) {
-	writeJSON(w, code, model.APIError{Error: msg})
+// writeErr answers the L.2 error envelope: msg is text for a person, code one of model.ErrCode*.
+func writeErr(w http.ResponseWriter, status int, code, msg string) {
+	writeJSON(w, status, model.APIError{Error: msg, Code: code})
 }
 
 // maxBody caps JSON request bodies.
@@ -153,6 +172,17 @@ const maxBody = 64 << 10
 const maxTailResume = time.Minute
 
 // decodeBody reads a JSON body into v; it answers 400 itself and reports false on failure.
+func (s *Server) decodeBody(w http.ResponseWriter, r *http.Request, v any) bool {
+	return s.decode(w, r, v, false)
+}
+
+// decodeStrict is decodeBody for a body with a declared shape: a field v does not have is an
+// error (the action framework's input structs).
+func (s *Server) decodeStrict(w http.ResponseWriter, r *http.Request, v any) bool {
+	return s.decode(w, r, v, true)
+}
+
+// decode is decodeBody and decodeStrict.
 //
 // The read deadline bounds the whole body. On failure it is left set, so net/http's drain of
 // the unread remainder fails at once and closes the connection instead of waiting for a
@@ -161,16 +191,20 @@ const maxTailResume = time.Minute
 // starts the background read after the body is drained; the explicit clear keeps a deadline
 // from outliving the body (and, once it fired, cancelling the request context of a handler
 // that outlasts the timeout) independent of the Go version.
-func (s *Server) decodeBody(w http.ResponseWriter, r *http.Request, v any) bool {
+func (s *Server) decode(w http.ResponseWriter, r *http.Request, v any, strict bool) bool {
 	rc := http.NewResponseController(w)
 	armed := rc.SetReadDeadline(time.Now().Add(s.bodyTimeout)) == nil
 	body := http.MaxBytesReader(w, r.Body, maxBody)
-	if err := json.NewDecoder(body).Decode(v); err != nil {
-		writeErr(w, http.StatusBadRequest, "invalid request body")
+	dec := json.NewDecoder(body)
+	if strict {
+		dec.DisallowUnknownFields()
+	}
+	if err := dec.Decode(v); err != nil {
+		writeErr(w, http.StatusBadRequest, model.ErrCodeInvalidInput, "invalid request body")
 		return false
 	}
 	if _, err := io.Copy(io.Discard, body); err != nil {
-		writeErr(w, http.StatusBadRequest, "invalid request body")
+		writeErr(w, http.StatusBadRequest, model.ErrCodeInvalidInput, "invalid request body")
 		return false
 	}
 	if armed {

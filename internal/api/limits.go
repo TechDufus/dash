@@ -6,6 +6,7 @@ import (
 	"sync"
 
 	"github.com/TechDufus/dash/internal/config"
+	"github.com/TechDufus/dash/internal/model"
 )
 
 // withDefaultLimits fills each zero field of l from config.Defaults().Limits. A zero cap would
@@ -46,12 +47,12 @@ func (l *streamLimiter) acquire(w http.ResponseWriter, user string) (release fun
 	case l.byUser[user] >= l.perUser:
 		l.mu.Unlock()
 		w.Header().Set("Retry-After", "5")
-		writeErr(w, http.StatusTooManyRequests, "too many open streams for this user")
+		writeErr(w, http.StatusTooManyRequests, model.ErrCodeTooManyStreams, "too many open streams for this user")
 		return nil, false
 	case l.total >= l.max:
 		l.mu.Unlock()
 		w.Header().Set("Retry-After", "5")
-		writeErr(w, http.StatusServiceUnavailable, "too many open streams")
+		writeErr(w, http.StatusServiceUnavailable, model.ErrCodeTooManyStreams, "too many open streams")
 		return nil, false
 	}
 	l.byUser[user]++

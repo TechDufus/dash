@@ -256,6 +256,23 @@ flight when dash crashed; it exits 1 on a broken chain or a dangling intent. A l
 a newline (a crash mid-write) is reported as a torn tail and does not fail the check; dash drops
 it on the next start. The chain cannot see an edit to the very last line or a truncated tail.
 
+### Plugin routes, actions and error codes
+
+`GET /api/v1/plugins` lists every plugin instance with its state, topics, mounted actions and
+navigation (the same rows arrive on the `core.plugins` stream topic). A running plugin's own
+read routes live under `/api/v1/plugins/<id>/…`, and its actions are
+`POST /api/v1/plugins/<id>/actions/<name>`; those exist only while `plugins.<id>.actions.enabled`
+is set and the instance runs, and are otherwise `404`. Each action request runs the same
+chain: the principal's role, a rate limit of 10 actions a minute per user, the body checks
+(JSON only, unknown fields refused, `required` and `enum` honoured), `plugins.<id>.actions.denyNamespaces`,
+the audit intent, the action, then the audit outcome. A refusal is audited and the action does
+not run.
+
+Every error answer is `{"error": "<text for a person>", "code": "<reason>"}`. Clients branch on
+`code`: `invalid_input`, `unauthenticated`, `forbidden`, `csrf_failed`, `not_found`, `conflict`,
+`rate_limited`, `too_many_streams`, `upstream_unavailable`, `audit_unavailable`, `unknown_host`
+or `internal`.
+
 ### Breaking: no site defaults
 
 Earlier versions defaulted to one homelab's service addresses and names. They are gone. An empty

@@ -124,7 +124,7 @@ func run(reg *secret.Registry) error {
 		}
 		src.Run(ctx)
 		srv = api.New(api.Deps{
-			Cfg: cfg, Version: version, Hub: h, Prom: src, AM: src, VLogs: src, Data: src, Ready: sup.Ready, Secrets: reg, Audit: alog,
+			Cfg: cfg, Version: version, Hub: h, Plugins: sup, Prom: src, AM: src, VLogs: src, Data: src, Ready: sup.Ready, Secrets: reg, Audit: alog,
 		})
 		handler = demo.Wrap(srv.Handler())
 		slog.Info("demo mode: serving fake data, no cluster or upstreams are contacted")
@@ -168,7 +168,7 @@ func run(reg *secret.Registry) error {
 		mgr.Run(ctx)
 
 		srv = api.New(api.Deps{
-			Cfg: cfg, Version: version, Hub: h, Kube: cluster.Client, Dyn: cluster.Dynamic,
+			Cfg: cfg, Version: version, Hub: h, Plugins: sup, Kube: cluster.Client, Dyn: cluster.Dynamic,
 			Prom: prom, AM: am, VLogs: vlogs, Data: mgr, Ready: mgr.Ready, Secrets: reg, Audit: alog,
 		})
 		handler = srv.Handler()

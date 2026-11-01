@@ -56,7 +56,7 @@ func (s *Server) createSilence(w http.ResponseWriter, r *http.Request) {
 	}
 	dur, comment, msg := validateSilence(req)
 	if msg != "" {
-		writeErr(w, http.StatusBadRequest, msg)
+		writeErr(w, http.StatusBadRequest, model.ErrCodeInvalidInput, msg)
 		return
 	}
 	alertname := ""
@@ -86,7 +86,7 @@ func (s *Server) createSilence(w http.ResponseWriter, r *http.Request) {
 	pending.Outcome(err)
 	switch {
 	case errInvalid(err):
-		writeErr(w, http.StatusBadRequest, err.Error())
+		writeErr(w, http.StatusBadRequest, model.ErrCodeInvalidInput, err.Error())
 	case err != nil:
 		s.badGateway(w, "alertmanager", err)
 	default:
@@ -104,7 +104,7 @@ func (s *Server) expireSilence(w http.ResponseWriter, r *http.Request) {
 	pending.Outcome(err)
 	switch {
 	case errInvalid(err):
-		writeErr(w, http.StatusBadRequest, err.Error())
+		writeErr(w, http.StatusBadRequest, model.ErrCodeInvalidInput, err.Error())
 	case err != nil:
 		s.badGateway(w, "alertmanager", err)
 	default:
