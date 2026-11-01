@@ -231,7 +231,7 @@ Move `ProxmoxToken` onto `secret.Value`.
 - Round-trip tests.
 - A ciphertext moved to another field fails to decrypt.
 - Rotation rewrites every value and audits `secrets.rekey`.
-- With no key, storing a secret returns 409 naming the missing key, and nothing else is affected.
+- With no key, storing a secret returns 409 naming the missing key, and nothing else is affected. Here the library refuses it (`ErrNoKey`, tested); the HTTP 409 mapping and its tests land with the settings API in P4.7, which is the first route that can store a secret.
 - A stored `enc:v1` value with a missing or wrong key fails startup, listing the field paths. The value is never dropped, blanked or regenerated.
 - After Clear or Replace, no `.bak.N` file contains the old ciphertext.
 
@@ -255,7 +255,7 @@ The UI layer sits below file and env (design B.2).
 **Acceptance criteria**
 - Concurrent writers: the second process exits with a clear message.
 - A write interrupted between the temp write and the rename leaves the old file intact (test via a fault-injected filesystem helper).
-- A read-only data dir, or `settings.ui: readonly`, yields `readonly=true`, and writes return 409.
+- A read-only data dir, or `settings.ui: readonly`, yields `readonly=true`, and writes return 409. Here the store refuses writes (`ErrReadOnly`, tested); the HTTP 409 mapping and its tests land with the settings API in P4.7.
 - A file at an older `schemaVersion` is migrated on load.
 - The sixth write drops the oldest backup.
 - Saving one field writes only that key. After a UI save, a later env or file change still takes effect (no snapshot).

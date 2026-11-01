@@ -127,9 +127,11 @@ scrubs every secret it has read, in its encoded forms too, and credential-shaped
 A failing upstream is reported to viewers as one category only (`unreachable`, `timeout`, `tls`,
 `auth`, `http_<code>`, `invalid_response`); the detail, with URLs, is in dash's log.
 
-The data directory holds `ui-settings.yaml`, the values saved from the UI. It is a sparse layer
-below the file and the environment: whatever they set wins, and removing it from them shows the
-saved value again. `server.*`, `settings.ui` and `dataDir` cannot be saved from the UI. dash
+The data directory holds `ui-settings.yaml`, the layer reserved for values saved from the
+settings UI. The settings editor arrives with P4.7: this release has no settings page or API, so
+the layer only holds what was put there by hand. It is a sparse layer below the file and the
+environment: whatever they set wins, and removing it from them shows the saved value again.
+`server.*`, `settings.ui` and `dataDir` cannot be saved from the UI. dash
 locks the directory, so a second instance on it exits with a message. When the directory is
 missing or not writable, or `settings.ui` is `readonly`, the store is read-only: dash logs one
 INFO line and runs on the file and the environment alone. Demo mode uses no data directory.
@@ -139,7 +141,9 @@ Every 10 seconds dash checks the config file and every file a secret points at (
 layers again. A rotated secret file reaches the running credentials without a restart. An edit
 that does not validate is logged once as an ERROR and changes nothing; dash keeps running on
 the configuration it has. Any other changed setting is logged as a WARN that it applies after a
-restart. Environment variables only change with a restart.
+restart. Environment variables only change with a restart. A legacy `DASH_PROXMOX_TOKEN_FILE` is
+split into token ID and secret once at startup and is not watched (its deprecation warning says
+so): rotate without a restart with `DASH_PLUGINS_PROXMOX_TOKEN_SECRET_FILE`.
 
 | Setting (file path) | Default | What |
 |---|---|---|
@@ -165,7 +169,7 @@ restart. Environment variables only change with a restart.
 | `plugins.headlamp.url`, `.cluster` | empty, `main` | Headlamp deep links |
 | `plugins.grafana.url` | empty | Grafana links |
 | `plugins.launcher.file`, `.links` | empty | the launcher's links, from a YAML file or inline (not both) |
-| `plugins.kubernetes.kubeconfig` | in-cluster | used outside the cluster; `KUBECONFIG` is honoured too |
+| `plugins.kubernetes.kubeconfig` | in-cluster | used outside the cluster; `KUBECONFIG` is honoured too, as it is, with no `_FILE` form |
 
 The launcher is a list of `name`, `href`, `icon` and `description`; `icon` is a
 [dashboard-icons](https://github.com/homarr-labs/dashboard-icons) name or an image URL. Mount a
@@ -181,15 +185,16 @@ while one is empty, the feature that depends on it is off.
 | `plugins.kubernetes.conventions.tenantLabel` | empty | namespace label that puts it under Tenants |
 | `plugins.flux.suspendReasonAnnotation` | empty | Flux annotation shown as the reason an object is suspended |
 | `plugins.kubernetes.conventions.appsFluxPrefix` | empty | namespaces applied by a Kustomization with this prefix go under Apps |
-| `plugins.hardware.zfsScrubMetricPrefix` | empty (scrub panel hidden) | `<prefix>_last_end_timestamp_seconds`, `_last_errors`, `_in_progress`; a valid metric name when set |
+| `plugins.hardware.zfsScrubMetricPrefix` | empty (no scrub data: not queried, and the pool cards show none) | `<prefix>_last_end_timestamp_seconds`, `_last_errors`, `_in_progress`; a valid metric name when set |
 | `plugins.kubernetes.backupJobs` | empty (no NAS backup row) | `[{namespace, cronjob}]`: the CronJob behind the NAS backup age; one entry for now |
 
 ### Secret key (secrets typed into the UI)
 
-A secret an admin types into the settings UI is stored in `ui-settings.yaml` encrypted
-(XChaCha20-Poly1305, the field path bound in, so a value copied to another field does not
-decrypt). The key comes from the process environment only; there is no default and dash never
-generates one. Without a key, secrets can only be set through env and file references, and
+Secrets saved through the settings editor (it arrives with P4.7) are stored in
+`ui-settings.yaml` encrypted (XChaCha20-Poly1305, the field path bound in, so a value copied to
+another field does not decrypt). The key comes from the process environment only; there is no
+default and dash never generates one. Without a key, secrets can only be set through env and
+file references, and
 saving one from the UI is refused with an error that names `DASH_SECRET_KEY`. The rest of dash
 runs as usual.
 
@@ -213,8 +218,9 @@ To rotate the key:
    warning that the rekey is pending and keeps running on both keys.
 3. Once the log shows the rekey, remove `DASH_SECRET_KEY_PREVIOUS` and restart.
 
-Replacing or clearing a secret also rewrites the retained `ui-settings.yaml.bak.N` copies
-without the old ciphertext, so restoring a backup cannot bring a cleared secret back.
+When the settings editor replaces or clears a secret it also rewrites the retained
+`ui-settings.yaml.bak.N` copies without the old ciphertext, so restoring a backup cannot bring a
+cleared secret back.
 
 ### Audit log
 
@@ -281,6 +287,8 @@ deprecation warning naming its replacement, and the generated name wins when bot
 
 `DASH_DEV`, `DASH_DEMO` and `DASH_CONFIG` are process settings, not part of the config tree.
 
+`KUBECONFIG` stays as it is: no deprecation warning and no `_FILE` form (it is another tool's variable).
+
 ## Layout
 
 | Path | What |
@@ -309,7 +317,8 @@ make dev-web   # Vite on http://localhost:5173, proxying /api to the Go API
 ```
 
 `DASH_DEV=true` signs every request in as `dev` without authentication, so dash refuses to
-start unless `DASH_LISTEN` is a loopback address (`127.0.0.1:8080`, `[::1]:8080`, `localhost:8080`).
+start unless `server.listen` (`DASH_SERVER_LISTEN`) is a loopback address (`127.0.0.1:8080`,
+`[::1]:8080`, `localhost:8080`).
 
 Open http://localhost:5173. `make check` runs everything CI runs: the generated types must be
 current, `go vet`, `go test`, `tsc`, Biome and the production build.
