@@ -310,6 +310,27 @@ func TestPluginconfValidationAtResolve(t *testing.T) {
 	}
 }
 
+// A section reports every problem it has, also several at one path; only a path that already
+// failed before the section ran (the generic checks) is not reported again.
+func TestSectionReportsEveryProblemAtOnePath(t *testing.T) {
+	src := Sources{
+		Environ: []string{"DASH_DEMO=true", "DASH_PLUGINS_LAUNCHER_FILE=/x.yaml"},
+		File:    &File{Path: "c.yaml", Data: []byte("plugins: {launcher: {links: [{name: x, href: 'javascript:alert(1)'}]}}\n")},
+	}
+	_, _, err := resolveWith(t, src)
+	if err == nil {
+		t.Fatal("want an error")
+	}
+	for _, w := range []string{"cannot be set together with plugins.launcher.file", "entry 1 needs a name and an http(s) href"} {
+		if !strings.Contains(err.Error(), w) {
+			t.Errorf("error %q does not report %q", err, w)
+		}
+	}
+	if n := strings.Count(err.Error(), "plugins.launcher.links"); n != 2 {
+		t.Errorf("plugins.launcher.links is reported %d times, want 2: %v", n, err)
+	}
+}
+
 // An inline launcher link that is invalid is rejected by validation (so by a reload too, which
 // keeps the last good configuration); the file is read afterwards, by LoadLauncherFile, so an
 // unreadable file does not fail Resolve but fails the load.

@@ -47,14 +47,17 @@ func (v *validator) fail(path, format string, args ...any) {
 }
 
 // section reports what a pluginconf section's Validate found, each problem at its full path
-// under prefix. A setting the generic checks already rejected is not reported twice.
+// under prefix. A setting the generic checks already rejected before the section ran is not
+// reported twice; problems of the section itself at one path all are, as they were before the
+// sections moved to pluginconf.
 func (v *validator) section(prefix string, err error) {
+	earlier := maps.Clone(v.failed)
 	for _, fe := range pluginconf.Problems(err) {
 		path := prefix
 		if fe.Path != "" {
 			path += "." + fe.Path
 		}
-		if !v.failed[path] {
+		if !earlier[path] {
 			v.fail(path, "%s", fe.Msg)
 		}
 	}
