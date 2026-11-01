@@ -14,9 +14,9 @@ import (
 )
 
 // The environment layer (design B.3, B.5). Every schema leaf has a generated name
-// (DASH_PLUGINS_PROXMOX_URL); lists and objects are JSON. Every name, generated or legacy, also
-// takes a <NAME>_FILE form holding the path of a file with the value, resolved here because the
-// image has no shell entrypoint. The legacy names are aliases that warn once each.
+// (DASH_PLUGINS_PROXMOX_URL); lists and objects are JSON. Every name also takes a <NAME>_FILE
+// form holding the path of a file with the value, resolved here because the image has no shell
+// entrypoint. The only other variable read is KUBECONFIG (kubeconfigEnv).
 
 // processEnv are variables of the process or of its deployment that are not tree fields. They
 // never warn as unknown.
@@ -39,96 +39,81 @@ type envEntry struct {
 	ref  string // the variable it came from
 }
 
-// alias maps legacy variables onto the tree (design B.5). A few variables are read together.
-type alias struct {
-	names []string
-	// targets are the paths build may return; their generated names are the replacement.
-	targets []string
-	// keep means the variable stays supported, without a deprecation warning (KUBECONFIG).
-	keep bool
-	// build receives the trimmed, non-empty values among names and returns JSON-able values by path.
-	build func(v map[string]string) (map[string]any, error)
+// removedEnv are the environment variables dash 0.4.0 still read as deprecated aliases and 0.5.0
+// does not (ADR 0001 decision 5, design J.5). A deployment that still sets one fails at startup
+// with the replacement, because ignoring it would silently turn a source off or drop a required
+// setting. The table is deleted one release later; a stale name then only gets the
+// unknown-variable warning. KUBECONFIG is not here: see kubeconfigEnv.
+var removedEnv = []struct{ name, use string }{
+	{"DASH_PUBLIC_URL", "DASH_SERVER_PUBLIC_URL"},
+	{"DASH_LISTEN", "DASH_SERVER_LISTEN"},
+	{"DASH_HEALTH_LISTEN", "DASH_SERVER_HEALTH_LISTEN"},
+	{"DASH_ALLOWED_HOSTS", `DASH_SERVER_ALLOWED_HOSTS (a JSON list, e.g. '["dash.example.com"]')`},
+	{"DASH_VM_URL", "DASH_PLUGINS_PROMETHEUS_URL"},
+	{"DASH_ALERTMANAGER_URL", "DASH_PLUGINS_ALERTMANAGER_URL"},
+	{"DASH_VLOGS_URL", "DASH_PLUGINS_VICTORIALOGS_URL"},
+	{"DASH_GATUS_URL", "DASH_PLUGINS_GATUS_URL"},
+	{"DASH_PROXMOX_URL", "DASH_PLUGINS_PROXMOX_URL"},
+	{"DASH_PROXMOX_NODE", "DASH_PLUGINS_PROXMOX_NODE"},
+	{"DASH_PROXMOX_TOKEN", "DASH_PLUGINS_PROXMOX_TOKEN_ID and DASH_PLUGINS_PROXMOX_TOKEN_SECRET (split the old user@realm!name=secret value)"},
+	{"DASH_HOST_NODENAME", `DASH_PLUGINS_HARDWARE_HOSTS (a JSON list, e.g. '[{"nodename":"box","model":"Dell R730"}]')`},
+	{"DASH_HOST_MODEL", `DASH_PLUGINS_HARDWARE_HOSTS (a JSON list, e.g. '[{"nodename":"box","model":"Dell R730"}]')`},
+	{"DASH_HEADLAMP_URL", "DASH_PLUGINS_HEADLAMP_URL"},
+	{"DASH_HEADLAMP_CLUSTER", "DASH_PLUGINS_HEADLAMP_CLUSTER"},
+	{"DASH_GRAFANA_URL", "DASH_PLUGINS_GRAFANA_URL"},
+	{"DASH_LAUNCHER_FILE", "DASH_PLUGINS_LAUNCHER_FILE"},
+	{"DASH_LABEL_PROTECTED", "DASH_PLUGINS_KUBERNETES_CONVENTIONS_PROTECTED_LABEL"},
+	{"DASH_LABEL_TENANT", "DASH_PLUGINS_KUBERNETES_CONVENTIONS_TENANT_LABEL"},
+	{"DASH_APPS_FLUX_PREFIX", "DASH_PLUGINS_KUBERNETES_CONVENTIONS_APPS_FLUX_PREFIX"},
+	{"DASH_ANNOTATION_SUSPEND_REASON", "DASH_PLUGINS_FLUX_SUSPEND_REASON_ANNOTATION"},
+	{"DASH_ZFS_SCRUB_METRIC_PREFIX", "DASH_PLUGINS_HARDWARE_ZFS_SCRUB_METRIC_PREFIX"},
+	{"DASH_NAS_BACKUP_NAMESPACE", `DASH_PLUGINS_KUBERNETES_BACKUP_JOBS (a JSON list, e.g. '[{"namespace":"backup","cronjob":"nightly"}]')`},
+	{"DASH_NAS_BACKUP_CRONJOB", `DASH_PLUGINS_KUBERNETES_BACKUP_JOBS (a JSON list, e.g. '[{"namespace":"backup","cronjob":"nightly"}]')`},
 }
 
-// simpleAlias is a variable that holds the string at one path.
-func simpleAlias(name, path string) alias {
-	return alias{names: []string{name}, targets: []string{path}, build: func(v map[string]string) (map[string]any, error) {
-		return map[string]any{path: v[name]}, nil
-	}}
-}
+// kubeconfigEnv is the one variable of another tool that dash honours: the standard kubectl
+// variable fills plugins.kubernetes.kubeconfig, and the generated name wins over it. It has no
+// _FILE form and no deprecation warning.
+const kubeconfigEnv = "KUBECONFIG"
 
-var aliases = []alias{
-	simpleAlias("DASH_PUBLIC_URL", "server.publicURL"),
-	simpleAlias("DASH_LISTEN", "server.listen"),
-	simpleAlias("DASH_HEALTH_LISTEN", "server.healthListen"),
-	{names: []string{"DASH_ALLOWED_HOSTS"}, targets: []string{"server.allowedHosts"}, build: func(v map[string]string) (map[string]any, error) {
-		return map[string]any{"server.allowedHosts": splitHosts(v["DASH_ALLOWED_HOSTS"])}, nil
-	}},
-	simpleAlias("DASH_VM_URL", "plugins.prometheus.url"),
-	simpleAlias("DASH_ALERTMANAGER_URL", "plugins.alertmanager.url"),
-	simpleAlias("DASH_VLOGS_URL", "plugins.victorialogs.url"),
-	simpleAlias("DASH_GATUS_URL", "plugins.gatus.url"),
-	simpleAlias("DASH_PROXMOX_URL", "plugins.proxmox.url"),
-	simpleAlias("DASH_PROXMOX_NODE", "plugins.proxmox.node"),
-	{names: []string{"DASH_PROXMOX_TOKEN"}, targets: []string{"plugins.proxmox.tokenID", "plugins.proxmox.tokenSecret"}, build: func(v map[string]string) (map[string]any, error) {
-		id, secret, ok := strings.Cut(v["DASH_PROXMOX_TOKEN"], "=")
-		if !ok || id == "" || secret == "" {
-			// The value is a credential: describe the shape, never echo it.
-			return nil, errors.New("DASH_PROXMOX_TOKEN must look like user@realm!name=secret")
+var envNameRE = regexp.MustCompile(`DASH_[A-Z0-9_]+`)
+
+// removedEnvError lists every removed variable (or its _FILE form) the environment sets, with
+// its replacement, or returns nil. Values are never echoed.
+func removedEnvError(env map[string]string) error {
+	var lines []string
+	for _, r := range removedEnv {
+		if strings.TrimSpace(env[r.name]) != "" {
+			lines = append(lines, fmt.Sprintf("  %s -> %s", r.name, r.use))
 		}
-		return map[string]any{"plugins.proxmox.tokenID": id, "plugins.proxmox.tokenSecret": secret}, nil
-	}},
-	{names: []string{"DASH_HOST_NODENAME", "DASH_HOST_MODEL"}, targets: []string{"plugins.hardware.hosts"}, build: func(v map[string]string) (map[string]any, error) {
-		return map[string]any{"plugins.hardware.hosts": []HardwareHost{{Nodename: v["DASH_HOST_NODENAME"], Model: v["DASH_HOST_MODEL"]}}}, nil
-	}},
-	simpleAlias("DASH_HEADLAMP_URL", "plugins.headlamp.url"),
-	simpleAlias("DASH_HEADLAMP_CLUSTER", "plugins.headlamp.cluster"),
-	simpleAlias("DASH_GRAFANA_URL", "plugins.grafana.url"),
-	simpleAlias("DASH_LAUNCHER_FILE", "plugins.launcher.file"),
-	{names: []string{"KUBECONFIG"}, targets: []string{"plugins.kubernetes.kubeconfig"}, keep: true, build: func(v map[string]string) (map[string]any, error) {
-		return map[string]any{"plugins.kubernetes.kubeconfig": v["KUBECONFIG"]}, nil
-	}},
-	simpleAlias("DASH_LABEL_PROTECTED", "plugins.kubernetes.conventions.protectedLabel"),
-	simpleAlias("DASH_LABEL_TENANT", "plugins.kubernetes.conventions.tenantLabel"),
-	simpleAlias("DASH_APPS_FLUX_PREFIX", "plugins.kubernetes.conventions.appsFluxPrefix"),
-	simpleAlias("DASH_ANNOTATION_SUSPEND_REASON", "plugins.flux.suspendReasonAnnotation"),
-	simpleAlias("DASH_ZFS_SCRUB_METRIC_PREFIX", "plugins.hardware.zfsScrubMetricPrefix"),
-	{names: []string{"DASH_NAS_BACKUP_NAMESPACE", "DASH_NAS_BACKUP_CRONJOB"}, targets: []string{"plugins.kubernetes.backupJobs"}, build: func(v map[string]string) (map[string]any, error) {
-		return map[string]any{"plugins.kubernetes.backupJobs": []BackupJob{{Namespace: v["DASH_NAS_BACKUP_NAMESPACE"], CronJob: v["DASH_NAS_BACKUP_CRONJOB"]}}}, nil
-	}},
-}
-
-// hasSecretTarget reports whether the alias sets a secret field.
-func (a alias) hasSecretTarget() bool {
-	return slices.ContainsFunc(a.targets, func(p string) bool { return schema.byPath[p].secret })
-}
-
-// replacement names the generated variable(s) that take over from an alias; file selects the
-// _FILE form.
-func (a alias) replacement(file bool) string {
-	var names []string
-	for _, p := range a.targets {
-		n := schema.byPath[p].env
-		if file {
-			n += "_FILE"
-		} else if l := schema.byPath[p]; l.typ.Kind() != reflect.String && !l.secret {
-			n += " (JSON)"
+		if strings.TrimSpace(env[r.name+"_FILE"]) != "" {
+			// The replacement's variable names, each in their _FILE form; the text in
+			// parentheses is advice and stays as written.
+			use, advice, hasAdvice := strings.Cut(r.use, " (")
+			use = envNameRE.ReplaceAllStringFunc(use, func(n string) string { return n + "_FILE" })
+			if hasAdvice {
+				use += " (" + advice
+			}
+			lines = append(lines, fmt.Sprintf("  %s_FILE -> %s", r.name, use))
 		}
-		names = append(names, n)
 	}
-	return strings.Join(names, " and ")
+	if len(lines) == 0 {
+		return nil
+	}
+	return fmt.Errorf("config: these environment variables were removed in v0.5.0 (they were deprecated aliases in v0.4.0):\n%s\nsee \"Removed variable names\" in the README", strings.Join(lines, "\n"))
 }
 
-// knownEnvNames are the variables with a meaning: generated and legacy.
+// removedName reports whether name is in removedEnv. An empty one counts as unset and is not
+// reported as unknown either.
+func removedName(name string) bool {
+	return slices.ContainsFunc(removedEnv, func(r struct{ name, use string }) bool { return r.name == name })
+}
+
+// knownEnvNames are the variables with a meaning: the generated names.
 func knownEnvNames() map[string]bool {
 	known := map[string]bool{}
 	for name := range schema.byEnv {
 		known[name] = true
-	}
-	for _, a := range aliases {
-		for _, n := range a.names {
-			known[n] = true
-		}
 	}
 	return known
 }
@@ -137,12 +122,8 @@ type envValue struct{ val, ref string }
 
 // readEnvVar returns the value of name or of name_FILE. Empty counts as unset. Both set is an
 // error naming both; so is an unreadable file (the message carries the path, never contents).
-// A kept alias such as KUBECONFIG is a variable of another tool: it has no _FILE form.
 func readEnvVar(env map[string]string, name string) (envValue, error) {
 	direct, file := strings.TrimSpace(env[name]), strings.TrimSpace(env[name+"_FILE"])
-	if slices.ContainsFunc(aliases, func(a alias) bool { return a.keep && slices.Contains(a.names, name) }) {
-		return envValue{direct, name}, nil
-	}
 	switch {
 	case direct != "" && file != "":
 		return envValue{}, fmt.Errorf("%s and %s_FILE are both set; set only one", name, name)
@@ -160,10 +141,13 @@ func readEnvVar(env map[string]string, name string) (envValue, error) {
 	return envValue{direct, name}, nil
 }
 
-// envLayer reads the environment layer: legacy aliases first, so a generated name overrides the
-// legacy name of the same field. It warns once per legacy variable used, errors on an unknown
-// DASH_PLUGINS_* variable (typo protection) and warns about other unknown DASH_* variables.
+// envLayer reads the environment layer. It fails when a removed variable is set, errors on an
+// unknown DASH_PLUGINS_* variable (typo protection) and warns about other unknown DASH_*
+// variables.
 func envLayer(env map[string]string, log *slog.Logger) ([]envEntry, error) {
+	if err := removedEnvError(env); err != nil {
+		return nil, err
+	}
 	known := knownEnvNames()
 	var errs []error
 
@@ -180,10 +164,8 @@ func envLayer(env map[string]string, log *slog.Logger) ([]envEntry, error) {
 	}
 
 	for _, k := range slices.Sorted(maps.Keys(env)) {
-		if !strings.HasPrefix(k, "DASH_") || processEnv[k] || serviceLinkRE.MatchString(k) || known[k] {
-			continue
-		}
-		if base, ok := strings.CutSuffix(k, "_FILE"); ok && known[base] {
+		base, isFile := strings.CutSuffix(k, "_FILE")
+		if !strings.HasPrefix(k, "DASH_") || processEnv[k] || serviceLinkRE.MatchString(k) || known[k] || (isFile && known[base]) || removedName(base) {
 			continue
 		}
 		if strings.HasPrefix(k, "DASH_PLUGINS_") {
@@ -194,42 +176,10 @@ func envLayer(env map[string]string, log *slog.Logger) ([]envEntry, error) {
 	}
 
 	var out []envEntry
-	for _, a := range aliases {
-		got, refs := map[string]string{}, []string{}
-		for _, n := range a.names {
-			if v, ok := vals[n]; ok {
-				got[n] = v.val
-				refs = append(refs, v.ref)
-				if !a.keep {
-					warn := []any{"name", v.ref, "use", a.replacement(v.ref != n)}
-					if v.ref != n && a.hasSecretTarget() {
-						// The legacy form is split into token id and secret once; only the generated
-						// <NAME>_FILE reference is watched for rotation (design B.6).
-						warn = append(warn, "note", "this file is read once at startup; rotating it needs a restart, the replacement is watched")
-					}
-					log.Warn("deprecated environment variable", warn...)
-				}
-			}
-		}
-		if len(refs) == 0 {
-			continue
-		}
-		built, err := a.build(got)
-		if err != nil {
-			errs = append(errs, err)
-			continue
-		}
-		ref := strings.Join(refs, ", ")
-		for _, p := range a.targets {
-			if v, ok := built[p]; ok {
-				data, err := json.Marshal(v)
-				if err != nil {
-					errs = append(errs, fmt.Errorf("%s: %w", ref, err))
-					continue
-				}
-				out = append(out, envEntry{path: p, data: data, ref: ref})
-			}
-		}
+	if v := strings.TrimSpace(env[kubeconfigEnv]); v != "" {
+		// Before the generated names, so DASH_PLUGINS_KUBERNETES_KUBECONFIG wins.
+		data, _ := json.Marshal(v)
+		out = append(out, envEntry{path: "plugins.kubernetes.kubeconfig", data: data, ref: kubeconfigEnv})
 	}
 	for _, l := range schema.leaves {
 		v, ok := vals[l.env]

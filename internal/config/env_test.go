@@ -2,11 +2,8 @@ package config
 
 import (
 	"bytes"
-	"maps"
 	"os"
 	"path/filepath"
-	"reflect"
-	"regexp"
 	"slices"
 	"strings"
 	"testing"
@@ -37,157 +34,160 @@ func value(t *testing.T, res *Resolved, path string) any {
 	return v
 }
 
-// warned lists the legacy variables a log reports as deprecated, one entry per warning.
-func warned(log string) []string {
-	return slices.Sorted(maps.Keys(warnedUse(log)))
+// removedNames is the 24 variables dash 0.4.0 accepted as deprecated aliases, with the generated
+// variable(s) that replace each, written out by hand so the tests do not derive their
+// expectation from the table they check.
+var removedNames = map[string][]string{
+	"DASH_PUBLIC_URL":                []string{"DASH_SERVER_PUBLIC_URL"},
+	"DASH_LISTEN":                    {"DASH_SERVER_LISTEN"},
+	"DASH_HEALTH_LISTEN":             {"DASH_SERVER_HEALTH_LISTEN"},
+	"DASH_ALLOWED_HOSTS":             {"DASH_SERVER_ALLOWED_HOSTS"},
+	"DASH_VM_URL":                    {"DASH_PLUGINS_PROMETHEUS_URL"},
+	"DASH_ALERTMANAGER_URL":          {"DASH_PLUGINS_ALERTMANAGER_URL"},
+	"DASH_VLOGS_URL":                 {"DASH_PLUGINS_VICTORIALOGS_URL"},
+	"DASH_GATUS_URL":                 {"DASH_PLUGINS_GATUS_URL"},
+	"DASH_PROXMOX_URL":               {"DASH_PLUGINS_PROXMOX_URL"},
+	"DASH_PROXMOX_NODE":              {"DASH_PLUGINS_PROXMOX_NODE"},
+	"DASH_PROXMOX_TOKEN":             {"DASH_PLUGINS_PROXMOX_TOKEN_ID", "DASH_PLUGINS_PROXMOX_TOKEN_SECRET"},
+	"DASH_HOST_NODENAME":             {"DASH_PLUGINS_HARDWARE_HOSTS"},
+	"DASH_HOST_MODEL":                {"DASH_PLUGINS_HARDWARE_HOSTS"},
+	"DASH_HEADLAMP_URL":              {"DASH_PLUGINS_HEADLAMP_URL"},
+	"DASH_HEADLAMP_CLUSTER":          {"DASH_PLUGINS_HEADLAMP_CLUSTER"},
+	"DASH_GRAFANA_URL":               {"DASH_PLUGINS_GRAFANA_URL"},
+	"DASH_LAUNCHER_FILE":             {"DASH_PLUGINS_LAUNCHER_FILE"},
+	"DASH_LABEL_PROTECTED":           {"DASH_PLUGINS_KUBERNETES_CONVENTIONS_PROTECTED_LABEL"},
+	"DASH_LABEL_TENANT":              {"DASH_PLUGINS_KUBERNETES_CONVENTIONS_TENANT_LABEL"},
+	"DASH_APPS_FLUX_PREFIX":          {"DASH_PLUGINS_KUBERNETES_CONVENTIONS_APPS_FLUX_PREFIX"},
+	"DASH_ANNOTATION_SUSPEND_REASON": {"DASH_PLUGINS_FLUX_SUSPEND_REASON_ANNOTATION"},
+	"DASH_ZFS_SCRUB_METRIC_PREFIX":   {"DASH_PLUGINS_HARDWARE_ZFS_SCRUB_METRIC_PREFIX"},
+	"DASH_NAS_BACKUP_NAMESPACE":      {"DASH_PLUGINS_KUBERNETES_BACKUP_JOBS"},
+	"DASH_NAS_BACKUP_CRONJOB":        {"DASH_PLUGINS_KUBERNETES_BACKUP_JOBS"},
 }
 
-var deprecationRE = regexp.MustCompile(`msg="deprecated environment variable" name=(\S+) use=("[^"]*"|\S+)`)
-
-// warnedUse maps each legacy variable a log reports as deprecated to the replacement the
-// warning names. A variable warned about twice would collapse here, so warned counts lines.
-func warnedUse(log string) map[string]string {
-	out := map[string]string{}
-	for _, m := range deprecationRE.FindAllStringSubmatch(log, -1) {
-		out[m[1]] = strings.Trim(m[2], `"`)
+func TestRemovedTableCoversEveryOldAlias(t *testing.T) {
+	if len(removedNames) != 24 {
+		t.Fatalf("the frozen list has %d names, want 24", len(removedNames))
 	}
-	return out
+	got := map[string]string{}
+	for _, r := range removedEnv {
+		if _, dup := got[r.name]; dup {
+			t.Errorf("%s is listed twice", r.name)
+		}
+		got[r.name] = r.use
+	}
+	for name, uses := range removedNames {
+		use, ok := got[name]
+		if !ok {
+			t.Errorf("%s is not in removedEnv", name)
+			continue
+		}
+		for _, u := range uses {
+			if !strings.Contains(use, u) {
+				t.Errorf("%s: replacement %q does not name %s", name, use, u)
+			}
+		}
+	}
+	for name := range got {
+		if _, ok := removedNames[name]; !ok {
+			t.Errorf("removedEnv lists %s, which was never an alias", name)
+		}
+	}
 }
 
-// replacements is design B.5 written out by hand, so the test does not derive its expectation
-// from the code that builds the warning.
-var replacements = map[string]string{
-	"DASH_PUBLIC_URL":                "DASH_SERVER_PUBLIC_URL",
-	"DASH_LISTEN":                    "DASH_SERVER_LISTEN",
-	"DASH_HEALTH_LISTEN":             "DASH_SERVER_HEALTH_LISTEN",
-	"DASH_ALLOWED_HOSTS":             "DASH_SERVER_ALLOWED_HOSTS (JSON)",
-	"DASH_VM_URL":                    "DASH_PLUGINS_PROMETHEUS_URL",
-	"DASH_ALERTMANAGER_URL":          "DASH_PLUGINS_ALERTMANAGER_URL",
-	"DASH_VLOGS_URL":                 "DASH_PLUGINS_VICTORIALOGS_URL",
-	"DASH_GATUS_URL":                 "DASH_PLUGINS_GATUS_URL",
-	"DASH_PROXMOX_URL":               "DASH_PLUGINS_PROXMOX_URL",
-	"DASH_PROXMOX_NODE":              "DASH_PLUGINS_PROXMOX_NODE",
-	"DASH_PROXMOX_TOKEN":             "DASH_PLUGINS_PROXMOX_TOKEN_ID and DASH_PLUGINS_PROXMOX_TOKEN_SECRET",
-	"DASH_HOST_NODENAME":             "DASH_PLUGINS_HARDWARE_HOSTS (JSON)",
-	"DASH_HOST_MODEL":                "DASH_PLUGINS_HARDWARE_HOSTS (JSON)",
-	"DASH_HEADLAMP_URL":              "DASH_PLUGINS_HEADLAMP_URL",
-	"DASH_HEADLAMP_CLUSTER":          "DASH_PLUGINS_HEADLAMP_CLUSTER",
-	"DASH_GRAFANA_URL":               "DASH_PLUGINS_GRAFANA_URL",
-	"DASH_LAUNCHER_FILE":             "DASH_PLUGINS_LAUNCHER_FILE",
-	"DASH_LABEL_PROTECTED":           "DASH_PLUGINS_KUBERNETES_CONVENTIONS_PROTECTED_LABEL",
-	"DASH_LABEL_TENANT":              "DASH_PLUGINS_KUBERNETES_CONVENTIONS_TENANT_LABEL",
-	"DASH_APPS_FLUX_PREFIX":          "DASH_PLUGINS_KUBERNETES_CONVENTIONS_APPS_FLUX_PREFIX",
-	"DASH_ANNOTATION_SUSPEND_REASON": "DASH_PLUGINS_FLUX_SUSPEND_REASON_ANNOTATION",
-	"DASH_ZFS_SCRUB_METRIC_PREFIX":   "DASH_PLUGINS_HARDWARE_ZFS_SCRUB_METRIC_PREFIX",
-	"DASH_NAS_BACKUP_NAMESPACE":      "DASH_PLUGINS_KUBERNETES_BACKUP_JOBS (JSON)",
-	"DASH_NAS_BACKUP_CRONJOB":        "DASH_PLUGINS_KUBERNETES_BACKUP_JOBS (JSON)",
-}
-
-// Every row of design B.5: the legacy variable sets the new path and warns exactly once.
-func TestLegacyAliases(t *testing.T) {
-	tests := []struct {
-		env  []string
-		want map[string]any // path -> value
-		ref  string         // provenance ref of every path
-	}{
-		{[]string{"DASH_PUBLIC_URL=https://dash.example.com/"}, map[string]any{"server.publicURL": "https://dash.example.com"}, "DASH_PUBLIC_URL"},
-		{[]string{"DASH_LISTEN=0.0.0.0:9000"}, map[string]any{"server.listen": "0.0.0.0:9000"}, "DASH_LISTEN"},
-		{[]string{"DASH_HEALTH_LISTEN=127.0.0.1:9001"}, map[string]any{"server.healthListen": "127.0.0.1:9001"}, "DASH_HEALTH_LISTEN"},
-		{[]string{"DASH_ALLOWED_HOSTS= Media.Example.com, ,192.0.2.10"}, map[string]any{"server.allowedHosts": []string{"media.example.com", "192.0.2.10"}}, "DASH_ALLOWED_HOSTS"},
-		{[]string{"DASH_VM_URL=http://prom.example.com:9090"}, map[string]any{"plugins.prometheus.url": "http://prom.example.com:9090"}, "DASH_VM_URL"},
-		{[]string{"DASH_ALERTMANAGER_URL=http://am.example.com:9093"}, map[string]any{"plugins.alertmanager.url": "http://am.example.com:9093"}, "DASH_ALERTMANAGER_URL"},
-		{[]string{"DASH_VLOGS_URL=http://vl.example.com:9428"}, map[string]any{"plugins.victorialogs.url": "http://vl.example.com:9428"}, "DASH_VLOGS_URL"},
-		{[]string{"DASH_GATUS_URL=http://gatus.example.com:8080"}, map[string]any{"plugins.gatus.url": "http://gatus.example.com:8080"}, "DASH_GATUS_URL"},
-		{[]string{"DASH_PROXMOX_URL=https://pve.example.com:8006", "DASH_PROXMOX_TOKEN=u@pve!t=s3cret"}, map[string]any{"plugins.proxmox.url": "https://pve.example.com:8006"}, "DASH_PROXMOX_URL"},
-		{[]string{"DASH_PROXMOX_NODE=pve"}, map[string]any{"plugins.proxmox.node": "pve"}, "DASH_PROXMOX_NODE"},
-		{[]string{"DASH_HEADLAMP_URL=https://headlamp.example.com"}, map[string]any{"plugins.headlamp.url": "https://headlamp.example.com"}, "DASH_HEADLAMP_URL"},
-		{[]string{"DASH_HEADLAMP_CLUSTER=prod"}, map[string]any{"plugins.headlamp.cluster": "prod"}, "DASH_HEADLAMP_CLUSTER"},
-		{[]string{"DASH_GRAFANA_URL=https://grafana.example.com"}, map[string]any{"plugins.grafana.url": "https://grafana.example.com"}, "DASH_GRAFANA_URL"},
-		{[]string{"DASH_LAUNCHER_FILE=/etc/dash/launcher.yaml"}, map[string]any{"plugins.launcher.file": "/etc/dash/launcher.yaml"}, "DASH_LAUNCHER_FILE"},
-		{[]string{"DASH_LABEL_PROTECTED=example.com/protected"}, map[string]any{"plugins.kubernetes.conventions.protectedLabel": "example.com/protected"}, "DASH_LABEL_PROTECTED"},
-		{[]string{"DASH_LABEL_TENANT=example.com/tenant"}, map[string]any{"plugins.kubernetes.conventions.tenantLabel": "example.com/tenant"}, "DASH_LABEL_TENANT"},
-		{[]string{"DASH_APPS_FLUX_PREFIX=apps-"}, map[string]any{"plugins.kubernetes.conventions.appsFluxPrefix": "apps-"}, "DASH_APPS_FLUX_PREFIX"},
-		{[]string{"DASH_ANNOTATION_SUSPEND_REASON=example.com/suspended"}, map[string]any{"plugins.flux.suspendReasonAnnotation": "example.com/suspended"}, "DASH_ANNOTATION_SUSPEND_REASON"},
-		{[]string{"DASH_ZFS_SCRUB_METRIC_PREFIX=example_scrub"}, map[string]any{"plugins.hardware.zfsScrubMetricPrefix": "example_scrub"}, "DASH_ZFS_SCRUB_METRIC_PREFIX"},
-		{[]string{"DASH_HOST_NODENAME=box"}, map[string]any{"plugins.hardware.hosts": []HardwareHost{{Nodename: "box"}}}, "DASH_HOST_NODENAME"},
-		{[]string{"DASH_HOST_MODEL=Dell R730"}, map[string]any{"plugins.hardware.hosts": []HardwareHost{{Model: "Dell R730"}}}, "DASH_HOST_MODEL"},
-		{[]string{"DASH_HOST_NODENAME=box", "DASH_HOST_MODEL=Dell R730"}, map[string]any{"plugins.hardware.hosts": []HardwareHost{{Nodename: "box", Model: "Dell R730"}}}, "DASH_HOST_NODENAME, DASH_HOST_MODEL"},
-		{[]string{"DASH_NAS_BACKUP_NAMESPACE=backup", "DASH_NAS_BACKUP_CRONJOB=nightly"},
-			map[string]any{"plugins.kubernetes.backupJobs": []BackupJob{{Namespace: "backup", CronJob: "nightly"}}}, "DASH_NAS_BACKUP_NAMESPACE, DASH_NAS_BACKUP_CRONJOB"},
-	}
-	covered := map[string]bool{}
-	for _, tc := range tests {
-		t.Run(strings.Join(tc.env, " "), func(t *testing.T) {
-			res, log, err := resolveEnv(t, tc.env...)
-			if err != nil {
-				t.Fatal(err)
-			}
-			for path, want := range tc.want {
-				if got := value(t, res, path); !reflect.DeepEqual(got, want) {
-					t.Errorf("%s = %#v, want %#v", path, got, want)
-				}
-				if p := res.Provenance[path]; p.Source != SourceEnv || p.Ref != tc.ref {
-					t.Errorf("provenance of %s = %+v, want env %s", path, p, tc.ref)
-				}
-			}
-			var wantWarn []string
-			for _, kv := range tc.env {
-				k, _, _ := strings.Cut(kv, "=")
-				wantWarn = append(wantWarn, k)
-				covered[k] = true
-			}
-			slices.Sort(wantWarn)
-			if got := warned(log); !slices.Equal(got, wantWarn) || strings.Count(log, "deprecated environment variable") != len(wantWarn) {
-				t.Errorf("deprecation warnings = %v, want one per variable %v\n%s", got, wantWarn, log)
-			}
-			for name, use := range warnedUse(log) {
-				if use != replacements[name] {
-					t.Errorf("%s: the warning names %q, want %q", name, use, replacements[name])
-				}
-			}
-		})
-	}
-	for _, a := range aliases {
-		for _, n := range a.names {
-			if !covered[n] && n != "DASH_PROXMOX_TOKEN" && n != "KUBECONFIG" {
-				t.Errorf("legacy variable %s has no test row", n)
+// Every variable a replacement text names is a real generated name, so the advice cannot rot.
+func TestRemovedReplacementsAreRealVariables(t *testing.T) {
+	for _, r := range removedEnv {
+		names := envNameRE.FindAllString(r.use, -1)
+		if len(names) == 0 {
+			t.Errorf("%s: no replacement named in %q", r.name, r.use)
+		}
+		for _, n := range names {
+			if schema.byEnv[n] == nil {
+				t.Errorf("%s: %s is not a generated variable", r.name, n)
 			}
 		}
 	}
 }
 
-func TestLegacyProxmoxTokenIsSplitAtTheFirstEquals(t *testing.T) {
-	res, log, err := resolveEnv(t, "DASH_PROXMOX_URL=https://pve.example.com:8006", "DASH_PROXMOX_TOKEN=dash@pve!ci=abc=def")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if id, secret := value(t, res, "plugins.proxmox.tokenID"), value(t, res, "plugins.proxmox.tokenSecret"); id != "dash@pve!ci" || secret != "abc=def" {
-		t.Errorf("tokenID %v, tokenSecret %v", id, secret)
-	}
-	for _, p := range []string{"plugins.proxmox.tokenID", "plugins.proxmox.tokenSecret"} {
-		if got := res.Provenance[p]; got != (Provenance{SourceEnv, "DASH_PROXMOX_TOKEN"}) {
-			t.Errorf("provenance of %s = %+v", p, got)
+// A deployment that still sets a removed variable, or its _FILE form, does not start: ignoring
+// it would turn a source off or drop a required setting without a word.
+func TestRemovedVariablesFailStartup(t *testing.T) {
+	const canary = "canary-value-1234"
+	for name, uses := range removedNames {
+		for _, file := range []bool{false, true} {
+			variable := name
+			if file {
+				variable += "_FILE"
+			}
+			t.Run(variable, func(t *testing.T) {
+				_, _, err := resolveEnv(t, variable+"="+canary)
+				if err == nil {
+					t.Fatal("expected startup to fail")
+				}
+				msg := err.Error()
+				if !strings.Contains(msg, "removed in v0.5.0") || !strings.Contains(msg, "  "+variable+" -> ") {
+					t.Errorf("message does not name %s:\n%s", variable, msg)
+				}
+				for _, u := range uses {
+					want := u
+					if file {
+						want += "_FILE"
+					}
+					if !strings.Contains(msg, want) {
+						t.Errorf("message does not name the replacement %s:\n%s", want, msg)
+					}
+				}
+				if strings.Contains(msg, canary) {
+					t.Errorf("the value was echoed:\n%s", msg)
+				}
+			})
 		}
 	}
-	if res.Config.ProxmoxTokenID != "dash@pve!ci" || res.Config.ProxmoxTokenSecret.Reveal() != "abc=def" {
-		t.Errorf("Config token = %q, %v", res.Config.ProxmoxTokenID, res.Config.ProxmoxTokenSecret)
-	}
-	if got := warned(log); !slices.Equal(got, []string{"DASH_PROXMOX_TOKEN", "DASH_PROXMOX_URL"}) {
-		t.Errorf("warnings %v", got)
-	}
-	if !strings.Contains(log, "DASH_PLUGINS_PROXMOX_TOKEN_ID and DASH_PLUGINS_PROXMOX_TOKEN_SECRET") {
-		t.Errorf("the warning must name the replacements:\n%s", log)
-	}
+}
 
-	// A malformed token is refused without echoing it.
-	_, _, err = resolveEnv(t, "DASH_PROXMOX_URL=https://pve.example.com:8006", "DASH_PROXMOX_TOKEN=canary-no-equals-sign")
-	if err == nil || !strings.Contains(err.Error(), "DASH_PROXMOX_TOKEN") || strings.Contains(err.Error(), "canary") {
-		t.Errorf("malformed token: %v", err)
+// All offenders come in one message, so an operator fixes the manifest once.
+func TestRemovedVariablesAreListedTogether(t *testing.T) {
+	_, _, err := resolveEnv(t, "DASH_PUBLIC_URL=https://dash.example.com", "DASH_VM_URL=http://prom.example.com:9090",
+		"DASH_PROXMOX_TOKEN_FILE=/run/secrets/pve", "DASH_PLUGINS_GRAFANA_URL=https://grafana.example.com")
+	if err == nil {
+		t.Fatal("expected startup to fail")
+	}
+	msg := err.Error()
+	for _, want := range []string{
+		"  DASH_PUBLIC_URL -> DASH_SERVER_PUBLIC_URL",
+		"  DASH_VM_URL -> DASH_PLUGINS_PROMETHEUS_URL",
+		"  DASH_PROXMOX_TOKEN_FILE -> DASH_PLUGINS_PROXMOX_TOKEN_ID_FILE and DASH_PLUGINS_PROXMOX_TOKEN_SECRET_FILE",
+		`see "Removed variable names" in the README`,
+	} {
+		if !strings.Contains(msg, want) {
+			t.Errorf("message lacks %q:\n%s", want, msg)
+		}
+	}
+	if strings.Contains(msg, "GRAFANA") {
+		t.Errorf("a generated name is not an offender:\n%s", msg)
+	}
+}
+
+// The old value is two variables now: the message says so and never echoes the credential.
+func TestDashProxmoxTokenMessageMentionsBothVariables(t *testing.T) {
+	_, _, err := resolveEnv(t, "DASH_PROXMOX_URL=https://pve.example.com:8006", "DASH_PROXMOX_TOKEN=dash@pve!ci=canary-secret")
+	if err == nil {
+		t.Fatal("expected startup to fail")
+	}
+	msg := err.Error()
+	for _, want := range []string{"DASH_PLUGINS_PROXMOX_TOKEN_ID", "DASH_PLUGINS_PROXMOX_TOKEN_SECRET", "user@realm!name=secret"} {
+		if !strings.Contains(msg, want) {
+			t.Errorf("message lacks %q:\n%s", want, msg)
+		}
+	}
+	if strings.Contains(msg, "canary") {
+		t.Errorf("the credential was echoed:\n%s", msg)
 	}
 }
 
 // KUBECONFIG stays supported without a warning, and does not need to be set via a DASH_ name.
-func TestKubeconfigIsHonouredQuietly(t *testing.T) {
+// It is the only variable outside dash's own namespace that the environment layer reads.
+func TestKubeconfigStillHonoured(t *testing.T) {
 	res, log, err := resolveEnv(t, "KUBECONFIG=/home/dev/.kube/config")
 	if err != nil {
 		t.Fatal(err)
@@ -243,7 +243,7 @@ func TestGeneratedNames(t *testing.T) {
 }
 
 // Two schema paths must never generate one name, and no name may be another's _FILE form or a
-// legacy variable: each variable has exactly one meaning.
+// removed variable: each variable has exactly one meaning.
 func TestEnvNamesDoNotCollide(t *testing.T) {
 	if len(schema.byEnv) != len(schema.leaves) {
 		t.Fatalf("%d leaves generate %d distinct names", len(schema.leaves), len(schema.byEnv))
@@ -260,13 +260,9 @@ func TestEnvNamesDoNotCollide(t *testing.T) {
 		claim(l.env, l.path)
 		claim(l.env+"_FILE", l.path+" (file)")
 	}
-	for _, a := range aliases {
-		for _, n := range a.names {
-			claim(n, "legacy "+n)
-			if !a.keep {
-				claim(n+"_FILE", "legacy "+n+" (file)")
-			}
-		}
+	for _, r := range removedEnv {
+		claim(r.name, "removed "+r.name)
+		claim(r.name+"_FILE", "removed "+r.name+" (file)")
 	}
 }
 
@@ -308,11 +304,11 @@ func TestEnvBadValuesNameTheVariable(t *testing.T) {
 	}
 }
 
-func TestGeneratedNameBeatsLegacyAndFileLayer(t *testing.T) {
+func TestEnvBeatsTheFileLayer(t *testing.T) {
 	file := &File{Path: "c.yaml", Data: []byte("plugins: {grafana: {url: 'https://file.example.com'}}\n")}
 	log, _ := logBuf()
 	res, err := Resolve(Sources{
-		Environ: []string{"DASH_DEMO=true", "DASH_GRAFANA_URL=https://legacy.example.com", "DASH_PLUGINS_GRAFANA_URL=https://new.example.com"},
+		Environ: []string{"DASH_DEMO=true", "DASH_PLUGINS_GRAFANA_URL=https://new.example.com"},
 		File:    file, Log: log,
 	})
 	if err != nil {
@@ -371,30 +367,11 @@ func TestFileSuffixVariables(t *testing.T) {
 			t.Fatalf("nodename %q, err %v", res.Config.HostNodename, err)
 		}
 	})
-	t.Run("legacy name", func(t *testing.T) {
-		p := write("token", "u@pve!t="+canary+"\n")
-		res, log, err := resolveEnv(t, "DASH_PROXMOX_URL=https://pve.example.com", "DASH_PROXMOX_TOKEN_FILE="+p)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if res.Config.ProxmoxTokenID != "u@pve!t" || res.Config.ProxmoxTokenSecret.Reveal() != canary {
-			t.Errorf("ProxmoxToken not read from the file")
-		}
-		if !strings.Contains(log, "name=DASH_PROXMOX_TOKEN_FILE") || strings.Contains(log, canary) {
-			t.Errorf("the legacy _FILE form warns by name and never logs the value:\n%s", log)
-		}
-		if !strings.Contains(log, "read once at startup") {
-			t.Errorf("the legacy token _FILE warning must say the file is not watched:\n%s", log)
-		}
-		if got := warned(log); !slices.Equal(got, []string{"DASH_PROXMOX_TOKEN_FILE", "DASH_PROXMOX_URL"}) {
-			t.Errorf("warnings = %v", got)
-		}
-	})
 	t.Run("both set is an error naming both", func(t *testing.T) {
 		p := write("v", "https://file.example.com")
 		for _, pair := range [][2]string{
 			{"DASH_PLUGINS_GRAFANA_URL", "DASH_PLUGINS_GRAFANA_URL_FILE"},
-			{"DASH_GRAFANA_URL", "DASH_GRAFANA_URL_FILE"},
+			{"DASH_PLUGINS_PROXMOX_TOKEN_SECRET", "DASH_PLUGINS_PROXMOX_TOKEN_SECRET_FILE"},
 		} {
 			_, _, err := resolveEnv(t, pair[0]+"=https://env.example.com", pair[1]+"="+p)
 			if err == nil || !strings.Contains(err.Error(), pair[0]) || !strings.Contains(err.Error(), pair[1]) {
@@ -457,6 +434,35 @@ func TestUnknownVariables(t *testing.T) {
 	})
 }
 
+// A DASH_ name that is neither generated nor removed is still ignored with a warning, and a
+// removed name set empty counts as unset (it does not warn either).
+func TestUnknownDashVariableStillWarns(t *testing.T) {
+	_, log, err := resolveEnv(t, "DASH_LISTN=127.0.0.1:1", "DASH_VM_URL=", "DASH_VM_URL_FILE=")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n := strings.Count(log, "ignoring unknown environment variable"); n != 1 || !strings.Contains(log, "name=DASH_LISTN") {
+		t.Errorf("want one warning, for DASH_LISTN:\n%s", log)
+	}
+}
+
+// The table has no LEGACY column: the aliases are gone, and a removed name is not a setting.
+func TestEnvTableHasNoLegacyColumn(t *testing.T) {
+	var buf bytes.Buffer
+	if err := WriteEnvTable(&buf); err != nil {
+		t.Fatal(err)
+	}
+	out := buf.String()
+	if strings.Contains(out, "LEGACY") || strings.Contains(out, "deprecat") {
+		t.Errorf("the table still talks about legacy names:\n%s", out)
+	}
+	for _, r := range removedEnv {
+		if strings.Contains(out, r.name+" ") {
+			t.Errorf("the table lists the removed %s", r.name)
+		}
+	}
+}
+
 func TestEnvTable(t *testing.T) {
 	vars := EnvVars()
 	if len(vars) != len(schema.leaves) {
@@ -466,17 +472,14 @@ func TestEnvTable(t *testing.T) {
 	for _, v := range vars {
 		byPath[v.Path] = v
 	}
-	if v := byPath["plugins.proxmox.tokenSecret"]; v.Name != "DASH_PLUGINS_PROXMOX_TOKEN_SECRET" || !v.Secret || !slices.Equal(v.Legacy, []string{"DASH_PROXMOX_TOKEN"}) {
+	if v := byPath["plugins.proxmox.tokenSecret"]; v.Name != "DASH_PLUGINS_PROXMOX_TOKEN_SECRET" || !v.Secret {
 		t.Errorf("tokenSecret row: %+v", v)
-	}
-	if v := byPath["plugins.hardware.hosts"]; v.Type != "list of objects (JSON)" || !slices.Equal(v.Legacy, []string{"DASH_HOST_NODENAME", "DASH_HOST_MODEL"}) {
-		t.Errorf("hosts row: %+v", v)
 	}
 	if v := byPath["server.listen"]; !v.Restart || v.Secret || v.Type != "string" {
 		t.Errorf("listen row: %+v", v)
 	}
-	if v := byPath["plugins.kubernetes.kubeconfig"]; len(v.Legacy) != 0 {
-		t.Errorf("KUBECONFIG is not deprecated, so it is not listed as legacy: %+v", v)
+	if v := byPath["plugins.hardware.hosts"]; v.Type != "list of objects (JSON)" {
+		t.Errorf("hosts row: %+v", v)
 	}
 
 	var buf bytes.Buffer
@@ -487,7 +490,7 @@ func TestEnvTable(t *testing.T) {
 	if v := byPath["settings.ui"]; !v.Restart {
 		t.Errorf("settings.ui is read once at startup: %+v", v)
 	}
-	for _, want := range []string{"PATH", "DASH_PLUGINS_PROXMOX_TOKEN_SECRET", "DASH_DATA_DIR", "DASH_PROXMOX_TOKEN", "_FILE", "every change to a setting other than a secret needs a restart"} {
+	for _, want := range []string{"PATH", "DASH_PLUGINS_PROXMOX_TOKEN_SECRET", "DASH_DATA_DIR", "KUBECONFIG", "_FILE", "every change to a setting other than a secret needs a restart"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("table lacks %q:\n%s", want, out)
 		}

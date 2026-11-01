@@ -141,9 +141,8 @@ Every 10 seconds dash checks the config file and every file a secret points at (
 layers again. A rotated secret file reaches the running credentials without a restart. An edit
 that does not validate is logged once as an ERROR and changes nothing; dash keeps running on
 the configuration it has. Any other changed setting is logged as a WARN that it applies after a
-restart. Environment variables only change with a restart. A legacy `DASH_PROXMOX_TOKEN_FILE` is
-split into token ID and secret once at startup and is not watched (its deprecation warning says
-so): rotate without a restart with `DASH_PLUGINS_PROXMOX_TOKEN_SECRET_FILE`.
+restart. Environment variables only change with a restart. Rotate a Proxmox secret without a
+restart with `DASH_PLUGINS_PROXMOX_TOKEN_SECRET_FILE`.
 
 | Setting (file path) | Default | What |
 |---|---|---|
@@ -265,15 +264,15 @@ upstream URL turns that source off: dash makes no request to it and its panels s
 | `homelab_zfs_scrub` | `plugins.hardware.zfsScrubMetricPrefix` |
 | `rustfs` / `nas-backup` | `plugins.kubernetes.backupJobs` (`[{namespace: rustfs, cronjob: nas-backup}]`) |
 
-### Legacy variable names
+### Removed variable names
 
-The names dash used before the config file keep working for one release. Each one logs a
-deprecation warning naming its replacement, and the generated name wins when both are set.
+dash 0.5.0 no longer reads the names it used before the config file; it refuses to start and
+tells you the replacement.
 
-| Legacy | Replacement |
+| Removed | Replacement |
 |---|---|
 | `DASH_PUBLIC_URL`, `DASH_LISTEN`, `DASH_HEALTH_LISTEN` | `DASH_SERVER_PUBLIC_URL`, `DASH_SERVER_LISTEN`, `DASH_SERVER_HEALTH_LISTEN` |
-| `DASH_ALLOWED_HOSTS` (comma-separated) | `DASH_SERVER_ALLOWED_HOSTS` (JSON list) |
+| `DASH_ALLOWED_HOSTS` (comma-separated) | `DASH_SERVER_ALLOWED_HOSTS` (JSON list, e.g. `["dash.example.com"]`) |
 | `DASH_VM_URL`, `DASH_ALERTMANAGER_URL`, `DASH_VLOGS_URL`, `DASH_GATUS_URL` | `DASH_PLUGINS_PROMETHEUS_URL`, `DASH_PLUGINS_ALERTMANAGER_URL`, `DASH_PLUGINS_VICTORIALOGS_URL`, `DASH_PLUGINS_GATUS_URL` |
 | `DASH_PROXMOX_URL`, `DASH_PROXMOX_NODE` | `DASH_PLUGINS_PROXMOX_URL`, `DASH_PLUGINS_PROXMOX_NODE` |
 | `DASH_PROXMOX_TOKEN` (`<user>!<token>=<secret>`) | `DASH_PLUGINS_PROXMOX_TOKEN_ID` and `DASH_PLUGINS_PROXMOX_TOKEN_SECRET` |
@@ -285,9 +284,11 @@ deprecation warning naming its replacement, and the generated name wins when bot
 | `DASH_ZFS_SCRUB_METRIC_PREFIX` | `DASH_PLUGINS_HARDWARE_ZFS_SCRUB_METRIC_PREFIX` |
 | `DASH_NAS_BACKUP_NAMESPACE`, `DASH_NAS_BACKUP_CRONJOB` | `DASH_PLUGINS_KUBERNETES_BACKUP_JOBS` (JSON) |
 
-`DASH_DEV`, `DASH_DEMO` and `DASH_CONFIG` are process settings, not part of the config tree.
-
-`KUBECONFIG` stays as it is: no deprecation warning and no `_FILE` form (it is another tool's variable).
+The `_FILE` form of each removed name is refused the same way. `DASH_ALLOWED_HOSTS` was
+comma-separated; `DASH_SERVER_ALLOWED_HOSTS` is a JSON list. `DASH_PROXMOX_TOKEN=user@realm!name=secret`
+is two variables now: split the old value at the first `=`. `DASH_DEV`, `DASH_DEMO`, `DASH_CONFIG`
+and `KUBECONFIG` are unchanged: `KUBECONFIG` fills `plugins.kubernetes.kubeconfig` (the generated
+name wins), with no `_FILE` form because it is another tool's variable.
 
 ## Layout
 

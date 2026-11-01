@@ -21,6 +21,15 @@ const testToken = "dash@pve!ci=00000000-0000-0000-0000-000000000000"
 
 var testTokenID, testTokenSecret, _ = strings.Cut(testToken, "=")
 
+// pveEnv is the environment of a configured Proxmox token plus the given name/value pairs.
+func pveEnv(kv ...string) map[string]string {
+	env := map[string]string{"DASH_PLUGINS_PROXMOX_TOKEN_ID": testTokenID, "DASH_PLUGINS_PROXMOX_TOKEN_SECRET": testTokenSecret}
+	for i := 0; i+1 < len(kv); i += 2 {
+		env[kv[i]] = kv[i+1]
+	}
+	return env
+}
+
 // fakePVE serves GET /api2/json/nodes, counting requests and recording Authorization headers.
 // reply gets the 1-based call number and returns the status and body.
 type fakePVE struct {
@@ -72,7 +81,7 @@ func always(code int, body string) func(int) (int, string) {
 func TestResolveProxmoxNode(t *testing.T) {
 	tests := []struct {
 		name      string
-		env       map[string]string // DASH_PROXMOX_URL is the fake's URL unless noURL
+		env       map[string]string // DASH_PLUGINS_PROXMOX_URL is the fake's URL unless noURL
 		noURL     bool
 		reply     func(call int) (int, string)
 		budget    time.Duration
@@ -83,28 +92,28 @@ func TestResolveProxmoxNode(t *testing.T) {
 	}{
 		{
 			name:      "one node is discovered for node and nodename",
-			env:       map[string]string{"DASH_PROXMOX_TOKEN": testToken},
+			env:       pveEnv(),
 			reply:     always(200, nodesBody("pve-a")),
 			budget:    5 * time.Second,
 			wantCalls: 1, wantNode: "pve-a", wantHost: "pve-a",
 		},
 		{
 			name:      "explicit nodename is kept",
-			env:       map[string]string{"DASH_PROXMOX_TOKEN": testToken, "DASH_HOST_NODENAME": "box"},
+			env:       pveEnv("DASH_PLUGINS_HARDWARE_HOSTS", `[{"nodename":"box"}]`),
 			reply:     always(200, nodesBody("pve-a")),
 			budget:    5 * time.Second,
 			wantCalls: 1, wantNode: "pve-a", wantHost: "box",
 		},
 		{
 			name:      "explicit node skips discovery",
-			env:       map[string]string{"DASH_PROXMOX_TOKEN": testToken, "DASH_PROXMOX_NODE": "pve-b"},
+			env:       pveEnv("DASH_PLUGINS_PROXMOX_NODE", "pve-b"),
 			reply:     always(200, nodesBody("pve-a")),
 			budget:    5 * time.Second,
 			wantCalls: 0, wantNode: "pve-b", wantHost: "pve-b",
 		},
 		{
 			name:      "explicit node and nodename skip discovery",
-			env:       map[string]string{"DASH_PROXMOX_TOKEN": testToken, "DASH_PROXMOX_NODE": "pve-b", "DASH_HOST_NODENAME": "box"},
+			env:       pveEnv("DASH_PLUGINS_PROXMOX_NODE", "pve-b", "DASH_PLUGINS_HARDWARE_HOSTS", `[{"nodename":"box"}]`),
 			reply:     always(200, nodesBody("pve-a")),
 			budget:    5 * time.Second,
 			wantCalls: 0, wantNode: "pve-b", wantHost: "box",
@@ -118,7 +127,7 @@ func TestResolveProxmoxNode(t *testing.T) {
 		},
 		{
 			name:      "no url is a no-op",
-			env:       map[string]string{"DASH_PROXMOX_TOKEN": testToken},
+			env:       pveEnv(),
 			noURL:     true,
 			reply:     always(200, nodesBody("pve-a")),
 			budget:    5 * time.Second,
@@ -126,7 +135,7 @@ func TestResolveProxmoxNode(t *testing.T) {
 		},
 		{
 			name:      "several nodes fail without retry",
-			env:       map[string]string{"DASH_PROXMOX_TOKEN": testToken},
+			env:       pveEnv(),
 			reply:     always(200, nodesBody("pve-b", "pve-a")),
 			budget:    5 * time.Second,
 			wantErr:   "plugins.proxmox.node",
@@ -134,7 +143,7 @@ func TestResolveProxmoxNode(t *testing.T) {
 		},
 		{
 			name:      "zero nodes fail without retry",
-			env:       map[string]string{"DASH_PROXMOX_TOKEN": testToken},
+			env:       pveEnv(),
 			reply:     always(200, `{"data":[]}`),
 			budget:    5 * time.Second,
 			wantErr:   "plugins.proxmox.node",
@@ -142,7 +151,7 @@ func TestResolveProxmoxNode(t *testing.T) {
 		},
 		{
 			name: "transient error is retried",
-			env:  map[string]string{"DASH_PROXMOX_TOKEN": testToken},
+			env:  pveEnv(),
 			reply: func(call int) (int, string) {
 				if call == 1 {
 					return 500, `{"data":null}`
@@ -154,7 +163,7 @@ func TestResolveProxmoxNode(t *testing.T) {
 		},
 		{
 			name:    "persistent error gives up after the budget",
-			env:     map[string]string{"DASH_PROXMOX_TOKEN": testToken},
+			env:     pveEnv(),
 			reply:   always(500, `{"data":null}`),
 			budget:  200 * time.Millisecond,
 			wantErr: "plugins.proxmox.node",
@@ -169,7 +178,7 @@ func TestResolveProxmoxNode(t *testing.T) {
 			// no-op must hold for a Config built by hand.
 			cfg := config.Config{ProxmoxTokenID: testTokenID, ProxmoxTokenSecret: secret.New(testTokenSecret, "")}
 			if !tc.noURL {
-				env := []string{"DASH_PUBLIC_URL=https://dash.example.com", "DASH_PROXMOX_URL=" + f.URL}
+				env := []string{"DASH_SERVER_PUBLIC_URL=https://dash.example.com", "DASH_PLUGINS_PROXMOX_URL=" + f.URL}
 				for k, v := range tc.env {
 					env = append(env, k+"="+v)
 				}
@@ -209,7 +218,7 @@ func TestResolveProxmoxNode(t *testing.T) {
 
 func TestResolveProxmoxNodeSeveralListsNames(t *testing.T) {
 	f := newFakePVE(t, always(200, nodesBody("pve-b", "pve-a")))
-	cfg, err := config.Load([]string{"DASH_PUBLIC_URL=https://dash.example.com", "DASH_PROXMOX_TOKEN=" + testToken, "DASH_PROXMOX_URL=" + f.URL})
+	cfg, err := config.Load([]string{"DASH_SERVER_PUBLIC_URL=https://dash.example.com", "DASH_PLUGINS_PROXMOX_TOKEN_ID=" + testTokenID, "DASH_PLUGINS_PROXMOX_TOKEN_SECRET=" + testTokenSecret, "DASH_PLUGINS_PROXMOX_URL=" + f.URL})
 	if err != nil {
 		t.Fatal(err)
 	}

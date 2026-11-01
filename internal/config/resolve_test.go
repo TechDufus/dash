@@ -154,7 +154,7 @@ plugins:
 	}
 	log, _ := logBuf()
 	res, err := Resolve(Sources{
-		Environ: []string{"DASH_DEV=true", "DASH_HEADLAMP_URL=https://headlamp.env.example.com"},
+		Environ: []string{"DASH_DEV=true", "DASH_PLUGINS_HEADLAMP_URL=https://headlamp.env.example.com"},
 		File:    file, UI: ui, Log: log,
 	})
 	if err != nil {
@@ -167,7 +167,7 @@ plugins:
 	}
 	for path, want := range map[string]Provenance{
 		"plugins.grafana.url":      {SourceFile, "/etc/dash/config.yaml"},
-		"plugins.headlamp.url":     {SourceEnv, "DASH_HEADLAMP_URL"},
+		"plugins.headlamp.url":     {SourceEnv, "DASH_PLUGINS_HEADLAMP_URL"},
 		"plugins.headlamp.cluster": {SourceUI, ""},
 		"plugins.gatus.url":        {SourceUI, ""},
 		"server.listen":            {SourceDefault, ""},
@@ -248,8 +248,8 @@ func TestValidationNamesPathAndSource(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "plugins.grafana.url (file /etc/dash/config.yaml)") {
 		t.Errorf("file: %v", err)
 	}
-	_, err = Resolve(Sources{Environ: []string{"DASH_DEV=true", "DASH_GRAFANA_URL=ftp://grafana"}})
-	if err == nil || !strings.Contains(err.Error(), "plugins.grafana.url (env DASH_GRAFANA_URL)") {
+	_, err = Resolve(Sources{Environ: []string{"DASH_DEV=true", "DASH_PLUGINS_GRAFANA_URL=ftp://grafana"}})
+	if err == nil || !strings.Contains(err.Error(), "plugins.grafana.url (env DASH_PLUGINS_GRAFANA_URL)") {
 		t.Errorf("env: %v", err)
 	}
 }
@@ -347,7 +347,7 @@ func TestProcessSourcesLayerFileAndEnv(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Setenv("DASH_CONFIG", p)
-	t.Setenv("DASH_LISTEN", "127.0.0.1:9001")
+	t.Setenv("DASH_SERVER_LISTEN", "127.0.0.1:9001")
 	src, err := ProcessSources(nil)
 	if err != nil {
 		t.Fatal(err)

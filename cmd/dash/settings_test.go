@@ -19,7 +19,7 @@ import (
 // startEnv is the environment of a plain production start with the given data directory.
 func startEnv(t *testing.T, dataDir string, more ...string) {
 	t.Helper()
-	t.Setenv("DASH_PUBLIC_URL", "https://dash.example.com")
+	t.Setenv("DASH_SERVER_PUBLIC_URL", "https://dash.example.com")
 	t.Setenv("DASH_DATA_DIR", dataDir)
 	for _, kv := range more {
 		k, v, _ := strings.Cut(kv, "=")
@@ -130,11 +130,11 @@ func TestSettingsUIReadonlyIsReadOnlyEvenWhenWritable(t *testing.T) {
 }
 
 // Startup resolves the layers more than once (the data directory comes from the first pass) and
-// the reloader resolves them again; a legacy variable still warns once, not once per pass.
-func TestStartupWarnsOncePerLegacyVariable(t *testing.T) {
-	startEnv(t, t.TempDir(), // DASH_PUBLIC_URL is legacy, too
-		"DASH_GRAFANA_URL=https://grafana.example.com", "DASH_HEADLAMP_URL=https://headlamp.example.com",
-		"DASH_PROXMOX_URL=https://pve.example.com:8006", "DASH_PROXMOX_TOKEN=u@pve!t=legacy-secret-0123456789")
+// the reloader resolves them again; an unknown variable still warns once, not once per pass.
+func TestStartupWarnsOncePerUnknownVariable(t *testing.T) {
+	startEnv(t, t.TempDir(),
+		"DASH_PLUGINS_GRAFANA_URL=https://grafana.example.com", "DASH_PLUGINS_HEADLAMP_URL=https://headlamp.example.com",
+		"DASH_LISTN=127.0.0.1:1", "DASH_FOO=bar")
 	log := captureLog(t)
 	res, store, err := loadConfig(secret.NewRegistry())
 	if err != nil {
@@ -159,13 +159,13 @@ func TestStartupWarnsOncePerLegacyVariable(t *testing.T) {
 	}
 
 	out := log.String()
-	for _, name := range []string{"DASH_PUBLIC_URL", "DASH_GRAFANA_URL", "DASH_HEADLAMP_URL", "DASH_PROXMOX_URL", "DASH_PROXMOX_TOKEN"} {
-		if n := strings.Count(out, "name="+name+" "); n != 1 {
+	for _, name := range []string{"DASH_LISTN", "DASH_FOO"} {
+		if n := strings.Count(out, "name="+name+"\n") + strings.Count(out, "name="+name+" "); n != 1 {
 			t.Errorf("%s warned %d times, want once:\n%s", name, n, out)
 		}
 	}
-	if n := strings.Count(out, "deprecated environment variable"); n != 5 {
-		t.Errorf("%d deprecation warnings, want 5:\n%s", n, out)
+	if n := strings.Count(out, "ignoring unknown environment variable"); n != 2 {
+		t.Errorf("%d unknown-variable warnings, want 2:\n%s", n, out)
 	}
 }
 

@@ -72,11 +72,11 @@ func TestZFSScrubPrefixIsValidatedOnlyWhenSet(t *testing.T) {
 }
 
 func TestHostNodenameFollowsProxmoxNode(t *testing.T) {
-	base := map[string]string{"DASH_DEV": "true", "DASH_PROXMOX_NODE": "pve-1"}
+	base := map[string]string{"DASH_DEV": "true", "DASH_PLUGINS_PROXMOX_NODE": "pve-1"}
 	if c := mustLoad(t, base); c.HostNodename != "pve-1" {
 		t.Errorf("HostNodename = %q", c.HostNodename)
 	}
-	base["DASH_HOST_NODENAME"] = "box"
+	base["DASH_PLUGINS_HARDWARE_HOSTS"] = `[{"nodename":"box"}]`
 	if c := mustLoad(t, base); c.HostNodename != "box" {
 		t.Errorf("HostNodename = %q", c.HostNodename)
 	}
@@ -102,33 +102,33 @@ func TestValidate(t *testing.T) {
 		{"prod needs public url", nil, "DASH_SERVER_PUBLIC_URL"},
 		{"dev does not", map[string]string{"DASH_DEV": "true"}, ""},
 		{"demo does not", map[string]string{"DASH_DEMO": "true"}, ""},
-		{"dev on all interfaces", map[string]string{"DASH_DEV": "true", "DASH_LISTEN": "0.0.0.0:8080"}, "DASH_LISTEN"},
-		{"dev with an empty host", map[string]string{"DASH_DEV": "true", "DASH_LISTEN": ":8080"}, "DASH_LISTEN"},
-		{"dev on ipv6 loopback", map[string]string{"DASH_DEV": "true", "DASH_LISTEN": "[::1]:8080"}, ""},
-		{"dev on localhost", map[string]string{"DASH_DEV": "true", "DASH_LISTEN": "localhost:8080"}, ""},
-		{"demo may bind every interface", map[string]string{"DASH_DEMO": "true", "DASH_LISTEN": "0.0.0.0:8080"}, ""},
-		{"minimal prod", map[string]string{"DASH_PUBLIC_URL": "https://dash.example.com"}, ""},
+		{"dev on all interfaces", map[string]string{"DASH_DEV": "true", "DASH_SERVER_LISTEN": "0.0.0.0:8080"}, "DASH_SERVER_LISTEN"},
+		{"dev with an empty host", map[string]string{"DASH_DEV": "true", "DASH_SERVER_LISTEN": ":8080"}, "DASH_SERVER_LISTEN"},
+		{"dev on ipv6 loopback", map[string]string{"DASH_DEV": "true", "DASH_SERVER_LISTEN": "[::1]:8080"}, ""},
+		{"dev on localhost", map[string]string{"DASH_DEV": "true", "DASH_SERVER_LISTEN": "localhost:8080"}, ""},
+		{"demo may bind every interface", map[string]string{"DASH_DEMO": "true", "DASH_SERVER_LISTEN": "0.0.0.0:8080"}, ""},
+		{"minimal prod", map[string]string{"DASH_SERVER_PUBLIC_URL": "https://dash.example.com"}, ""},
 		{"token needs proxmox url",
-			map[string]string{"DASH_PUBLIC_URL": "https://d", "DASH_PROXMOX_TOKEN": "u!t=s"}, "plugins.proxmox.url"},
+			map[string]string{"DASH_SERVER_PUBLIC_URL": "https://d", "DASH_PLUGINS_PROXMOX_TOKEN_ID": "u!t", "DASH_PLUGINS_PROXMOX_TOKEN_SECRET": "s"}, "plugins.proxmox.url"},
 		{"token with proxmox url, node left for discovery",
-			map[string]string{"DASH_PUBLIC_URL": "https://d", "DASH_PROXMOX_TOKEN": "u!t=s",
-				"DASH_PROXMOX_URL": "https://pve:8006"}, ""},
+			map[string]string{"DASH_SERVER_PUBLIC_URL": "https://d", "DASH_PLUGINS_PROXMOX_TOKEN_ID": "u!t", "DASH_PLUGINS_PROXMOX_TOKEN_SECRET": "s",
+				"DASH_PLUGINS_PROXMOX_URL": "https://pve:8006"}, ""},
 		{"token with proxmox",
-			map[string]string{"DASH_PUBLIC_URL": "https://d", "DASH_PROXMOX_TOKEN": "u!t=s",
-				"DASH_PROXMOX_URL": "https://pve:8006", "DASH_PROXMOX_NODE": "pve"}, ""},
+			map[string]string{"DASH_SERVER_PUBLIC_URL": "https://d", "DASH_PLUGINS_PROXMOX_TOKEN_ID": "u!t", "DASH_PLUGINS_PROXMOX_TOKEN_SECRET": "s",
+				"DASH_PLUGINS_PROXMOX_URL": "https://pve:8006", "DASH_PLUGINS_PROXMOX_NODE": "pve"}, ""},
 		{"bad metric prefix",
-			map[string]string{"DASH_DEV": "true", "DASH_ZFS_SCRUB_METRIC_PREFIX": "a-b"}, "not a metric name"},
+			map[string]string{"DASH_DEV": "true", "DASH_PLUGINS_HARDWARE_ZFS_SCRUB_METRIC_PREFIX": "a-b"}, "not a metric name"},
 		{"allowed hosts: name, ip and wildcard",
-			map[string]string{"DASH_PUBLIC_URL": "https://d", "DASH_ALLOWED_HOSTS": " Dash.Example.com, 192.0.2.10 ,,*"}, ""},
-		{"allowed hosts: scheme", map[string]string{"DASH_PUBLIC_URL": "https://d", "DASH_ALLOWED_HOSTS": "https://x"}, "DASH_ALLOWED_HOSTS"},
-		{"allowed hosts: port", map[string]string{"DASH_PUBLIC_URL": "https://d", "DASH_ALLOWED_HOSTS": "x:80"}, "DASH_ALLOWED_HOSTS"},
-		{"allowed hosts: path", map[string]string{"DASH_PUBLIC_URL": "https://d", "DASH_ALLOWED_HOSTS": "a/b"}, "DASH_ALLOWED_HOSTS"},
-		{"public url without a scheme", map[string]string{"DASH_PUBLIC_URL": "dash.example.com"}, "DASH_PUBLIC_URL"},
-		{"public url with host and port but no scheme", map[string]string{"DASH_PUBLIC_URL": "dash.example.com:8443"}, "DASH_PUBLIC_URL"},
-		{"public url with another scheme", map[string]string{"DASH_PUBLIC_URL": "ftp://x"}, "DASH_PUBLIC_URL"},
-		{"public url without a host", map[string]string{"DASH_PUBLIC_URL": "https://"}, "DASH_PUBLIC_URL"},
-		{"public url in dev", map[string]string{"DASH_DEV": "true", "DASH_PUBLIC_URL": "http://localhost:5173"}, ""},
-		{"public url with a bad scheme in demo", map[string]string{"DASH_DEMO": "true", "DASH_PUBLIC_URL": "localhost:5173"}, "DASH_PUBLIC_URL"},
+			map[string]string{"DASH_SERVER_PUBLIC_URL": "https://d", "DASH_SERVER_ALLOWED_HOSTS": `[" Dash.Example.com", "192.0.2.10 ", "", "*"]`}, ""},
+		{"allowed hosts: scheme", map[string]string{"DASH_SERVER_PUBLIC_URL": "https://d", "DASH_SERVER_ALLOWED_HOSTS": `["https://x"]`}, "DASH_SERVER_ALLOWED_HOSTS"},
+		{"allowed hosts: port", map[string]string{"DASH_SERVER_PUBLIC_URL": "https://d", "DASH_SERVER_ALLOWED_HOSTS": `["x:80"]`}, "DASH_SERVER_ALLOWED_HOSTS"},
+		{"allowed hosts: path", map[string]string{"DASH_SERVER_PUBLIC_URL": "https://d", "DASH_SERVER_ALLOWED_HOSTS": `["a/b"]`}, "DASH_SERVER_ALLOWED_HOSTS"},
+		{"public url without a scheme", map[string]string{"DASH_SERVER_PUBLIC_URL": "dash.example.com"}, "DASH_SERVER_PUBLIC_URL"},
+		{"public url with host and port but no scheme", map[string]string{"DASH_SERVER_PUBLIC_URL": "dash.example.com:8443"}, "DASH_SERVER_PUBLIC_URL"},
+		{"public url with another scheme", map[string]string{"DASH_SERVER_PUBLIC_URL": "ftp://x"}, "DASH_SERVER_PUBLIC_URL"},
+		{"public url without a host", map[string]string{"DASH_SERVER_PUBLIC_URL": "https://"}, "DASH_SERVER_PUBLIC_URL"},
+		{"public url in dev", map[string]string{"DASH_DEV": "true", "DASH_SERVER_PUBLIC_URL": "http://localhost:5173"}, ""},
+		{"public url with a bad scheme in demo", map[string]string{"DASH_DEMO": "true", "DASH_SERVER_PUBLIC_URL": "localhost:5173"}, "DASH_SERVER_PUBLIC_URL"},
 	}
 	for _, tc := range tests {
 		_, err := load(tc.env)
@@ -176,7 +176,7 @@ func TestHostAllowed(t *testing.T) {
 		}
 	}
 
-	c := mustLoad(t, map[string]string{"DASH_DEV": "true", "DASH_ALLOWED_HOSTS": " Media.Example.com, ,192.0.2.10"})
+	c := mustLoad(t, map[string]string{"DASH_DEV": "true", "DASH_SERVER_ALLOWED_HOSTS": `[" Media.Example.com", "", "192.0.2.10"]`})
 	if got := strings.Join(c.AllowedHosts, "|"); got != "media.example.com|192.0.2.10" {
 		t.Errorf("AllowedHosts = %q", got)
 	}
@@ -198,31 +198,33 @@ func TestPublicOrigin(t *testing.T) {
 }
 
 // TestDeploymentEnvCompat loads exactly the env names the homelab Kubernetes deployment sets
-// (with placeholder values). DASH_PROXMOX_NODE, DASH_HOST_NODENAME, DASH_HOST_MODEL and
-// DASH_LAUNCHER_FILE are deliberately absent: the node is left for discovery at startup.
+// (with placeholder values). DASH_PLUGINS_PROXMOX_NODE, the hardware hosts and the launcher file
+// are deliberately absent: the node is left for discovery at startup.
 func TestDeploymentEnvCompat(t *testing.T) {
 	e := map[string]string{
-		"DASH_PUBLIC_URL":       "https://dash.example.com",
-		"DASH_VM_URL":           "http://vm.example.com:8428",
-		"DASH_ALERTMANAGER_URL": "http://alertmanager.example.com:9093",
-		"DASH_VLOGS_URL":        "http://vlogs.example.com:9428",
-		"DASH_GATUS_URL":        "http://gatus.example.com:8080",
-		"DASH_PROXMOX_URL":      "https://pve.example.com:8006",
-		"DASH_HEADLAMP_URL":     "https://headlamp.example.com",
-		"DASH_GRAFANA_URL":      "https://grafana.example.com",
-		"DASH_PROXMOX_TOKEN":    "dash@pve!ci=00000000-0000-0000-0000-000000000000",
+		"DASH_SERVER_PUBLIC_URL":            "https://dash.example.com",
+		"DASH_PLUGINS_PROMETHEUS_URL":       "http://vm.example.com:8428",
+		"DASH_PLUGINS_ALERTMANAGER_URL":     "http://alertmanager.example.com:9093",
+		"DASH_PLUGINS_VICTORIALOGS_URL":     "http://vlogs.example.com:9428",
+		"DASH_PLUGINS_GATUS_URL":            "http://gatus.example.com:8080",
+		"DASH_PLUGINS_PROXMOX_URL":          "https://pve.example.com:8006",
+		"DASH_PLUGINS_HEADLAMP_URL":         "https://headlamp.example.com",
+		"DASH_PLUGINS_GRAFANA_URL":          "https://grafana.example.com",
+		"DASH_PLUGINS_PROXMOX_TOKEN_ID":     "dash@pve!ci",
+		"DASH_PLUGINS_PROXMOX_TOKEN_SECRET": "00000000-0000-0000-0000-000000000000",
 	}
 	c := mustLoad(t, e)
 	fields := map[string]string{
-		"DASH_PUBLIC_URL":       c.PublicURL,
-		"DASH_VM_URL":           c.VMURL,
-		"DASH_ALERTMANAGER_URL": c.AlertmanagerURL,
-		"DASH_VLOGS_URL":        c.VLogsURL,
-		"DASH_GATUS_URL":        c.GatusURL,
-		"DASH_PROXMOX_URL":      c.ProxmoxURL,
-		"DASH_HEADLAMP_URL":     c.HeadlampURL,
-		"DASH_GRAFANA_URL":      c.GrafanaURL,
-		"DASH_PROXMOX_TOKEN":    c.ProxmoxTokenID + "=" + c.ProxmoxTokenSecret.Reveal(),
+		"DASH_SERVER_PUBLIC_URL":            c.PublicURL,
+		"DASH_PLUGINS_PROMETHEUS_URL":       c.VMURL,
+		"DASH_PLUGINS_ALERTMANAGER_URL":     c.AlertmanagerURL,
+		"DASH_PLUGINS_VICTORIALOGS_URL":     c.VLogsURL,
+		"DASH_PLUGINS_GATUS_URL":            c.GatusURL,
+		"DASH_PLUGINS_PROXMOX_URL":          c.ProxmoxURL,
+		"DASH_PLUGINS_HEADLAMP_URL":         c.HeadlampURL,
+		"DASH_PLUGINS_GRAFANA_URL":          c.GrafanaURL,
+		"DASH_PLUGINS_PROXMOX_TOKEN_ID":     c.ProxmoxTokenID,
+		"DASH_PLUGINS_PROXMOX_TOKEN_SECRET": c.ProxmoxTokenSecret.Reveal(),
 	}
 	for name, want := range e {
 		if got := fields[name]; got != want {

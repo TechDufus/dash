@@ -23,7 +23,7 @@ type validator struct {
 	errs []error
 }
 
-// where says which layer set the value at path: " (env DASH_VM_URL)", " (file /etc/dash/config.yaml)".
+// where says which layer set the value at path: " (env DASH_PLUGINS_PROMETHEUS_URL)", " (file /etc/dash/config.yaml)".
 func where(prov map[string]Provenance, path string) string {
 	p := prov[path]
 	switch p.Source {
