@@ -73,7 +73,7 @@ func (s *Supervisor) Manifests() []Manifest {
 // TopicOrder is the order the hub lists topics in: core.plugins, the overview, then every
 // instance's topics under the names they publish.
 func (s *Supervisor) TopicOrder() []model.Topic {
-	out := []model.Topic{TopicPlugins, model.TopicOverview}
+	out := []model.Topic{model.TopicPlugins, model.TopicOverview}
 	for _, in := range s.registry() {
 		for _, t := range in.man.Topics {
 			out = append(out, topicName(in.id, t))

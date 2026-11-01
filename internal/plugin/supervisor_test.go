@@ -78,7 +78,7 @@ func (e *env) state(t *testing.T, id string) (model.PluginState, string) {
 func (e *env) data() int {
 	n := 0
 	for _, ev := range e.hub.Published() {
-		if ev.Topic != plugin.TopicPlugins {
+		if ev.Topic != model.TopicPlugins {
 			n++
 		}
 	}
@@ -690,7 +690,7 @@ func TestPublishNamespacesDropsUndeclaredWrongTypeAndAfterStop(t *testing.T) {
 	h.Publish("items", &model.PluginsData{}, nil)
 	var got []model.Topic
 	for _, ev := range e.hub.Published() {
-		if ev.Topic != plugin.TopicPlugins {
+		if ev.Topic != model.TopicPlugins {
 			got = append(got, ev.Topic)
 		}
 	}
@@ -840,7 +840,7 @@ func TestCorePluginsPublishedOnEveryStateChange(t *testing.T) {
 	count := func() int {
 		n := 0
 		for _, ev := range e.hub.Published() {
-			if ev.Topic == plugin.TopicPlugins {
+			if ev.Topic == model.TopicPlugins {
 				n++
 			}
 		}
@@ -857,7 +857,7 @@ func TestCorePluginsPublishedOnEveryStateChange(t *testing.T) {
 	state = plugin.StateDegraded
 	mu.Unlock()
 	eventually(t, "the degraded state to be published", func() bool { return count() == 2 })
-	last, _ := e.hub.Last(plugin.TopicPlugins)
+	last, _ := e.hub.Last(model.TopicPlugins)
 	data := last.Data.(model.PluginsData)
 	if len(data.Plugins) != 1 || data.Plugins[0].State != model.PluginDegraded || data.Plugins[0].Message != "m" {
 		t.Fatalf("last = %+v", data)
@@ -921,7 +921,7 @@ func TestTopicOrder(t *testing.T) {
 	a := plugintest.New("aa", plugintest.Topics("one", "two"))
 	b := plugintest.New("bb", func(f *plugintest.Fake) { f.M.Topics = []plugin.TopicSpec{{Name: "hosts", Legacy: "host"}} })
 	e := newEnv(t, nil, a.Factory(), b.Factory())
-	want := []model.Topic{plugin.TopicPlugins, model.TopicOverview, "aa.one", "aa.two", "host"}
+	want := []model.Topic{model.TopicPlugins, model.TopicOverview, "aa.one", "aa.two", "host"}
 	if got := e.sup.TopicOrder(); !slices.Equal(got, want) {
 		t.Fatalf("order = %v, want %v", got, want)
 	}

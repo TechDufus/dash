@@ -18,6 +18,7 @@ import (
 	"github.com/TechDufus/dash/internal/hub"
 	"github.com/TechDufus/dash/internal/kube"
 	"github.com/TechDufus/dash/internal/links"
+	"github.com/TechDufus/dash/internal/plugin/plugintest"
 	"github.com/TechDufus/dash/internal/secret"
 	"github.com/TechDufus/dash/internal/topics"
 	"github.com/TechDufus/dash/internal/upstream"
@@ -87,9 +88,11 @@ func TestReloadedSecretReachesTheProxmoxClientWhileReadinessHolds(t *testing.T) 
 		listKinds[gvr] = gvr.Resource + "List"
 	}
 	cluster := kube.NewFromClients(kubefake.NewClientset(), dynfake.NewSimpleDynamicClientWithCustomListKinds(runtime.NewScheme(), listKinds))
+	h := hub.New()
 	mgr := topics.New(topics.Deps{
 		Cfg: cfg, Cluster: cluster, Prom: upstream.NewProm(cfg.VMURL, nil), AM: upstream.NewAlertmanager(cfg.AlertmanagerURL, nil),
-		Gatus: upstream.NewGatus(cfg.GatusURL, nil), PVE: pveClient, Hub: hub.New(), Links: links.New(cfg), Secrets: reg,
+		Gatus: upstream.NewGatus(cfg.GatusURL, nil), PVE: pveClient, Hub: h, Hosts: plugintest.AllRunning(h, topics.LegacyManifests()...),
+		Links: links.New(cfg), Secrets: reg,
 	})
 	ctx, cancel := context.WithCancel(context.Background())
 	mgr.Run(ctx)

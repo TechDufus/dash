@@ -42,7 +42,12 @@ export const TopicStorage = "storage";
 export const TopicAlerts = "alerts";
 export const TopicStatus = "status";
 export const TopicApps = "apps";
-export type Topic = typeof TopicOverview | typeof TopicHost | typeof TopicVMs | typeof TopicCluster | typeof TopicFlux | typeof TopicStorage | typeof TopicAlerts | typeof TopicStatus | typeof TopicApps;
+/**
+ * TopicPlugins is the status of every plugin instance (PluginsData), published by the
+ * plugin supervisor. The core.* names belong to dash itself, not to a plugin.
+ */
+export const TopicPlugins = "core.plugins";
+export type Topic = typeof TopicOverview | typeof TopicHost | typeof TopicVMs | typeof TopicCluster | typeof TopicFlux | typeof TopicStorage | typeof TopicAlerts | typeof TopicStatus | typeof TopicApps | typeof TopicPlugins;
 export interface Link {
   label: string;
   href: string;

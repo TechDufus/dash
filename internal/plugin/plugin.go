@@ -27,10 +27,6 @@ type ID string
 // Core is reserved for the core.* topics; no plugin may use it.
 const Core ID = "core"
 
-// TopicPlugins is the status of every plugin instance (model.PluginsData), published by the
-// supervisor. The core.* names belong to dash itself, not to a plugin.
-const TopicPlugins model.Topic = "core.plugins"
-
 var (
 	idRE     = regexp.MustCompile(`^[a-z][a-z0-9]{1,31}$`)
 	topicRE  = regexp.MustCompile(`^[a-z][a-z0-9_]{0,31}$`)

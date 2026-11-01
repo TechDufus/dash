@@ -17,6 +17,7 @@ import (
 	"github.com/TechDufus/dash/internal/hub"
 	"github.com/TechDufus/dash/internal/links"
 	"github.com/TechDufus/dash/internal/model"
+	"github.com/TechDufus/dash/internal/plugin"
 	"github.com/TechDufus/dash/internal/topics"
 	"github.com/TechDufus/dash/internal/upstream"
 )
@@ -48,15 +49,28 @@ type Source struct {
 	links *links.Builder
 	start time.Time
 	now   func() time.Time
+	hosts plugin.HostProvider
 }
 
-// New returns a Source anchored at the current time.
+// New returns a Source anchored at the current time. Call Plugins before Run.
 func New(cfg config.Config) *Source {
 	return &Source{links: links.New(cfg), start: time.Now(), now: time.Now}
 }
 
-// Ready is always true: there are no informers to wait for.
-func (s *Source) Ready() bool { return true }
+// Plugins returns the eleven legacy shims, all healthy: the demo has nothing to poll. Each topic
+// is published through the Host of its shim in hosts (the supervisor they are added to), so
+// disabling a plugin in demo mode removes its topics like it does for real.
+func (s *Source) Plugins(hosts plugin.HostProvider) []plugin.Factory {
+	s.hosts = hosts
+	ms := topics.LegacyManifests()
+	out := make([]plugin.Factory, len(ms))
+	for i, m := range ms {
+		out[i] = func() plugin.Plugin {
+			return topics.NewLegacy(m, func() plugin.Status { return plugin.Status{State: plugin.StateHealthy} })
+		}
+	}
+	return out
+}
 
 // Run publishes every topic now and again on each tick until ctx ends; it does not block.
 func (s *Source) Run(ctx context.Context, h *hub.Hub) {
@@ -100,7 +114,9 @@ func (s *Source) publish(h *hub.Hub) {
 		{model.TopicStatus, w.status, src("gatus")},
 		{model.TopicApps, w.apps, src("kubernetes", "gatus")},
 	} {
-		if _, err := h.Publish(p.topic, p.data, p.srcs); err != nil {
+		if id, local, ok := topics.Owner(p.topic); ok {
+			s.hosts.HostFor(id).Publish(local, p.data, p.srcs)
+		} else if _, err := h.Publish(p.topic, p.data, p.srcs); err != nil {
 			slog.Error("demo publish", "topic", p.topic, "error", err)
 		}
 	}

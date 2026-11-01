@@ -36,7 +36,8 @@ https://dash.home.techdufus.com.
   namespace, and lists what needs attention, worst first.
 - **Live, not polled from the browser.** Informers and upstream pollers rebuild nine topics
   (`overview`, `host`, `vms`, `cluster`, `flux`, `storage`, `alerts`, `status`, `apps`) and push
-  only what changed over a single SSE stream.
+  only what changed over a single SSE stream. A tenth, `core.plugins`, says which integrations
+  run and whether each is healthy.
 - **Proxmox and the hardware.** VMs with their Kubernetes node, config, snapshots and charts;
   IPMI power, temperatures, fans and PSUs; ZFS pools and per-bay SMART health.
 - **Kubernetes and GitOps.** Nodes, workloads, pods with logs and metrics, events, namespaces,
@@ -306,9 +307,12 @@ name wins), with no `_FILE` form because it is another tool's variable.
 | `cmd/dash` | entry point, listeners, shutdown |
 | `internal/model` | the API contract (Go structs → `web/src/api/types.ts` via `make generate`) |
 | `internal/config` | layered configuration: defaults, config file, environment (`DASH_*`) |
+| `internal/jsonschema` | JSON Schema from Go structs, for `dash config schema` and plugin config |
+| `internal/plugin` | the plugin contract, registry and supervisor; `plugintest` has the fakes |
+| `internal/auth` | who a request acts as: role and principal |
 | `internal/kube` | informers and the actions' Kubernetes patches |
 | `internal/upstream` | VictoriaMetrics, Alertmanager, VictoriaLogs, Gatus, Proxmox clients |
-| `internal/topics` | topic builders, health and attention rules |
+| `internal/topics` | topic builders, health and attention rules, and the shims that stand for each integration in the plugin registry until it becomes a plugin |
 | `internal/hub`, `internal/api` | SSE hub, REST, middleware |
 | `internal/links` | Headlamp, Proxmox and Grafana deep links |
 | `internal/demo` | fake data for `DASH_DEMO=true` |

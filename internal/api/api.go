@@ -99,6 +99,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/me", s.me)
 	mux.HandleFunc("GET /api/config", s.uiConfig)
 	mux.HandleFunc("GET /api/stream", s.stream)
+	mux.HandleFunc("GET /api/v1/topics/{topic}", s.topic)
 	mux.HandleFunc("GET /api/series", s.series)
 	mux.HandleFunc("GET /api/vms/{vmid}", s.vmDetail)
 	mux.HandleFunc("GET /api/pods/{ns}/{name}", s.podDetail)

@@ -7,10 +7,23 @@ import (
 	"github.com/TechDufus/dash/internal/model"
 )
 
+// orZero is *p, or the zero value while the topic is not built (its plugin is disabled).
+func orZero[T any](p *T) T {
+	if p == nil {
+		var z T
+		return z
+	}
+	return *p
+}
+
 func (m *Manager) buildOverview(b built, now time.Time) model.OverviewData {
+	var alerts []model.Alert
+	if b.alerts != nil {
+		alerts = b.alerts.Alerts
+	}
 	in := AttentionInput{
-		Alerts: b.alerts.Alerts, Flux: *b.flux, Cluster: *b.cluster, VMs: *b.vms, Storage: *b.storage,
-		Status: *b.status, Host: *b.host, Links: m.d.Links, Now: now,
+		Alerts: alerts, Flux: orZero(b.flux), Cluster: orZero(b.cluster), VMs: orZero(b.vms), Storage: orZero(b.storage),
+		Status: orZero(b.status), Host: orZero(b.host), Links: m.d.Links, Now: now,
 	}
 	items := Attention(in, m.tracker)
 	return model.OverviewData{

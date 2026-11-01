@@ -19,6 +19,7 @@ import (
 	"github.com/TechDufus/dash/internal/config"
 	"github.com/TechDufus/dash/internal/kube"
 	"github.com/TechDufus/dash/internal/links"
+	"github.com/TechDufus/dash/internal/plugin/plugintest"
 	"github.com/TechDufus/dash/internal/secret"
 	"github.com/TechDufus/dash/internal/topics"
 	"github.com/TechDufus/dash/internal/upstream"
@@ -68,7 +69,7 @@ func TestStreamEndpointNeverCarriesUpstreamDetail(t *testing.T) {
 	s := newServer(func(d *Deps) {
 		d.Cfg, d.Secrets = cfg, reg
 		m := topics.New(topics.Deps{
-			Cfg: cfg, Cluster: cluster, Hub: d.Hub, Links: links.New(cfg), Secrets: reg,
+			Cfg: cfg, Cluster: cluster, Hub: d.Hub, Hosts: plugintest.AllRunning(d.Hub, topics.LegacyManifests()...), Links: links.New(cfg), Secrets: reg,
 			Prom:  upstream.NewProm(prom.URL, nil),
 			AM:    upstream.NewAlertmanager(amURL, nil),
 			Gatus: upstream.NewGatus(gatus.URL, nil),

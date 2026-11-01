@@ -895,8 +895,8 @@ func (s *Supervisor) publishInfos(force bool) {
 		return
 	}
 	s.lastPublished, s.published = infos, true
-	if _, err := s.opt.Publisher.Publish(TopicPlugins, model.PluginsData{Plugins: infos}, []model.SourceStatus{}); err != nil {
-		s.log().Error("publish failed", "topic", TopicPlugins, "error", err)
+	if _, err := s.opt.Publisher.Publish(model.TopicPlugins, model.PluginsData{Plugins: infos}, []model.SourceStatus{}); err != nil {
+		s.log().Error("publish failed", "topic", model.TopicPlugins, "error", err)
 	}
 }
 

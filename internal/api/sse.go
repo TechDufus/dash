@@ -83,13 +83,18 @@ func (e *sseWriter) pings(ctx context.Context, interval time.Duration) {
 }
 
 func (s *Server) stream(w http.ResponseWriter, r *http.Request) {
+	want, err := topicFilter(r.URL.Query().Get("topics"))
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
 	release, ok := s.events.acquire(w, userFrom(r.Context()))
 	if !ok {
 		s.deny(r, "stream_limit")
 		return
 	}
 	defer release()
-	snapshot, ch, cancel := s.d.Hub.Subscribe()
+	snapshot, ch, cancel := s.d.Hub.Subscribe(userFrom(r.Context()), want)
 	defer cancel()
 	e, err := startSSE(w, s.sseWrite)
 	defer e.done()

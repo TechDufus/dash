@@ -49,6 +49,9 @@ const (
 	TopicAlerts   Topic = "alerts"
 	TopicStatus   Topic = "status"
 	TopicApps     Topic = "apps"
+	// TopicPlugins is the status of every plugin instance (PluginsData), published by the
+	// plugin supervisor. The core.* names belong to dash itself, not to a plugin.
+	TopicPlugins Topic = "core.plugins"
 )
 
 type Link struct {

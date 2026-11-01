@@ -21,6 +21,7 @@ import (
 	"github.com/TechDufus/dash/internal/hub"
 	"github.com/TechDufus/dash/internal/kube"
 	"github.com/TechDufus/dash/internal/links"
+	"github.com/TechDufus/dash/internal/plugin"
 	"github.com/TechDufus/dash/internal/secret"
 	"github.com/TechDufus/dash/internal/topics"
 	"github.com/TechDufus/dash/internal/upstream"
@@ -85,24 +86,45 @@ func run(reg *secret.Registry) error {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	// Rotated secret files reach the running credentials; anything else a changed file says is
-	// logged as needing a restart until the plugin framework applies it live (design B.6, C.5).
-	// Readiness does not depend on it. The loop ends with ctx and is awaited before the audit
-	// log and the store close.
-	reloader := config.NewReloader(res, store, config.ReloadOptions{})
+	// Rotated secret files reach the running credentials, and a changed plugins.* section reaches
+	// the plugin supervisor, which applies it in-process where the plugin allows it (the legacy
+	// ones still need a restart, and the log says so). Readiness does not depend on the reloader.
+	// The loop ends with ctx and is awaited before the audit log and the store close. sup is set
+	// before the loop starts, so the Live hook never sees nil.
+	var sup *plugin.Supervisor
+	reloader := config.NewReloader(res, store, config.ReloadOptions{Live: func(s string) bool { return sup.Live(s) }})
+	h := hub.New()
+	sup = plugin.NewSupervisor(plugin.Options{Publisher: h, Settings: treeSettings{reloader.Tree}})
+	h.SetOrder(sup.TopicOrder)
+	reloader.Subscribe(func(c config.Change) {
+		if strings.HasPrefix(c.Section, "plugins.") {
+			sup.Reload()
+		}
+	})
 	reloaderDone := make(chan struct{})
 	go func() { defer close(reloaderDone); reloader.Run(ctx) }()
 	defer func() { stop(); <-reloaderDone }()
+	// Plugins stop after the servers, before the reloader and the audit log.
+	defer func() {
+		sctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		sup.Shutdown(sctx)
+	}()
 
-	h := hub.New()
 	var srv *api.Server
 	var handler http.Handler
 	if cfg.Demo {
 		cfg = demo.Config(cfg)
 		src := demo.New(cfg)
+		if err := sup.Add(src.Plugins(sup)...); err != nil {
+			return err
+		}
+		if err := sup.Run(ctx); err != nil {
+			return err
+		}
 		src.Run(ctx, h)
 		srv = api.New(api.Deps{
-			Cfg: cfg, Version: version, Hub: h, Prom: src, AM: src, VLogs: src, Data: src, Ready: src.Ready, Secrets: reg, Audit: alog,
+			Cfg: cfg, Version: version, Hub: h, Prom: src, AM: src, VLogs: src, Data: src, Ready: sup.Ready, Secrets: reg, Audit: alog,
 		})
 		handler = demo.Wrap(srv.Handler())
 		slog.Info("demo mode: serving fake data, no cluster or upstreams are contacted")
@@ -133,8 +155,15 @@ func run(reg *secret.Registry) error {
 		pve := upstream.NewProxmox(cfg.ProxmoxURL, cfg.ProxmoxNode, cfg.ProxmoxTokenID, cfg.ProxmoxTokenSecret, nil) // not a .svc host
 
 		mgr := topics.New(topics.Deps{
-			Cfg: cfg, Cluster: cluster, Prom: prom, AM: am, Gatus: gatus, PVE: pve, Hub: h, Links: links.New(cfg), Secrets: reg,
+			Cfg: cfg, Cluster: cluster, Prom: prom, AM: am, Gatus: gatus, PVE: pve, Hub: h, Hosts: sup, Links: links.New(cfg), Secrets: reg,
 		})
+		// The supervisor starts before the Manager so that no first publish is dropped.
+		if err := sup.Add(mgr.Plugins()...); err != nil {
+			return err
+		}
+		if err := sup.Run(ctx); err != nil {
+			return err
+		}
 		mgr.Run(ctx)
 
 		srv = api.New(api.Deps{

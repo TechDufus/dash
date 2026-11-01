@@ -7,6 +7,7 @@ import type {
   FluxData,
   HostData,
   OverviewData,
+  PluginsData,
   StatusData,
   StorageData,
   Topic,
@@ -14,6 +15,7 @@ import type {
 } from "./types";
 
 export interface TopicData {
+  "core.plugins": PluginsData;
   overview: OverviewData;
   host: HostData;
   vms: VMsData;
@@ -34,6 +36,7 @@ type _exact = [Topic] extends [keyof TopicData]
 export const _topicsExact: _exact = true;
 
 export const TOPICS = [
+  "core.plugins",
   "overview",
   "host",
   "vms",

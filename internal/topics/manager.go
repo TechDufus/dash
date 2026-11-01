@@ -1,6 +1,7 @@
-// Package topics builds the nine published topics (overview, host, vms, cluster, flux, storage,
-// alerts, status, apps) from the Kubernetes informers and the upstream clients, and publishes
-// them on the hub whenever their content changes.
+// Package topics builds the eight integration topics (host, vms, cluster, flux, storage, alerts,
+// status, apps) and the overview from the Kubernetes informers and the upstream clients, and
+// publishes them whenever their content changes. Each topic is published through the Host of
+// the plugin that owns it (legacy.go), so a disabled plugin publishes nothing.
 package topics
 
 import (
@@ -16,6 +17,7 @@ import (
 	"github.com/TechDufus/dash/internal/kube"
 	"github.com/TechDufus/dash/internal/links"
 	"github.com/TechDufus/dash/internal/model"
+	"github.com/TechDufus/dash/internal/plugin"
 	"github.com/TechDufus/dash/internal/secret"
 	"github.com/TechDufus/dash/internal/upstream"
 )
@@ -33,6 +35,8 @@ type Deps struct {
 	PVE     *upstream.Proxmox
 	Hub     *hub.Hub
 	Links   *links.Builder
+	// Hosts hands out the Host each topic is published through, and says which plugins run.
+	Hosts plugin.HostProvider
 	// Secrets scrubs logged upstream errors; nil only matches credential shapes.
 	Secrets *secret.Registry
 }
@@ -161,6 +165,9 @@ func (m *Manager) every(ctx context.Context, name string, d time.Duration, fn fu
 						slog.Error("poller panic", "poller", name, "panic", r)
 					}
 				}()
+				if !m.anyRunning(pollUsers[name]) {
+					return // nothing that reads this source runs: no request is made
+				}
 				pctx, cancel := context.WithTimeout(ctx, pollTimeout)
 				defer cancel()
 				fn(pctx)
@@ -268,11 +275,30 @@ func (m *Manager) onKubeChange(k kube.Kind) {
 	}
 }
 
-// publish marshals and hands one topic to the hub; failures are logged and never fatal.
+// publish hands one topic to the Host of the plugin that owns it, which names, types and
+// forwards it to the hub. A topic nobody owns (the overview, until P2.5) goes to the hub
+// directly. Failures are logged and never fatal.
 func (m *Manager) publish(topic model.Topic, data any, srcs []model.SourceStatus) {
+	if o, ok := owners[topic]; ok {
+		m.d.Hosts.HostFor(o.plugin).Publish(o.local, data, srcs)
+		return
+	}
 	if _, err := m.d.Hub.Publish(topic, data, srcs); err != nil {
 		slog.Error("publish failed", "topic", topic, "error", err)
 	}
+}
+
+// anyRunning reports whether at least one of ids runs; an empty list means "always".
+func (m *Manager) anyRunning(ids []plugin.ID) bool {
+	if len(ids) == 0 {
+		return true
+	}
+	for _, id := range ids {
+		if m.d.Hosts.Running(id) {
+			return true
+		}
+	}
+	return false
 }
 
 // rebuild rebuilds every dirty topic whose prerequisites are ready; the overview follows any change.
@@ -291,6 +317,9 @@ func (m *Manager) rebuild() {
 	build := func(t model.Topic, ready bool, fn func() (any, []model.SourceStatus)) {
 		if !dirty[t] {
 			return
+		}
+		if !m.d.Hosts.Running(owners[t].plugin) {
+			return // a disabled plugin publishes nothing, and nothing waits for it
 		}
 		if !ready {
 			retry(t)
@@ -360,9 +389,11 @@ func (m *Manager) rebuild() {
 	m.mu.RLock()
 	b := m.built
 	m.mu.RUnlock()
-	allBuilt := b.host != nil && b.vms != nil && b.cluster != nil && b.flux != nil && b.storage != nil &&
-		b.alerts != nil && b.status != nil && b.apps != nil
-	if !allBuilt {
+	// The overview waits for every topic whose owner runs, not for a disabled plugin's.
+	up := func(built bool, t model.Topic) bool { return built || !m.d.Hosts.Running(owners[t].plugin) }
+	if !(up(b.host != nil, model.TopicHost) && up(b.vms != nil, model.TopicVMs) && up(b.cluster != nil, model.TopicCluster) &&
+		up(b.flux != nil, model.TopicFlux) && up(b.storage != nil, model.TopicStorage) && up(b.alerts != nil, model.TopicAlerts) &&
+		up(b.status != nil, model.TopicStatus) && up(b.apps != nil, model.TopicApps)) {
 		retry(model.TopicOverview)
 		return
 	}
