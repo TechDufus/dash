@@ -57,7 +57,7 @@ const (
 type Link struct {
 	Label string   `json:"label"`
 	Href  string   `json:"href"`
-	Kind  LinkKind `json:"kind"`
+	Kind  LinkKind `json:"kind" tstype:"string"`
 }
 
 // SourceStatus reports one upstream behind a topic; ok=false shows "source unavailable". Error is

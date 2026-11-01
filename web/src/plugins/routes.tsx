@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { AppsPage } from "@/pages/apps";
 import { OverviewPage } from "@/pages/overview";
 import { StoragePage } from "@/pages/storage";
+import { GenericPluginPage } from "./generic/generic";
 import { MODULES } from "./registry";
 import { isVisible, usePluginsState } from "./state";
 import type { ModuleRoute as ModuleRouteDecl, PluginModule } from "./types";
@@ -144,6 +145,7 @@ export function PluginRoutes() {
           </Route>
         )),
       )}
+      <Route path="/x/:id">{(params) => <GenericPluginPage id={params.id ?? ""} />}</Route>
       <Route>
         <NotFound />
       </Route>

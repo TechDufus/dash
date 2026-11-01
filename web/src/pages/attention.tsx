@@ -8,6 +8,7 @@ import { LayoutItem } from "@/components/page";
 import { Panel, PanelHeader } from "@/components/panel";
 import { formatRelative } from "@/lib/format";
 import { cn } from "@/lib/utils";
+import { useRoutable } from "@/plugins/routable";
 
 const CRIT_HEX = "#ff4d6d";
 const WARN_HEX = "#ffb547";
@@ -15,27 +16,38 @@ const WARN_HEX = "#ffb547";
 function AttentionRow({ item }: { item: AttentionItem }) {
   const crit = item.severity === "crit";
   const Icon = crit ? OctagonAlert : TriangleAlert;
-  return (
-    <div className="rounded-xl border border-transparent px-2 py-2 transition-colors hover:border-line hover:bg-panel-hover">
-      <Link href={item.route} className="flex gap-3 rounded-lg">
-        <Icon
-          className={cn("mt-0.5 size-4 shrink-0", crit ? "text-crit" : "text-warn")}
-          aria-label={crit ? "Critical" : "Warning"}
-          role="img"
-        />
-        <span className="min-w-0 flex-1">
-          <span className="flex items-baseline gap-2">
-            <span className="truncate text-sm font-medium text-fg">{item.title}</span>
-            <span className="num ml-auto shrink-0 text-[11px] text-faint">
-              {formatRelative(item.since)}
-            </span>
-          </span>
-          <span className="mt-0.5 line-clamp-2 block text-xs text-muted">{item.detail}</span>
-          <span className="mt-1 inline-block rounded-full border border-line px-1.5 py-px text-[10px] text-faint">
-            {item.source}
+  const routable = useRoutable();
+  const body = (
+    <>
+      <Icon
+        className={cn("mt-0.5 size-4 shrink-0", crit ? "text-crit" : "text-warn")}
+        aria-label={crit ? "Critical" : "Warning"}
+        role="img"
+      />
+      <span className="min-w-0 flex-1">
+        <span className="flex items-baseline gap-2">
+          <span className="truncate text-sm font-medium text-fg">{item.title}</span>
+          <span className="num ml-auto shrink-0 text-[11px] text-faint">
+            {formatRelative(item.since)}
           </span>
         </span>
-      </Link>
+        <span className="mt-0.5 line-clamp-2 block text-xs text-muted">{item.detail}</span>
+        <span className="mt-1 inline-block rounded-full border border-line px-1.5 py-px text-[10px] text-faint">
+          {item.source}
+        </span>
+      </span>
+    </>
+  );
+  return (
+    <div className="rounded-xl border border-transparent px-2 py-2 transition-colors hover:border-line hover:bg-panel-hover">
+      {/* The route is a link only while the plugin that raised the item has a page for it. */}
+      {routable(item.plugin, item.route) ? (
+        <Link href={item.route} className="flex gap-3 rounded-lg">
+          {body}
+        </Link>
+      ) : (
+        <div className="flex gap-3 rounded-lg">{body}</div>
+      )}
       {item.links.length > 0 && <LinkButtons links={item.links} size="xs" className="mt-2 pl-7" />}
     </div>
   );

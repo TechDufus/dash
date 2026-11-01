@@ -94,7 +94,7 @@ export type Topic = typeof TopicOverview | typeof TopicHost | typeof TopicVMs | 
 export interface Link {
   label: string;
   href: string;
-  kind: LinkKind;
+  kind: string;
 }
 /**
  * SourceStatus reports one upstream behind a topic; ok=false shows "source unavailable". Error is

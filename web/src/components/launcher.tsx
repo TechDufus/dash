@@ -1,9 +1,10 @@
-import { AppWindow, LayoutGrid } from "lucide-react";
+import { AppWindow } from "lucide-react";
 import { type ReactNode, useState } from "react";
-import type { App, Group, SourceStatus } from "@/api/types";
+import { useTopic } from "@/api/stream";
+import type { App, Group } from "@/api/types";
 import { Panel, SourceChips } from "@/components/panel";
 import { Skeleton } from "@/components/ui/skeleton";
-import type { InfraLink } from "@/config/links";
+import { type InfraLink, useInfraLinks } from "@/config/links";
 import { cn } from "@/lib/utils";
 
 const GROUP_ORDER: Group[] = ["Platform", "Apps", "Tenants"];
@@ -113,21 +114,40 @@ function Tile({ name, description, href, icon, health, compact }: TileProps) {
   );
 }
 
-function Section({
-  title,
-  count,
-  children,
-}: {
+const OTHER = "Other";
+
+interface SectionProps {
   title: string;
+  /** What the tiles are, for the screen-reader label ("apps", "links"). */
+  noun: string;
+  /** Tiles that match the search. */
   count: number;
+  /** Tiles in the section without a search. */
+  total: number;
+  compact?: boolean;
   children: ReactNode;
-}) {
+}
+
+/**
+ * A titled grid of tiles. Its count ("12 of 14" while a search narrows it) is its own polite live
+ * region, so a search that changes the section is announced, and a section a plugin adds or
+ * removes brings or takes its announcement with it. The compact overview row stays silent.
+ */
+function Section({ title, noun, count, total, compact, children }: SectionProps) {
+  const text = count === total ? String(count) : `${count} of ${total}`;
   return (
     <section className="space-y-2">
       <h3 className="flex items-center gap-2 text-xs font-medium tracking-wide text-muted uppercase">
         {title}
-        <span className="num rounded-full border border-line px-1.5 text-[10px] text-faint">
-          {count}
+        <span
+          role={compact ? undefined : "status"}
+          aria-live={compact ? undefined : "polite"}
+          className="num rounded-full border border-line px-1.5 text-[10px] text-faint"
+        >
+          {!compact && (
+            <span className="sr-only">{`${noun} matching the search in ${title}: `}</span>
+          )}
+          {text}
         </span>
       </h3>
       <div className={GRID}>{children}</div>
@@ -147,68 +167,46 @@ export function LauncherSkeleton({ count = 8 }: { count?: number }) {
   );
 }
 
-interface LauncherProps {
-  /** undefined until the apps topic arrives (renders skeleton tiles). */
-  apps: App[] | undefined;
-  infra: InfraLink[];
-  sources?: SourceStatus[];
-  /** Section title above the tiles (Overview); omit when the page supplies its own header. */
-  title?: string;
+interface SectionsProps {
   /** Filter text (name, description, group, hostname). */
-  query?: string;
+  query: string;
+  /** The overview's launcher row: smaller descriptions, and the counts are not announced. */
   compact?: boolean;
-  /** Shown when nothing matches the query. */
-  emptyText?: string;
 }
 
-/** App tiles grouped by Platform/Apps/Tenants, then the Infrastructure links. */
-export function Launcher({
-  apps,
-  infra,
-  sources,
-  title,
-  query = "",
-  compact,
-  emptyText = "Nothing matches your search.",
-}: LauncherProps) {
-  const header =
-    title || sources?.some((s) => !s.ok) ? (
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-        {title && (
-          <h2 className="flex items-center gap-2 text-sm font-medium tracking-wide text-fg">
-            <LayoutGrid className="size-4 text-accent" aria-hidden="true" />
-            {title}
-          </h2>
-        )}
-        <SourceChips sources={sources} />
-      </div>
-    ) : null;
+/** The Kubernetes apps, grouped Platform/Apps/Tenants (then any other group), filtered by `query`. */
+export function AppsSection({ query, compact }: SectionsProps) {
+  const env = useTopic("apps");
+  const apps = env?.data.apps;
+  if (!apps) return <LauncherSkeleton />;
 
-  if (!apps) {
-    return (
-      <div className="space-y-3">
-        {header}
-        <LauncherSkeleton />
-      </div>
-    );
-  }
-
-  const visible = apps.filter((a) => appMatches(a, query));
-  const infraVisible = infra.filter((l) => infraMatches(l, query));
   const known = new Set<string>(GROUP_ORDER);
-  const groups: { name: string; items: App[] }[] = [
-    ...GROUP_ORDER.map((name) => ({ name, items: visible.filter((a) => a.group === name) })),
-    {
-      name: "Other",
-      items: visible.filter((a) => !known.has(a.group)),
-    },
-  ].filter((g) => g.items.length > 0);
+  const inGroup = (name: string, a: App) =>
+    name === OTHER ? !known.has(a.group) : a.group === name;
+  const groups = [...GROUP_ORDER, OTHER]
+    .map((name) => ({
+      name,
+      total: apps.filter((a) => inGroup(name, a)).length,
+      items: apps.filter((a) => inGroup(name, a) && appMatches(a, query)),
+    }))
+    .filter((g) => g.items.length > 0);
 
   return (
-    <div className="space-y-5">
-      {header}
+    <>
+      {env.sources.some((s) => !s.ok) && (
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+          <SourceChips sources={env.sources} />
+        </div>
+      )}
       {groups.map((g) => (
-        <Section key={g.name} title={g.name} count={g.items.length}>
+        <Section
+          key={g.name}
+          title={g.name}
+          noun="apps"
+          count={g.items.length}
+          total={g.total}
+          compact={compact}
+        >
           {g.items.map((a) => (
             <Tile
               key={`${a.namespace}/${a.name}/${a.href}`}
@@ -222,23 +220,38 @@ export function Launcher({
           ))}
         </Section>
       ))}
-      {infraVisible.length > 0 && (
-        <Section title="Infrastructure" count={infraVisible.length}>
-          {infraVisible.map((l) => (
-            <Tile
-              key={l.href}
-              name={l.name}
-              description={l.description}
-              href={l.href}
-              icon={l.icon}
-              compact={compact}
-            />
-          ))}
-        </Section>
+      {groups.length === 0 && apps.length > 0 && (
+        <p role={compact ? undefined : "status"} className="py-8 text-center text-sm text-muted">
+          No apps match “{query.trim()}”.
+        </p>
       )}
-      {groups.length === 0 && infraVisible.length === 0 && (
-        <p className="py-8 text-center text-sm text-muted">{emptyText}</p>
-      )}
-    </div>
+    </>
+  );
+}
+
+/** The infrastructure links from the launcher file, filtered by `query`. */
+export function InfraSection({ query, compact }: SectionsProps) {
+  const infra = useInfraLinks();
+  const items = infra.filter((l) => infraMatches(l, query));
+  if (items.length === 0) return null;
+  return (
+    <Section
+      title="Infrastructure"
+      noun="links"
+      count={items.length}
+      total={infra.length}
+      compact={compact}
+    >
+      {items.map((l) => (
+        <Tile
+          key={l.href}
+          name={l.name}
+          description={l.description}
+          href={l.href}
+          icon={l.icon}
+          compact={compact}
+        />
+      ))}
+    </Section>
   );
 }

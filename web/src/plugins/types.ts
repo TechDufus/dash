@@ -1,7 +1,7 @@
 import type { LucideIcon } from "lucide-react";
 import type { ComponentType, LazyExoticComponent } from "react";
-import type { TopicData } from "@/api/topics";
-import type { Topic } from "@/api/types";
+import type { TopicData, TypedEnvelope } from "@/api/topics";
+import type { OverviewData, Topic } from "@/api/types";
 
 declare const topicBrand: unique symbol;
 
@@ -71,4 +71,25 @@ export function definePlugin<const Id extends string, const T extends TopicMap>(
 }
 
 // --- slots (S3) ---
+export type SlotId = "overview.kpis" | "storage" | "apps.sources";
+
+export interface SlotProps {
+  "overview.kpis": { data: OverviewData };
+  storage: { env: TypedEnvelope<"storage"> | undefined };
+  "apps.sources": { query: string; compact?: boolean };
+}
+
+export interface PanelContribution<S extends SlotId = SlotId> {
+  /** Unique within the module. */
+  id: string;
+  /** Position within the slot. Default: the module's `order`, then declaration order. */
+  order?: number;
+  /** `storage` only: a full row or half a row (default half). */
+  span?: "full" | "half";
+  /** Topics the panel reads. It is hidden when any is unavailable, so it never waits for a topic nobody publishes. */
+  reads?: readonly Topic[];
+  component: ComponentType<SlotProps[S]>;
+}
+
+export type ModulePanels = { [S in SlotId]?: readonly PanelContribution<S>[] };
 // --- /slots (S3) ---

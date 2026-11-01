@@ -1,15 +1,26 @@
-import { Boxes, ChartLine, ExternalLink, LayoutGrid, Server } from "lucide-react";
-import type { Link, LinkKind } from "@/api/types";
+import { Boxes, ExternalLink, LayoutGrid, type LucideIcon } from "lucide-react";
+import type { Link } from "@/api/types";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+import { MODULES } from "@/plugins/registry";
 
-const ICONS: Record<LinkKind, typeof ExternalLink> = {
-  headlamp: Boxes,
-  proxmox: Server,
-  grafana: ChartLine,
+const DEFAULT_ICONS: Readonly<Record<string, LucideIcon>> = {
   app: LayoutGrid,
   external: ExternalLink,
 };
+
+/**
+ * The icon of a link kind: the one a module contributes for it (`linkIcons`), then the app and
+ * external defaults, then the generic external-link icon. The kind is a provider id, so a plugin
+ * the SPA has no module for still renders.
+ */
+function linkIcon(kind: string): LucideIcon {
+  for (const m of MODULES) {
+    const icons: Readonly<Record<string, LucideIcon>> | undefined = m.linkIcons;
+    if (icons && Object.hasOwn(icons, kind)) return icons[kind] ?? ExternalLink;
+  }
+  return Object.hasOwn(DEFAULT_ICONS, kind) ? (DEFAULT_ICONS[kind] ?? ExternalLink) : ExternalLink;
+}
 
 /** Deep links as small outline buttons that open in a new tab. */
 export function LinkButtons({
@@ -25,7 +36,7 @@ export function LinkButtons({
   return (
     <div className={cn("flex flex-wrap gap-2", className)}>
       {links.map((l) => {
-        const Icon = ICONS[l.kind] ?? ExternalLink;
+        const Icon = linkIcon(l.kind);
         return (
           <Button key={`${l.kind}:${l.href}`} asChild variant="outline" size={size}>
             <a href={l.href} target="_blank" rel="noreferrer noopener">

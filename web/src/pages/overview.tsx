@@ -1,157 +1,39 @@
-import {
-  BellRing,
-  Boxes,
-  Flame,
-  HardDrive,
-  Monitor,
-  ShieldAlert,
-  ShieldCheck,
-  Zap,
-} from "lucide-react";
+import { HardDrive, LayoutGrid } from "lucide-react";
 import { Link } from "wouter";
 import { useTopic } from "@/api/stream";
-import type { Health, Kpis, OverviewData } from "@/api/types";
+import type { Kpis, OverviewData } from "@/api/types";
 import { Kpi } from "@/components/kpi";
-import { Launcher } from "@/components/launcher";
 import { Page, Reveal } from "@/components/page";
 import { PanelSkeleton } from "@/components/panel";
-import { SparkSeries } from "@/components/spark";
 import { Skeleton } from "@/components/ui/skeleton";
-import { useInfraLinks } from "@/config/links";
-import { formatCelsius, formatPercent, formatWatts } from "@/lib/format";
-import { HEALTH_COLOR, HEALTH_TEXT, ratioHealth } from "@/lib/health";
+import { formatPercent } from "@/lib/format";
+import { HEALTH_TEXT, ratioHealth } from "@/lib/health";
 import { cn } from "@/lib/utils";
+import { Slot } from "@/plugins/slots";
+import { isVisible, usePluginsState } from "@/plugins/state";
 import { AttentionPanel } from "./attention";
-import { TopologyPanel, tempHealth } from "./topology";
+import { TopologyPanel } from "./topology";
 
-function alertsHealth(data: OverviewData): Health {
-  if (data.attention.some((a) => a.severity === "crit")) return "crit";
-  if (data.kpis.alertsFiring > 0 || data.attention.some((a) => a.severity === "warn"))
-    return "warn";
-  return "ok";
-}
+const KPI_GRID = "grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6";
 
-function KpiLink({
-  href,
-  label,
-  children,
-}: {
-  href: string;
-  label: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <Link href={href} aria-label={label} className="block rounded-2xl">
-      {children}
-    </Link>
-  );
-}
-
-function KpiRow({ data }: { data: OverviewData }) {
-  const k: Kpis = data.kpis;
-  const temp = tempHealth(k.cpuTempMaxC);
-  const gitops: Health = k.fluxReady < k.fluxTotal || !k.sourceVerified ? "warn" : "ok";
-  const nodes: Health = k.nodesReady < k.nodesTotal ? "crit" : "ok";
-  const vms: Health = k.vmsRunning < k.vmsTotal ? "warn" : "ok";
-  const gitopsNote = [
-    k.sourceVerified ? "Source verified" : "Source not verified",
-    k.fluxSuspended > 0 ? `${k.fluxSuspended} suspended` : "",
-  ]
-    .filter(Boolean)
-    .join(" · ");
-  return (
-    <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
-      <KpiLink href="/alerts" label={`Alerts firing: ${k.alertsFiring}. Open alerts`}>
-        <Kpi
-          label="Alerts firing"
-          value={k.alertsFiring}
-          health={alertsHealth(data)}
-          icon={<BellRing aria-hidden="true" />}
-          className="h-full transition-colors hover:border-accent/30"
-        />
-      </KpiLink>
-      <KpiLink href="/gitops" label={`GitOps ${k.fluxReady} of ${k.fluxTotal} ready. Open GitOps`}>
-        <Kpi
-          label="GitOps"
-          value={k.fluxReady}
-          suffix={`/ ${k.fluxTotal}`}
-          health={gitops}
-          icon={
-            k.sourceVerified ? (
-              <ShieldCheck className="text-ok" role="img" aria-label="Source verified" />
-            ) : (
-              <ShieldAlert className="text-warn" role="img" aria-label="Source not verified" />
-            )
-          }
-          spark={
-            <p
-              className={cn(
-                "flex h-full items-end px-1 text-xs",
-                k.sourceVerified && k.fluxSuspended === 0 ? "text-muted" : "text-warn",
-              )}
-            >
-              {gitopsNote}
-            </p>
-          }
-          className="h-full transition-colors hover:border-accent/30"
-        />
-      </KpiLink>
-      <KpiLink
-        href="/cluster"
-        label={`Nodes ${k.nodesReady} of ${k.nodesTotal} ready. Open cluster`}
-      >
-        <Kpi
-          label="Nodes"
-          value={k.nodesReady}
-          suffix={`/ ${k.nodesTotal}`}
-          health={nodes}
-          icon={<Boxes aria-hidden="true" />}
-          className="h-full transition-colors hover:border-accent/30"
-        />
-      </KpiLink>
-      <KpiLink href="/vms" label={`VMs ${k.vmsRunning} of ${k.vmsTotal} running. Open VMs`}>
-        <Kpi
-          label="VMs"
-          value={k.vmsRunning}
-          suffix={`/ ${k.vmsTotal}`}
-          health={vms}
-          icon={<Monitor aria-hidden="true" />}
-          className="h-full transition-colors hover:border-accent/30"
-        />
-      </KpiLink>
-      <KpiLink href="/hardware" label={`Power ${formatWatts(k.powerWatts)}. Open hardware`}>
-        <Kpi
-          label="Power"
-          value={k.powerWatts}
-          unit="W"
-          icon={<Zap aria-hidden="true" />}
-          spark={<SparkSeries name="host.power" range="6h" format={formatWatts} />}
-          className="h-full transition-colors hover:border-accent/30"
-        />
-      </KpiLink>
-      <KpiLink
-        href="/hardware"
-        label={`CPU temperature ${formatCelsius(k.cpuTempMaxC)}. Open hardware`}
-      >
-        <Kpi
-          label="CPU temp"
-          value={k.cpuTempMaxC}
-          unit="°C"
-          health={temp}
-          icon={<Flame aria-hidden="true" />}
-          spark={
-            <SparkSeries
-              name="host.cpuTemp"
-              range="6h"
-              color={temp === "ok" ? undefined : HEALTH_COLOR[temp]}
-              format={formatCelsius}
-            />
-          }
-          className="h-full transition-colors hover:border-accent/30"
-        />
-      </KpiLink>
-    </div>
-  );
+/** The KPIs plugins publish in `kpiList`, after the tiles the modules draw; hidden with their plugin. */
+function PublishedKpis({ data }: { data: OverviewData }) {
+  const { byId } = usePluginsState();
+  return data.kpiList
+    .filter((k) => {
+      const info = byId.get(k.plugin);
+      return info !== undefined && isVisible(info.state);
+    })
+    .map((k) => (
+      <Kpi
+        key={`${k.plugin}/${k.key}`}
+        label={k.label}
+        value={k.value}
+        unit={k.unit}
+        health={k.health}
+        className="h-full"
+      />
+    ));
 }
 
 function WorstPvc({ pvc }: { pvc: NonNullable<Kpis["worstPvc"]> }) {
@@ -175,7 +57,7 @@ function WorstPvc({ pvc }: { pvc: NonNullable<Kpis["worstPvc"]> }) {
 function OverviewSkeleton() {
   return (
     <>
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6" aria-busy="true">
+      <div className={KPI_GRID} aria-busy="true">
         {Array.from({ length: 6 }, (_, i) => (
           // biome-ignore lint/suspicious/noArrayIndexKey: static placeholder tiles
           <Skeleton key={i} className="h-[118px] rounded-2xl" />
@@ -191,15 +73,16 @@ function OverviewSkeleton() {
 
 export function OverviewPage() {
   const overview = useTopic("core.overview");
-  const apps = useTopic("apps");
-  const infra = useInfraLinks();
   const data = overview?.data;
   return (
     <Page>
       {data ? (
         <>
           <Reveal index={0} className="space-y-2">
-            <KpiRow data={data} />
+            <div className={KPI_GRID}>
+              <Slot id="overview.kpis" data={data} />
+              <PublishedKpis data={data} />
+            </div>
             {data.kpis.worstPvc && <WorstPvc pvc={data.kpis.worstPvc} />}
           </Reveal>
           <Reveal index={1} className="grid gap-4 lg:grid-cols-12">
@@ -218,14 +101,14 @@ export function OverviewPage() {
       ) : (
         <OverviewSkeleton />
       )}
-      <Reveal index={2}>
-        <Launcher
-          title="Launcher"
-          apps={apps?.data.apps}
-          infra={infra}
-          sources={apps?.sources}
-          compact
-        />
+      <Reveal index={2} className="space-y-3">
+        <h2 className="flex items-center gap-2 text-sm font-medium tracking-wide text-fg">
+          <LayoutGrid className="size-4 text-accent" aria-hidden="true" />
+          Launcher
+        </h2>
+        <div className="space-y-5">
+          <Slot id="apps.sources" query="" compact />
+        </div>
       </Reveal>
     </Page>
   );

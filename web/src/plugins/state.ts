@@ -82,12 +82,17 @@ export interface NavEntry {
 
 const warned = new Set<string>();
 
-/** Whether the SPA can draw a nav entry of `info`: its module has a route matching the path. */
+/**
+ * Whether the SPA can draw a nav entry of `info`: its module has a route matching the path, or the
+ * plugin declares generic views and the path is its generic page, /x/<id>.
+ */
 function canRender(
+  info: PluginInfo,
   mod: PluginModule | undefined,
   path: string,
   parser: Parameters<typeof matchRoute>[0],
 ): boolean {
+  if (info.generic.length > 0 && path === `/x/${info.id}`) return true;
   return (mod?.routes ?? []).some((r) => matchRoute(parser, r.path, path)[0]);
 }
 
@@ -113,7 +118,7 @@ export function useNavEntries(): { ready: boolean; entries: NavEntry[] } {
       if (!isVisible(info.state)) continue;
       const mod = moduleById.get(info.id);
       for (const n of info.nav) {
-        if (!canRender(mod, n.path, parser)) {
+        if (!canRender(info, mod, n.path, parser)) {
           const key = `${info.id}:${n.path}`;
           if (!warned.has(key)) {
             warned.add(key);
