@@ -247,7 +247,7 @@ func (b *specBuilder) addPlugins() {
 					"Every call is audited and counts against the principal's action rate limit.",
 			}
 			if t := inputType(a); t != nil {
-				op["requestBody"] = object{"required": true, "content": jsonContent(b.refl.Type(t))}
+				op["requestBody"] = object{"required": true, "description": "The action's input.", "content": jsonContent(b.refl.Type(t))}
 			}
 			op["responses"] = object{
 				"200":     object{"description": "The action's result.", "headers": okHeaders(), "content": jsonContent(object{})},
