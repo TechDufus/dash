@@ -68,12 +68,15 @@ if [ "$full" = 1 ]; then
 fi
 
 # Arrays are only expanded behind a length check: set -u rejects empty "${a[@]}" on bash < 4.4.
-nfiles=0 go_all=0 tygo=0 web_config=0 web_ts=0
+nfiles=0 go_all=0 tygo=0 openapi=0 web_config=0 web_ts=0
 go_dirs=() lint=()
 while read -r f; do
 	nfiles=$((nfiles + 1))
 	case "$f" in
 	tygo.yaml | internal/model/*.go | web/src/api/types.ts) tygo=1 ;;
+	esac
+	case "$f" in
+	docs/api/* | tools/* | cmd/dash/openapi.go | internal/api/*.go | internal/plugin/*.go | internal/model/*.go | internal/jsonschema/*.go) openapi=1 ;;
 	esac
 	case "$f" in
 	go.mod | go.sum) go_all=1 ;;
@@ -102,7 +105,7 @@ if [ "$go_all" = 1 ]; then
 	pkgs=(./...)
 fi
 
-if [ "${#pkgs[@]}" -eq 0 ] && [ "$tygo" = 0 ] && [ "$web_config" = 0 ] && [ "$web_ts" = 0 ] && [ "${#lint[@]}" -eq 0 ]; then
+if [ "${#pkgs[@]}" -eq 0 ] && [ "$tygo" = 0 ] && [ "$openapi" = 0 ] && [ "$web_config" = 0 ] && [ "$web_ts" = 0 ] && [ "${#lint[@]}" -eq 0 ]; then
 	echo "pre-push: $nfiles changed file(s), no Go or web code; nothing to check ($(since "$start"))"
 	exit 0
 fi
@@ -120,6 +123,13 @@ if [ "$tygo" = 1 ]; then
 	# Same as `make generate` + the diff in `make check`, without needing make.
 	step "tygo drift (go tool tygo generate; git diff web/src/api/types.ts)" \
 		sh -c 'go tool tygo generate && git diff --exit-code web/src/api/types.ts'
+fi
+
+if [ "$openapi" = 1 ]; then
+	# The API document is generated from the route table and the types it names: the same drift
+	# check and lint as `make check`.
+	step "openapi drift and lint (dash api openapi; vacuum)" \
+		sh -c 'go run ./cmd/dash api openapi | diff -u docs/api/openapi.json - && go tool -modfile=tools/go.mod vacuum lint -r docs/api/ruleset.yaml -n warn -q -b --no-update-check docs/api/openapi.json'
 fi
 
 if [ "$web_config" = 1 ] || [ "$web_ts" = 1 ] || [ "${#lint[@]}" -gt 0 ]; then

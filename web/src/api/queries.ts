@@ -42,7 +42,7 @@ export function useSeries(
 ) {
   return useQuery({
     queryKey: ["series", name, range, params],
-    queryFn: () => api.get<Series>("/api/series", { name, range, ...params }),
+    queryFn: () => api.get<Series>("/api/v1/series", { name, range, ...params }),
     staleTime: 30_000,
     refetchInterval: 30_000,
     placeholderData: keepPreviousData,
@@ -53,7 +53,7 @@ export function useSeries(
 export function useMe() {
   return useQuery({
     queryKey: ["me"],
-    queryFn: () => api.get<Me>("/api/me"),
+    queryFn: () => api.get<Me>("/api/v1/me"),
     staleTime: Number.POSITIVE_INFINITY,
   });
 }

@@ -39,7 +39,7 @@ func (s *Server) auditRecord(r *http.Request, action string, t audit.Target) aud
 		user = s.requestUser(r)
 	}
 	return audit.Record{
-		Action: action, Target: t, Peer: peerOf(r), AuthMode: s.authMode(),
+		Action: action, Target: t, Peer: peerOf(r), AuthMode: s.authMode(), RequestID: requestIDFrom(r.Context()),
 		Actor: audit.Actor{Type: s.authMode(), User: user, Surface: "ui"},
 	}
 }

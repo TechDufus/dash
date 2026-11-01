@@ -30,7 +30,7 @@ function setConnection(next: ConnectionState) {
 
 function open() {
   source?.close();
-  const es = new EventSource("/api/stream");
+  const es = new EventSource("/api/v1/stream");
   source = es;
   es.onopen = () => setConnection("live");
   es.onerror = () => {
@@ -38,10 +38,10 @@ function open() {
       envelopes.size === 0 && connection === "connecting" ? "connecting" : "reconnecting",
     );
     // The browser retries by itself while CONNECTING; a CLOSED stream (HTTP error, or oauth2-proxy
-    // redirecting to GitHub after the session expired) needs a new one. The /api/me probe runs the
+    // redirecting to GitHub after the session expired) needs a new one. The /api/v1/me probe runs the
     // 401 -> reload reauth path in the client when the session is gone.
     if (es.readyState === EventSource.CLOSED) {
-      void api.get("/api/me").catch(() => {});
+      void api.get("/api/v1/me").catch(() => {});
       clearTimeout(retryTimer);
       retryTimer = setTimeout(open, 3000);
     }

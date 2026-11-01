@@ -75,7 +75,7 @@ func TestUserResolution(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			s := newServer(func(d *Deps) { d.Cfg = config.Config{Dev: tc.dev, PublicURL: testOrigin}; d.Version = "v9" })
-			w := req{path: "/api/me", header: tc.header}.do(s.Handler())
+			w := req{path: "/api/v1/me", header: tc.header}.do(s.Handler())
 			if w.Code != tc.code {
 				t.Fatalf("code = %d, want %d", w.Code, tc.code)
 			}
@@ -97,7 +97,7 @@ func TestUserResolution(t *testing.T) {
 
 	t.Run("every api path is gated, including stream and unknown", func(t *testing.T) {
 		h := newServer(nil).Handler()
-		for _, p := range []string{"/api/stream", "/api/series", "/api/logs/tail", "/api/unknown", "/api/vms/1"} {
+		for _, p := range []string{"/api/v1/stream", "/api/v1/series", "/api/logs/tail", "/api/unknown", "/api/vms/1"} {
 			w := req{path: p, header: map[string]string{"X-Forwarded-Preferred-Username": ""}}.do(h)
 			if w.Code != http.StatusUnauthorized {
 				t.Errorf("%s: code = %d, want 401", p, w.Code)
@@ -117,7 +117,7 @@ func TestHostCheck(t *testing.T) {
 	s := newServer(nil)
 	h := s.Handler()
 
-	w := req{path: "/api/me", host: "evil.example"}.do(h)
+	w := req{path: "/api/v1/me", host: "evil.example"}.do(h)
 	if w.Code != http.StatusMisdirectedRequest {
 		t.Errorf("unknown host: code = %d, want 421", w.Code)
 	}
@@ -125,10 +125,10 @@ func TestHostCheck(t *testing.T) {
 		t.Errorf("unknown host: error = %q", msg)
 	}
 
-	if w := (req{path: "/api/me"}).do(h); w.Code != http.StatusOK {
+	if w := (req{path: "/api/v1/me"}).do(h); w.Code != http.StatusOK {
 		t.Errorf("default host: code = %d, want 200", w.Code)
 	}
-	if w := (req{path: "/api/me", host: "DASH.example.com:443"}).do(h); w.Code != http.StatusOK {
+	if w := (req{path: "/api/v1/me", host: "DASH.example.com:443"}).do(h); w.Code != http.StatusOK {
 		t.Errorf("public host with port and case: code = %d, want 200", w.Code)
 	}
 

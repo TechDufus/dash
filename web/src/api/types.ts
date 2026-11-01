@@ -5,31 +5,43 @@
 
 /**
  * APIError is the body of every non-2xx JSON answer. Code is one of the ErrCode* constants:
- * clients branch on it, never on Error, which is text for a person.
+ * clients branch on it, never on Error, which is text for a person. RequestID repeats the
+ * X-Request-Id header of the response, so a copied error body is enough to find the log lines
+ * and the audit record of the request.
  */
 export interface APIError {
   error: string;
   code: string;
+  requestId: string;
   details?: unknown;
 }
 export const ErrCodeUnauthenticated = "unauthenticated"; // 401
 export const ErrCodeForbidden = "forbidden"; // 403
-export const ErrCodeInsufficientScope = "insufficient_scope"; // 403: a token without the scope the route needs (phase 7)
+export const ErrCodeInsufficientScope = "insufficient_scope"; // 403: a token without the scope the route needs
+export const ErrCodeInvalidToken = "invalid_token"; // 401: a bearer token that is unknown, expired or for another audience
+export const ErrCodeAmbiguousCredentials = "ambiguous_credentials"; // 400: a bearer token together with a session cookie
 export const ErrCodeCSRFFailed = "csrf_failed"; // 403
 export const ErrCodeNotFound = "not_found"; // 404
 export const ErrCodeInvalidInput = "invalid_input"; // 400, 422
-export const ErrCodeConflict = "conflict"; // 409
+export const ErrCodeLockedField = "locked_field"; // 409: a setting that is not editable from the UI
+export const ErrCodeReadonlySettings = "readonly_settings"; // 409: the settings store is read-only
 export const ErrCodeRateLimited = "rate_limited"; // 429
 export const ErrCodeTooManyStreams = "too_many_streams"; // 429, 503
 export const ErrCodeUpstreamUnavailable = "upstream_unavailable"; // 502
+export const ErrCodeApprovalRequired = "approval_required"; // 202: an agent action waits for its approval
+export const ErrCodeApprovalDenied = "approval_denied"; // 403
+export const ErrCodeApprovalExpired = "approval_expired"; // 410
+export const ErrCodeConflict = "conflict"; // 409
+export const ErrCodePreconditionFailed = "precondition_failed"; // 412
 export const ErrCodeAuditUnavailable = "audit_unavailable"; // 503
 export const ErrCodeUnknownHost = "unknown_host"; // 421
 export const ErrCodeInternal = "internal"; // 500
 /**
  * Error codes (design L.2). Each is the machine-readable reason of a status; one status can
  * carry several (a 403 is forbidden or csrf_failed, a 429 rate_limited or too_many_streams).
+ * ErrCodes lists them all.
  */
-export type ErrCode = typeof ErrCodeUnauthenticated | typeof ErrCodeForbidden | typeof ErrCodeInsufficientScope | typeof ErrCodeCSRFFailed | typeof ErrCodeNotFound | typeof ErrCodeInvalidInput | typeof ErrCodeConflict | typeof ErrCodeRateLimited | typeof ErrCodeTooManyStreams | typeof ErrCodeUpstreamUnavailable | typeof ErrCodeAuditUnavailable | typeof ErrCodeUnknownHost | typeof ErrCodeInternal;
+export type ErrCode = typeof ErrCodeUnauthenticated | typeof ErrCodeForbidden | typeof ErrCodeInsufficientScope | typeof ErrCodeInvalidToken | typeof ErrCodeAmbiguousCredentials | typeof ErrCodeCSRFFailed | typeof ErrCodeNotFound | typeof ErrCodeInvalidInput | typeof ErrCodeLockedField | typeof ErrCodeReadonlySettings | typeof ErrCodeRateLimited | typeof ErrCodeTooManyStreams | typeof ErrCodeUpstreamUnavailable | typeof ErrCodeApprovalRequired | typeof ErrCodeApprovalDenied | typeof ErrCodeApprovalExpired | typeof ErrCodeConflict | typeof ErrCodePreconditionFailed | typeof ErrCodeAuditUnavailable | typeof ErrCodeUnknownHost | typeof ErrCodeInternal;
 
 //////////
 // source: model.go
@@ -62,7 +74,7 @@ export const LinkKindApp = "app";
 export const LinkKindExternal = "external";
 export type LinkKind = typeof LinkKindHeadlamp | typeof LinkKindProxmox | typeof LinkKindGrafana | typeof LinkKindApp | typeof LinkKindExternal;
 /**
- * Topic is a name published on /api/stream.
+ * Topic is a name published on /api/v1/stream.
  */
 export const TopicOverview = "core.overview";
 export const TopicHost = "host";
@@ -607,9 +619,26 @@ export interface LogLine {
   container: string;
   msg: string;
 }
+/**
+ * Me is GET /api/v1/me: who the request acts as and what the API offers it (design L.4).
+ */
 export interface Me {
   user: string;
+  role: string; // admin or viewer
+  authMode: string; // proxy, dev or demo
+  scopes: string[]; // read, logs and actions:<plugin> for each plugin with mounted actions
+  audience: string; // api
   version: string;
+  capabilities: MeCapabilities;
+}
+/**
+ * MeCapabilities says which optional parts of the API this dash serves.
+ */
+export interface MeCapabilities {
+  actions: boolean; // some plugin has mounted actions
+  mcp: boolean;
+  push: boolean;
+  oauth: boolean;
 }
 /**
  * LauncherLink is one infrastructure link in the launcher (DASH_LAUNCHER_FILE).

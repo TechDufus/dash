@@ -2,10 +2,16 @@ import type { APIError } from "./types";
 
 export class ApiError extends Error {
   readonly status: number;
-  constructor(status: number, message: string) {
+  /** The machine-readable reason (an ErrCode*); undefined for an answer that is not dash's. */
+  readonly code?: string;
+  /** Identifies the request in dash's logs and audit records. */
+  readonly requestId?: string;
+  constructor(status: number, message: string, code?: string, requestId?: string) {
     super(message);
     this.name = "ApiError";
     this.status = status;
+    this.code = code;
+    this.requestId = requestId;
   }
 }
 
@@ -49,13 +55,17 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
   if (!res.ok) {
     maybeReauth(res.status);
     let message = res.statusText || `HTTP ${res.status}`;
+    let code: string | undefined;
+    let requestId = res.headers.get("X-Request-Id") ?? undefined;
     try {
       const j = (await res.json()) as Partial<APIError>;
       if (j.error) message = j.error;
+      code = j.code || undefined;
+      requestId = j.requestId || requestId;
     } catch {
       // not JSON; keep the status text
     }
-    throw new ApiError(res.status, message);
+    throw new ApiError(res.status, message, code, requestId);
   }
   if (res.status === 204) return undefined as T;
   const text = await res.text();

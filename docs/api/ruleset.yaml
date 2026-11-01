@@ -1,0 +1,8 @@
+# The vacuum ruleset `make check` lints docs/api/openapi.json with: the recommended OpenAPI
+# rules, and any warning fails the build. Two rules are off because the document is generated
+# from Go types, which carry no per-schema prose and no sample values; every operation,
+# parameter and response is still held to the rest.
+extends: [[vacuum:oas, recommended]]
+rules:
+  component-description: false
+  oas3-missing-example: false

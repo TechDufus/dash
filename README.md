@@ -162,7 +162,7 @@ restart with `DASH_PLUGINS_PROXMOX_TOKEN_SECRET_FILE`.
 | `server.healthListen` | `0.0.0.0:8081` | `/healthz` and `/readyz` |
 | `server.readyRequires` | empty | plugins `/readyz` waits for, e.g. `["kubernetes"]` for the informer sync (a JSON list in the environment); each must have left `starting` |
 | `server.readyTimeout` | `60s` | how long `/readyz` waits for `server.readyRequires`; after that it reports ready anyway and logs one WARN naming the plugins still starting |
-| `server.limits.streamsPerUser`, `.streams` | 16, 256 | open `/api/stream` connections per user and in all; more get 429 or 503 |
+| `server.limits.streamsPerUser`, `.streams` | 16, 256 | open `/api/v1/stream` connections per user and in all; more get 429 or 503 |
 | `server.limits.tailsPerUser`, `.tails` | 4, 32 | the same for `/api/logs/tail` |
 | `server.limits.tailMaxDuration` | `30m` | a log tail ends after this; the browser reconnects (a duration string, also in the environment) |
 | `server.limits.sseWriteTimeout`, `.bodyReadTimeout` | `10s`, `10s` | a stalled stream write, or a request body that does not arrive, is cut off after this |
@@ -265,6 +265,22 @@ flight when dash crashed; it exits 1 on a broken chain or a dangling intent. A l
 a newline (a crash mid-write) is reported as a torn tail and does not fail the check; dash drops
 it on the next start. The chain cannot see an edit to the very last line or a truncated tail.
 
+### HTTP API
+
+The public API is under `/api/v1` (`me`, `stream`, `series`, `topics/<topic>`, `plugins`), described
+by [docs/api/openapi.json](docs/api/openapi.json), an OpenAPI 3.1 document generated from the code
+(`dash api openapi`; `make generate` rewrites it and `make check` fails when it drifts or does
+not lint). The SPA uses the same paths. Before 1.0 a breaking change to them is called out in
+the release notes. The unversioned `/api/config`, `/api/vms`, `/api/pods`, `/api/logs`,
+`/api/actions` and `/api/silences` routes are internal to the SPA and go away as their plugins
+move; `/api/me`, `/api/stream` and `/api/series` are now `/api/v1/me`, `/api/v1/stream` and
+`/api/v1/series`, and the old paths answer 404.
+
+Every response carries an `X-Request-Id` (128 random bits as hex; a proxy on the loopback address
+may supply its own), which also appears in the error body, the audit record and the log line of an
+upstream failure. `/api/v1` answers are `Cache-Control: no-store`, except a topic snapshot
+(`private, no-cache` with an `ETag`).
+
 ### Plugin routes, actions and error codes
 
 `GET /api/v1/plugins` lists every plugin instance with its state, topics, mounted actions and
@@ -277,10 +293,12 @@ chain: the principal's role, a rate limit of 10 actions a minute per user, the b
 the audit intent, the action, then the audit outcome. A refusal is audited and the action does
 not run.
 
-Every error answer is `{"error": "<text for a person>", "code": "<reason>"}`. Clients branch on
-`code`: `invalid_input`, `unauthenticated`, `forbidden`, `csrf_failed`, `not_found`, `conflict`,
-`rate_limited`, `too_many_streams`, `upstream_unavailable`, `audit_unavailable`, `unknown_host`
-or `internal`.
+Every error answer is `{"error": "<text for a person>", "code": "<reason>", "requestId": "<id>"}`.
+Clients branch on `code`: `unauthenticated`, `forbidden`, `insufficient_scope`, `invalid_token`,
+`ambiguous_credentials`, `csrf_failed`, `not_found`, `invalid_input`, `locked_field`,
+`readonly_settings`, `rate_limited`, `too_many_streams`, `upstream_unavailable`,
+`approval_required`, `approval_denied`, `approval_expired`, `conflict`, `precondition_failed`,
+`audit_unavailable`, `unknown_host` or `internal`.
 
 ### Breaking: no site defaults
 

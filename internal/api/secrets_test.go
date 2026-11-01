@@ -68,7 +68,7 @@ func TestUpstreamErrorsReachClientsAsCategoryOnly(t *testing.T) {
 		mod  func(*Deps)
 		want string
 	}{
-		{"series", req{path: "/api/series?name=host.cpu&range=1h"}, func(d *Deps) { d.Prom = &fakeProm{err: refused} }, "metrics unavailable: unreachable"},
+		{"series", req{path: "/api/v1/series?name=host.cpu&range=1h"}, func(d *Deps) { d.Prom = &fakeProm{err: refused} }, "metrics unavailable: unreachable"},
 		{"logs", req{path: "/api/logs?ns=media"}, func(d *Deps) { d.VLogs = &fakeLogs{err: denied} }, "logs unavailable: auth"},
 		{"vm detail", req{path: "/api/vms/100"}, func(d *Deps) { d.Data = fakeData{vmErr: unavailable} }, "vm details unavailable: http_503"},
 		{"silence create", req{method: "POST", path: "/api/silences", body: silenceBody(nil)}, func(d *Deps) { d.AM = &fakeAM{err: refused} }, "alertmanager: unreachable"},

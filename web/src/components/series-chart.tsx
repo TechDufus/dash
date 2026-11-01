@@ -105,7 +105,7 @@ interface SeriesChartProps {
   enabled?: boolean;
 }
 
-/** Full chart (axes, grid, tooltip) over /api/series. */
+/** Full chart (axes, grid, tooltip) over /api/v1/series. */
 export function SeriesChart({
   name,
   range,

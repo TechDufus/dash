@@ -193,13 +193,13 @@ func TestSeriesFromPluginBeatsLegacy(t *testing.T) {
 	e.d.Prom = prom
 	h := e.Handler()
 
-	if w := (req{path: "/api/series?name=host.cpu&range=1h"}.do(h)); w.Code != http.StatusOK {
+	if w := (req{path: "/api/v1/series?name=host.cpu&range=1h"}.do(h)); w.Code != http.StatusOK {
 		t.Fatalf("series = %d %s", w.Code, w.Body)
 	}
 	if want := `plugin_cpu{node="pve-730"}`; prom.expr != want {
 		t.Errorf("expr = %q, want the plugin's %q", prom.expr, want)
 	}
-	if w := (req{path: "/api/series?name=hw.broken&range=1h"}.do(h)); w.Code != http.StatusBadRequest {
+	if w := (req{path: "/api/v1/series?name=hw.broken&range=1h"}.do(h)); w.Code != http.StatusBadRequest {
 		t.Errorf("a plugin's series error = %d, want 400", w.Code)
 	}
 
@@ -208,7 +208,7 @@ func TestSeriesFromPluginBeatsLegacy(t *testing.T) {
 	e.sup.Reload()
 	e.eventually(t, "the instance to stop", func() bool { return !e.sup.Running("hw") })
 	prom.expr = ""
-	if w := (req{path: "/api/series?name=host.cpu&range=1h"}.do(h)); w.Code != http.StatusOK {
+	if w := (req{path: "/api/v1/series?name=host.cpu&range=1h"}.do(h)); w.Code != http.StatusOK {
 		t.Fatalf("series = %d %s", w.Code, w.Body)
 	}
 	if prom.expr == "" || strings.HasPrefix(prom.expr, "plugin_cpu") {
@@ -240,7 +240,7 @@ func TestPluginAppearsAndDisappearsLive(t *testing.T) {
 		ev, ok := e.hub.Latest("", model.TopicPlugins)
 		return ok && strings.Contains(string(ev.Data), `"state":"healthy"`)
 	})
-	_, lines := sseClient(t, h, "/api/stream")
+	_, lines := sseClient(t, h, "/api/v1/stream")
 	expect(t, lines, "event: core.plugins")
 	expectContaining(t, lines, `"id":"fake"`)
 	expect(t, lines, "event: fake.items")
@@ -265,7 +265,7 @@ func TestPluginAppearsAndDisappearsLive(t *testing.T) {
 	if w := (req{path: "/api/v1/topics/fake.items"}.do(h)); w.Code != http.StatusNotFound {
 		t.Errorf("snapshot of a disabled plugin = %d, want 404", w.Code)
 	}
-	_, fresh := sseClient(t, h, "/api/stream")
+	_, fresh := sseClient(t, h, "/api/v1/stream")
 	for _, l := range untilPing(t, fresh) {
 		if l == "event: fake.items" {
 			t.Fatal("a new stream carries the disabled plugin's topic")

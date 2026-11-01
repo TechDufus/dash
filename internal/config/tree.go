@@ -42,8 +42,8 @@ type ServerConfig struct {
 // LimitsConfig bounds what one client and all clients together may hold open or send (design
 // K.5, L.5). The counts are connections; the defaults suit a homelab.
 type LimitsConfig struct {
-	StreamsPerUser  int      `json:"streamsPerUser" dash:"restart" doc:"Open /api/stream connections one user may hold; more get 429."`
-	Streams         int      `json:"streams" dash:"restart" doc:"Open /api/stream connections in all; more get 503."`
+	StreamsPerUser  int      `json:"streamsPerUser" dash:"restart" doc:"Open /api/v1/stream connections one user may hold; more get 429."`
+	Streams         int      `json:"streams" dash:"restart" doc:"Open /api/v1/stream connections in all; more get 503."`
 	TailsPerUser    int      `json:"tailsPerUser" dash:"restart" doc:"Open /api/logs/tail connections one user may hold; more get 429."`
 	Tails           int      `json:"tails" dash:"restart" doc:"Open /api/logs/tail connections in all; more get 503."`
 	TailMaxDuration Duration `json:"tailMaxDuration" dash:"restart" doc:"A log tail ends after this long and the browser reconnects."`

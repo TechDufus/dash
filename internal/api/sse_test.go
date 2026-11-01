@@ -96,7 +96,7 @@ func TestStream(t *testing.T) {
 	if _, err := s.d.Hub.Publish(model.TopicOverview, map[string]string{"a": "1"}, []model.SourceStatus{}); err != nil {
 		t.Fatal(err)
 	}
-	resp, lines := sseClient(t, s.Handler(), "/api/stream")
+	resp, lines := sseClient(t, s.Handler(), "/api/v1/stream")
 	if ct := resp.Header.Get("Content-Type"); ct != "text/event-stream" {
 		t.Errorf("Content-Type = %q", ct)
 	}
@@ -175,16 +175,16 @@ func TestStreamCapPerUser(t *testing.T) {
 	s := newServer(nil)
 	s.events = newStreamLimiter(1, 10)
 	h := s.Handler()
-	resp, lines := sseClient(t, h, "/api/stream") // alice's slot
+	resp, lines := sseClient(t, h, "/api/v1/stream") // alice's slot
 	expect(t, lines, "retry: 3000")
-	if got := streamStatus(t, h, "/api/stream", "alice"); got != http.StatusTooManyRequests {
+	if got := streamStatus(t, h, "/api/v1/stream", "alice"); got != http.StatusTooManyRequests {
 		t.Errorf("second stream for alice = %d, want 429", got)
 	}
 	// Closing the stream frees the slot once the server notices the disconnect.
 	resp.Body.Close()
 	deadline := time.Now().Add(2 * time.Second)
 	for {
-		got := streamStatus(t, h, "/api/stream", "alice")
+		got := streamStatus(t, h, "/api/v1/stream", "alice")
 		if got == http.StatusOK {
 			return
 		}
@@ -209,13 +209,13 @@ func limitsFromConfig(t *testing.T, limits string) config.Config {
 func TestStreamCapFromConfig(t *testing.T) {
 	cfg := limitsFromConfig(t, "    streamsPerUser: 1\n")
 	h := newServer(func(d *Deps) { d.Cfg = cfg }).Handler()
-	_, lines := sseClient(t, h, "/api/stream") // alice's only slot
+	_, lines := sseClient(t, h, "/api/v1/stream") // alice's only slot
 	expect(t, lines, "retry: 3000")
-	if got := streamStatus(t, h, "/api/stream", "alice"); got != http.StatusTooManyRequests {
+	if got := streamStatus(t, h, "/api/v1/stream", "alice"); got != http.StatusTooManyRequests {
 		t.Errorf("second stream for alice = %d, want 429", got)
 	}
 	// The cap is per user: bob still gets his own.
-	if got := streamStatus(t, h, "/api/stream", "bob"); got != http.StatusOK {
+	if got := streamStatus(t, h, "/api/v1/stream", "bob"); got != http.StatusOK {
 		t.Errorf("stream for bob = %d, want 200", got)
 	}
 }
@@ -311,7 +311,7 @@ func TestStreamUsesTheConfiguredWriteTimeout(t *testing.T) {
 	s.heartbeat = 5 * time.Millisecond
 	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 	defer cancel()
-	r := httptest.NewRequestWithContext(ctx, http.MethodGet, "/api/stream", nil)
+	r := httptest.NewRequestWithContext(ctx, http.MethodGet, "/api/v1/stream", nil)
 	r.Host = testHost
 	r.Header.Set("X-Forwarded-Preferred-Username", "alice")
 	d := &deadlineWriter{ResponseRecorder: httptest.NewRecorder()}

@@ -95,7 +95,7 @@ interface SparkSeriesProps {
   className?: string;
 }
 
-/** Spark fed by /api/series (first line of the result). */
+/** Spark fed by /api/v1/series (first line of the result). */
 export function SparkSeries({ name, range, params, color, format, className }: SparkSeriesProps) {
   const q = useSeries(name, range, params);
   return (

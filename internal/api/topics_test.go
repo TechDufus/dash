@@ -157,7 +157,7 @@ func TestStreamTopicsFilter(t *testing.T) {
 	for _, name := range []model.Topic{"a", "b", "core.c"} {
 		s.d.Hub.Publish(name, 1, nil)
 	}
-	_, lines := sseClient(t, s.Handler(), "/api/stream?topics=b,core.c,later")
+	_, lines := sseClient(t, s.Handler(), "/api/v1/stream?topics=b,core.c,later")
 	if got := eventNames(t, lines, 2); !slices.Equal(got, []string{"b", "core.c"}) {
 		t.Fatalf("snapshot = %v, want only the listed topics, in name order", got)
 	}
@@ -171,7 +171,7 @@ func TestStreamTopicsFilter(t *testing.T) {
 }
 
 func TestStreamStillReplaysFullStateOnConnect(t *testing.T) {
-	for _, path := range []string{"/api/stream", "/api/stream?topics="} {
+	for _, path := range []string{"/api/v1/stream", "/api/v1/stream?topics="} {
 		s := newServer(nil)
 		s.heartbeat = time.Hour
 		s.d.Hub.Publish("zeta", 1, nil)
@@ -201,7 +201,7 @@ func TestStreamSendsUserScopedTopicsOnlyToTheirOwner(t *testing.T) {
 		{"alice", "a-secret", "b-secret", "bob"},
 		{"bob", "b-secret", "a-secret", "alice"},
 	} {
-		_, lines := sseClientWith(t, h, "/api/stream", map[string]string{"X-Forwarded-Preferred-Username": tc.user})
+		_, lines := sseClientWith(t, h, "/api/v1/stream", map[string]string{"X-Forwarded-Preferred-Username": tc.user})
 		// Snapshot: the user's own copy and the shared topic, never the other user's.
 		var got []string
 		var sawOwn bool
@@ -254,7 +254,7 @@ func TestStreamRejectsBadTopicsFilter(t *testing.T) {
 		"nested":     "a.b.c",
 		"too many":   strings.Join(tooMany, ","),
 	} {
-		w := req{path: "/api/stream?topics=" + strings.ReplaceAll(q, " ", "%20")}.do(h)
+		w := req{path: "/api/v1/stream?topics=" + strings.ReplaceAll(q, " ", "%20")}.do(h)
 		if w.Code != http.StatusBadRequest || decodeErr(t, w) == "" {
 			t.Errorf("%s: status %d body %s, want 400 with an error", name, w.Code, w.Body.String())
 		}

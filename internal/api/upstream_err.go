@@ -25,6 +25,7 @@ func errCategory(err error) string {
 // names URLs and hosts, so it only goes to the log, scrubbed of every known secret.
 func (s *Server) badGateway(w http.ResponseWriter, what string, err error) {
 	cat := errCategory(err)
-	slog.Warn("upstream request failed", "what", what, "category", cat, "error", s.d.Secrets.Scrub(err.Error()))
+	slog.Warn("upstream request failed", "what", what, "category", cat, "requestId", w.Header().Get(requestIDHeader),
+		"error", s.d.Secrets.Scrub(err.Error()))
 	writeErr(w, http.StatusBadGateway, model.ErrCodeUpstreamUnavailable, what+": "+cat)
 }

@@ -78,9 +78,9 @@ func TestNewUsesDefaultLimitsWhenZero(t *testing.T) {
 	}
 
 	// A server built without limits still serves a stream.
-	resp, _ := sseClient(t, s.Handler(), "/api/stream")
+	resp, _ := sseClient(t, s.Handler(), "/api/v1/stream")
 	if resp.StatusCode != http.StatusOK {
-		t.Errorf("/api/stream with zero limits = %d, want 200", resp.StatusCode)
+		t.Errorf("/api/v1/stream with zero limits = %d, want 200", resp.StatusCode)
 	}
 
 	// An explicit cap is kept; the rest is filled.

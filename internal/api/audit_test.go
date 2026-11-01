@@ -308,7 +308,7 @@ func TestDenialsAreAuditedOncePerPeerAndMinute(t *testing.T) {
 	csrfFallbackHeader := req{method: "POST", path: "/api/actions/restart", header: map[string]string{
 		"X-Dash-Csrf": "", "X-Forwarded-Preferred-Username": "", "X-Forwarded-User": "bob",
 	}}
-	noUser := req{path: "/api/me", header: map[string]string{"X-Forwarded-Preferred-Username": ""}}
+	noUser := req{path: "/api/v1/me", header: map[string]string{"X-Forwarded-Preferred-Username": ""}}
 	capped := func(s *Server) { s.events, s.tails = newStreamLimiter(0, 10), newStreamLimiter(0, 10) }
 
 	for _, tc := range []struct {
@@ -322,7 +322,7 @@ func TestDenialsAreAuditedOncePerPeerAndMinute(t *testing.T) {
 		{"csrf", csrfFail, "csrf", "alice", 403, nil},
 		{"csrf with the fallback header", csrfFallbackHeader, "csrf", "bob", 403, nil},
 		{"unauthenticated", noUser, "unauthenticated", "", 401, nil},
-		{"event stream cap", req{path: "/api/stream"}, "stream_limit", "alice", 429, capped},
+		{"event stream cap", req{path: "/api/v1/stream"}, "stream_limit", "alice", 429, capped},
 		{"log tail cap", req{path: "/api/logs/tail?namespace=apps&pod=web"}, "stream_limit", "alice", 429, capped},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

@@ -93,7 +93,7 @@ type Config struct {
 
 // Limits is server.limits as the flat view reads it.
 type Limits struct {
-	StreamsPerUser, Streams int // /api/stream connections per user and in all
+	StreamsPerUser, Streams int // /api/v1/stream connections per user and in all
 	TailsPerUser, Tails     int // /api/logs/tail connections per user and in all
 	TailMaxDuration         time.Duration
 	SSEWriteTimeout         time.Duration

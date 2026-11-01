@@ -35,8 +35,8 @@ What one client, and all clients together, may hold open or send.
 
 | Setting | Variable | Type | Default | Description |
 |---|---|---|---|---|
-| `server.limits.streamsPerUser` | `DASH_SERVER_LIMITS_STREAMS_PER_USER` | integer | `16` | Open /api/stream connections one user may hold; more get 429. _Restart-only._ |
-| `server.limits.streams` | `DASH_SERVER_LIMITS_STREAMS` | integer | `256` | Open /api/stream connections in all; more get 503. _Restart-only._ |
+| `server.limits.streamsPerUser` | `DASH_SERVER_LIMITS_STREAMS_PER_USER` | integer | `16` | Open /api/v1/stream connections one user may hold; more get 429. _Restart-only._ |
+| `server.limits.streams` | `DASH_SERVER_LIMITS_STREAMS` | integer | `256` | Open /api/v1/stream connections in all; more get 503. _Restart-only._ |
 | `server.limits.tailsPerUser` | `DASH_SERVER_LIMITS_TAILS_PER_USER` | integer | `4` | Open /api/logs/tail connections one user may hold; more get 429. _Restart-only._ |
 | `server.limits.tails` | `DASH_SERVER_LIMITS_TAILS` | integer | `32` | Open /api/logs/tail connections in all; more get 503. _Restart-only._ |
 | `server.limits.tailMaxDuration` | `DASH_SERVER_LIMITS_TAIL_MAX_DURATION` | duration (e.g. 30s) | `30m` | A log tail ends after this long and the browser reconnects. _Restart-only._ |

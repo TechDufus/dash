@@ -7,9 +7,14 @@ generate:
 	go tool tygo generate
 	go run ./cmd/dash config env --markdown > docs/configuration.md.tmp
 	mv docs/configuration.md.tmp docs/configuration.md
+	go run ./cmd/dash api openapi > docs/api/openapi.json.tmp
+	mv docs/api/openapi.json.tmp docs/api/openapi.json
 
+# vacuum lives in its own module (tools/go.mod), so its dependency tree stays out of the app's
+# go.mod and image; it comes from the module cache like tygo. Run from the repository root.
 check: generate
-	git diff --exit-code web/src/api/types.ts docs/configuration.md
+	git diff --exit-code web/src/api/types.ts docs/configuration.md docs/api/openapi.json
+	go tool -modfile=tools/go.mod vacuum lint -r docs/api/ruleset.yaml -n warn -q -b --no-update-check docs/api/openapi.json
 	go vet ./...
 	go test ./...
 	cd web && npm ci && npm run check && npm run build

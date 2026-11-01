@@ -1,5 +1,5 @@
 // Package queries holds every PromQL expression dash sends to VictoriaMetrics, so the topics
-// (instant values) and /api/series (ranges) share one definition.
+// (instant values) and /api/v1/series (ranges) share one definition.
 package queries
 
 import (
@@ -120,7 +120,7 @@ func HostSMARTWearout(n string) string {
 // quote renders a PromQL string literal.
 func quote(s string) string { return strconv.Quote(s) }
 
-// Args are the validated parameters of a /api/series request.
+// Args are the validated parameters of a /api/v1/series request.
 type Args struct {
 	HostNodename string // DASH_HOST_NODENAME
 	VMID         string // digits only
@@ -143,7 +143,7 @@ func ValidVMID(s string) bool { return vmidRE.MatchString(s) }
 // ValidDNS reports whether s is an acceptable namespace or pod name argument.
 func ValidDNS(s string) bool { return dnsRE.MatchString(s) }
 
-// Series returns the PromQL expression of a named /api/series.
+// Series returns the PromQL expression of a named /api/v1/series.
 func Series(name string, a Args) (string, error) {
 	vm := func() (string, error) {
 		if !ValidVMID(a.VMID) {

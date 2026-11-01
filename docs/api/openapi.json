@@ -1,0 +1,2228 @@
+{
+  "components": {
+    "headers": {
+      "XRequestId": {
+        "description": "Identifies the request in logs and audit records; repeated as requestId in an error body.",
+        "schema": {
+          "type": "string"
+        }
+      }
+    },
+    "responses": {
+      "Error": {
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/APIError"
+            }
+          }
+        },
+        "description": "The request failed; code says why.",
+        "headers": {
+          "X-Request-Id": {
+            "$ref": "#/components/headers/XRequestId"
+          }
+        }
+      }
+    },
+    "schemas": {
+      "APIError": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "description": "Machine-readable reason; branch on this, not on the error text.",
+            "enum": [
+              "unauthenticated",
+              "forbidden",
+              "insufficient_scope",
+              "invalid_token",
+              "ambiguous_credentials",
+              "csrf_failed",
+              "not_found",
+              "invalid_input",
+              "locked_field",
+              "readonly_settings",
+              "rate_limited",
+              "too_many_streams",
+              "upstream_unavailable",
+              "approval_required",
+              "approval_denied",
+              "approval_expired",
+              "conflict",
+              "precondition_failed",
+              "audit_unavailable",
+              "unknown_host",
+              "internal"
+            ],
+            "type": "string"
+          },
+          "details": {},
+          "error": {
+            "type": "string"
+          },
+          "requestId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "error",
+          "requestId"
+        ],
+        "type": "object"
+      },
+      "ActionInfo": {
+        "additionalProperties": false,
+        "properties": {
+          "confirm": {
+            "type": "string"
+          },
+          "destructive": {
+            "type": "boolean"
+          },
+          "idempotent": {
+            "type": "boolean"
+          },
+          "inputSchema": {},
+          "name": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "Alert": {
+        "additionalProperties": false,
+        "properties": {
+          "description": {
+            "type": "string"
+          },
+          "fingerprint": {
+            "type": "string"
+          },
+          "inhibitedBy": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "labels": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object"
+          },
+          "name": {
+            "type": "string"
+          },
+          "severity": {
+            "type": "string"
+          },
+          "silencedBy": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "startsAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "state": {
+            "type": "string"
+          },
+          "summary": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "AlertsData": {
+        "additionalProperties": false,
+        "properties": {
+          "alerts": {
+            "items": {
+              "$ref": "#/components/schemas/Alert"
+            },
+            "type": "array"
+          },
+          "silences": {
+            "items": {
+              "$ref": "#/components/schemas/Silence"
+            },
+            "type": "array"
+          }
+        },
+        "type": "object"
+      },
+      "App": {
+        "additionalProperties": false,
+        "properties": {
+          "description": {
+            "type": "string"
+          },
+          "group": {
+            "type": "string"
+          },
+          "healthy": {
+            "type": "boolean"
+          },
+          "href": {
+            "type": "string"
+          },
+          "iconUrl": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "namespace": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "AppsData": {
+        "additionalProperties": false,
+        "properties": {
+          "apps": {
+            "items": {
+              "$ref": "#/components/schemas/App"
+            },
+            "type": "array"
+          }
+        },
+        "type": "object"
+      },
+      "AttentionItem": {
+        "additionalProperties": false,
+        "properties": {
+          "detail": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "links": {
+            "items": {
+              "$ref": "#/components/schemas/Link"
+            },
+            "type": "array"
+          },
+          "plugin": {
+            "type": "string"
+          },
+          "route": {
+            "type": "string"
+          },
+          "severity": {
+            "type": "string"
+          },
+          "since": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "source": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "Bucket": {
+        "additionalProperties": false,
+        "properties": {
+          "health": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "quotaBytes": {
+            "type": "integer"
+          },
+          "usedBytes": {
+            "type": "integer"
+          }
+        },
+        "type": "object"
+      },
+      "CNPGCluster": {
+        "additionalProperties": false,
+        "properties": {
+          "instances": {
+            "type": "integer"
+          },
+          "lastBackupAgeSeconds": {
+            "type": "number"
+          },
+          "links": {
+            "items": {
+              "$ref": "#/components/schemas/Link"
+            },
+            "type": "array"
+          },
+          "name": {
+            "type": "string"
+          },
+          "namespace": {
+            "type": "string"
+          },
+          "phase": {
+            "type": "string"
+          },
+          "readyInstances": {
+            "type": "integer"
+          }
+        },
+        "type": "object"
+      },
+      "Cert": {
+        "additionalProperties": false,
+        "properties": {
+          "links": {
+            "items": {
+              "$ref": "#/components/schemas/Link"
+            },
+            "type": "array"
+          },
+          "name": {
+            "type": "string"
+          },
+          "namespace": {
+            "type": "string"
+          },
+          "notAfter": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "ready": {
+            "type": "boolean"
+          }
+        },
+        "type": "object"
+      },
+      "CheckResult": {
+        "additionalProperties": false,
+        "properties": {
+          "durationMs": {
+            "type": "number"
+          },
+          "success": {
+            "type": "boolean"
+          },
+          "timestamp": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "ClusterData": {
+        "additionalProperties": false,
+        "properties": {
+          "certificates": {
+            "items": {
+              "$ref": "#/components/schemas/Cert"
+            },
+            "type": "array"
+          },
+          "events": {
+            "items": {
+              "$ref": "#/components/schemas/Event"
+            },
+            "type": "array"
+          },
+          "externalSecrets": {
+            "items": {
+              "$ref": "#/components/schemas/ExtSecret"
+            },
+            "type": "array"
+          },
+          "namespaces": {
+            "items": {
+              "$ref": "#/components/schemas/Namespace"
+            },
+            "type": "array"
+          },
+          "nodes": {
+            "items": {
+              "$ref": "#/components/schemas/Node"
+            },
+            "type": "array"
+          },
+          "pods": {
+            "items": {
+              "$ref": "#/components/schemas/Pod"
+            },
+            "type": "array"
+          },
+          "workloads": {
+            "items": {
+              "$ref": "#/components/schemas/Workload"
+            },
+            "type": "array"
+          }
+        },
+        "type": "object"
+      },
+      "Disk": {
+        "additionalProperties": false,
+        "properties": {
+          "bay": {
+            "type": "string"
+          },
+          "device": {
+            "type": "string"
+          },
+          "healthy": {
+            "type": "boolean"
+          },
+          "lifeRemainingPct": {
+            "type": "number"
+          },
+          "serial": {
+            "type": "string"
+          },
+          "tempC": {
+            "type": "number"
+          }
+        },
+        "type": "object"
+      },
+      "Endpoint": {
+        "additionalProperties": false,
+        "properties": {
+          "group": {
+            "type": "string"
+          },
+          "healthy": {
+            "type": "boolean"
+          },
+          "key": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "results": {
+            "items": {
+              "$ref": "#/components/schemas/CheckResult"
+            },
+            "type": "array"
+          },
+          "url": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "Envelope.alerts": {
+        "additionalProperties": false,
+        "description": "The envelope of the alerts topic.",
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/AlertsData"
+          },
+          "sources": {
+            "items": {
+              "$ref": "#/components/schemas/SourceStatus"
+            },
+            "type": "array"
+          },
+          "topic": {
+            "const": "alerts"
+          },
+          "updatedAt": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "data",
+          "sources",
+          "topic",
+          "updatedAt"
+        ],
+        "type": "object"
+      },
+      "Envelope.apps": {
+        "additionalProperties": false,
+        "description": "The envelope of the apps topic.",
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/AppsData"
+          },
+          "sources": {
+            "items": {
+              "$ref": "#/components/schemas/SourceStatus"
+            },
+            "type": "array"
+          },
+          "topic": {
+            "const": "apps"
+          },
+          "updatedAt": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "data",
+          "sources",
+          "topic",
+          "updatedAt"
+        ],
+        "type": "object"
+      },
+      "Envelope.cluster": {
+        "additionalProperties": false,
+        "description": "The envelope of the cluster topic.",
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/ClusterData"
+          },
+          "sources": {
+            "items": {
+              "$ref": "#/components/schemas/SourceStatus"
+            },
+            "type": "array"
+          },
+          "topic": {
+            "const": "cluster"
+          },
+          "updatedAt": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "data",
+          "sources",
+          "topic",
+          "updatedAt"
+        ],
+        "type": "object"
+      },
+      "Envelope.core.overview": {
+        "additionalProperties": false,
+        "description": "The envelope of the core.overview topic.",
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/OverviewData"
+          },
+          "sources": {
+            "items": {
+              "$ref": "#/components/schemas/SourceStatus"
+            },
+            "type": "array"
+          },
+          "topic": {
+            "const": "core.overview"
+          },
+          "updatedAt": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "data",
+          "sources",
+          "topic",
+          "updatedAt"
+        ],
+        "type": "object"
+      },
+      "Envelope.core.plugins": {
+        "additionalProperties": false,
+        "description": "The envelope of the core.plugins topic.",
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/PluginsData"
+          },
+          "sources": {
+            "items": {
+              "$ref": "#/components/schemas/SourceStatus"
+            },
+            "type": "array"
+          },
+          "topic": {
+            "const": "core.plugins"
+          },
+          "updatedAt": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "data",
+          "sources",
+          "topic",
+          "updatedAt"
+        ],
+        "type": "object"
+      },
+      "Envelope.flux": {
+        "additionalProperties": false,
+        "description": "The envelope of the flux topic.",
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/FluxData"
+          },
+          "sources": {
+            "items": {
+              "$ref": "#/components/schemas/SourceStatus"
+            },
+            "type": "array"
+          },
+          "topic": {
+            "const": "flux"
+          },
+          "updatedAt": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "data",
+          "sources",
+          "topic",
+          "updatedAt"
+        ],
+        "type": "object"
+      },
+      "Envelope.host": {
+        "additionalProperties": false,
+        "description": "The envelope of the host topic.",
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/HostData"
+          },
+          "sources": {
+            "items": {
+              "$ref": "#/components/schemas/SourceStatus"
+            },
+            "type": "array"
+          },
+          "topic": {
+            "const": "host"
+          },
+          "updatedAt": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "data",
+          "sources",
+          "topic",
+          "updatedAt"
+        ],
+        "type": "object"
+      },
+      "Envelope.status": {
+        "additionalProperties": false,
+        "description": "The envelope of the status topic.",
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/StatusData"
+          },
+          "sources": {
+            "items": {
+              "$ref": "#/components/schemas/SourceStatus"
+            },
+            "type": "array"
+          },
+          "topic": {
+            "const": "status"
+          },
+          "updatedAt": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "data",
+          "sources",
+          "topic",
+          "updatedAt"
+        ],
+        "type": "object"
+      },
+      "Envelope.storage": {
+        "additionalProperties": false,
+        "description": "The envelope of the storage topic.",
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/StorageData"
+          },
+          "sources": {
+            "items": {
+              "$ref": "#/components/schemas/SourceStatus"
+            },
+            "type": "array"
+          },
+          "topic": {
+            "const": "storage"
+          },
+          "updatedAt": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "data",
+          "sources",
+          "topic",
+          "updatedAt"
+        ],
+        "type": "object"
+      },
+      "Envelope.vms": {
+        "additionalProperties": false,
+        "description": "The envelope of the vms topic.",
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/VMsData"
+          },
+          "sources": {
+            "items": {
+              "$ref": "#/components/schemas/SourceStatus"
+            },
+            "type": "array"
+          },
+          "topic": {
+            "const": "vms"
+          },
+          "updatedAt": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "data",
+          "sources",
+          "topic",
+          "updatedAt"
+        ],
+        "type": "object"
+      },
+      "Etcd": {
+        "additionalProperties": false,
+        "properties": {
+          "dbBytes": {
+            "type": "integer"
+          },
+          "quotaBytes": {
+            "type": "integer"
+          }
+        },
+        "type": "object"
+      },
+      "Event": {
+        "additionalProperties": false,
+        "properties": {
+          "count": {
+            "type": "integer"
+          },
+          "lastSeen": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "namespace": {
+            "type": "string"
+          },
+          "object": {
+            "type": "string"
+          },
+          "reason": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "ExtSecret": {
+        "additionalProperties": false,
+        "properties": {
+          "message": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "namespace": {
+            "type": "string"
+          },
+          "ready": {
+            "type": "boolean"
+          }
+        },
+        "type": "object"
+      },
+      "Fan": {
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "rpm": {
+            "type": "number"
+          }
+        },
+        "type": "object"
+      },
+      "FluxData": {
+        "additionalProperties": false,
+        "properties": {
+          "helmReleases": {
+            "items": {
+              "$ref": "#/components/schemas/FluxObj"
+            },
+            "type": "array"
+          },
+          "kustomizations": {
+            "items": {
+              "$ref": "#/components/schemas/FluxObj"
+            },
+            "type": "array"
+          },
+          "sources": {
+            "items": {
+              "$ref": "#/components/schemas/FluxObj"
+            },
+            "type": "array"
+          }
+        },
+        "type": "object"
+      },
+      "FluxObj": {
+        "additionalProperties": false,
+        "properties": {
+          "kind": {
+            "type": "string"
+          },
+          "lastTransition": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "links": {
+            "items": {
+              "$ref": "#/components/schemas/Link"
+            },
+            "type": "array"
+          },
+          "message": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "namespace": {
+            "type": "string"
+          },
+          "ready": {
+            "type": "boolean"
+          },
+          "revision": {
+            "type": "string"
+          },
+          "suspendReason": {
+            "type": "string"
+          },
+          "suspended": {
+            "type": "boolean"
+          },
+          "verified": {
+            "type": "boolean"
+          }
+        },
+        "type": "object"
+      },
+      "HostData": {
+        "additionalProperties": false,
+        "properties": {
+          "cpuModel": {
+            "type": "string"
+          },
+          "cpuRatio": {
+            "type": "number"
+          },
+          "disks": {
+            "items": {
+              "$ref": "#/components/schemas/Disk"
+            },
+            "type": "array"
+          },
+          "fans": {
+            "items": {
+              "$ref": "#/components/schemas/Fan"
+            },
+            "type": "array"
+          },
+          "kernel": {
+            "type": "string"
+          },
+          "links": {
+            "items": {
+              "$ref": "#/components/schemas/Link"
+            },
+            "type": "array"
+          },
+          "memTotalBytes": {
+            "type": "integer"
+          },
+          "memUsedBytes": {
+            "type": "integer"
+          },
+          "name": {
+            "type": "string"
+          },
+          "packageTempsC": {
+            "items": {
+              "type": "number"
+            },
+            "type": "array"
+          },
+          "pools": {
+            "items": {
+              "$ref": "#/components/schemas/Pool"
+            },
+            "type": "array"
+          },
+          "powerWatts": {
+            "type": "number"
+          },
+          "psus": {
+            "items": {
+              "$ref": "#/components/schemas/PSU"
+            },
+            "type": "array"
+          },
+          "pveVersion": {
+            "type": "string"
+          },
+          "scrubTracked": {
+            "type": "boolean"
+          },
+          "selFreeBytes": {
+            "type": "integer"
+          },
+          "sensors": {
+            "items": {
+              "$ref": "#/components/schemas/Sensor"
+            },
+            "type": "array"
+          },
+          "uptimeSeconds": {
+            "type": "integer"
+          }
+        },
+        "type": "object"
+      },
+      "K8sNodeRef": {
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "ready": {
+            "type": "boolean"
+          }
+        },
+        "type": "object"
+      },
+      "KPI": {
+        "additionalProperties": false,
+        "properties": {
+          "health": {
+            "type": "string"
+          },
+          "key": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "plugin": {
+            "type": "string"
+          },
+          "unit": {
+            "type": "string"
+          },
+          "value": {
+            "type": "number"
+          }
+        },
+        "type": "object"
+      },
+      "Kpis": {
+        "additionalProperties": false,
+        "properties": {
+          "alertsFiring": {
+            "type": "integer"
+          },
+          "cpuTempMaxC": {
+            "type": "number"
+          },
+          "fluxReady": {
+            "type": "integer"
+          },
+          "fluxSuspended": {
+            "type": "integer"
+          },
+          "fluxTotal": {
+            "type": "integer"
+          },
+          "nodesReady": {
+            "type": "integer"
+          },
+          "nodesTotal": {
+            "type": "integer"
+          },
+          "powerWatts": {
+            "type": "number"
+          },
+          "sourceVerified": {
+            "type": "boolean"
+          },
+          "vmsRunning": {
+            "type": "integer"
+          },
+          "vmsTotal": {
+            "type": "integer"
+          },
+          "worstPvc": {
+            "$ref": "#/components/schemas/WorstPVC"
+          }
+        },
+        "type": "object"
+      },
+      "Link": {
+        "additionalProperties": false,
+        "properties": {
+          "href": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "Machine": {
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "source": {
+            "type": "string"
+          },
+          "up": {
+            "type": "boolean"
+          }
+        },
+        "type": "object"
+      },
+      "Matcher": {
+        "additionalProperties": false,
+        "properties": {
+          "isEqual": {
+            "type": "boolean"
+          },
+          "isRegex": {
+            "type": "boolean"
+          },
+          "name": {
+            "type": "string"
+          },
+          "value": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "Me": {
+        "additionalProperties": false,
+        "properties": {
+          "audience": {
+            "type": "string"
+          },
+          "authMode": {
+            "type": "string"
+          },
+          "capabilities": {
+            "$ref": "#/components/schemas/MeCapabilities"
+          },
+          "role": {
+            "type": "string"
+          },
+          "scopes": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "user": {
+            "type": "string"
+          },
+          "version": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "MeCapabilities": {
+        "additionalProperties": false,
+        "properties": {
+          "actions": {
+            "type": "boolean"
+          },
+          "mcp": {
+            "type": "boolean"
+          },
+          "oauth": {
+            "type": "boolean"
+          },
+          "push": {
+            "type": "boolean"
+          }
+        },
+        "type": "object"
+      },
+      "NASBackup": {
+        "additionalProperties": false,
+        "properties": {
+          "lastSuccessAgeSeconds": {
+            "type": "number"
+          },
+          "name": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "Namespace": {
+        "additionalProperties": false,
+        "properties": {
+          "group": {
+            "type": "string"
+          },
+          "health": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "podsRunning": {
+            "type": "integer"
+          },
+          "podsTotal": {
+            "type": "integer"
+          },
+          "privileged": {
+            "type": "boolean"
+          },
+          "protected": {
+            "type": "boolean"
+          },
+          "restarts": {
+            "type": "integer"
+          },
+          "tenant": {
+            "type": "string"
+          },
+          "workloadsNotReady": {
+            "type": "integer"
+          }
+        },
+        "type": "object"
+      },
+      "NavItem": {
+        "additionalProperties": false,
+        "properties": {
+          "icon": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "path": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "Node": {
+        "additionalProperties": false,
+        "properties": {
+          "cpuRatio": {
+            "type": "number"
+          },
+          "ip": {
+            "type": "string"
+          },
+          "kubeletVersion": {
+            "type": "string"
+          },
+          "links": {
+            "items": {
+              "$ref": "#/components/schemas/Link"
+            },
+            "type": "array"
+          },
+          "memRatio": {
+            "type": "number"
+          },
+          "name": {
+            "type": "string"
+          },
+          "pods": {
+            "type": "integer"
+          },
+          "ready": {
+            "type": "boolean"
+          }
+        },
+        "type": "object"
+      },
+      "OverviewData": {
+        "additionalProperties": false,
+        "properties": {
+          "attention": {
+            "items": {
+              "$ref": "#/components/schemas/AttentionItem"
+            },
+            "type": "array"
+          },
+          "kpiList": {
+            "items": {
+              "$ref": "#/components/schemas/KPI"
+            },
+            "type": "array"
+          },
+          "kpis": {
+            "$ref": "#/components/schemas/Kpis"
+          },
+          "status": {
+            "type": "string"
+          },
+          "topology": {
+            "$ref": "#/components/schemas/Topology"
+          }
+        },
+        "type": "object"
+      },
+      "OwnerRef": {
+        "additionalProperties": false,
+        "properties": {
+          "kind": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "PSU": {
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "PVC": {
+        "additionalProperties": false,
+        "properties": {
+          "capacityBytes": {
+            "type": "integer"
+          },
+          "growthBytesPerDay": {
+            "type": "number"
+          },
+          "health": {
+            "type": "string"
+          },
+          "links": {
+            "items": {
+              "$ref": "#/components/schemas/Link"
+            },
+            "type": "array"
+          },
+          "name": {
+            "type": "string"
+          },
+          "namespace": {
+            "type": "string"
+          },
+          "phase": {
+            "type": "string"
+          },
+          "storageClass": {
+            "type": "string"
+          },
+          "usedBytes": {
+            "type": "integer"
+          },
+          "usedRatio": {
+            "type": "number"
+          }
+        },
+        "type": "object"
+      },
+      "PVEStorage": {
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "sizeBytes": {
+            "type": "integer"
+          },
+          "usedBytes": {
+            "type": "integer"
+          }
+        },
+        "type": "object"
+      },
+      "PVETask": {
+        "additionalProperties": false,
+        "properties": {
+          "endTime": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "startTime": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string"
+          },
+          "upid": {
+            "type": "string"
+          },
+          "user": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "PluginInfo": {
+        "additionalProperties": false,
+        "properties": {
+          "actions": {
+            "items": {
+              "$ref": "#/components/schemas/ActionInfo"
+            },
+            "type": "array"
+          },
+          "configurable": {
+            "type": "boolean"
+          },
+          "id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "nav": {
+            "items": {
+              "$ref": "#/components/schemas/NavItem"
+            },
+            "type": "array"
+          },
+          "state": {
+            "type": "string"
+          },
+          "topics": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "type": {
+            "type": "string"
+          },
+          "version": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "PluginsData": {
+        "additionalProperties": false,
+        "properties": {
+          "plugins": {
+            "items": {
+              "$ref": "#/components/schemas/PluginInfo"
+            },
+            "type": "array"
+          }
+        },
+        "type": "object"
+      },
+      "Pod": {
+        "additionalProperties": false,
+        "properties": {
+          "cpuCores": {
+            "type": "number"
+          },
+          "createdAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "health": {
+            "type": "string"
+          },
+          "links": {
+            "items": {
+              "$ref": "#/components/schemas/Link"
+            },
+            "type": "array"
+          },
+          "memBytes": {
+            "type": "number"
+          },
+          "name": {
+            "type": "string"
+          },
+          "namespace": {
+            "type": "string"
+          },
+          "node": {
+            "type": "string"
+          },
+          "owner": {
+            "$ref": "#/components/schemas/OwnerRef"
+          },
+          "phase": {
+            "type": "string"
+          },
+          "readyContainers": {
+            "type": "integer"
+          },
+          "reason": {
+            "type": "string"
+          },
+          "restarts": {
+            "type": "integer"
+          },
+          "totalContainers": {
+            "type": "integer"
+          }
+        },
+        "type": "object"
+      },
+      "Pool": {
+        "additionalProperties": false,
+        "properties": {
+          "lastScrubEnd": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "scrubErrors": {
+            "type": "integer"
+          },
+          "scrubInProgress": {
+            "type": "boolean"
+          },
+          "state": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "Sensor": {
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "valueC": {
+            "type": "number"
+          }
+        },
+        "type": "object"
+      },
+      "Series": {
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "range": {
+            "type": "string"
+          },
+          "series": {
+            "items": {
+              "$ref": "#/components/schemas/SeriesLine"
+            },
+            "type": "array"
+          },
+          "stepSeconds": {
+            "type": "integer"
+          }
+        },
+        "type": "object"
+      },
+      "SeriesLine": {
+        "additionalProperties": false,
+        "properties": {
+          "labels": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object"
+          },
+          "points": {
+            "items": {
+              "items": {
+                "type": "number"
+              },
+              "type": "array"
+            },
+            "type": "array"
+          }
+        },
+        "type": "object"
+      },
+      "Silence": {
+        "additionalProperties": false,
+        "properties": {
+          "comment": {
+            "type": "string"
+          },
+          "createdBy": {
+            "type": "string"
+          },
+          "endsAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "matchers": {
+            "items": {
+              "$ref": "#/components/schemas/Matcher"
+            },
+            "type": "array"
+          },
+          "startsAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "state": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "SourceStatus": {
+        "additionalProperties": false,
+        "properties": {
+          "checkedAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "error": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "ok": {
+            "type": "boolean"
+          }
+        },
+        "type": "object"
+      },
+      "StatusData": {
+        "additionalProperties": false,
+        "properties": {
+          "endpoints": {
+            "items": {
+              "$ref": "#/components/schemas/Endpoint"
+            },
+            "type": "array"
+          }
+        },
+        "type": "object"
+      },
+      "StorageData": {
+        "additionalProperties": false,
+        "properties": {
+          "buckets": {
+            "items": {
+              "$ref": "#/components/schemas/Bucket"
+            },
+            "type": "array"
+          },
+          "cnpg": {
+            "items": {
+              "$ref": "#/components/schemas/CNPGCluster"
+            },
+            "type": "array"
+          },
+          "etcd": {
+            "$ref": "#/components/schemas/Etcd"
+          },
+          "nasBackups": {
+            "items": {
+              "$ref": "#/components/schemas/NASBackup"
+            },
+            "type": "array"
+          },
+          "pvcs": {
+            "items": {
+              "$ref": "#/components/schemas/PVC"
+            },
+            "type": "array"
+          },
+          "pveStorages": {
+            "items": {
+              "$ref": "#/components/schemas/PVEStorage"
+            },
+            "type": "array"
+          },
+          "rustfs": {
+            "$ref": "#/components/schemas/UsedSize"
+          }
+        },
+        "type": "object"
+      },
+      "Topology": {
+        "additionalProperties": false,
+        "properties": {
+          "groups": {
+            "items": {
+              "$ref": "#/components/schemas/TopologyGroup"
+            },
+            "type": "array"
+          },
+          "host": {
+            "$ref": "#/components/schemas/TopologyHost"
+          },
+          "vms": {
+            "items": {
+              "$ref": "#/components/schemas/TopologyVM"
+            },
+            "type": "array"
+          }
+        },
+        "type": "object"
+      },
+      "TopologyGroup": {
+        "additionalProperties": false,
+        "properties": {
+          "health": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "namespaces": {
+            "items": {
+              "$ref": "#/components/schemas/TopologyNamespace"
+            },
+            "type": "array"
+          },
+          "podsByNode": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object"
+          }
+        },
+        "type": "object"
+      },
+      "TopologyHost": {
+        "additionalProperties": false,
+        "properties": {
+          "cpuTempC": {
+            "type": "number"
+          },
+          "health": {
+            "type": "string"
+          },
+          "memUsedRatio": {
+            "type": "number"
+          },
+          "name": {
+            "type": "string"
+          },
+          "powerWatts": {
+            "type": "number"
+          }
+        },
+        "type": "object"
+      },
+      "TopologyNamespace": {
+        "additionalProperties": false,
+        "properties": {
+          "health": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "pods": {
+            "type": "integer"
+          }
+        },
+        "type": "object"
+      },
+      "TopologyVM": {
+        "additionalProperties": false,
+        "properties": {
+          "cpuRatio": {
+            "type": "number"
+          },
+          "health": {
+            "type": "string"
+          },
+          "isK8sNode": {
+            "type": "boolean"
+          },
+          "memRatio": {
+            "type": "number"
+          },
+          "name": {
+            "type": "string"
+          },
+          "running": {
+            "type": "boolean"
+          },
+          "vmid": {
+            "type": "integer"
+          }
+        },
+        "type": "object"
+      },
+      "UsedSize": {
+        "additionalProperties": false,
+        "properties": {
+          "usableBytes": {
+            "type": "integer"
+          },
+          "usedBytes": {
+            "type": "integer"
+          }
+        },
+        "type": "object"
+      },
+      "VM": {
+        "additionalProperties": false,
+        "properties": {
+          "cpuRatio": {
+            "type": "number"
+          },
+          "cpus": {
+            "type": "number"
+          },
+          "health": {
+            "type": "string"
+          },
+          "k8sNode": {
+            "$ref": "#/components/schemas/K8sNodeRef"
+          },
+          "links": {
+            "items": {
+              "$ref": "#/components/schemas/Link"
+            },
+            "type": "array"
+          },
+          "lock": {
+            "type": "string"
+          },
+          "maxMemBytes": {
+            "type": "integer"
+          },
+          "memBytes": {
+            "type": "integer"
+          },
+          "name": {
+            "type": "string"
+          },
+          "netInBytes": {
+            "type": "integer"
+          },
+          "netOutBytes": {
+            "type": "integer"
+          },
+          "status": {
+            "type": "string"
+          },
+          "tags": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "template": {
+            "type": "boolean"
+          },
+          "uptimeSeconds": {
+            "type": "integer"
+          },
+          "vmid": {
+            "type": "integer"
+          }
+        },
+        "type": "object"
+      },
+      "VMsData": {
+        "additionalProperties": false,
+        "properties": {
+          "machines": {
+            "items": {
+              "$ref": "#/components/schemas/Machine"
+            },
+            "type": "array"
+          },
+          "tasks": {
+            "items": {
+              "$ref": "#/components/schemas/PVETask"
+            },
+            "type": "array"
+          },
+          "vms": {
+            "items": {
+              "$ref": "#/components/schemas/VM"
+            },
+            "type": "array"
+          }
+        },
+        "type": "object"
+      },
+      "Workload": {
+        "additionalProperties": false,
+        "properties": {
+          "desired": {
+            "type": "integer"
+          },
+          "health": {
+            "type": "string"
+          },
+          "images": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "links": {
+            "items": {
+              "$ref": "#/components/schemas/Link"
+            },
+            "type": "array"
+          },
+          "name": {
+            "type": "string"
+          },
+          "namespace": {
+            "type": "string"
+          },
+          "protected": {
+            "type": "boolean"
+          },
+          "ready": {
+            "type": "integer"
+          },
+          "restartable": {
+            "type": "boolean"
+          }
+        },
+        "type": "object"
+      },
+      "WorstPVC": {
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "namespace": {
+            "type": "string"
+          },
+          "usedRatio": {
+            "type": "number"
+          }
+        },
+        "type": "object"
+      }
+    },
+    "securitySchemes": {
+      "identityProxy": {
+        "description": "The user the identity proxy in front of dash authenticated; dash trusts it as set by its network peer, so it is not something a client sends itself. Dev and demo modes supply a fixed user.",
+        "in": "header",
+        "name": "X-Forwarded-Preferred-Username",
+        "type": "apiKey"
+      }
+    }
+  },
+  "info": {
+    "contact": {
+      "name": "dash",
+      "url": "https://github.com/TechDufus/dash"
+    },
+    "description": "The REST and server-sent-events API of dash, the plugin-based infrastructure dashboard. Every response carries an X-Request-Id header, and every error is the APIError body.",
+    "license": {
+      "identifier": "MIT",
+      "name": "MIT"
+    },
+    "title": "dash API",
+    "version": "v1"
+  },
+  "openapi": "3.1.0",
+  "paths": {
+    "/api/v1/me": {
+      "get": {
+        "operationId": "getMe",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Me"
+                }
+              }
+            },
+            "description": "Who the request acts as, and what the API offers it",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/XRequestId"
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "summary": "Who the request acts as, and what the API offers it",
+        "tags": [
+          "Session"
+        ],
+        "x-dash-min-role": "viewer",
+        "x-dash-scope": "read"
+      }
+    },
+    "/api/v1/plugins": {
+      "get": {
+        "operationId": "listPlugins",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/PluginInfo"
+                  },
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Every plugin instance with its state, topics, mounted actions and navigation",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/XRequestId"
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "summary": "Every plugin instance with its state, topics, mounted actions and navigation",
+        "tags": [
+          "Plugins"
+        ],
+        "x-dash-min-role": "viewer",
+        "x-dash-scope": "read"
+      }
+    },
+    "/api/v1/series": {
+      "get": {
+        "operationId": "getSeries",
+        "parameters": [
+          {
+            "description": "Series name, e.g. host.cpu or vm.mem.",
+            "in": "query",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "15m, 1h, 6h, 24h or 7d.",
+            "in": "query",
+            "name": "range",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The VM, for vm.* series.",
+            "in": "query",
+            "name": "vmid",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The namespace, for pod.* series (ns is an alias).",
+            "in": "query",
+            "name": "namespace",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Alias of namespace.",
+            "in": "query",
+            "name": "ns",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The pod, for pod.* series.",
+            "in": "query",
+            "name": "pod",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The node name, for node.* series.",
+            "in": "query",
+            "name": "node",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Series"
+                }
+              }
+            },
+            "description": "A named metric series over a range",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/XRequestId"
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "summary": "A named metric series over a range",
+        "tags": [
+          "Series"
+        ],
+        "x-dash-min-role": "viewer",
+        "x-dash-scope": "read"
+      }
+    },
+    "/api/v1/stream": {
+      "get": {
+        "operationId": "streamEvents",
+        "parameters": [
+          {
+            "description": "Comma-separated topic names (at most 32); only these are sent. Empty or absent means all.",
+            "in": "query",
+            "name": "topics",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "text/event-stream": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "description": "A stream of server-sent events. Each event is named after its topic and carries that topic's envelope as JSON; a comment line every 15 seconds keeps the connection alive.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/XRequestId"
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "summary": "Server-sent events: the current envelope of every topic, then each change",
+        "tags": [
+          "Topics"
+        ],
+        "x-dash-min-role": "viewer",
+        "x-dash-scope": "read"
+      }
+    },
+    "/api/v1/topics/{topic}": {
+      "get": {
+        "operationId": "getTopic",
+        "parameters": [
+          {
+            "description": "Topic name, e.g. core.plugins or vms.",
+            "in": "path",
+            "name": "topic",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/Envelope.alerts"
+                    },
+                    {
+                      "$ref": "#/components/schemas/Envelope.apps"
+                    },
+                    {
+                      "$ref": "#/components/schemas/Envelope.cluster"
+                    },
+                    {
+                      "$ref": "#/components/schemas/Envelope.core.overview"
+                    },
+                    {
+                      "$ref": "#/components/schemas/Envelope.core.plugins"
+                    },
+                    {
+                      "$ref": "#/components/schemas/Envelope.flux"
+                    },
+                    {
+                      "$ref": "#/components/schemas/Envelope.host"
+                    },
+                    {
+                      "$ref": "#/components/schemas/Envelope.status"
+                    },
+                    {
+                      "$ref": "#/components/schemas/Envelope.storage"
+                    },
+                    {
+                      "$ref": "#/components/schemas/Envelope.vms"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "The topic's current envelope.",
+            "headers": {
+              "ETag": {
+                "description": "Identifies this content; send it back as If-None-Match.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Request-Id": {
+                "$ref": "#/components/headers/XRequestId"
+              }
+            }
+          },
+          "304": {
+            "description": "The envelope still has the ETag in If-None-Match.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/XRequestId"
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "summary": "The current envelope of one topic; 304 when If-None-Match matches its ETag",
+        "tags": [
+          "Topics"
+        ],
+        "x-dash-min-role": "viewer",
+        "x-dash-scope": "read"
+      }
+    }
+  },
+  "security": [
+    {
+      "identityProxy": []
+    }
+  ],
+  "servers": [
+    {
+      "description": "The dash instance that served this document.",
+      "url": "/"
+    }
+  ],
+  "tags": [
+    {
+      "description": "The plugin instances and the generic plugin routes.",
+      "name": "Plugins"
+    },
+    {
+      "description": "Named metric series.",
+      "name": "Series"
+    },
+    {
+      "description": "Who is calling.",
+      "name": "Session"
+    },
+    {
+      "description": "Live state: one envelope per topic, as a snapshot or a stream.",
+      "name": "Topics"
+    }
+  ]
+}

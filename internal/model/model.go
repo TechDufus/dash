@@ -36,7 +36,7 @@ const (
 	LinkKindExternal LinkKind = "external"
 )
 
-// Topic is a name published on /api/stream.
+// Topic is a name published on /api/v1/stream.
 type Topic string
 
 const (
@@ -640,9 +640,23 @@ type LogLine struct {
 	Msg       string    `json:"msg"`
 }
 
+// Me is GET /api/v1/me: who the request acts as and what the API offers it (design L.4).
 type Me struct {
-	User    string `json:"user"`
-	Version string `json:"version"`
+	User         string         `json:"user"`
+	Role         string         `json:"role"`     // admin or viewer
+	AuthMode     string         `json:"authMode"` // proxy, dev or demo
+	Scopes       []string       `json:"scopes"`   // read, logs and actions:<plugin> for each plugin with mounted actions
+	Audience     string         `json:"audience"` // api
+	Version      string         `json:"version"`
+	Capabilities MeCapabilities `json:"capabilities"`
+}
+
+// MeCapabilities says which optional parts of the API this dash serves.
+type MeCapabilities struct {
+	Actions bool `json:"actions"` // some plugin has mounted actions
+	MCP     bool `json:"mcp"`
+	Push    bool `json:"push"`
+	OAuth   bool `json:"oauth"`
 }
 
 // LauncherLink is one infrastructure link in the launcher (DASH_LAUNCHER_FILE).

@@ -239,13 +239,13 @@
         },
         "streams": {
           "default": 256,
-          "description": "Open /api/stream connections in all; more get 503.",
+          "description": "Open /api/v1/stream connections in all; more get 503.",
           "type": "integer",
           "x-dash-restart": true
         },
         "streamsPerUser": {
           "default": 16,
-          "description": "Open /api/stream connections one user may hold; more get 429.",
+          "description": "Open /api/v1/stream connections one user may hold; more get 429.",
           "type": "integer",
           "x-dash-restart": true
         },

@@ -138,7 +138,7 @@ func around(key string, t time.Time, base, spread float64) float64 {
 
 // ---- REST: series, logs, details, silences ----
 
-// Range answers /api/series with generated lines shaped like the real query's result.
+// Range answers /api/v1/series with generated lines shaped like the real query's result.
 func (s *Source) Range(_ context.Context, expr string, start, end time.Time, step time.Duration) ([]model.SeriesLine, error) {
 	type shape struct {
 		labels       map[string]string

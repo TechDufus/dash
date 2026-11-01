@@ -82,7 +82,7 @@ func TestStreamEndpointNeverCarriesUpstreamDetail(t *testing.T) {
 	})
 	s.heartbeat = 20 * time.Millisecond
 
-	_, lines := sseClient(t, s.Handler(), "/api/stream")
+	_, lines := sseClient(t, s.Handler(), "/api/v1/stream")
 	var stream strings.Builder
 	want := []string{`"http_500"`, `"tls"`, `"unreachable"`, `"auth"`} // proxmox, victoriametrics, alertmanager, gatus
 	deadline := time.After(15 * time.Second)

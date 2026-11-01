@@ -8,6 +8,7 @@ import (
 	"io"
 	"io/fs"
 	"net/http"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -82,7 +83,7 @@ type Server struct {
 	static      fs.FS
 	now         func() time.Time
 	heartbeat   time.Duration
-	events      *streamLimiter // open /api/stream connections
+	events      *streamLimiter // open /api/v1/stream connections
 	tails       *streamLimiter // open /api/logs/tail connections
 	tailMax     time.Duration  // longest a log tail stays open
 	sseWrite    time.Duration  // deadline of each SSE write
@@ -90,6 +91,7 @@ type Server struct {
 	actionLimit *rateLimiter   // framework actions per principal
 	hostWarn    atomic.Int64   // unix nanos of the last unknown-host warning
 	serving     atomic.Bool    // the listeners are bound (MarkServing)
+	schemas     sync.Map       // reflect.Type -> json.RawMessage: action input schemas
 }
 
 // New builds a Server serving the embedded SPA.
@@ -108,31 +110,10 @@ func New(d Deps) *Server {
 	}
 }
 
-// Handler is the API plus the SPA, for the loopback listener.
+// Handler is the API plus the SPA, for the loopback listener. The chain is request id, host
+// check, CSRF, authentication, then the mux the route table builds.
 func (s *Server) Handler() http.Handler {
-	mux := http.NewServeMux()
-	mux.HandleFunc("GET /api/me", s.me)
-	mux.HandleFunc("GET /api/config", s.uiConfig)
-	mux.HandleFunc("GET /api/stream", s.stream)
-	mux.HandleFunc("GET /api/v1/topics/{topic}", s.topic)
-	mux.HandleFunc("GET /api/series", s.series)
-	mux.HandleFunc("GET /api/vms/{vmid}", s.vmDetail)
-	mux.HandleFunc("GET /api/pods/{ns}/{name}", s.podDetail)
-	mux.HandleFunc("GET /api/logs", s.logs)
-	mux.HandleFunc("GET /api/logs/tail", s.logsTail)
-	mux.HandleFunc("POST /api/actions/restart", s.restart)
-	mux.HandleFunc("POST /api/actions/reconcile", s.reconcile)
-	mux.HandleFunc("POST /api/silences", s.createSilence)
-	mux.HandleFunc("DELETE /api/silences/{id}", s.expireSilence)
-	mux.HandleFunc("GET /api/v1/plugins", s.plugins)
-	mux.HandleFunc("GET /api/v1/plugins/{id}", s.pluginRoute)
-	mux.HandleFunc("GET /api/v1/plugins/{id}/{rest...}", s.pluginRoute)
-	mux.HandleFunc("POST /api/v1/plugins/{id}/actions/{name}", s.runAction)
-	mux.HandleFunc("/api/", func(w http.ResponseWriter, r *http.Request) {
-		writeErr(w, http.StatusNotFound, model.ErrCodeNotFound, "not found")
-	})
-	mux.HandleFunc("/", s.serveStatic)
-	return s.hosts(s.csrf(s.auth(mux)))
+	return s.requestID(s.hosts(s.csrf(s.auth(s.mux()))))
 }
 
 func writeJSON(w http.ResponseWriter, code int, v any) {
@@ -142,8 +123,9 @@ func writeJSON(w http.ResponseWriter, code int, v any) {
 }
 
 // writeErr answers the L.2 error envelope: msg is text for a person, code one of model.ErrCode*.
+// The request id is the one requestID put on the response.
 func writeErr(w http.ResponseWriter, status int, code, msg string) {
-	writeJSON(w, status, model.APIError{Error: msg, Code: code})
+	writeJSON(w, status, model.APIError{Error: msg, Code: code, RequestID: w.Header().Get(requestIDHeader)})
 }
 
 // maxBody caps JSON request bodies.
@@ -206,8 +188,23 @@ func firstOf(r *http.Request, keys ...string) string {
 	return ""
 }
 
+// me answers GET /api/v1/me (design L.4). Scopes are what the role allows: read and logs, and
+// actions:<plugin> for each instance with mounted actions. mcp, push and oauth are phase 7.
 func (s *Server) me(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, model.Me{User: userFrom(r.Context()), Version: s.d.Version})
+	p := principalFrom(r.Context())
+	me := model.Me{
+		User: p.User, Role: string(p.Role), AuthMode: s.authMode(), Audience: "api", Version: s.d.Version,
+		Scopes: []string{"read", "logs"},
+	}
+	if s.d.Plugins != nil {
+		for _, pi := range s.d.Plugins.Infos() {
+			if len(pi.Actions) > 0 {
+				me.Scopes = append(me.Scopes, "actions:"+pi.ID)
+				me.Capabilities.Actions = true
+			}
+		}
+	}
+	writeJSON(w, http.StatusOK, me)
 }
 
 func (s *Server) uiConfig(w http.ResponseWriter, _ *http.Request) {

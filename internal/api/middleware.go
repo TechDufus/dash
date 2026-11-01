@@ -45,7 +45,7 @@ func (s *Server) hosts(next http.Handler) http.Handler {
 				if len(host) > 100 {
 					host = host[:100]
 				}
-				slog.Warn("rejected request for unknown host", "host", host)
+				slog.Warn("rejected request for unknown host", "host", host, "requestId", requestIDFrom(r.Context()))
 			}
 			writeErr(w, http.StatusMisdirectedRequest, model.ErrCodeUnknownHost, "unknown host; set server.publicURL or server.allowedHosts")
 			return

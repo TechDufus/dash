@@ -271,7 +271,7 @@ func TestSeriesArgs(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			prom := &fakeProm{}
 			s := newServer(func(d *Deps) { d.Prom = prom })
-			w := req{path: "/api/series?" + tc.query}.do(s.Handler())
+			w := req{path: "/api/v1/series?" + tc.query}.do(s.Handler())
 			if w.Code != tc.code {
 				t.Fatalf("code = %d, want %d (%s)", w.Code, tc.code, w.Body)
 			}
@@ -306,7 +306,7 @@ func TestSeriesArgs(t *testing.T) {
 
 	t.Run("upstream failure is 502", func(t *testing.T) {
 		s := newServer(func(d *Deps) { d.Prom = &fakeProm{err: context.DeadlineExceeded} })
-		w := req{path: "/api/series?name=host.cpu&range=1h"}.do(s.Handler())
+		w := req{path: "/api/v1/series?name=host.cpu&range=1h"}.do(s.Handler())
 		if w.Code != 502 {
 			t.Fatalf("code = %d, want 502", w.Code)
 		}
@@ -328,7 +328,7 @@ func TestDetailsAndLogs(t *testing.T) {
 		{"/api/pods/media/missing", 404},
 		{"/api/pods/Bad_NS/x", 400},
 		{"/api/logs?ns=media&pod=plex-0&since=1h&q=err", 200},
-		{"/api/me", 200},
+		{"/api/v1/me", 200},
 	} {
 		if w := (req{path: tc.path}).do(h); w.Code != tc.code {
 			t.Errorf("%s: code = %d, want %d", tc.path, w.Code, tc.code)

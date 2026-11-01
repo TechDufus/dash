@@ -84,7 +84,7 @@ func TestProbeBodiesUnchanged(t *testing.T) {
 
 func TestHealthHandlerServesOnlyProbes(t *testing.T) {
 	h := newServer(nil).HealthHandler()
-	for _, path := range []string{"/api/me", "/", "/metrics"} {
+	for _, path := range []string{"/api/v1/me", "/", "/metrics"} {
 		r := httptest.NewRequest(http.MethodGet, path, nil)
 		w := httptest.NewRecorder()
 		h.ServeHTTP(w, r)

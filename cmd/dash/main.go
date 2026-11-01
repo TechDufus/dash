@@ -56,7 +56,10 @@ func command(args []string, out io.Writer) error {
 	if len(args) >= 2 && args[0] == "audit" && args[1] == "verify" {
 		return auditVerify(args[2:], out)
 	}
-	return fmt.Errorf("unknown command %q; usage: dash [%s | audit verify [--dir DIR]]", strings.Join(args, " "), configUsage)
+	if len(args) >= 1 && args[0] == "api" {
+		return apiCommand(args[1:], out)
+	}
+	return fmt.Errorf("unknown command %q; usage: dash [%s | audit verify [--dir DIR] | %s]", strings.Join(args, " "), configUsage, apiUsage)
 }
 
 // exitCode is the exit status of a subcommand that returned err: 1 when it ran and found a
