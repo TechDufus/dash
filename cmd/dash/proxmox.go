@@ -14,8 +14,11 @@ import (
 // proxmoxDiscoveryBudget bounds how long startup waits for the Proxmox API to name its node.
 const proxmoxDiscoveryBudget = 60 * time.Second
 
+// nodeEnv is the variable that sets plugins.proxmox.node, named in errors.
+const nodeEnv = "DASH_PLUGINS_PROXMOX_NODE"
+
 // resolveProxmoxNode fills cfg.ProxmoxNode (and cfg.HostNodename when it was left unset) from the
-// Proxmox API when DASH_PROXMOX_NODE is empty. list returns the cluster's node names. It does
+// Proxmox API when plugins.proxmox.node is empty. list returns the cluster's node names. It does
 // nothing, and does not call list, unless a token and URL are set and the node is empty.
 //
 // Failure is fatal, unlike at runtime, where Proxmox errors are soft: topics record the source
@@ -25,7 +28,7 @@ const proxmoxDiscoveryBudget = 60 * time.Second
 // all of them. A bounded retry (budget, backoff 1s doubling to 8s) absorbs a Proxmox API that is
 // briefly unavailable, e.g. restarting together with the cluster. After that, exiting non-zero
 // lets Kubernetes restart the pod with backoff and shows the cause in its logs. Setting
-// DASH_PROXMOX_NODE skips discovery entirely.
+// plugins.proxmox.node skips discovery entirely.
 //
 // An empty or multi-node answer is a configuration problem, not an outage, so it fails at once.
 func resolveProxmoxNode(ctx context.Context, cfg *config.Config, list func(context.Context) ([]string, error), budget time.Duration) error {
@@ -47,7 +50,7 @@ func resolveProxmoxNode(ctx context.Context, cfg *config.Config, list func(conte
 
 		wait := min(backoff, time.Until(deadline))
 		if wait <= 0 {
-			return fmt.Errorf("proxmox: discover node at DASH_PROXMOX_URL: %w; set DASH_PROXMOX_NODE", err)
+			return fmt.Errorf("proxmox: discover node at plugins.proxmox.url: %w; set plugins.proxmox.node (%s)", err, nodeEnv)
 		}
 		timer := time.NewTimer(wait)
 		select {
@@ -64,18 +67,18 @@ func resolveProxmoxNode(ctx context.Context, cfg *config.Config, list func(conte
 func pickProxmoxNode(cfg *config.Config, nodes []string) error {
 	switch len(nodes) {
 	case 0:
-		return fmt.Errorf("proxmox: API at DASH_PROXMOX_URL lists no nodes; set DASH_PROXMOX_NODE")
+		return fmt.Errorf("proxmox: API at plugins.proxmox.url lists no nodes; set plugins.proxmox.node (%s)", nodeEnv)
 	case 1:
 	default:
 		sorted := slices.Sorted(slices.Values(nodes))
-		return fmt.Errorf("proxmox: cluster has %d nodes (%s); set DASH_PROXMOX_NODE to the one to read",
-			len(sorted), strings.Join(sorted, ", "))
+		return fmt.Errorf("proxmox: cluster has %d nodes (%s); set plugins.proxmox.node (%s) to the one to read",
+			len(sorted), strings.Join(sorted, ", "), nodeEnv)
 	}
 	cfg.ProxmoxNode = nodes[0]
-	if cfg.HostNodename == "" { // unset: Load defaults it to DASH_PROXMOX_NODE, which was empty
+	if cfg.HostNodename == "" { // unset: it falls back to plugins.proxmox.node, which was empty
 		cfg.HostNodename = nodes[0]
 	}
-	slog.Info("proxmox: discovered node; set DASH_PROXMOX_NODE to skip discovery",
+	slog.Info("proxmox: discovered node; set plugins.proxmox.node to skip discovery",
 		"node", cfg.ProxmoxNode, "hostNodename", cfg.HostNodename)
 	return nil
 }

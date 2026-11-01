@@ -97,8 +97,7 @@ Headlamp, Grafana or Proxmox URL simply drops those links.
 
 The file is `DASH_CONFIG`, or `config.yaml` in the data directory (`DASH_DATA_DIR`, default
 `/data`) when it exists. Unknown keys are an error that names the full path
-(`plugins.proxmox.urll: unknown field`), and the environment overrides the file. The tables below
-use the environment names; each maps to a path in the file:
+(`plugins.proxmox.urll: unknown field`). The environment overrides the file, field by field.
 
 ```yaml
 server:
@@ -112,42 +111,72 @@ plugins:
     hosts: [{nodename: pve, model: Dell R730}]
 ```
 
-| Variable | Default | What |
-|---|---|---|
-| `DASH_PUBLIC_URL` | required (dev and demo: `http://localhost:5173`) | the URL people open, with scheme and host (`https://dash.example.com`); the only `Origin` accepted on writes |
-| `DASH_LISTEN` | `127.0.0.1:8080` | API and SPA, reached through oauth2-proxy |
-| `DASH_ALLOWED_HOSTS` | empty | extra Host names the API answers besides the `DASH_PUBLIC_URL` host (comma-separated; `*` accepts any) |
-| `DASH_HEALTH_LISTEN` | `0.0.0.0:8081` | `/healthz` and `/readyz` |
-| `DASH_VM_URL` | `http://vmsingle-vm.monitoring.svc:8428` | VictoriaMetrics |
-| `DASH_ALERTMANAGER_URL` | `http://vmalertmanager-vm.monitoring.svc:9093` | Alertmanager |
-| `DASH_VLOGS_URL` | `http://vl-server.monitoring.svc:9428` | VictoriaLogs |
-| `DASH_GATUS_URL` | `http://gatus.gatus.svc:8080` | Gatus |
-| `DASH_PROXMOX_TOKEN` | empty (Proxmox off) | API token, `<user>!<token>=<secret>` |
-| `DASH_PROXMOX_URL` | required with a token | Proxmox API |
-| `DASH_PROXMOX_NODE` | discovered from the API when the cluster has one node | the node to read; set it for multi-node clusters or to skip discovery |
-| `DASH_HOST_NODENAME` | `DASH_PROXMOX_NODE` (or the discovered node) | `nodename` label of the host's node-exporter and IPMI series |
-| `DASH_HOST_MODEL` | empty | shown next to the host's name, e.g. `Dell R730` |
-| `DASH_HEADLAMP_URL`, `DASH_HEADLAMP_CLUSTER` | empty, `main` | Headlamp deep links |
-| `DASH_GRAFANA_URL` | empty | Grafana links |
-| `DASH_LAUNCHER_FILE` | empty | YAML list of infrastructure links for the launcher |
-| `KUBECONFIG` | in-cluster | used outside the cluster |
+Every setting also has an environment variable: `DASH_` plus the path in UPPER_SNAKE case
+(`plugins.proxmox.tokenSecret` is `DASH_PLUGINS_PROXMOX_TOKEN_SECRET`). Lists and objects are JSON
+(`DASH_PLUGINS_HARDWARE_HOSTS='[{"nodename":"pve"}]'`). Append `_FILE` to read the value from a
+file (`DASH_PLUGINS_PROXMOX_TOKEN_SECRET_FILE=/run/secrets/pve`); setting both forms is an
+error. A misspelled `DASH_PLUGINS_*` variable stops dash from starting, and any other unknown
+`DASH_*` variable is logged. `dash config env` prints every path with its variable name.
 
-The launcher file is a list of `name`, `href`, `icon` and `description`; `icon` is a
-[dashboard-icons](https://github.com/homarr-labs/dashboard-icons) name or an image URL. Mount it
-from a ConfigMap and point `DASH_LAUNCHER_FILE` at it. See
-[`docs/launcher.example.yaml`](docs/launcher.example.yaml).
+| Setting (file path) | Default | What |
+|---|---|---|
+| `server.publicURL` | required (dev and demo: `http://localhost:5173`) | the URL people open, with scheme and host (`https://dash.example.com`); the only `Origin` accepted on writes |
+| `server.listen` | `127.0.0.1:8080` | API and SPA, reached through oauth2-proxy |
+| `server.allowedHosts` | empty | extra Host names the API answers besides the `server.publicURL` host (a JSON list in the environment; `["*"]` accepts any) |
+| `server.healthListen` | `0.0.0.0:8081` | `/healthz` and `/readyz` |
+| `settings.ui` | `editable` | `editable` or `readonly` (fully managed) |
+| `dataDir` (`DASH_DATA_DIR`) | `/data` | where dash keeps its state and looks for `config.yaml` |
+| `plugins.prometheus.url` | `http://vmsingle-vm.monitoring.svc:8428` | VictoriaMetrics |
+| `plugins.alertmanager.url` | `http://vmalertmanager-vm.monitoring.svc:9093` | Alertmanager |
+| `plugins.victorialogs.url` | `http://vl-server.monitoring.svc:9428` | VictoriaLogs |
+| `plugins.gatus.url` | `http://gatus.gatus.svc:8080` | Gatus |
+| `plugins.proxmox.tokenID`, `.tokenSecret` | empty (Proxmox off) | API token `<user>!<token>` and its secret; set together |
+| `plugins.proxmox.url` | required with a token | Proxmox API |
+| `plugins.proxmox.node` | discovered from the API when the cluster has one node | the node to read; set it for multi-node clusters or to skip discovery |
+| `plugins.hardware.hosts` | empty | `[{nodename, model}]`, one entry for now: `nodename` is the label of the host's node-exporter and IPMI series (default: `plugins.proxmox.node`, or the discovered node), `model` is shown next to its name, e.g. `Dell R730` |
+| `plugins.headlamp.url`, `.cluster` | empty, `main` | Headlamp deep links |
+| `plugins.grafana.url` | empty | Grafana links |
+| `plugins.launcher.file`, `.links` | empty | the launcher's links, from a YAML file or inline (not both) |
+| `plugins.kubernetes.kubeconfig` | in-cluster | used outside the cluster; `KUBECONFIG` is honoured too |
+
+The launcher is a list of `name`, `href`, `icon` and `description`; `icon` is a
+[dashboard-icons](https://github.com/homarr-labs/dashboard-icons) name or an image URL. Mount a
+file from a ConfigMap and point `plugins.launcher.file` at it, or list the links in
+`plugins.launcher.links`. See [`docs/launcher.example.yaml`](docs/launcher.example.yaml).
 
 dash also reads a few labels, annotations and metric names from the cluster. The defaults match
 the homelab it was built for; change them to match yours.
 
-| Variable | Default | What |
+| Setting (file path) | Default | What |
 |---|---|---|
-| `DASH_LABEL_PROTECTED` | `homelab.io/protected` | namespace label (`"true"`) that makes a restart ask you to type the name |
-| `DASH_LABEL_TENANT` | `homelab.io/tenant` | namespace label that puts it under Tenants |
-| `DASH_ANNOTATION_SUSPEND_REASON` | `homelab.io/suspended` | Flux annotation shown as the reason an object is suspended |
-| `DASH_APPS_FLUX_PREFIX` | `app-` | namespaces applied by a Kustomization with this prefix go under Apps |
-| `DASH_ZFS_SCRUB_METRIC_PREFIX` | `homelab_zfs_scrub` | `<prefix>_last_end_timestamp_seconds`, `_last_errors`, `_in_progress` |
-| `DASH_NAS_BACKUP_NAMESPACE`, `DASH_NAS_BACKUP_CRONJOB` | `rustfs`, `nas-backup` | the CronJob behind the NAS backup age |
+| `plugins.kubernetes.conventions.protectedLabel` | `homelab.io/protected` | namespace label (`"true"`) that makes a restart ask you to type the name |
+| `plugins.kubernetes.conventions.tenantLabel` | `homelab.io/tenant` | namespace label that puts it under Tenants |
+| `plugins.flux.suspendReasonAnnotation` | `homelab.io/suspended` | Flux annotation shown as the reason an object is suspended |
+| `plugins.kubernetes.conventions.appsFluxPrefix` | `app-` | namespaces applied by a Kustomization with this prefix go under Apps |
+| `plugins.hardware.zfsScrubMetricPrefix` | `homelab_zfs_scrub` | `<prefix>_last_end_timestamp_seconds`, `_last_errors`, `_in_progress` |
+| `plugins.kubernetes.backupJobs` | `[{namespace: rustfs, cronjob: nas-backup}]` | `[{namespace, cronjob}]`: the CronJob behind the NAS backup age; one entry for now |
+
+### Legacy variable names
+
+The names dash used before the config file keep working for one release. Each one logs a
+deprecation warning naming its replacement, and the generated name wins when both are set.
+
+| Legacy | Replacement |
+|---|---|
+| `DASH_PUBLIC_URL`, `DASH_LISTEN`, `DASH_HEALTH_LISTEN` | `DASH_SERVER_PUBLIC_URL`, `DASH_SERVER_LISTEN`, `DASH_SERVER_HEALTH_LISTEN` |
+| `DASH_ALLOWED_HOSTS` (comma-separated) | `DASH_SERVER_ALLOWED_HOSTS` (JSON list) |
+| `DASH_VM_URL`, `DASH_ALERTMANAGER_URL`, `DASH_VLOGS_URL`, `DASH_GATUS_URL` | `DASH_PLUGINS_PROMETHEUS_URL`, `DASH_PLUGINS_ALERTMANAGER_URL`, `DASH_PLUGINS_VICTORIALOGS_URL`, `DASH_PLUGINS_GATUS_URL` |
+| `DASH_PROXMOX_URL`, `DASH_PROXMOX_NODE` | `DASH_PLUGINS_PROXMOX_URL`, `DASH_PLUGINS_PROXMOX_NODE` |
+| `DASH_PROXMOX_TOKEN` (`<user>!<token>=<secret>`) | `DASH_PLUGINS_PROXMOX_TOKEN_ID` and `DASH_PLUGINS_PROXMOX_TOKEN_SECRET` |
+| `DASH_HOST_NODENAME`, `DASH_HOST_MODEL` | `DASH_PLUGINS_HARDWARE_HOSTS` (JSON) |
+| `DASH_HEADLAMP_URL`, `DASH_HEADLAMP_CLUSTER`, `DASH_GRAFANA_URL` | `DASH_PLUGINS_HEADLAMP_URL`, `DASH_PLUGINS_HEADLAMP_CLUSTER`, `DASH_PLUGINS_GRAFANA_URL` |
+| `DASH_LAUNCHER_FILE` | `DASH_PLUGINS_LAUNCHER_FILE` |
+| `DASH_LABEL_PROTECTED`, `DASH_LABEL_TENANT`, `DASH_APPS_FLUX_PREFIX` | `DASH_PLUGINS_KUBERNETES_CONVENTIONS_PROTECTED_LABEL`, `…_TENANT_LABEL`, `…_APPS_FLUX_PREFIX` |
+| `DASH_ANNOTATION_SUSPEND_REASON` | `DASH_PLUGINS_FLUX_SUSPEND_REASON_ANNOTATION` |
+| `DASH_ZFS_SCRUB_METRIC_PREFIX` | `DASH_PLUGINS_HARDWARE_ZFS_SCRUB_METRIC_PREFIX` |
+| `DASH_NAS_BACKUP_NAMESPACE`, `DASH_NAS_BACKUP_CRONJOB` | `DASH_PLUGINS_KUBERNETES_BACKUP_JOBS` (JSON) |
+
+`DASH_DEV`, `DASH_DEMO` and `DASH_CONFIG` are process settings, not part of the config tree.
 
 ## Layout
 
@@ -155,7 +184,7 @@ the homelab it was built for; change them to match yours.
 |---|---|
 | `cmd/dash` | entry point, listeners, shutdown |
 | `internal/model` | the API contract (Go structs → `web/src/api/types.ts` via `make generate`) |
-| `internal/config` | environment variables (`DASH_*`) |
+| `internal/config` | layered configuration: defaults, config file, environment (`DASH_*`) |
 | `internal/kube` | informers and the actions' Kubernetes patches |
 | `internal/upstream` | VictoriaMetrics, Alertmanager, VictoriaLogs, Gatus, Proxmox clients |
 | `internal/topics` | topic builders, health and attention rules |

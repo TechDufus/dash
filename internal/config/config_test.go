@@ -68,7 +68,7 @@ func TestValidate(t *testing.T) {
 		env  map[string]string
 		want string // substring of the error; "" means valid
 	}{
-		{"prod needs public url", nil, "DASH_PUBLIC_URL"},
+		{"prod needs public url", nil, "DASH_SERVER_PUBLIC_URL"},
 		{"dev does not", map[string]string{"DASH_DEV": "true"}, ""},
 		{"demo does not", map[string]string{"DASH_DEMO": "true"}, ""},
 		{"dev on all interfaces", map[string]string{"DASH_DEV": "true", "DASH_LISTEN": "0.0.0.0:8080"}, "DASH_LISTEN"},

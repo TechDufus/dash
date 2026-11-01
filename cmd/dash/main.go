@@ -4,11 +4,14 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
+	"io"
 	"log/slog"
 	"net"
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -26,12 +29,28 @@ import (
 var version = "dev"
 
 func main() {
+	if len(os.Args) > 1 {
+		if err := command(os.Args[1:], os.Stdout); err != nil {
+			fmt.Fprintln(os.Stderr, "dash:", err)
+			os.Exit(2)
+		}
+		return
+	}
 	// JSON so VictoriaLogs parses the audit fields.
 	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stderr, nil)))
 	if err := run(); err != nil {
 		slog.Error("fatal", "error", err)
 		os.Exit(1)
 	}
+}
+
+// command runs a subcommand, which prints to out and exits instead of starting the server.
+func command(args []string, out io.Writer) error {
+	switch strings.Join(args, " ") {
+	case "config env": // every setting with its environment variable
+		return config.WriteEnvTable(out)
+	}
+	return fmt.Errorf("unknown command %q; usage: dash [config env]", strings.Join(args, " "))
 }
 
 func run() error {

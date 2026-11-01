@@ -9,11 +9,11 @@ import (
 
 func testBuilder() *Builder {
 	cfg, err := config.Load([]string{
-		"DASH_PROXMOX_URL=https://pve.example.com:8006",
-		"DASH_PROXMOX_NODE=pve-1",
-		"DASH_HEADLAMP_URL=https://headlamp.example.com",
-		"DASH_GRAFANA_URL=https://grafana.example.com",
-		"DASH_PUBLIC_URL=https://dash.example.com",
+		"DASH_PLUGINS_PROXMOX_URL=https://pve.example.com:8006",
+		"DASH_PLUGINS_PROXMOX_NODE=pve-1",
+		"DASH_PLUGINS_HEADLAMP_URL=https://headlamp.example.com",
+		"DASH_PLUGINS_GRAFANA_URL=https://grafana.example.com",
+		"DASH_SERVER_PUBLIC_URL=https://dash.example.com",
 	})
 	if err != nil {
 		panic(err)

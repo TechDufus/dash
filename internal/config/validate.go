@@ -45,7 +45,7 @@ func validate(t Tree, dev, demo bool, prov map[string]Provenance) error {
 	s, p := t.Server, t.Plugins
 
 	if s.PublicURL == "" && !dev && !demo {
-		v.fail("server.publicURL", "is required (the URL users open, e.g. https://dash.example.com); set DASH_PUBLIC_URL or server.publicURL in the config file")
+		v.fail("server.publicURL", "is required (the URL users open, e.g. https://dash.example.com); set %s or server.publicURL in the config file", envName("server.publicURL"))
 	}
 	for _, l := range schema.leaves {
 		if !l.url {

@@ -83,14 +83,11 @@ func Resolve(src Sources) (*Resolved, error) {
 			return nil, err
 		}
 	}
-	entries, err := envLayer(env)
-	if err != nil {
-		return nil, err
-	}
-	var errs []error
+	entries, envErr := envLayer(env, log)
+	errs := []error{envErr}
 	for _, e := range entries {
 		if err := r.set(schema.byPath[e.path], e.data, Provenance{Source: SourceEnv, Ref: e.ref}); err != nil {
-			errs = append(errs, err)
+			errs = append(errs, fmt.Errorf("%s: %w", e.ref, err))
 		}
 	}
 	if err := errors.Join(errs...); err != nil {

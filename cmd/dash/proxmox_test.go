@@ -126,7 +126,7 @@ func TestResolveProxmoxNode(t *testing.T) {
 			env:       map[string]string{"DASH_PROXMOX_TOKEN": testToken},
 			reply:     always(200, nodesBody("pve-b", "pve-a")),
 			budget:    5 * time.Second,
-			wantErr:   "DASH_PROXMOX_NODE",
+			wantErr:   "plugins.proxmox.node",
 			wantCalls: 1,
 		},
 		{
@@ -134,7 +134,7 @@ func TestResolveProxmoxNode(t *testing.T) {
 			env:       map[string]string{"DASH_PROXMOX_TOKEN": testToken},
 			reply:     always(200, `{"data":[]}`),
 			budget:    5 * time.Second,
-			wantErr:   "DASH_PROXMOX_NODE",
+			wantErr:   "plugins.proxmox.node",
 			wantCalls: 1,
 		},
 		{
@@ -154,7 +154,7 @@ func TestResolveProxmoxNode(t *testing.T) {
 			env:     map[string]string{"DASH_PROXMOX_TOKEN": testToken},
 			reply:   always(500, `{"data":null}`),
 			budget:  200 * time.Millisecond,
-			wantErr: "DASH_PROXMOX_NODE",
+			wantErr: "plugins.proxmox.node",
 			// attempt 1 fails, the wait is capped at the budget, attempt 2 fails and ends it.
 			wantCalls: 2,
 		},
@@ -220,8 +220,8 @@ func TestResolveProxmoxNodeWrapsLastError(t *testing.T) {
 	boom := errors.New("boom")
 	cfg := config.Config{ProxmoxToken: testToken, ProxmoxURL: "https://pve.example.com:8006"}
 	err := resolveProxmoxNode(context.Background(), &cfg, func(context.Context) ([]string, error) { return nil, boom }, time.Millisecond)
-	if !errors.Is(err, boom) || !strings.Contains(err.Error(), "DASH_PROXMOX_NODE") {
-		t.Fatalf("error %v, want it to wrap boom and name DASH_PROXMOX_NODE", err)
+	if !errors.Is(err, boom) || !strings.Contains(err.Error(), "plugins.proxmox.node") {
+		t.Fatalf("error %v, want it to wrap boom and name plugins.proxmox.node", err)
 	}
 }
 

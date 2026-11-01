@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"reflect"
 	"strings"
+	"unicode"
 )
 
 // The schema is read from Tree by reflection, once. Every non-struct field is a leaf: a scalar
@@ -12,6 +13,7 @@ import (
 // leaf is one settable field of the tree.
 type leaf struct {
 	path    string // dotted json names, e.g. "plugins.proxmox.url"
+	env     string // generated environment name, e.g. "DASH_PLUGINS_PROXMOX_URL"
 	index   []int  // reflect.Value.FieldByIndex path from Tree
 	typ     reflect.Type
 	secret  bool
@@ -42,12 +44,13 @@ type schemaT struct {
 	root   *node
 	leaves []*leaf // depth-first, in declaration order
 	byPath map[string]*leaf
+	byEnv  map[string]*leaf // a name collision would leave fewer entries than leaves; a test checks
 }
 
 var schema = buildSchema(reflect.TypeFor[Tree]())
 
 func buildSchema(root reflect.Type) *schemaT {
-	s := &schemaT{root: &node{}, byPath: map[string]*leaf{}}
+	s := &schemaT{root: &node{}, byPath: map[string]*leaf{}, byEnv: map[string]*leaf{}}
 	s.walk(s.root, root, nil, "")
 	return s
 }
@@ -64,7 +67,7 @@ func (s *schemaT) walk(n *node, t reflect.Type, index []int, prefix string) {
 		if f.Type.Kind() == reflect.Struct {
 			s.walk(child, f.Type, idx, path+".")
 		} else {
-			l := &leaf{path: path, index: idx, typ: f.Type}
+			l := &leaf{path: path, env: envName(path), index: idx, typ: f.Type}
 			for _, opt := range strings.Split(f.Tag.Get("dash"), ",") {
 				switch opt {
 				case "secret":
@@ -80,10 +83,29 @@ func (s *schemaT) walk(n *node, t reflect.Type, index []int, prefix string) {
 			}
 			child.leaf = l
 			s.leaves = append(s.leaves, l)
-			s.byPath[path] = l
+			s.byPath[path], s.byEnv[l.env] = l, l
 		}
 		n.names, n.children = append(n.names, name), append(n.children, child)
 	}
+}
+
+// envName is the environment variable generated for a schema path (design B.3): DASH_ plus the
+// path segments in UPPER_SNAKE, joined with "_". An acronym stays one word: publicURL is
+// PUBLIC_URL, tokenID is TOKEN_ID.
+func envName(path string) string {
+	var b strings.Builder
+	b.WriteString("DASH")
+	for seg := range strings.SplitSeq(path, ".") {
+		b.WriteByte('_')
+		r := []rune(seg)
+		for i, c := range r {
+			if i > 0 && unicode.IsUpper(c) && (!unicode.IsUpper(r[i-1]) || (i+1 < len(r) && unicode.IsLower(r[i+1]))) {
+				b.WriteByte('_')
+			}
+			b.WriteRune(unicode.ToUpper(c))
+		}
+	}
+	return b.String()
 }
 
 // uiIneligible reports whether a path can never come from the UI layer (design B.2, S.14).
