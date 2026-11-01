@@ -83,7 +83,7 @@ while read -r f; do
 	*/testdata/* | testdata/*) ;;
 	*.go) go_dirs+=("./$(dirname "$f")") ;;
 	web/dist/* | web/*.md) ;;
-	web/package.json | web/package-lock.json | web/biome.json | web/tsconfig*.json | web/vite.config.ts)
+	web/package.json | web/package-lock.json | web/biome.json | web/tsconfig*.json | web/vite.config.ts | web/vitest.config.ts)
 		web_config=1 web_ts=1
 		;;
 	web/*)
@@ -144,6 +144,15 @@ if [ "$web_config" = 1 ] || [ "$web_ts" = 1 ] || [ "${#lint[@]}" -gt 0 ]; then
 		elif [ "${#lint[@]}" -gt 0 ]; then
 			step "biome check (${#lint[@]} file(s))" sh -c 'cd web && node_modules/.bin/biome check --no-errors-on-unmatched --files-ignore-unknown=true "$@"' biome "${lint[@]}"
 		fi
+	fi
+fi
+
+if [ "$web_ts" = 1 ]; then
+	# Tests can break from any TypeScript change, so they run whenever web code or config changed.
+	if [ ! -x web/node_modules/.bin/vitest ]; then
+		echo "pre-push: SKIP vitest: web/node_modules has no vitest; run 'cd web && npm ci'"
+	else
+		step "vitest run" sh -c 'cd web && node_modules/.bin/vitest run'
 	fi
 fi
 

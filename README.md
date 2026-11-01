@@ -419,7 +419,15 @@ start unless `server.listen` (`DASH_SERVER_LISTEN`) is a loopback address (`127.
 Open http://localhost:5173. `make check` runs everything CI runs: it regenerates the generated
 files and fails if they differ from what is committed (`web/src/api/types.ts`,
 `docs/configuration.md` and `docs/api/openapi.json`), lints the OpenAPI document with vacuum,
-then runs `go vet`, `go test`, `tsc`, Biome and the production build.
+then runs `go vet`, `go test`, `tsc`, Biome, the web tests and the production build.
+
+Web tests run on Vitest with jsdom and Testing Library (`cd web && npm test`; `npx vitest` watches).
+Tests sit next to the code as `*.test.ts(x)`. `web/src/test/harness.tsx` has the shared helpers:
+`installEventSource()` (a fake EventSource you drive with `open()`, `emit(name, data)` and
+`fail()`), `stubFetch(routes)` (answers `"GET /api/v1/x"` from a table and records calls),
+`renderApp(ui, { path })` (QueryClient, router and tooltips, animations off) and the
+`pluginInfo()` / `pluginsEnvelope()` builders. `setup.ts` stubs what jsdom lacks and removes the
+fakes after each test, so a test never reaches the network.
 
 Three files are generated; never edit them by hand. `make generate` rewrites all three and you
 commit them with the change:
@@ -447,8 +455,9 @@ checks only what changed, usually in a few seconds:
   `internal/topics`: `docs/api/openapi.json` must equal `dash api openapi`, and vacuum must lint
   it. `docs/configuration.md` has no step of its own: a Go change in `internal/config` runs its
   currency test.
-- `web/`: `tsc --noEmit`, and Biome on the changed files (all of `web/` if its config, package
-  or lock files changed). Skipped with a hint if `web/node_modules` is missing (`npm ci`).
+- `web/`: `tsc --noEmit`, Biome on the changed files (all of `web/` if its config, package or lock
+  files changed) and `vitest run` whenever TypeScript or web config changed. Skipped with a hint
+  if `web/node_modules` is missing (`npm ci`).
 - Anything else (other docs, CI, Dockerfile): nothing; the hook exits at once.
 
 It never runs `vite build` (too slow for a push); that, and checks across every package, stay in
