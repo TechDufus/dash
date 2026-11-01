@@ -155,27 +155,30 @@ func Load(environ []string) (Config, error) {
 // (server.publicURL is required): it is the baseline for tests.
 func Defaults() Config { return defaults(false, false).config(false, false) }
 
-// readConfigFile finds the config file: DASH_CONFIG when set (it must exist), otherwise
-// config.yaml in the data directory (DASH_DATA_DIR, default /data) when that exists.
-func readConfigFile(environ []string) (*File, error) {
+// configFilePath is where the config file is looked for: DASH_CONFIG when set (explicit: it must
+// exist), otherwise config.yaml in the data directory (DASH_DATA_DIR, default /data).
+func configFilePath(environ []string) (path string, explicit bool) {
 	env := envMap(environ)
 	if p := strings.TrimSpace(env["DASH_CONFIG"]); p != "" {
-		data, err := os.ReadFile(p)
-		if err != nil {
-			return nil, fmt.Errorf("DASH_CONFIG: %w", err)
-		}
-		return &File{Path: p, Data: data}, nil
+		return p, true
 	}
 	dir := strings.TrimSpace(env["DASH_DATA_DIR"])
 	if dir == "" {
 		dir = defaults(false, false).DataDir
 	}
-	p := filepath.Join(dir, "config.yaml")
+	return filepath.Join(dir, "config.yaml"), false
+}
+
+// readConfigFile reads the config file at configFilePath; the default one may be absent.
+func readConfigFile(environ []string) (*File, error) {
+	p, explicit := configFilePath(environ)
 	data, err := os.ReadFile(p)
-	if errors.Is(err, fs.ErrNotExist) {
+	switch {
+	case explicit && err != nil:
+		return nil, fmt.Errorf("DASH_CONFIG: %w", err)
+	case errors.Is(err, fs.ErrNotExist):
 		return nil, nil
-	}
-	if err != nil {
+	case err != nil:
 		return nil, fmt.Errorf("config file: %w", err)
 	}
 	return &File{Path: p, Data: data}, nil

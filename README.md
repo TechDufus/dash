@@ -134,6 +134,13 @@ locks the directory, so a second instance on it exits with a message. When the d
 missing or not writable, or `settings.ui` is `readonly`, the store is read-only: dash logs one
 INFO line and runs on the file and the environment alone. Demo mode uses no data directory.
 
+Every 10 seconds dash checks the config file and every file a secret points at (`file:` and
+`..._FILE`, symlinks followed, so a Kubernetes ConfigMap or Secret update is seen) and reads the
+layers again. A rotated secret file reaches the running credentials without a restart. An edit
+that does not validate is logged once as an ERROR and changes nothing; dash keeps running on
+the configuration it has. Any other changed setting is logged as a WARN that it applies after a
+restart. Environment variables only change with a restart.
+
 | Setting (file path) | Default | What |
 |---|---|---|
 | `server.publicURL` | required (dev and demo: `http://localhost:5173`) | the URL people open, with scheme and host (`https://dash.example.com`); the only `Origin` accepted on writes |

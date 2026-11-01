@@ -92,6 +92,15 @@ func run(reg *secret.Registry) error {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
+	// Rotated secret files reach the running credentials; anything else a changed file says is
+	// logged as needing a restart until the plugin framework applies it live (design B.6, C.5).
+	// Readiness does not depend on it. The loop ends with ctx and is awaited before the audit
+	// log and the store close.
+	reloader := config.NewReloader(res, store, config.ReloadOptions{})
+	reloaderDone := make(chan struct{})
+	go func() { defer close(reloaderDone); reloader.Run(ctx) }()
+	defer func() { stop(); <-reloaderDone }()
+
 	h := hub.New()
 	var srv *api.Server
 	var handler http.Handler
