@@ -24,10 +24,27 @@ export function Panel({ interactive, className, ...props }: PanelProps) {
   );
 }
 
-/** upstream.ErrDisabled's text: the source has no URL (or token) configured, so it was never contacted. */
-const NOT_CONFIGURED = "source not configured";
+/**
+ * What a SourceStatus.error category says. The server sends one category and never the
+ * upstream's own text (URLs, host names); the detail is in dash's log.
+ */
+const SOURCE_PROBLEMS: Record<string, string> = {
+  not_configured: "source not configured",
+  unreachable: "source unreachable",
+  timeout: "source timed out",
+  tls: "source TLS error",
+  auth: "source rejected the credentials",
+  invalid_response: "source sent an invalid response",
+};
 
-/** Muted "source unavailable: <name>" chips for upstreams with ok=false ("source not configured: <name>" when it was never set up). */
+function sourceProblem(error?: string): string {
+  if (!error) return "source unavailable";
+  const http = /^http_(\d{3})$/.exec(error);
+  if (http) return `source answered ${http[1]}`;
+  return SOURCE_PROBLEMS[error] ?? "source unavailable";
+}
+
+/** Muted "<problem>: <name>" chips for upstreams with ok=false ("source unreachable: prometheus"). */
 export function SourceChips({ sources }: { sources?: SourceStatus[] }) {
   const bad = sources?.filter((s) => !s.ok) ?? [];
   if (bad.length === 0) return null;
@@ -39,7 +56,7 @@ export function SourceChips({ sources }: { sources?: SourceStatus[] }) {
           title={s.error}
           className="rounded-full border border-line bg-panel px-2 py-0.5 text-[11px] text-muted"
         >
-          {s.error === NOT_CONFIGURED ? NOT_CONFIGURED : "source unavailable"}: {s.name}
+          {sourceProblem(s.error)}: {s.name}
         </span>
       ))}
     </span>

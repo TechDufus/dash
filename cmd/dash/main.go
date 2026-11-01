@@ -21,6 +21,7 @@ import (
 	"github.com/TechDufus/dash/internal/hub"
 	"github.com/TechDufus/dash/internal/kube"
 	"github.com/TechDufus/dash/internal/links"
+	"github.com/TechDufus/dash/internal/secret"
 	"github.com/TechDufus/dash/internal/topics"
 	"github.com/TechDufus/dash/internal/upstream"
 )
@@ -36,9 +37,12 @@ func main() {
 		}
 		return
 	}
-	// JSON so VictoriaLogs parses the audit fields.
-	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stderr, nil)))
-	if err := run(); err != nil {
+	// JSON so VictoriaLogs parses the audit fields. Every record passes the redacting handler,
+	// which scrubs the secrets the configuration resolves (registered as it does) and
+	// credential-shaped tokens.
+	reg := secret.NewRegistry()
+	slog.SetDefault(slog.New(secret.NewHandler(slog.NewJSONHandler(os.Stderr, nil), reg)))
+	if err := run(reg); err != nil {
 		slog.Error("fatal", "error", err)
 		os.Exit(1)
 	}
@@ -53,9 +57,16 @@ func command(args []string, out io.Writer) error {
 	return fmt.Errorf("unknown command %q; usage: dash [config env]", strings.Join(args, " "))
 }
 
-func run() error {
-	res, err := config.FromEnv()
+func run(reg *secret.Registry) error {
+	src, err := config.ProcessSources(reg)
 	if err != nil {
+		return err
+	}
+	res, err := config.Resolve(src)
+	if err != nil {
+		return err
+	}
+	if err := res.LoadLauncherFile(); err != nil {
 		return err
 	}
 	cfg := res.Config
@@ -71,12 +82,12 @@ func run() error {
 		src := demo.New(cfg)
 		src.Run(ctx, h)
 		srv = api.New(api.Deps{
-			Cfg: cfg, Version: version, Hub: h, Prom: src, AM: src, VLogs: src, Data: src, Ready: src.Ready,
+			Cfg: cfg, Version: version, Hub: h, Prom: src, AM: src, VLogs: src, Data: src, Ready: src.Ready, Secrets: reg,
 		})
 		handler = demo.Wrap(srv.Handler())
 		slog.Info("demo mode: serving fake data, no cluster or upstreams are contacted")
 	} else {
-		if err := resolveProxmoxNode(ctx, &cfg, upstream.NewProxmox(cfg.ProxmoxURL, "", cfg.ProxmoxToken, nil).Nodes, proxmoxDiscoveryBudget); err != nil {
+		if err := resolveProxmoxNode(ctx, &cfg, upstream.NewProxmox(cfg.ProxmoxURL, "", cfg.ProxmoxTokenID, cfg.ProxmoxTokenSecret, nil).Nodes, proxmoxDiscoveryBudget); err != nil {
 			return err
 		}
 		rc, err := kube.LoadConfig(cfg)
@@ -99,16 +110,16 @@ func run() error {
 		am := upstream.NewAlertmanager(cfg.AlertmanagerURL, rt)
 		vlogs := upstream.NewVLogs(cfg.VLogsURL, rt)
 		gatus := upstream.NewGatus(cfg.GatusURL, rt)
-		pve := upstream.NewProxmox(cfg.ProxmoxURL, cfg.ProxmoxNode, cfg.ProxmoxToken, nil) // not a .svc host
+		pve := upstream.NewProxmox(cfg.ProxmoxURL, cfg.ProxmoxNode, cfg.ProxmoxTokenID, cfg.ProxmoxTokenSecret, nil) // not a .svc host
 
 		mgr := topics.New(topics.Deps{
-			Cfg: cfg, Cluster: cluster, Prom: prom, AM: am, Gatus: gatus, PVE: pve, Hub: h, Links: links.New(cfg),
+			Cfg: cfg, Cluster: cluster, Prom: prom, AM: am, Gatus: gatus, PVE: pve, Hub: h, Links: links.New(cfg), Secrets: reg,
 		})
 		mgr.Run(ctx)
 
 		srv = api.New(api.Deps{
 			Cfg: cfg, Version: version, Hub: h, Kube: cluster.Client, Dyn: cluster.Dynamic,
-			Prom: prom, AM: am, VLogs: vlogs, Data: mgr, Ready: mgr.Ready,
+			Prom: prom, AM: am, VLogs: vlogs, Data: mgr, Ready: mgr.Ready, Secrets: reg,
 		})
 		handler = srv.Handler()
 	}

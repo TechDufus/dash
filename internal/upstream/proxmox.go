@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/TechDufus/dash/internal/model"
+	"github.com/TechDufus/dash/internal/secret"
 )
 
 var (
@@ -43,17 +44,18 @@ type PVEVM struct {
 
 // Proxmox reads the Proxmox VE API with an API token.
 type Proxmox struct {
-	c     client
-	node  string
-	token string
+	c           client
+	node        string
+	tokenID     string       // "user@realm!name"
+	tokenSecret secret.Value // read per request, so a rotated secret file applies without a restart
 }
 
-func NewProxmox(baseURL, node, token string, rt http.RoundTripper) *Proxmox {
-	return &Proxmox{c: newClient(baseURL, rt, 5*time.Second), node: node, token: token}
+func NewProxmox(baseURL, node, tokenID string, tokenSecret secret.Value, rt http.RoundTripper) *Proxmox {
+	return &Proxmox{c: newClient(baseURL, rt, 5*time.Second), node: node, tokenID: tokenID, tokenSecret: tokenSecret}
 }
 
 // Enabled reports whether a token is configured.
-func (p *Proxmox) Enabled() bool { return p.token != "" }
+func (p *Proxmox) Enabled() bool { return p.tokenID != "" && p.tokenSecret.IsSet() }
 
 // flex decodes a JSON number, numeric string or bool: Proxmox mixes them.
 type flex float64
@@ -83,7 +85,7 @@ func (p *Proxmox) get(ctx context.Context, path string, out any) error {
 	if !p.Enabled() {
 		return ErrDisabled
 	}
-	hdr := http.Header{"Authorization": {"PVEAPIToken=" + p.token}}
+	hdr := http.Header{"Authorization": {"PVEAPIToken=" + p.tokenID + "=" + p.tokenSecret.Reveal()}}
 	var env struct {
 		Data json.RawMessage `json:"data"`
 	}
@@ -94,7 +96,7 @@ func (p *Proxmox) get(ctx context.Context, path string, out any) error {
 		return nil
 	}
 	if err := json.Unmarshal(env.Data, out); err != nil {
-		return fmt.Errorf("decode %s: %w", path, err)
+		return fmt.Errorf("%w: decode %s: %w", ErrInvalidResponse, path, err)
 	}
 	return nil
 }

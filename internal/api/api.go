@@ -17,6 +17,7 @@ import (
 	"github.com/TechDufus/dash/internal/config"
 	"github.com/TechDufus/dash/internal/hub"
 	"github.com/TechDufus/dash/internal/model"
+	"github.com/TechDufus/dash/internal/secret"
 	"github.com/TechDufus/dash/internal/upstream"
 	"github.com/TechDufus/dash/web"
 )
@@ -57,6 +58,8 @@ type Deps struct {
 	VLogs   VLogsAPI
 	Data    DataAPI
 	Ready   func() bool
+	// Secrets scrubs upstream errors and log lines; nil only matches credential shapes.
+	Secrets *secret.Registry
 }
 
 // Server holds the handlers' state.

@@ -105,7 +105,7 @@ func (a alias) replacement(file bool) string {
 		n := schema.byPath[p].env
 		if file {
 			n += "_FILE"
-		} else if k := schema.byPath[p].typ.Kind(); k != reflect.String {
+		} else if l := schema.byPath[p]; l.typ.Kind() != reflect.String && !l.secret {
 			n += " (JSON)"
 		}
 		names = append(names, n)
@@ -136,6 +136,10 @@ func readEnvVar(env map[string]string, name string) (envValue, error) {
 	switch {
 	case direct != "" && file != "":
 		return envValue{}, fmt.Errorf("%s and %s_FILE are both set; set only one", name, name)
+	case file != "" && schema.byEnv[name] != nil && schema.byEnv[name].secret:
+		// Kept as a reference, resolved with the rest of the secrets: the file stays watchable
+		// for hot reload and an unreadable one fails naming the field.
+		return envValue{"file:" + file, name + "_FILE"}, nil
 	case file != "":
 		data, err := os.ReadFile(file)
 		if err != nil {
@@ -217,7 +221,7 @@ func envLayer(env map[string]string, log *slog.Logger) ([]envEntry, error) {
 			continue
 		}
 		data := []byte(v.val)
-		if l.typ.Kind() == reflect.String {
+		if l.typ.Kind() == reflect.String || l.secret {
 			data, _ = json.Marshal(v.val)
 		}
 		out = append(out, envEntry{path: l.path, data: data, ref: v.ref})

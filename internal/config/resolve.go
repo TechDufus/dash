@@ -13,6 +13,8 @@ import (
 	"strings"
 
 	"sigs.k8s.io/yaml"
+
+	"github.com/TechDufus/dash/internal/secret"
 )
 
 // Source is the layer an effective value came from (design B.2).
@@ -25,8 +27,8 @@ const (
 	SourceEnv     Source = "env"
 )
 
-// Provenance says where one effective value came from. Ref is the environment variable or the
-// config file path; it is empty for defaults and the UI layer.
+// Provenance says where one effective value came from. Ref is the environment variable, the
+// config file path or the UI store file; it is empty for defaults.
 type Provenance struct {
 	Source Source `json:"source"`
 	Ref    string `json:"ref,omitempty"`
@@ -45,8 +47,13 @@ type Sources struct {
 	Environ []string
 	// File is the config file, or nil when there is none.
 	File *File
-	// UI is the sparse, nested map of admin-saved values (settings.Store.Values), or nil.
-	UI map[string]any
+	// UI is the sparse, nested map of admin-saved values (settings.Store.Values), or nil. UIRef
+	// is the store file, recorded as the provenance ref of the values taken from it.
+	UI    map[string]any
+	UIRef string
+	// Registry learns every secret the resolution reads, so the log handler and the API can
+	// scrub them. Nil is fine.
+	Registry *secret.Registry
 	// Log receives warnings; nil means slog.Default().
 	Log *slog.Logger
 }
@@ -56,7 +63,8 @@ type Resolved struct {
 	Tree Tree
 	// Provenance is keyed by dotted path (e.g. "plugins.proxmox.url"). Lists are one entry.
 	Provenance map[string]Provenance
-	// Config is the flat view of Tree. Its launcher file, if any, is not read yet (FromEnv does).
+	// Config is the flat view of Tree. Its launcher file, if any, is not read yet
+	// (LoadLauncherFile does).
 	Config Config
 }
 
@@ -71,12 +79,12 @@ func Resolve(src Sources) (*Resolved, error) {
 	env := envMap(src.Environ)
 	dev, demo := envTrue(env["DASH_DEV"]), envTrue(env["DASH_DEMO"])
 
-	r := &resolver{tree: defaults(dev, demo), prov: map[string]Provenance{}, log: log}
+	r := &resolver{tree: defaults(dev, demo), prov: map[string]Provenance{}, raw: map[string]string{}, log: log}
 	for _, l := range schema.leaves {
 		r.prov[l.path] = Provenance{Source: SourceDefault}
 	}
 	if src.UI != nil {
-		r.applyMap(schema.root, "", src.UI, Provenance{Source: SourceUI}, true)
+		r.applyMap(schema.root, "", src.UI, Provenance{Source: SourceUI, Ref: src.UIRef}, true)
 	}
 	if src.File != nil {
 		if err := r.applyFile(src.File); err != nil {
@@ -95,6 +103,9 @@ func Resolve(src Sources) (*Resolved, error) {
 	}
 
 	r.tree.normalize()
+	if err := r.resolveSecrets(src.Registry); err != nil {
+		return nil, err
+	}
 	if err := validate(r.tree, dev, demo, r.prov); err != nil {
 		return nil, err
 	}
@@ -104,6 +115,7 @@ func Resolve(src Sources) (*Resolved, error) {
 type resolver struct {
 	tree Tree
 	prov map[string]Provenance
+	raw  map[string]string // secret leaves as the winning layer gave them: a literal or a reference
 	log  *slog.Logger
 }
 
@@ -176,6 +188,9 @@ func (r *resolver) warnIneligible(path string, v any) {
 
 // set decodes JSON data into the leaf, strictly, and records its provenance.
 func (r *resolver) set(l *leaf, data []byte, p Provenance) error {
+	if l.secret {
+		return r.setSecret(l, data, p)
+	}
 	v := reflect.New(l.typ)
 	dec := json.NewDecoder(bytes.NewReader(data))
 	dec.DisallowUnknownFields()
@@ -191,6 +206,53 @@ func (r *resolver) set(l *leaf, data []byte, p Provenance) error {
 	l.field(&r.tree).Set(v.Elem())
 	r.prov[l.path] = p
 	return nil
+}
+
+// setSecret keeps what a layer says about a secret leaf, a literal or a reference, until every
+// layer is applied; resolveSecrets reads it once. The UI layer may only hold what is safe to
+// keep in ui-settings.yaml: an env: or file: reference from the UI would let anyone who can
+// edit settings read any variable or file of the dash process (S.14), and a literal would be
+// stored in clear.
+func (r *resolver) setSecret(l *leaf, data []byte, p Provenance) error {
+	var s string
+	if err := json.Unmarshal(data, &s); err != nil {
+		return fmt.Errorf("%s: expected a string", l.path)
+	}
+	s = strings.TrimSpace(s)
+	if p.Source == SourceUI && !strings.HasPrefix(s, "k8s:") {
+		return fmt.Errorf("%s: only a k8s: reference can be set from the UI", l.path)
+	}
+	r.raw[l.path] = s
+	r.prov[l.path] = p
+	return nil
+}
+
+// resolveSecrets reads the references of every secret leaf into its secret.Value and registers
+// it. A reference that cannot be read fails startup naming the field and the layer that set it,
+// never the value.
+func (r *resolver) resolveSecrets(reg *secret.Registry) error {
+	var errs []error
+	for _, l := range schema.leaves {
+		raw := r.raw[l.path]
+		if raw == "" {
+			continue
+		}
+		p := r.prov[l.path]
+		v, err := secret.Resolve(raw, l.path+where(r.prov, l.path))
+		if err != nil {
+			errs = append(errs, err)
+			continue
+		}
+		if p.Source == SourceFile && v.Ref() == "" {
+			// Config files end up in git; a reference keeps the secret out of them.
+			r.log.Warn("secret in the config file is a literal; use env:NAME or file:/path instead", "path", l.path, "file", p.Ref)
+		}
+		if reg != nil {
+			reg.Add(v)
+		}
+		l.field(&r.tree).Set(reflect.ValueOf(v))
+	}
+	return errors.Join(errs...)
 }
 
 // describeDecode turns a encoding/json error into one an operator can act on.

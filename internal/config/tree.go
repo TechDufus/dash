@@ -5,12 +5,14 @@ import (
 	"strings"
 
 	"github.com/TechDufus/dash/internal/model"
+	"github.com/TechDufus/dash/internal/secret"
 )
 
 // Tree is the typed configuration (design B.4). The json tags are the YAML keys and, converted
 // to UPPER_SNAKE, the environment names (B.3). The dash tag holds comma-separated metadata:
 //
-//	secret   the value is a credential (never logged or shown; P1.4 resolves env:/file: refs)
+//	secret   the value is a credential (a secret.Value, never logged or shown). Layers give a
+//	         literal, env:NAME or file:/path; resolve reads the reference once all layers are set
 //	restart  a change needs a restart (x-dash-restart, B.6)
 //	url      the value is a URL: validated as http(s) and stored without a trailing slash
 //
@@ -66,10 +68,10 @@ type Endpoint struct {
 // ProxmoxConfig is the Proxmox API. TokenID and TokenSecret are the two halves of an API token
 // ("user@realm!name" and its secret), so that only the secret is secret.
 type ProxmoxConfig struct {
-	URL         string `json:"url" dash:"url"`
-	Node        string `json:"node"`
-	TokenID     string `json:"tokenID"`
-	TokenSecret string `json:"tokenSecret" dash:"secret"`
+	URL         string       `json:"url" dash:"url"`
+	Node        string       `json:"node"`
+	TokenID     string       `json:"tokenID"`
+	TokenSecret secret.Value `json:"tokenSecret" dash:"secret"`
 }
 
 // HardwareConfig is the physical host behind the cluster.
@@ -207,9 +209,7 @@ func (t Tree) config(dev, demo bool) Config {
 			ZFSScrubMetricPrefix:    p.Hardware.ZFSScrubMetricPrefix,
 		},
 	}
-	if p.Proxmox.TokenID != "" && p.Proxmox.TokenSecret != "" {
-		c.ProxmoxToken = p.Proxmox.TokenID + "=" + p.Proxmox.TokenSecret
-	}
+	c.ProxmoxTokenID, c.ProxmoxTokenSecret = p.Proxmox.TokenID, p.Proxmox.TokenSecret
 	if len(p.Hardware.Hosts) > 0 {
 		if h := p.Hardware.Hosts[0]; h.Nodename != "" {
 			c.HostNodename = h.Nodename

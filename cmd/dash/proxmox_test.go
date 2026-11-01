@@ -13,10 +13,13 @@ import (
 	"time"
 
 	"github.com/TechDufus/dash/internal/config"
+	"github.com/TechDufus/dash/internal/secret"
 	"github.com/TechDufus/dash/internal/upstream"
 )
 
 const testToken = "dash@pve!ci=00000000-0000-0000-0000-000000000000"
+
+var testTokenID, testTokenSecret, _ = strings.Cut(testToken, "=")
 
 // fakePVE serves GET /api2/json/nodes, counting requests and recording Authorization headers.
 // reply gets the 1-based call number and returns the status and body.
@@ -164,7 +167,7 @@ func TestResolveProxmoxNode(t *testing.T) {
 			f := newFakePVE(t, tc.reply)
 			// A token without a URL is not a valid configuration (Load refuses it), but the
 			// no-op must hold for a Config built by hand.
-			cfg := config.Config{ProxmoxToken: testToken}
+			cfg := config.Config{ProxmoxTokenID: testTokenID, ProxmoxTokenSecret: secret.New(testTokenSecret, "")}
 			if !tc.noURL {
 				env := []string{"DASH_PUBLIC_URL=https://dash.example.com", "DASH_PROXMOX_URL=" + f.URL}
 				for k, v := range tc.env {
@@ -177,7 +180,7 @@ func TestResolveProxmoxNode(t *testing.T) {
 			}
 
 			start := time.Now()
-			err := resolveProxmoxNode(context.Background(), &cfg, upstream.NewProxmox(cfg.ProxmoxURL, "", cfg.ProxmoxToken, nil).Nodes, tc.budget)
+			err := resolveProxmoxNode(context.Background(), &cfg, upstream.NewProxmox(cfg.ProxmoxURL, "", cfg.ProxmoxTokenID, cfg.ProxmoxTokenSecret, nil).Nodes, tc.budget)
 			elapsed := time.Since(start)
 
 			switch {
@@ -210,7 +213,7 @@ func TestResolveProxmoxNodeSeveralListsNames(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	err = resolveProxmoxNode(context.Background(), &cfg, upstream.NewProxmox(cfg.ProxmoxURL, "", cfg.ProxmoxToken, nil).Nodes, time.Second)
+	err = resolveProxmoxNode(context.Background(), &cfg, upstream.NewProxmox(cfg.ProxmoxURL, "", cfg.ProxmoxTokenID, cfg.ProxmoxTokenSecret, nil).Nodes, time.Second)
 	if err == nil || !strings.Contains(err.Error(), "pve-a, pve-b") {
 		t.Fatalf("error %v, want the sorted node names", err)
 	}
@@ -218,7 +221,7 @@ func TestResolveProxmoxNodeSeveralListsNames(t *testing.T) {
 
 func TestResolveProxmoxNodeWrapsLastError(t *testing.T) {
 	boom := errors.New("boom")
-	cfg := config.Config{ProxmoxToken: testToken, ProxmoxURL: "https://pve.example.com:8006"}
+	cfg := config.Config{ProxmoxTokenID: testTokenID, ProxmoxTokenSecret: secret.New(testTokenSecret, ""), ProxmoxURL: "https://pve.example.com:8006"}
 	err := resolveProxmoxNode(context.Background(), &cfg, func(context.Context) ([]string, error) { return nil, boom }, time.Millisecond)
 	if !errors.Is(err, boom) || !strings.Contains(err.Error(), "plugins.proxmox.node") {
 		t.Fatalf("error %v, want it to wrap boom and name plugins.proxmox.node", err)
@@ -227,7 +230,7 @@ func TestResolveProxmoxNodeWrapsLastError(t *testing.T) {
 
 func TestResolveProxmoxNodeCancelled(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
-	cfg := config.Config{ProxmoxToken: testToken, ProxmoxURL: "https://pve.example.com:8006"}
+	cfg := config.Config{ProxmoxTokenID: testTokenID, ProxmoxTokenSecret: secret.New(testTokenSecret, ""), ProxmoxURL: "https://pve.example.com:8006"}
 	calls := 0
 	list := func(context.Context) ([]string, error) {
 		calls++

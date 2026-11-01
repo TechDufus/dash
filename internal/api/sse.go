@@ -160,6 +160,7 @@ func (s *Server) logsTail(w http.ResponseWriter, r *http.Request) {
 		if at, ok := resume[l.Container]; ok && !l.Time.After(at) { // already delivered before the reconnect
 			return nil
 		}
+		l.Msg = s.d.Secrets.ScrubLogLine(l.Msg)
 		b, err := json.Marshal(l)
 		if err != nil {
 			return err

@@ -38,17 +38,19 @@ func audit(r *http.Request, action, kind, ns, name string, err error) {
 }
 
 // writeKubeErr answers a Kubernetes API error. 403/404/409/422 keep their code and message
-// verbatim so an admission denial (`homelab guardrail: ...`) reaches the UI unchanged.
-func writeKubeErr(w http.ResponseWriter, err error) {
+// verbatim so an admission denial (`homelab guardrail: ...`) reaches the UI unchanged; they
+// come from the cluster's own policy, not from an upstream URL. Anything else is a 502 with
+// the error category only.
+func (s *Server) writeKubeErr(w http.ResponseWriter, err error) {
 	var st apierrors.APIStatus
 	if errors.As(err, &st) {
 		switch code := int(st.Status().Code); code {
 		case http.StatusForbidden, http.StatusNotFound, http.StatusConflict, http.StatusUnprocessableEntity:
-			writeErr(w, code, err.Error())
+			writeErr(w, code, s.d.Secrets.Scrub(err.Error()))
 			return
 		}
 	}
-	writeErr(w, http.StatusBadGateway, err.Error())
+	s.badGateway(w, "kubernetes", err)
 }
 
 func accepted(w http.ResponseWriter) {
@@ -76,7 +78,7 @@ func (s *Server) restart(w http.ResponseWriter, r *http.Request) {
 	ns, err := s.d.Kube.CoreV1().Namespaces().Get(ctx, req.Namespace, metav1.GetOptions{})
 	if err != nil {
 		audit(r, "restart", kind, req.Namespace, req.Name, err)
-		writeKubeErr(w, err)
+		s.writeKubeErr(w, err)
 		return
 	}
 	// An unconfigured label never matches: without a protected label no namespace asks for the name.
@@ -101,7 +103,7 @@ func (s *Server) restart(w http.ResponseWriter, r *http.Request) {
 	}
 	audit(r, "restart", kind, req.Namespace, req.Name, err)
 	if err != nil {
-		writeKubeErr(w, err)
+		s.writeKubeErr(w, err)
 		return
 	}
 	accepted(w)
@@ -128,7 +130,7 @@ func (s *Server) reconcile(w http.ResponseWriter, r *http.Request) {
 		metav1.PatchOptions{FieldManager: fieldManager})
 	audit(r, "reconcile", string(req.Kind), req.Namespace, req.Name, err)
 	if err != nil {
-		writeKubeErr(w, err)
+		s.writeKubeErr(w, err)
 		return
 	}
 	accepted(w)

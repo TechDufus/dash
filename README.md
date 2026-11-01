@@ -106,7 +106,7 @@ plugins:
   proxmox:
     url: https://pve.example.com:8006
     tokenID: dash@pve!dash
-    tokenSecret: <secret>
+    tokenSecret: file:/run/secrets/pve
   hardware:
     hosts: [{nodename: pve, model: Dell R730}]
 ```
@@ -117,6 +117,15 @@ Every setting also has an environment variable: `DASH_` plus the path in UPPER_S
 file (`DASH_PLUGINS_PROXMOX_TOKEN_SECRET_FILE=/run/secrets/pve`); setting both forms is an
 error. A misspelled `DASH_PLUGINS_*` variable stops dash from starting, and any other unknown
 `DASH_*` variable is logged. `dash config env` prints every path with its variable name.
+
+Secret fields (`plugins.proxmox.tokenSecret`) take a literal, `env:NAME` (the value of that
+variable) or `file:/path` (the file's contents, trimmed); `..._FILE` is shorthand for a `file:`
+reference. A literal in the config file logs a warning, because such files often live in git. A
+reference dash cannot read stops it from starting and names the field, never the value. dash
+scrubs every secret it has read, in its encoded forms too, and credential-shaped tokens
+(`dash_pat_…`, `enc:v1:…`) from its log, from error messages and from the pod logs the UI shows.
+A failing upstream is reported to viewers as one category only (`unreachable`, `timeout`, `tls`,
+`auth`, `http_<code>`, `invalid_response`); the detail, with URLs, is in dash's log.
 
 | Setting (file path) | Default | What |
 |---|---|---|

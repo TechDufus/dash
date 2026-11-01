@@ -222,7 +222,7 @@ func TestDeploymentEnvCompat(t *testing.T) {
 		"DASH_PROXMOX_URL":      c.ProxmoxURL,
 		"DASH_HEADLAMP_URL":     c.HeadlampURL,
 		"DASH_GRAFANA_URL":      c.GrafanaURL,
-		"DASH_PROXMOX_TOKEN":    c.ProxmoxToken,
+		"DASH_PROXMOX_TOKEN":    c.ProxmoxTokenID + "=" + c.ProxmoxTokenSecret.Reveal(),
 	}
 	for name, want := range e {
 		if got := fields[name]; got != want {

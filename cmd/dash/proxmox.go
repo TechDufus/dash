@@ -32,7 +32,7 @@ const nodeEnv = "DASH_PLUGINS_PROXMOX_NODE"
 //
 // An empty or multi-node answer is a configuration problem, not an outage, so it fails at once.
 func resolveProxmoxNode(ctx context.Context, cfg *config.Config, list func(context.Context) ([]string, error), budget time.Duration) error {
-	if cfg.ProxmoxToken == "" || cfg.ProxmoxURL == "" || cfg.ProxmoxNode != "" {
+	if cfg.ProxmoxTokenID == "" || !cfg.ProxmoxTokenSecret.IsSet() || cfg.ProxmoxURL == "" || cfg.ProxmoxNode != "" {
 		return nil
 	}
 

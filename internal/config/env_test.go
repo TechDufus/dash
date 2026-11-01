@@ -8,6 +8,8 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/TechDufus/dash/internal/secret"
 )
 
 // resolveEnv resolves a demo-mode environment (no public URL needed, any listen address) plus
@@ -26,7 +28,11 @@ func value(t *testing.T, res *Resolved, path string) any {
 	if l == nil {
 		t.Fatalf("no schema path %s", path)
 	}
-	return l.field(&res.Tree).Interface()
+	v := l.field(&res.Tree).Interface()
+	if s, ok := v.(secret.Value); ok {
+		return s.Reveal()
+	}
+	return v
 }
 
 // warned lists the legacy variables a log reports as deprecated, one entry per warning.
@@ -124,8 +130,8 @@ func TestLegacyProxmoxTokenIsSplitAtTheFirstEquals(t *testing.T) {
 			t.Errorf("provenance of %s = %+v", p, got)
 		}
 	}
-	if res.Config.ProxmoxToken != "dash@pve!ci=abc=def" {
-		t.Errorf("ProxmoxToken = %q", res.Config.ProxmoxToken)
+	if res.Config.ProxmoxTokenID != "dash@pve!ci" || res.Config.ProxmoxTokenSecret.Reveal() != "abc=def" {
+		t.Errorf("Config token = %q, %v", res.Config.ProxmoxTokenID, res.Config.ProxmoxTokenSecret)
 	}
 	if got := warned(log); !slices.Equal(got, []string{"DASH_PROXMOX_TOKEN", "DASH_PROXMOX_URL"}) {
 		t.Errorf("warnings %v", got)
@@ -314,7 +320,7 @@ func TestFileSuffixVariables(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if res.Config.ProxmoxToken != "u@pve!t="+canary {
+		if res.Config.ProxmoxTokenID != "u@pve!t" || res.Config.ProxmoxTokenSecret.Reveal() != canary {
 			t.Errorf("ProxmoxToken not read from the file")
 		}
 		if !strings.Contains(log, "name=DASH_PROXMOX_TOKEN_FILE") || strings.Contains(log, canary) {

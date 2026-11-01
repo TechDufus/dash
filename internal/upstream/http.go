@@ -91,7 +91,7 @@ func (c client) getJSON(ctx context.Context, method, path string, q url.Values, 
 		return err
 	}
 	if err := json.NewDecoder(io.LimitReader(resp.Body, maxJSONBody)).Decode(out); err != nil {
-		return fmt.Errorf("decode %s: %w", path, err)
+		return fmt.Errorf("%w: decode %s: %w", ErrInvalidResponse, path, err)
 	}
 	return nil
 }

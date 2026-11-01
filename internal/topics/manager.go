@@ -16,6 +16,7 @@ import (
 	"github.com/TechDufus/dash/internal/kube"
 	"github.com/TechDufus/dash/internal/links"
 	"github.com/TechDufus/dash/internal/model"
+	"github.com/TechDufus/dash/internal/secret"
 	"github.com/TechDufus/dash/internal/upstream"
 )
 
@@ -32,6 +33,8 @@ type Deps struct {
 	PVE     *upstream.Proxmox
 	Hub     *hub.Hub
 	Links   *links.Builder
+	// Secrets scrubs logged upstream errors; nil only matches credential shapes.
+	Secrets *secret.Registry
 }
 
 const (
@@ -185,18 +188,18 @@ func (m *Manager) pollDone(names ...string) bool {
 	return true
 }
 
-// setSource records the outcome of one upstream call; key is "<scope>:<source>".
+// setSource records the outcome of one upstream call; key is "<scope>:<source>". Viewers get
+// only the error category (design C.6, K.3): the detail names URLs and hosts, so it goes to the
+// log, scrubbed, once per change of category rather than on every poll.
 func (m *Manager) setSource(key string, err error) {
-	s := srcState{ok: err == nil, at: m.now().UTC()}
-	if err != nil {
-		s.err = err.Error()
-		if len(s.err) > 300 {
-			s.err = s.err[:300]
-		}
-	}
+	s := srcState{ok: err == nil, at: m.now().UTC(), err: upstream.Category(err)}
 	m.mu.Lock()
+	prev := m.srcs[key]
 	m.srcs[key] = s
 	m.mu.Unlock()
+	if err != nil && s.err != upstream.CategoryNotConfigured && (prev.ok || prev.err != s.err) {
+		slog.Warn("upstream source failed", "source", key, "category", s.err, "error", m.d.Secrets.Scrub(err.Error()))
+	}
 }
 
 // sources lists SourceStatus for keys; a plain name without ':' is the Kubernetes informers.

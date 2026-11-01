@@ -57,7 +57,9 @@ type Link struct {
 	Kind  LinkKind `json:"kind"`
 }
 
-// SourceStatus reports one upstream behind a topic; ok=false shows "source unavailable".
+// SourceStatus reports one upstream behind a topic; ok=false shows "source unavailable". Error is
+// one category, never a URL or host name (the detail is in dash's log): unreachable, timeout,
+// tls, auth, http_<code>, invalid_response or not_configured.
 type SourceStatus struct {
 	Name      string    `json:"name"`
 	OK        bool      `json:"ok"`

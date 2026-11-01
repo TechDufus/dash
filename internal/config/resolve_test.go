@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/TechDufus/dash/internal/model"
+	"github.com/TechDufus/dash/internal/secret"
 )
 
 // logBuf captures what Resolve warns about.
@@ -63,7 +64,7 @@ func TestFileLoadsIntoConfig(t *testing.T) {
 		DataDir:      "/var/lib/dash", SettingsUI: SettingsReadOnly,
 		VMURL: "http://prometheus.example.com:9090", AlertmanagerURL: "http://alertmanager.example.com:9093",
 		VLogsURL: "http://vlogs.example.com:9428", GatusURL: "http://gatus.example.com:8080",
-		ProxmoxURL: "https://pve.example.com:8006", ProxmoxNode: "pve", ProxmoxToken: "dash@pve!dash=s3cret",
+		ProxmoxURL: "https://pve.example.com:8006", ProxmoxNode: "pve", ProxmoxTokenID: "dash@pve!dash", ProxmoxTokenSecret: secret.New("s3cret", ""),
 		HostNodename: "box", HostModel: "Dell R730",
 		HeadlampURL: "https://headlamp.example.com", HeadlampCluster: "prod", GrafanaURL: "https://grafana.example.com",
 		Launcher:   []model.LauncherLink{{Name: "Proxmox", Href: "https://pve.example.com:8006", Icon: "proxmox"}},
@@ -332,8 +333,8 @@ func TestConfigFileLocation(t *testing.T) {
 	})
 }
 
-// FromEnv reads the file the process environment points at, with env on top.
-func TestFromEnvLayersFileAndEnv(t *testing.T) {
+// ProcessSources reads the file the process environment points at, with env on top.
+func TestProcessSourcesLayerFileAndEnv(t *testing.T) {
 	dir := t.TempDir()
 	p := filepath.Join(dir, "config.yaml")
 	launcher := filepath.Join(dir, "launcher.yaml")
@@ -346,7 +347,14 @@ func TestFromEnvLayersFileAndEnv(t *testing.T) {
 	}
 	t.Setenv("DASH_CONFIG", p)
 	t.Setenv("DASH_LISTEN", "127.0.0.1:9001")
-	res, err := FromEnv()
+	src, err := ProcessSources(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	res, err := Resolve(src)
+	if err == nil {
+		err = res.LoadLauncherFile()
+	}
 	if err != nil {
 		t.Fatal(err)
 	}

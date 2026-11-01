@@ -155,7 +155,7 @@ func (a *Alertmanager) CreateSilence(ctx context.Context, s SilenceSpec) (string
 		return "", err
 	}
 	if resp.SilenceID == "" {
-		return "", fmt.Errorf("alertmanager returned no silence id")
+		return "", fmt.Errorf("%w: alertmanager returned no silence id", ErrInvalidResponse)
 	}
 	return resp.SilenceID, nil
 }

@@ -82,7 +82,7 @@ func (s *Server) createSilence(w http.ResponseWriter, r *http.Request) {
 	case errInvalid(err):
 		writeErr(w, http.StatusBadRequest, err.Error())
 	case err != nil:
-		writeErr(w, http.StatusBadGateway, "alertmanager: "+err.Error())
+		s.badGateway(w, "alertmanager", err)
 	default:
 		writeJSON(w, http.StatusOK, model.SilenceResponse{SilenceID: id})
 	}
@@ -96,7 +96,7 @@ func (s *Server) expireSilence(w http.ResponseWriter, r *http.Request) {
 	case errInvalid(err):
 		writeErr(w, http.StatusBadRequest, err.Error())
 	case err != nil:
-		writeErr(w, http.StatusBadGateway, "alertmanager: "+err.Error())
+		s.badGateway(w, "alertmanager", err)
 	default:
 		writeJSON(w, http.StatusOK, map[string]string{"status": "expired"})
 	}

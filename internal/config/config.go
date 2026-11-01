@@ -26,6 +26,7 @@ import (
 	"sigs.k8s.io/yaml"
 
 	"github.com/TechDufus/dash/internal/model"
+	"github.com/TechDufus/dash/internal/secret"
 )
 
 // Config is the whole runtime configuration.
@@ -57,8 +58,11 @@ type Config struct {
 	ProxmoxURL string
 	// ProxmoxNode is the node whose status and guests dash reads. Optional: when empty and a
 	// token is set, dash discovers it from the API at startup if the cluster has exactly one node.
-	ProxmoxNode  string
-	ProxmoxToken string // "<user>!<token>=<secret>"; empty marks Proxmox unavailable.
+	ProxmoxNode string
+	// ProxmoxTokenID is "<user>@<realm>!<token>"; with ProxmoxTokenSecret it marks Proxmox
+	// available. Both are empty when Proxmox is off.
+	ProxmoxTokenID     string
+	ProxmoxTokenSecret secret.Value
 
 	// HostNodename is the nodename label of the Proxmox host's node-exporter and IPMI series;
 	// it defaults to DASH_PROXMOX_NODE, or to the discovered node when that is empty.
@@ -98,23 +102,30 @@ type Conventions struct {
 	NASBackupCronJob   string
 }
 
-// FromEnv resolves the process environment and the config file, and reads the launcher file.
-func FromEnv() (*Resolved, error) {
+// ProcessSources reads the layers the process itself provides: its environment and the config
+// file it points at. The caller adds the UI layer (Sources.UI) once it has opened the settings
+// store, whose location (the data directory) comes from these layers.
+func ProcessSources(reg *secret.Registry) (Sources, error) {
 	environ := os.Environ()
 	f, err := readConfigFile(environ)
 	if err != nil {
-		return nil, err
+		return Sources{}, err
 	}
-	res, err := Resolve(Sources{Environ: environ, File: f})
+	return Sources{Environ: environ, File: f, Registry: reg}, nil
+}
+
+// LoadLauncherFile reads the launcher file the configuration names, if any, into Config.Launcher.
+func (r *Resolved) LoadLauncherFile() error {
+	c := &r.Config
+	if c.LauncherFile == "" {
+		return nil
+	}
+	links, err := LoadLauncher(c.LauncherFile)
 	if err != nil {
-		return nil, err
+		return err
 	}
-	if c := &res.Config; c.LauncherFile != "" {
-		if c.Launcher, err = LoadLauncher(c.LauncherFile); err != nil {
-			return nil, err
-		}
-	}
-	return res, nil
+	c.Launcher = links
+	return nil
 }
 
 // Load resolves defaults and the given os.Environ-style variables, with no config file and no UI

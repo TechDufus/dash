@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/TechDufus/dash/internal/model"
+	"github.com/TechDufus/dash/internal/secret"
 )
 
 var ctx = context.Background()
@@ -291,8 +292,9 @@ func TestProxmoxNodeStatusAndVMs(t *testing.T) {
 		  {"uptime":2421124,"type":"qemu","id":"qemu/2020","maxdisk":68719476736,"netout":475752853144,"status":"running","node":"pve-730","template":0,"netin":628308715878,"name":"talos-cp-1","maxmem":25769803776,"maxcpu":8,"tags":"homelab;talos","cpu":0.265756734687807,"mem":21573279744,"vmid":2020},
 		  {"id":"qemu/9000","vmid":"9000","name":"tmpl","status":"stopped","template":"1","maxcpu":"2","maxmem":"2147483648","mem":0,"lock":"clone"}]}`,
 	})
-	p := NewProxmox(s.URL, "pve-730", "csi@pve!homelab=secret-value", nil)
-	if !p.Enabled() || NewProxmox(s.URL, "n", "", nil).Enabled() {
+	tok := secret.New("secret-value", "")
+	p := NewProxmox(s.URL, "pve-730", "csi@pve!homelab", tok, nil)
+	if !p.Enabled() || NewProxmox(s.URL, "n", "", secret.Value{}, nil).Enabled() || NewProxmox(s.URL, "n", "csi@pve!homelab", secret.Value{}, nil).Enabled() {
 		t.Fatal("Enabled")
 	}
 	h, err := p.NodeStatus(ctx)
@@ -319,8 +321,17 @@ func TestProxmoxNodeStatusAndVMs(t *testing.T) {
 			t.Fatalf("Authorization = %q", a)
 		}
 	}
+	// A rotated secret (hot reload of a file ref) is on the very next request.
+	tok.Update("rotated")
+	*auth = nil
+	if _, err := p.NodeStatus(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if len(*auth) != 1 || (*auth)[0] != "PVEAPIToken=csi@pve!homelab=rotated" {
+		t.Fatalf("Authorization after rotation = %q", *auth)
+	}
 
-	if _, err := NewProxmox(s.URL, "pve-730", "", nil).VMs(ctx); !errors.Is(err, ErrDisabled) {
+	if _, err := NewProxmox(s.URL, "pve-730", "", secret.Value{}, nil).VMs(ctx); !errors.Is(err, ErrDisabled) {
 		t.Fatalf("disabled: %v", err)
 	}
 }
@@ -334,7 +345,7 @@ func TestProxmoxTasks(t *testing.T) {
 	}
 	body := `{"data":[` + strings.Join(tasks, ",") + `]}`
 	s, _ := pveServer(t, map[string]string{"/api2/json/cluster/tasks": body})
-	got, err := NewProxmox(s.URL, "pve-730", "t", nil).Tasks(ctx)
+	got, err := NewProxmox(s.URL, "pve-730", "u@pve!t", secret.New("t", ""), nil).Tasks(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -365,7 +376,7 @@ func TestProxmoxVMConfig(t *testing.T) {
 		  "net1":"virtio=02:0a:00:14:00:21,bridge=vmbr1","net0":"virtio=02:0a:00:14:00:20,bridge=vmbr0,firewall=0","netfoo":"x","scsihw":"virtio-scsi-single","smbios1":"uuid=x"}}`,
 		"/api2/json/nodes/pve-730/qemu/9/config": `{"data":{}}`,
 	})
-	p := NewProxmox(s.URL, "pve-730", "t", nil)
+	p := NewProxmox(s.URL, "pve-730", "u@pve!t", secret.New("t", ""), nil)
 	got, err := p.VMConfig(ctx, 2020)
 	if err != nil {
 		t.Fatal(err)
@@ -408,7 +419,7 @@ func TestProxmoxVMIPsAndSnapshots(t *testing.T) {
 		  {"name":"no-time","description":""},
 		  {"name":"current","description":"You are here!","digest":"6b93","running":1}]}`,
 	})
-	p := NewProxmox(s.URL, "pve-730", "t", nil)
+	p := NewProxmox(s.URL, "pve-730", "u@pve!t", secret.New("t", ""), nil)
 
 	ips := p.VMIPs(ctx, 2020)
 	want := []model.IfaceAddr{{Iface: "eth0", Address: "10.0.20.20"}, {Iface: "eth0", Address: "fe80::1"}}

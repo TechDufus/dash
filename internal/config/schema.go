@@ -5,7 +5,13 @@ import (
 	"reflect"
 	"strings"
 	"unicode"
+
+	"github.com/TechDufus/dash/internal/secret"
 )
+
+// secretType is the type of a credential leaf. The layers carry it as a string (a literal or an
+// env:/file: reference); resolve turns it into a secret.Value once every layer is applied.
+var secretType = reflect.TypeFor[secret.Value]()
 
 // The schema is read from Tree by reflection, once. Every non-struct field is a leaf: a scalar
 // or a list that layers replace whole (design B.2 "Granularity"). Struct fields are sections.
@@ -64,7 +70,7 @@ func (s *schemaT) walk(n *node, t reflect.Type, index []int, prefix string) {
 		}
 		path, idx := prefix+name, append(append([]int(nil), index...), i)
 		child := &node{}
-		if f.Type.Kind() == reflect.Struct {
+		if f.Type.Kind() == reflect.Struct && f.Type != secretType {
 			s.walk(child, f.Type, idx, path+".")
 		} else {
 			l := &leaf{path: path, env: envName(path), index: idx, typ: f.Type}
@@ -80,6 +86,9 @@ func (s *schemaT) walk(n *node, t reflect.Type, index []int, prefix string) {
 				default:
 					panic(fmt.Sprintf("config: %s: unknown dash tag option %q", path, opt))
 				}
+			}
+			if (f.Type == secretType) != l.secret {
+				panic(fmt.Sprintf("config: %s: the secret tag and the secret.Value type go together", path))
 			}
 			child.leaf = l
 			s.leaves = append(s.leaves, l)

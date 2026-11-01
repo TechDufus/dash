@@ -48,10 +48,10 @@ func (p *Prom) query(ctx context.Context, path string, form url.Values, wantType
 		return nil, err
 	}
 	if r.Status != "success" {
-		return nil, fmt.Errorf("query failed: %s %s", r.ErrorType, truncate(r.Error, 200))
+		return nil, fmt.Errorf("%w: query failed: %s %s", ErrInvalidResponse, r.ErrorType, truncate(r.Error, 200))
 	}
 	if r.Data.ResultType != wantType {
-		return nil, fmt.Errorf("unexpected result type %q, want %q", r.Data.ResultType, wantType)
+		return nil, fmt.Errorf("%w: unexpected result type %q, want %q", ErrInvalidResponse, r.Data.ResultType, wantType)
 	}
 	return &r, nil
 }

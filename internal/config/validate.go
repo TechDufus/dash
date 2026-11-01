@@ -24,8 +24,8 @@ type validator struct {
 }
 
 // where says which layer set the value at path: " (env DASH_VM_URL)", " (file /etc/dash/config.yaml)".
-func (v *validator) where(path string) string {
-	p := v.prov[path]
+func where(prov map[string]Provenance, path string) string {
+	p := prov[path]
 	switch p.Source {
 	case SourceEnv, SourceFile:
 		return fmt.Sprintf(" (%s %s)", p.Source, p.Ref)
@@ -36,7 +36,7 @@ func (v *validator) where(path string) string {
 }
 
 func (v *validator) fail(path, format string, args ...any) {
-	v.errs = append(v.errs, fmt.Errorf("%s%s: %s", path, v.where(path), fmt.Sprintf(format, args...)))
+	v.errs = append(v.errs, fmt.Errorf("%s%s: %s", path, where(v.prov, path), fmt.Sprintf(format, args...)))
 }
 
 // validate reports settings that are missing or unusable.
@@ -68,7 +68,7 @@ func validate(t Tree, dev, demo bool, prov map[string]Provenance) error {
 	}
 
 	px := p.Proxmox
-	if (px.TokenID == "") != (px.TokenSecret == "") {
+	if (px.TokenID == "") != !px.TokenSecret.IsSet() {
 		v.fail("plugins.proxmox.tokenSecret", "tokenID and tokenSecret must be set together")
 	}
 	if px.TokenID != "" && px.URL == "" {

@@ -46,7 +46,7 @@ func (s *Server) series(w http.ResponseWriter, r *http.Request) {
 	end := s.now()
 	lines, err := s.d.Prom.Range(r.Context(), expr, end.Add(-window), end, step)
 	if err != nil {
-		writeErr(w, http.StatusBadGateway, "metrics unavailable: "+err.Error())
+		s.badGateway(w, "metrics unavailable", err)
 		return
 	}
 	if lines == nil {
@@ -67,7 +67,7 @@ func (s *Server) vmDetail(w http.ResponseWriter, r *http.Request) {
 	case errors.Is(err, topics.ErrNotFound):
 		writeErr(w, http.StatusNotFound, "vm not found")
 	case err != nil:
-		writeErr(w, http.StatusBadGateway, err.Error())
+		s.badGateway(w, "vm details unavailable", err)
 	default:
 		writeJSON(w, http.StatusOK, d)
 	}
@@ -84,7 +84,7 @@ func (s *Server) podDetail(w http.ResponseWriter, r *http.Request) {
 	case errors.Is(err, topics.ErrNotFound):
 		writeErr(w, http.StatusNotFound, "pod not found")
 	case err != nil:
-		writeErr(w, http.StatusBadGateway, err.Error())
+		s.badGateway(w, "pod details unavailable", err)
 	default:
 		writeJSON(w, http.StatusOK, d)
 	}
@@ -107,10 +107,13 @@ func (s *Server) logs(w http.ResponseWriter, r *http.Request) {
 	case errInvalid(err):
 		writeErr(w, http.StatusBadRequest, err.Error())
 	case err != nil:
-		writeErr(w, http.StatusBadGateway, "logs unavailable: "+err.Error())
+		s.badGateway(w, "logs unavailable", err)
 	default:
 		if lines == nil {
 			lines = []model.LogLine{}
+		}
+		for i := range lines {
+			lines[i].Msg = s.d.Secrets.ScrubLogLine(lines[i].Msg)
 		}
 		writeJSON(w, http.StatusOK, lines)
 	}

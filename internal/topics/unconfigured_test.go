@@ -34,7 +34,7 @@ func TestUnconfiguredUpstreamsMakeNoRequests(t *testing.T) {
 		Prom:  upstream.NewProm(cfg.VMURL, rt),
 		AM:    upstream.NewAlertmanager(cfg.AlertmanagerURL, rt),
 		Gatus: upstream.NewGatus(cfg.GatusURL, rt),
-		PVE:   upstream.NewProxmox(cfg.ProxmoxURL, cfg.ProxmoxNode, cfg.ProxmoxToken, rt),
+		PVE:   upstream.NewProxmox(cfg.ProxmoxURL, cfg.ProxmoxNode, cfg.ProxmoxTokenID, cfg.ProxmoxTokenSecret, rt),
 		Hub:   hub.New(),
 		Links: links.New(cfg),
 	})
@@ -55,8 +55,8 @@ func TestUnconfiguredUpstreamsMakeNoRequests(t *testing.T) {
 		"alerts:alertmanager", "status:gatus", "host:proxmox", "vms:proxmox",
 	} {
 		s := m.sources(key)[0]
-		if s.OK || s.Error != "source not configured" {
-			t.Errorf("%s: ok=%v error=%q, want not ok with %q", key, s.OK, s.Error, "source not configured")
+		if s.OK || s.Error != "not_configured" {
+			t.Errorf("%s: ok=%v error=%q, want not ok with %q", key, s.OK, s.Error, "not_configured")
 		}
 	}
 }
