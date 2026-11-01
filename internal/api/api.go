@@ -19,6 +19,7 @@ import (
 	"github.com/TechDufus/dash/internal/config"
 	"github.com/TechDufus/dash/internal/hub"
 	"github.com/TechDufus/dash/internal/model"
+	"github.com/TechDufus/dash/internal/obs"
 	"github.com/TechDufus/dash/internal/plugin"
 	"github.com/TechDufus/dash/internal/secret"
 	"github.com/TechDufus/dash/internal/upstream"
@@ -72,6 +73,7 @@ type Deps struct {
 	Data    DataAPI
 	Plugins PluginsAPI   // nil = no plugins
 	Health  HealthSource // readiness; see health.go
+	Metrics *obs.Metrics // nil = metrics off; every method is nil-safe
 	// Secrets scrubs upstream errors and log lines; nil only matches credential shapes.
 	Secrets *secret.Registry
 	Audit   *audit.Log // nil logs to slog only
@@ -113,7 +115,7 @@ func New(d Deps) *Server {
 // Handler is the API plus the SPA, for the loopback listener. The chain is request id, host
 // check, CSRF, authentication, then the mux the route table builds.
 func (s *Server) Handler() http.Handler {
-	return s.requestID(s.hosts(s.csrf(s.auth(s.mux()))))
+	return s.d.Metrics.Instrument(s.requestID(s.hosts(s.csrf(s.auth(s.mux())))))
 }
 
 func writeJSON(w http.ResponseWriter, code int, v any) {

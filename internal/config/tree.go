@@ -36,6 +36,7 @@ type ServerConfig struct {
 	AllowedHosts  []string     `json:"allowedHosts" dash:"restart" doc:"Host names the API answers besides the host of publicURL: names or IP addresses without scheme or port. [\"*\"] accepts any. A JSON list in the environment."`
 	ReadyRequires []string     `json:"readyRequires" dash:"restart" doc:"Plugins /readyz waits for: each listed plugin must have finished starting (its first poll or cache sync) before dash reports ready, up to readyTimeout. Empty: /readyz needs only that dash is serving and every plugin's start has returned. Names are plugins.<id> sections, e.g. [\"kubernetes\"]. A JSON list in the environment."`
 	ReadyTimeout  Duration     `json:"readyTimeout" dash:"restart" doc:"How long /readyz waits for the readyRequires plugins, counted from startup. After that dash reports ready anyway and logs a warning naming the plugins still starting."`
+	Metrics       bool         `json:"metrics" dash:"restart" doc:"Serve dash's own Prometheus metrics at /metrics on the health listener. Off by default. The listener is unauthenticated and the metrics name plugins and their states, so keep it cluster-internal."`
 	Limits        LimitsConfig `json:"limits" doc:"What one client, and all clients together, may hold open or send."`
 }
 
@@ -247,6 +248,7 @@ func (t Tree) config(dev, demo bool) Config {
 		AllowedHosts:  t.Server.AllowedHosts,
 		ReadyRequires: t.Server.ReadyRequires,
 		ReadyTimeout:  time.Duration(t.Server.ReadyTimeout),
+		Metrics:       t.Server.Metrics,
 		Limits: Limits{
 			StreamsPerUser: t.Server.Limits.StreamsPerUser, Streams: t.Server.Limits.Streams,
 			TailsPerUser: t.Server.Limits.TailsPerUser, Tails: t.Server.Limits.Tails,

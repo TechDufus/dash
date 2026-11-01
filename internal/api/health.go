@@ -28,7 +28,8 @@ func (s *Server) ready() bool {
 	return s.serving.Load() && (s.d.Health == nil || s.d.Health.Ready())
 }
 
-// HealthHandler serves only /healthz and /readyz, for the unauthenticated health listener.
+// HealthHandler serves /healthz and /readyz, and /metrics when metrics are on, for the
+// unauthenticated health listener.
 //
 // /readyz answers "ok" (200) or "not ready" (503). With ?verbose=1 and a loopback TCP peer
 // (kubectl port-forward, an exec into the pod) the body also lists one "<id> <state>[ <message>]"
@@ -59,6 +60,11 @@ func (s *Server) HealthHandler() http.Handler {
 		}
 		_, _ = w.Write([]byte(b.String()))
 	})
+	if s.d.Metrics != nil {
+		// Unauthenticated like the probes, and it names plugins and their states: keep this
+		// listener cluster-internal when metrics are on. Without metrics there is no route.
+		mux.Handle("GET /metrics", s.d.Metrics.Handler())
+	}
 	return mux
 }
 

@@ -386,6 +386,11 @@
           "type": "string",
           "x-dash-restart": true
         },
+        "metrics": {
+          "description": "Serve dash's own Prometheus metrics at /metrics on the health listener. Off by default. The listener is unauthenticated and the metrics name plugins and their states, so keep it cluster-internal.",
+          "type": "boolean",
+          "x-dash-restart": true
+        },
         "publicURL": {
           "description": "The URL people open, with scheme and host (https://dash.example.com). Required; the only Origin accepted on writes. In dev and demo mode it defaults to http://localhost:5173.",
           "format": "uri",

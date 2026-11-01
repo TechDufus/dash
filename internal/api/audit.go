@@ -62,6 +62,7 @@ func (s *Server) beginRecord(w http.ResponseWriter, rec audit.Record) (audit.Pen
 // deny records a refused request; the log keeps at most one record per peer and reason a
 // minute, so a flood of refusals cannot fill the disk.
 func (s *Server) deny(r *http.Request, reason string) {
+	s.d.Metrics.AuthFailure(reason)
 	line := r.Method + " " + r.URL.Path
 	if len(line) > maxAuditAction {
 		line = line[:maxAuditAction]

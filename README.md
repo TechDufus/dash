@@ -162,6 +162,7 @@ restart with `DASH_PLUGINS_PROXMOX_TOKEN_SECRET_FILE`.
 | `server.healthListen` | `0.0.0.0:8081` | `/healthz` and `/readyz` |
 | `server.readyRequires` | empty | plugins `/readyz` waits for, e.g. `["kubernetes"]` for the informer sync (a JSON list in the environment); each must have left `starting` |
 | `server.readyTimeout` | `60s` | how long `/readyz` waits for `server.readyRequires`; after that it reports ready anyway and logs one WARN naming the plugins still starting |
+| `server.metrics` | `false` | serve `/metrics` on the health listener (see Metrics below) |
 | `server.limits.streamsPerUser`, `.streams` | 16, 256 | open `/api/v1/stream` connections per user and in all; more get 429 or 503 |
 | `server.limits.tailsPerUser`, `.tails` | 4, 32 | the same for `/api/logs/tail` |
 | `server.limits.tailMaxDuration` | `30m` | a log tail ends after this; the browser reconnects (a duration string, also in the environment) |
@@ -205,6 +206,30 @@ while one is empty, the feature that depends on it is off.
 | `plugins.kubernetes.conventions.appsFluxPrefix` | empty | namespaces applied by a Kustomization with this prefix go under Apps |
 | `plugins.hardware.zfsScrubMetricPrefix` | empty (no scrub data: not queried, and the pool cards show none) | `<prefix>_last_end_timestamp_seconds`, `_last_errors`, `_in_progress`; a valid metric name when set |
 | `plugins.kubernetes.backupJobs` | empty (no NAS backup row) | `[{namespace, cronjob}]`: the CronJob behind the NAS backup age; one entry for now |
+
+### Metrics
+
+dash exposes metrics about itself, off by default. `server.metrics: true` (`DASH_SERVER_METRICS=true`)
+makes the health listener serve `GET /metrics` in the Prometheus text format; with it off the path
+answers 404. The registry is private: there are no Go or process collectors, only these series.
+
+| Series | Labels |
+|---|---|
+| `dash_build_info` | `version`, `go_version` |
+| `dash_http_requests_total`, `dash_http_request_duration_seconds` | `route` (the registered pattern, for example `GET /api/v1/topics/{topic}`; `static` for the web UI, `other` for what no route handled), `code` (counter only) |
+| `dash_sse_streams` | `kind` (`events`, `tail`) |
+| `dash_plugin_state` | `plugin`, `state`: 1 for the state an instance is in, 0 for the other seven |
+| `dash_upstream_requests_total`, `dash_upstream_request_duration_seconds` | `plugin` (`prometheus`, `alertmanager`, `victorialogs`, `gatus`, `proxmox`), `outcome` (counter only: `ok`, `timeout`, `tls`, `auth`, `http_4xx`, `http_5xx`, `invalid_response`, `unreachable`) |
+| `dash_actions_total` | `plugin`, `action`, `outcome` (`ok`, `error`, `denied`, `invalid`, `rate_limited`) |
+| `dash_auth_failures_total` | `reason` (`unauthenticated`, `csrf`, `forbidden`, `rate_limit`, `namespace_denied`, `stream_limit`) |
+
+Every label value comes from a fixed set: a route is a pattern, never the path asked for, and no
+series carries a user, an object or a host name. The `/metrics` endpoint is unauthenticated like
+the probes, and enabling it shows plugin names and states to any peer that reaches the health
+listener, which `/readyz` otherwise hides from everyone but loopback. Keep that listener
+cluster-internal (a ClusterIP Service and a NetworkPolicy, not an Ingress). The Kubernetes
+informers are not counted until the Kubernetes plugin lands, and `invalid_response` stays at 0
+until the clients report it.
 
 ### Secret key (secrets typed into the UI)
 
@@ -358,6 +383,7 @@ name wins), with no `_FILE` form because it is another tool's variable.
 | `internal/upstream` | VictoriaMetrics, Alertmanager, VictoriaLogs, Gatus, Proxmox clients |
 | `internal/topics` | topic builders, health and attention rules, and the shims that stand for each integration in the plugin registry until it becomes a plugin |
 | `internal/hub`, `internal/api` | SSE hub, REST, middleware |
+| `internal/obs` | dash's own Prometheus metrics (`server.metrics`), in a private registry |
 | `internal/links` | Headlamp, Proxmox and Grafana deep links |
 | `internal/demo` | fake data for `DASH_DEMO=true` |
 | `web/` | React 19, Vite, Tailwind v4, shadcn/ui and Magic UI |

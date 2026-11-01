@@ -32,6 +32,8 @@ func (s *Server) runAction(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusNotFound, model.ErrCodeNotFound, "no such action")
 		return
 	}
+	w, done := s.d.Metrics.TrackAction(w, string(id), name)
+	defer done()
 	p := principalFrom(r.Context())
 
 	if !p.Role.AtLeast(ref.Spec.MinRole) {

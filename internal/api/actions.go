@@ -61,6 +61,8 @@ func accepted(w http.ResponseWriter) {
 }
 
 func (s *Server) restart(w http.ResponseWriter, r *http.Request) {
+	w, done := s.d.Metrics.TrackAction(w, "kubernetes", "restart")
+	defer done()
 	var req model.RestartRequest
 	if !s.decodeBody(w, r, &req) {
 		return
@@ -117,6 +119,8 @@ func (s *Server) restart(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) reconcile(w http.ResponseWriter, r *http.Request) {
+	w, done := s.d.Metrics.TrackAction(w, "flux", "reconcile")
+	defer done()
 	var req model.ReconcileRequest
 	if !s.decodeBody(w, r, &req) {
 		return

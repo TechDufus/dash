@@ -20,6 +20,7 @@ import (
 	"github.com/TechDufus/dash/internal/hub"
 	"github.com/TechDufus/dash/internal/kube"
 	"github.com/TechDufus/dash/internal/links"
+	"github.com/TechDufus/dash/internal/obs"
 	"github.com/TechDufus/dash/internal/plugin"
 	"github.com/TechDufus/dash/internal/secret"
 	"github.com/TechDufus/dash/internal/topics"
@@ -120,6 +121,11 @@ func run(reg *secret.Registry) error {
 		sup.Shutdown(sctx)
 	}()
 
+	// Metrics are opt-in (server.metrics); a nil *obs.Metrics is "off" everywhere it is used.
+	var metrics *obs.Metrics
+	if cfg.Metrics {
+		metrics = obs.New(version, api.RoutePatterns(), sup.Infos)
+	}
 	var srv *api.Server
 	var handler http.Handler
 	if cfg.Demo {
@@ -133,7 +139,7 @@ func run(reg *secret.Registry) error {
 		}
 		src.Run(ctx)
 		srv = api.New(api.Deps{
-			Cfg: cfg, Version: version, Hub: h, Plugins: sup, Prom: src, AM: src, VLogs: src, Data: src, Health: sup, Secrets: reg, Audit: alog,
+			Cfg: cfg, Version: version, Hub: h, Plugins: sup, Prom: src, AM: src, VLogs: src, Data: src, Health: sup, Metrics: metrics, Secrets: reg, Audit: alog,
 		})
 		handler = demo.Wrap(srv.Handler())
 		slog.Info("demo mode: serving fake data, no cluster or upstreams are contacted")
@@ -157,11 +163,11 @@ func run(reg *secret.Registry) error {
 				return err
 			}
 		}
-		prom := upstream.NewProm(cfg.VMURL, rt)
-		am := upstream.NewAlertmanager(cfg.AlertmanagerURL, rt)
-		vlogs := upstream.NewVLogs(cfg.VLogsURL, rt)
-		gatus := upstream.NewGatus(cfg.GatusURL, rt)
-		pve := upstream.NewProxmox(cfg.ProxmoxURL, cfg.ProxmoxNode, cfg.ProxmoxTokenID, cfg.ProxmoxTokenSecret, nil) // not a .svc host
+		prom := upstream.NewProm(cfg.VMURL, metrics.Upstream("prometheus", rt))
+		am := upstream.NewAlertmanager(cfg.AlertmanagerURL, metrics.Upstream("alertmanager", rt))
+		vlogs := upstream.NewVLogs(cfg.VLogsURL, metrics.Upstream("victorialogs", rt))
+		gatus := upstream.NewGatus(cfg.GatusURL, metrics.Upstream("gatus", rt))
+		pve := upstream.NewProxmox(cfg.ProxmoxURL, cfg.ProxmoxNode, cfg.ProxmoxTokenID, cfg.ProxmoxTokenSecret, metrics.Upstream("proxmox", nil)) // not a .svc host
 
 		mgr := topics.New(topics.Deps{
 			Cfg: cfg, Cluster: cluster, Prom: prom, AM: am, Gatus: gatus, PVE: pve, Hosts: sup, Contributors: sup.Contributors,
@@ -178,7 +184,7 @@ func run(reg *secret.Registry) error {
 
 		srv = api.New(api.Deps{
 			Cfg: cfg, Version: version, Hub: h, Plugins: sup, Kube: cluster.Client, Dyn: cluster.Dynamic,
-			Prom: prom, AM: am, VLogs: vlogs, Data: mgr, Health: sup, Secrets: reg, Audit: alog,
+			Prom: prom, AM: am, VLogs: vlogs, Data: mgr, Health: sup, Metrics: metrics, Secrets: reg, Audit: alog,
 		})
 		handler = srv.Handler()
 	}

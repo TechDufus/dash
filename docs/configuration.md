@@ -28,6 +28,7 @@ How dash listens and what it calls itself.
 | `server.allowedHosts` | `DASH_SERVER_ALLOWED_HOSTS` | list of strings (JSON) | - | Host names the API answers besides the host of publicURL: names or IP addresses without scheme or port. ["*"] accepts any. A JSON list in the environment. _Restart-only._ |
 | `server.readyRequires` | `DASH_SERVER_READY_REQUIRES` | list of strings (JSON) | - | Plugins /readyz waits for: each listed plugin must have finished starting (its first poll or cache sync) before dash reports ready, up to readyTimeout. Empty: /readyz needs only that dash is serving and every plugin's start has returned. Names are plugins.<id> sections, e.g. ["kubernetes"]. A JSON list in the environment. _Restart-only._ |
 | `server.readyTimeout` | `DASH_SERVER_READY_TIMEOUT` | duration (e.g. 30s) | `1m` | How long /readyz waits for the readyRequires plugins, counted from startup. After that dash reports ready anyway and logs a warning naming the plugins still starting. _Restart-only._ |
+| `server.metrics` | `DASH_SERVER_METRICS` | boolean | - | Serve dash's own Prometheus metrics at /metrics on the health listener. Off by default. The listener is unauthenticated and the metrics name plugins and their states, so keep it cluster-internal. _Restart-only._ |
 
 ## `server.limits`
 

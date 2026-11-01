@@ -49,6 +49,7 @@ type Config struct {
 	// (server.readyRequires, server.readyTimeout); ReadyTimeout is positive once resolved.
 	ReadyRequires []string
 	ReadyTimeout  time.Duration
+	Metrics       bool // serve /metrics on the health listener (server.metrics)
 	// Limits bound open streams and request reads (server.limits); always positive once resolved.
 	Limits Limits
 

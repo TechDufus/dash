@@ -124,11 +124,23 @@ func (s *Server) routeTable() []Route {
 	}
 }
 
-// mux registers every route of the table.
+// RoutePatterns lists the ServeMux pattern of every route the API registers, for the metrics'
+// route label set (internal/obs).
+func RoutePatterns() []string {
+	table := (&Server{}).routeTable()
+	out := make([]string, len(table))
+	for i, r := range table {
+		out[i] = r.pattern()
+	}
+	return out
+}
+
+// mux registers every route of the table. Mark is the innermost layer, the one that sees the
+// pattern the mux matched.
 func (s *Server) mux() *http.ServeMux {
 	mux := http.NewServeMux()
 	for _, r := range s.routeTable() {
-		mux.HandleFunc(r.pattern(), r.Handler)
+		mux.HandleFunc(r.pattern(), s.d.Metrics.Mark(r.Handler))
 	}
 	return mux
 }

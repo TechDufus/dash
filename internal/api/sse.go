@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/TechDufus/dash/internal/model"
+	"github.com/TechDufus/dash/internal/obs"
 	"github.com/TechDufus/dash/internal/upstream"
 )
 
@@ -94,6 +95,7 @@ func (s *Server) stream(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer release()
+	defer s.d.Metrics.StreamOpened(obs.StreamEvents)()
 	snapshot, ch, cancel := s.d.Hub.Subscribe(userFrom(r.Context()), want)
 	defer cancel()
 	e, err := startSSE(w, s.sseWrite)
@@ -148,6 +150,7 @@ func (s *Server) logsTail(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer release()
+	defer s.d.Metrics.StreamOpened(obs.StreamTail)()
 	e, err := startSSE(w, s.sseWrite)
 	defer e.done()
 	if err != nil {

@@ -50,6 +50,8 @@ func validateSilence(req model.SilenceRequest) (time.Duration, string, string) {
 }
 
 func (s *Server) createSilence(w http.ResponseWriter, r *http.Request) {
+	w, done := s.d.Metrics.TrackAction(w, "alertmanager", "silence.create")
+	defer done()
 	var req model.SilenceRequest
 	if !s.decodeBody(w, r, &req) {
 		return
@@ -95,6 +97,8 @@ func (s *Server) createSilence(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) expireSilence(w http.ResponseWriter, r *http.Request) {
+	w, done := s.d.Metrics.TrackAction(w, "alertmanager", "silence.expire")
+	defer done()
 	id := r.PathValue("id")
 	pending, ok := s.begin(w, r, "silence.expire", audit.Target{Kind: "Silence", Name: id})
 	if !ok {
