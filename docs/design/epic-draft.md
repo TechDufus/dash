@@ -546,6 +546,7 @@ These hold for the one existing package. For a plugin package the same checks ap
 - adds the plugin's `Demo()` fixtures;
 - updates the README configuration table.
 - adds `ref` (`<plugin>:<Kind>/<id>`, design L.6) to every object it puts in a payload, such as `kubernetes:Pod/media/app-0`, `proxmox:VM/101`, `alertmanager:Alert/<fingerprint>` and `gatus:Endpoint/<key>`.
+- picks one way to keep a running plugin that turns visible without a restart (for example `unavailable` to `healthy`) from leaving its pages loading, and says which in its Body (design A.9, "Rule for G3 plugins"): either the supervisor re-publishes the instance's latest events when its row goes from hidden to visible, or the plugin does not publish while it reports a hidden state. The hub drops its dedup digest only when an instance stops, so without one of these an unchanged value is never sent again. A test shows a viewer's stream receiving each of the plugin's topics after the change.
 
 No aliases survive the phase.
 
@@ -569,6 +570,7 @@ No aliases survive the phase.
 - `rg -n 'flux-system|mac-mini|rpi-control|gateway/home|2020 && vmid' internal web/src` finds only test fixtures that deliberately use neutral names, or nothing.
 - dash starts without a cluster.
 - Every object in plugin payloads carries a `ref`, and each ref prefix resolves to its owning plugin.
+- Each plugin's topics reach a stream that was open while its row turned visible, without a restart (design A.9).
 
 **Dependencies:** G2.
 
