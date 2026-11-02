@@ -9,7 +9,6 @@ import (
 	"slices"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"testing"
 	"time"
 
@@ -21,12 +20,10 @@ import (
 	"github.com/TechDufus/dash/internal/config"
 	"github.com/TechDufus/dash/internal/hub"
 	"github.com/TechDufus/dash/internal/kube"
-	"github.com/TechDufus/dash/internal/links"
 	"github.com/TechDufus/dash/internal/model"
 	"github.com/TechDufus/dash/internal/plugin"
 	"github.com/TechDufus/dash/internal/plugin/plugintest"
 	"github.com/TechDufus/dash/internal/queries"
-	"github.com/TechDufus/dash/internal/secret"
 	"github.com/TechDufus/dash/internal/upstream"
 )
 
@@ -63,8 +60,7 @@ func testManager(cfg config.Config, hosts plugin.HostProvider) *Manager {
 // testManagerWith is testManager with plugins that contribute to the overview.
 func testManagerWith(cfg config.Config, hosts plugin.HostProvider, contributors func() []plugin.Contributor) *Manager {
 	return New(Deps{
-		Cfg: cfg, Cluster: fakeCluster(), Hosts: hosts, Contributors: contributors, Links: links.New(cfg),
-		PVE: upstream.NewProxmox(cfg.ProxmoxURL, cfg.ProxmoxNode, cfg.ProxmoxTokenID, cfg.ProxmoxTokenSecret, nil),
+		Cfg: cfg, Cluster: fakeCluster(), Hosts: hosts, Contributors: contributors,
 	})
 }
 
@@ -88,12 +84,13 @@ func latest(h *hub.Hub, topic model.Topic) (model.Envelope, bool) {
 }
 
 var legacyTopics = []model.Topic{
-	model.TopicHost, model.TopicVMs, model.TopicCluster, model.TopicFlux, model.TopicStorage,
+	model.TopicHost, model.TopicHardwareMachines, model.TopicCluster, model.TopicFlux, model.TopicStorage,
 	model.TopicApps,
 }
 
 // The Manager publishes through the Host of each topic's owner, and the SSE names stay the ones
-// the SPA reads: "vms", "host", …, not "proxmox.vms". The payloads are what the Manager builds.
+// the SPA reads: "host", "cluster", …, and "hardware.machines", which has no legacy name. The
+// payloads are what the Manager builds.
 func TestManagerPublishesLegacyTopicsThroughHosts(t *testing.T) {
 	h := hub.New()
 	m := testManager(config.Defaults(), plugintest.AllRunning(h, LegacyManifests()...))
@@ -116,13 +113,13 @@ func TestManagerPublishesLegacyTopicsThroughHosts(t *testing.T) {
 		got = append(got, ev.Topic)
 	}
 	slices.Sort(got)
-	want := []string{"apps", "cluster", "core.overview", "flux", "host", "storage", "vms"}
+	want := []string{"apps", "cluster", "core.overview", "flux", "hardware.machines", "host", "storage"}
 	if !slices.Equal(got, want) {
 		t.Fatalf("published %v, want exactly %v", got, want)
 	}
 
 	builds := map[model.Topic]any{
-		model.TopicHost: m.buildHost(), model.TopicVMs: m.buildVMs(), model.TopicCluster: m.buildCluster(m.now()),
+		model.TopicHost: m.buildHost(), model.TopicHardwareMachines: m.buildMachines(), model.TopicCluster: m.buildCluster(m.now()),
 		model.TopicFlux: m.buildFlux(), model.TopicStorage: m.buildStorage(m.now()),
 		model.TopicApps: m.buildApps(),
 	}
@@ -145,93 +142,77 @@ func TestManagerPublishesLegacyTopicsThroughHosts(t *testing.T) {
 // whose every reader is off makes no request. The recording host proves the Manager never even
 // calls the disabled owner's Host (a Host that drops the call would hide a missing skip).
 func TestDisabledOwnerPublishesNothingAndItsPollerIsSkipped(t *testing.T) {
-	var requests atomic.Int32
-	pve := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		requests.Add(1)
-		_, _ = w.Write([]byte(`{"data":[]}`))
-	}))
-	defer pve.Close()
+	rec := &promRecorder{}
+	prom := httptest.NewServer(rec)
+	defer prom.Close()
+	machineUp := queries.MachineUp("mac-mini")
 
 	run := func(off ...plugin.ID) (*hub.Hub, *Manager, *plugintest.Partial) {
 		h := hub.New()
 		hp := plugintest.Without(plugintest.AllRunning(h, LegacyManifests()...), off...)
-		cfg := config.Defaults()
-		cfg.ProxmoxURL, cfg.ProxmoxNode, cfg.ProxmoxTokenID, cfg.ProxmoxTokenSecret = pve.URL, "pve", "u@pve!t", secret.New("s3cret", "")
-		m := testManager(cfg, hp)
+		m := New(Deps{
+			Cfg: config.Defaults(), Cluster: fakeCluster(), Hosts: hp, Services: promServices(upstream.NewProm(prom.URL, nil)),
+		})
 		ctx, cancel := context.WithCancel(context.Background())
 		t.Cleanup(cancel)
 		m.Run(ctx)
 		return h, m, hp
 	}
 
-	// Proxmox on: its poller runs and its topic is published.
+	// Hardware on: its machines poller runs and its topic is published.
 	h, _, hp := run()
-	eventually(t, "the vms topic", func() bool { _, ok := h.Latest("", model.TopicVMs); return ok })
-	if requests.Load() == 0 {
-		t.Fatal("proxmox is running but was not polled")
+	eventually(t, "the machines topic", func() bool { _, ok := h.Latest("", model.TopicHardwareMachines); return ok })
+	if rec.count(machineUp) == 0 {
+		t.Fatal("hardware is running but its machines were not polled")
 	}
-	if hp.Publishes("proxmox") == 0 {
-		t.Fatal("the recording host saw no publish for a running proxmox")
+	if hp.Publishes("hardware") == 0 {
+		t.Fatal("the recording host saw no publish for a running hardware")
 	}
 
 	// Off: not polled, nothing published, and the overview still comes.
-	requests.Store(0)
-	h, m, hp := run("proxmox", "hardware") // the host poller reads Proxmox too
+	rec.mu.Lock()
+	rec.n = map[string]int{}
+	rec.mu.Unlock()
+	h, m, hp := run("hardware")
 	eventually(t, "the overview", func() bool { _, ok := h.Latest("", model.TopicOverview); return ok })
-	eventually(t, "the vms and host pollers' first round", func() bool { return m.pollDone("vms", "host") })
-	if n := requests.Load(); n != 0 {
-		t.Errorf("a disabled proxmox was polled %d times", n)
+	eventually(t, "the machines and host pollers' first round", func() bool { return m.pollDone("vms", "host") })
+	if n := rec.count(machineUp); n != 0 {
+		t.Errorf("a disabled hardware was polled %d times", n)
 	}
-	if n := hp.Publishes("proxmox"); n != 0 {
-		t.Errorf("the Manager called the disabled proxmox's Host %d times", n)
+	if n := hp.Publishes("hardware"); n != 0 {
+		t.Errorf("the Manager called the disabled hardware's Host %d times", n)
 	}
-	if _, ok := h.Latest("", model.TopicVMs); ok {
-		t.Error("the vms topic is published although proxmox does not run")
+	if _, ok := h.Latest("", model.TopicHardwareMachines); ok {
+		t.Error("the machines topic is published although hardware does not run")
 	}
 }
 
-// A source whose poller is skipped (nothing that reads it runs) is not waited for: the shims
-// that own other keys of it reach their real state instead of staying in "starting", and the
-// overview's source list leaves it out.
+// A source whose poller is skipped (nothing that reads it runs) is not waited for: the shim that
+// owns it reaches its real state instead of staying in "starting", and the overview's source list
+// leaves it out.
 func TestSkippedPollersDoNotStickShimsInStarting(t *testing.T) {
 	at := time.Unix(100, 0)
 	okSrc := srcState{ok: true, at: at}
-	// Without hardware the host poller is skipped (host:proxmox never gets polled), so the
-	// proxmox shim, which owns that key too, reaches its state from vms:proxmox alone.
-	hp := plugintest.Without(plugintest.AllRunning(hub.New(), LegacyManifests()...), "hardware")
-	m := New(Deps{Cfg: config.Defaults(), Cluster: fakeCluster(), Hosts: hp})
-	m.srcs["vms:proxmox"] = okSrc
-
-	st := m.legacyStatus("proxmox")
-	if st.State != plugin.StateHealthy || st.Message != "" {
-		t.Errorf("proxmox = %s %q, want healthy", st.State, st.Message)
-	}
-	for _, s := range st.Sources {
-		if s.Error == "not polled yet" {
-			t.Errorf("source %q is still reported as not polled", s.Name)
-		}
-	}
 
 	// Overview: only the polled source is listed; the skipped ones would read "not polled yet".
-	hp = plugintest.Without(plugintest.AllRunning(hub.New(), LegacyManifests()...), "hardware", "proxmox")
-	m = New(Deps{Cfg: config.Defaults(), Cluster: fakeCluster(), Hosts: hp})
+	hp := plugintest.Without(plugintest.AllRunning(hub.New(), LegacyManifests()...), "hardware")
+	m := New(Deps{Cfg: config.Defaults(), Cluster: fakeCluster(), Hosts: hp})
 	m.srcs["cluster:victoriametrics"], m.srcs["storage:victoriametrics"] = okSrc, okSrc
-	for _, s := range m.sources("host:victoriametrics", "vms:proxmox", "vms:victoriametrics", "cluster:victoriametrics") {
-		if !s.OK {
-			t.Errorf("overview source %q = %q, want only polled sources", s.Name, s.Error)
-		}
+	got := m.sources("host:victoriametrics", "machines:prometheus", "cluster:victoriametrics")
+	if len(got) != 1 || !got[0].OK {
+		t.Errorf("overview sources = %+v, want only the polled cluster source", got)
 	}
 
 	// Nothing that reads the source runs at all: a message instead of a wait that never ends.
-	if st := m.legacyStatus("proxmox"); st.State != plugin.StateUnavailable {
-		t.Errorf("proxmox with every reader off = %s %q, want unavailable", st.State, st.Message)
+	if st := m.legacyStatus("hardware"); st.State != plugin.StateUnavailable {
+		t.Errorf("hardware with every reader off = %s %q, want unavailable", st.State, st.Message)
 	}
 
 	// A key of a running poller still counts: not polled yet means starting.
 	hp = plugintest.Without(plugintest.AllRunning(hub.New(), LegacyManifests()...))
 	m = New(Deps{Cfg: config.Defaults(), Cluster: fakeCluster(), Hosts: hp})
-	if st := m.legacyStatus("proxmox"); st.State != plugin.StateStarting {
-		t.Errorf("proxmox before its first poll = %s, want starting", st.State)
+	if st := m.legacyStatus("hardware"); st.State != plugin.StateStarting {
+		t.Errorf("hardware before its first poll = %s, want starting", st.State)
 	}
 }
 
@@ -271,9 +252,8 @@ func TestDisabledKubernetesPublishesNothingAndItsPollersAreSkipped(t *testing.T)
 		hp := plugintest.Without(plugintest.AllRunning(h, LegacyManifests()...), off...)
 		cfg := config.Defaults()
 		m := New(Deps{
-			Cfg: cfg, Cluster: fakeCluster(), Hosts: hp, Links: links.New(cfg),
+			Cfg: cfg, Cluster: fakeCluster(), Hosts: hp,
 			Services: promServices(upstream.NewProm(prom.URL, nil)),
-			PVE:      upstream.NewProxmox(cfg.ProxmoxURL, cfg.ProxmoxNode, cfg.ProxmoxTokenID, cfg.ProxmoxTokenSecret, nil),
 		})
 		ctx, cancel := context.WithCancel(context.Background())
 		t.Cleanup(cancel)
@@ -390,7 +370,7 @@ func TestExplicitDisableRemovesShimTopics(t *testing.T) {
 	if states["flux"].State != model.PluginDisabled || !slices.Equal(states["flux"].Topics, []string{"flux"}) {
 		t.Errorf("flux = %+v, want disabled with the topic flux", states["flux"])
 	}
-	if states["kubernetes"].State == model.PluginDisabled || len(pd.Plugins) != 4 {
+	if states["kubernetes"].State == model.PluginDisabled || len(pd.Plugins) != 3 {
 		t.Errorf("kubernetes = %s of %d plugins", states["kubernetes"].State, len(pd.Plugins))
 	}
 }
@@ -411,9 +391,8 @@ func TestExplicitDisableOfKubernetesStopsItsPollers(t *testing.T) {
 	h.SetOrder(sup.TopicOrder)
 	cfg := config.Defaults()
 	m := New(Deps{
-		Cfg: cfg, Cluster: fakeCluster(), Hosts: sup, Links: links.New(cfg),
+		Cfg: cfg, Cluster: fakeCluster(), Hosts: sup,
 		Services: promServices(upstream.NewProm(prom.URL, nil)),
-		PVE:      upstream.NewProxmox(cfg.ProxmoxURL, cfg.ProxmoxNode, cfg.ProxmoxTokenID, cfg.ProxmoxTokenSecret, nil),
 	})
 	if err := sup.Add(m.Plugins()...); err != nil {
 		t.Fatal(err)
@@ -462,7 +441,7 @@ func TestLegacyManifestsMatchConfigSections(t *testing.T) {
 	}
 	// The sections of the integrations that moved out of the Manager have no shim: each runs as
 	// the plugin of internal/plugins/<id>.
-	for _, moved := range []string{"prometheus", "alertmanager", "gatus", "victorialogs", "grafana", "headlamp", "launcher"} {
+	for _, moved := range []string{"prometheus", "alertmanager", "gatus", "victorialogs", "proxmox", "grafana", "headlamp", "launcher"} {
 		delete(sections, moved)
 	}
 	ms := LegacyManifests()
@@ -512,10 +491,9 @@ func TestLegacyStatusMapping(t *testing.T) {
 		state plugin.State
 		msg   string
 	}{
-		{"proxmox unset", "proxmox", map[string]srcState{"vms:proxmox": off, "host:proxmox": off}, plugin.StateUnavailable,
-			"not configured: set plugins.proxmox.url, tokenID and tokenSecret"},
-		{"proxmox half", "proxmox", map[string]srcState{"vms:proxmox": okSrc, "host:proxmox": bad("timeout")}, plugin.StateDegraded, "timeout"},
-		{"proxmox one not polled", "proxmox", map[string]srcState{"vms:proxmox": okSrc}, plugin.StateStarting, "waiting for the first poll"},
+		{"hardware unset", "hardware", map[string]srcState{"host:victoriametrics": off}, plugin.StateUnavailable,
+			"not configured: set plugins.prometheus.url"},
+		{"hardware not polled", "hardware", map[string]srcState{}, plugin.StateStarting, "waiting for the first poll"},
 		{"hardware ok", "hardware", map[string]srcState{"host:victoriametrics": okSrc}, plugin.StateHealthy, ""},
 		{"hardware tls", "hardware", map[string]srcState{"host:victoriametrics": bad("tls")}, plugin.StateError, "tls"},
 	}
@@ -554,12 +532,9 @@ func TestLegacyStatusMapping(t *testing.T) {
 // A viewer must never read a URL or host out of a plugin's status: messages name a setting or
 // an error category.
 func TestLegacyStatusNeverNamesAnUpstream(t *testing.T) {
-	cfg := config.Defaults()
-	cfg.ProxmoxURL = "https://pve.internal.example.com:8006"
-	m := New(Deps{Cfg: cfg, Cluster: fakeCluster()})
-	m.setSource("vms:proxmox", &upstream.StatusError{Code: 500})
-	m.setSource("host:proxmox", &upstream.StatusError{Code: 500})
-	st := m.legacyStatus("proxmox")
+	m := New(Deps{Cfg: config.Defaults(), Cluster: fakeCluster()})
+	m.setSource("host:victoriametrics", &upstream.StatusError{Code: 500})
+	st := m.legacyStatus("hardware")
 	if st.State != plugin.StateError || strings.Contains(st.Message, "example.com") || st.Message != "http_500" {
 		t.Errorf("status = %s %q", st.State, st.Message)
 	}

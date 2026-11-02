@@ -34,7 +34,6 @@ func TestEveryErrorPathHasACodeThatMatchesItsStatus(t *testing.T) {
 	capped := func(s *Server) { s.events, s.tails = newStreamLimiter(0, 10), newStreamLimiter(0, 10) }
 	full := func(s *Server) { s.events = newStreamLimiter(10, 0) }
 	failProm := func(d *Deps) { d.Plugins = promPlugin(&fakeProm{err: context.DeadlineExceeded}) }
-	vmErr := func(err error) func(*Deps) { return func(d *Deps) { d.Data = fakeData{vmErr: err} } }
 	podErr := func(err error) func(*Deps) { return func(d *Deps) { d.Data = fakeData{podErr: err} } }
 	noHook := func(*harness) {}
 	fullTails := func(s *Server) { s.tails = newStreamLimiter(10, 0) }
@@ -54,9 +53,6 @@ func TestEveryErrorPathHasACodeThatMatchesItsStatus(t *testing.T) {
 		{name: "invalid series node", req: req{path: "/api/v1/series?name=node.cpu&range=1h&node=BAD_"}, status: 400, code: "invalid_input"},
 		{name: "unknown series node", req: req{path: "/api/v1/series?name=node.cpu&range=1h&node=ghost"}, status: 404, code: "not_found"},
 		{name: "series upstream failure", req: req{path: "/api/v1/series?name=node.cpu&range=1h&node=cp1"}, mod: failProm, status: 502, code: "upstream_unavailable"},
-		{name: "invalid vmid", req: req{path: "/api/vms/abc"}, status: 400, code: "invalid_input"},
-		{name: "vm not found", req: req{path: "/api/vms/100"}, mod: vmErr(topics.ErrNotFound), status: 404, code: "not_found"},
-		{name: "vm upstream failure", req: req{path: "/api/vms/100"}, mod: vmErr(context.DeadlineExceeded), status: 502, code: "upstream_unavailable"},
 		{name: "invalid pod name", req: req{path: "/api/pods/apps/BAD_"}, status: 400, code: "invalid_input"},
 		{name: "pod not found", req: req{path: "/api/pods/apps/missing"}, status: 404, code: "not_found"},
 		{name: "pod not found upstream", req: req{path: "/api/pods/apps/web"}, mod: podErr(topics.ErrNotFound), status: 404, code: "not_found"},

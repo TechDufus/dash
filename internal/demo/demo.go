@@ -15,17 +15,16 @@ import (
 	"github.com/TechDufus/dash/internal/demo/world"
 	"github.com/TechDufus/dash/internal/model"
 	"github.com/TechDufus/dash/internal/plugin"
+	hwmodel "github.com/TechDufus/dash/internal/plugins/hardware/model"
 	"github.com/TechDufus/dash/internal/topics"
 )
 
 // tick is how often the fixtures drift, so the UI looks live.
 const tick = 5 * time.Second
 
-// Config points the Proxmox link at example.com and names the fake host. The links into Grafana
-// and Headlamp, and the launcher, are those of the plugins' demo twins (world.GrafanaURL, …).
+// Config names the fake host. The links into Grafana, Headlamp and the Proxmox UI, and the
+// launcher, are those of the plugins' demo twins (world.GrafanaURL, …).
 func Config(cfg config.Config) config.Config {
-	cfg.ProxmoxURL = "https://pve.example.com:8006"
-	cfg.ProxmoxNode = world.HostName
 	cfg.HostNodename = world.HostName
 	return cfg
 }
@@ -45,7 +44,7 @@ type Source struct {
 // New returns a Source anchored at the current time. Call Plugins before Run.
 func New(cfg config.Config) *Source {
 	s := &Source{start: time.Now(), now: time.Now}
-	s.world = world.New(func() time.Time { return s.now() }, s.start, newLinks(cfg))
+	s.world = world.New(func() time.Time { return s.now() }, s.start, newLinks())
 	return s
 }
 
@@ -99,13 +98,20 @@ func (s *Source) publish() {
 		}
 		return out
 	}
-	// The alertmanager plugin's KPI and its source chip are on the overview while its twin runs.
-	ov, ovSrcs := w.overview, src("kubernetes", "victoriametrics", "proxmox")
-	if s.hosts.Running("alertmanager") {
-		ovSrcs = append(ovSrcs, src("alertmanager")...)
-	} else {
-		ov.KPIList = slices.DeleteFunc(slices.Clone(ov.KPIList), func(k model.KPI) bool { return k.Plugin == "alertmanager" })
+	// The alertmanager and proxmox plugins' KPIs and source chips are on the overview while their
+	// twins run, and the proxmox VMs are in its topology.
+	ov, ovSrcs := w.overview, src("kubernetes", "victoriametrics")
+	for _, twin := range []plugin.ID{"proxmox", "alertmanager"} {
+		if s.hosts.Running(twin) {
+			ovSrcs = append(ovSrcs, src(string(twin))...)
+			continue
+		}
+		ov.KPIList = slices.DeleteFunc(slices.Clone(ov.KPIList), func(k model.KPI) bool { return k.Plugin == string(twin) })
+		if twin == "proxmox" {
+			ov.Topology.VMs = []model.TopologyVM{}
+		}
 	}
+	machines := hwmodel.MachinesData{Machines: s.world.Machines()}
 	for _, p := range []struct {
 		topic model.Topic
 		data  any
@@ -113,10 +119,10 @@ func (s *Source) publish() {
 	}{
 		{model.TopicOverview, ov, ovSrcs},
 		{model.TopicHost, w.host, src("victoriametrics")},
-		{model.TopicVMs, w.vms, src("proxmox", "victoriametrics")},
+		{model.TopicHardwareMachines, machines, src("prometheus", "gatus")},
 		{model.TopicCluster, w.cluster, src("kubernetes", "victoriametrics")},
 		{model.TopicFlux, w.flux, src("kubernetes")},
-		{model.TopicStorage, w.storage, src("kubernetes", "victoriametrics", "proxmox")},
+		{model.TopicStorage, w.storage, src("kubernetes", "victoriametrics")},
 		{model.TopicApps, w.apps, src("kubernetes", "gatus")},
 	} {
 		if id, local, ok := topics.Owner(p.topic); ok {
@@ -199,32 +205,6 @@ func (s *Source) NodeIP(name string) (string, bool) {
 		}
 	}
 	return "", false
-}
-
-// VMDetail answers /api/vms/{vmid} from the VM fixtures.
-func (s *Source) VMDetail(_ context.Context, vmid int) (model.VMDetail, error) {
-	for _, vm := range s.build().vms.VMs {
-		if vm.VMID != vmid {
-			continue
-		}
-		snap := s.now().Add(-26 * time.Hour)
-		d := model.VMDetail{
-			VM: vm,
-			Config: model.VMConfig{
-				Cores: int(vm.CPUs), Sockets: 1, MemoryMiB: int(vm.MaxMemBytes >> 20),
-				BalloonMiB: 0, OSType: "l26", Agent: "1",
-				Disks: []model.KeySpec{{Key: "scsi0", Spec: "local-zfs:vm-" + fmt.Sprint(vmid) + "-disk-0,size=64G,ssd=1"}},
-				NICs:  []model.KeySpec{{Key: "net0", Spec: "virtio=BC:24:11:00:00:" + fmt.Sprintf("%02X", vmid%256) + ",bridge=vmbr0"}},
-			},
-			IPs:       []model.IfaceAddr{},
-			Snapshots: []model.Snapshot{{Name: "pre-upgrade", Time: &snap, Description: "before the last Kubernetes upgrade"}},
-		}
-		if vm.Status == "running" {
-			d.IPs = []model.IfaceAddr{{Iface: "eth0", Address: fmt.Sprintf("192.0.2.%d", vmid%200)}}
-		}
-		return d, nil
-	}
-	return model.VMDetail{}, topics.ErrNotFound
 }
 
 // Wrap signs every request in as the user "demo" and answers the Kubernetes actions with 202

@@ -15,7 +15,6 @@ import (
 
 	"github.com/TechDufus/dash/internal/config"
 	"github.com/TechDufus/dash/internal/model"
-	"github.com/TechDufus/dash/internal/topics"
 )
 
 // sseClient opens path on a real server and delivers its lines on a channel.
@@ -111,22 +110,6 @@ func TestStream(t *testing.T) {
 	expect(t, lines, `event: core.overview`) // the live event follows its own event line
 	expectContaining(t, lines, `"a":"2"`)
 	expect(t, lines, ": ping") // heartbeats keep coming
-}
-
-func TestVMDetailErrors(t *testing.T) {
-	for _, tc := range []struct {
-		err  error
-		code int
-	}{
-		{topics.ErrNotFound, 404},
-		{context.DeadlineExceeded, 502},
-		{nil, 200},
-	} {
-		s := newServer(func(d *Deps) { d.Data = fakeData{vmErr: tc.err} })
-		if w := (req{path: "/api/vms/100"}).do(s.Handler()); w.Code != tc.code {
-			t.Errorf("err %v: code = %d, want %d", tc.err, w.Code, tc.code)
-		}
-	}
 }
 
 // streamStatus opens path on a real server as user and returns the response status.

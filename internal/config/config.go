@@ -8,8 +8,8 @@
 //
 // Nothing site-specific has a default: server.publicURL is required outside dev and demo, Proxmox
 // needs plugins.proxmox.url once a token is set (plugins.proxmox.node is optional: with one node
-// in the cluster dash discovers it from the API at startup), and the Headlamp and Grafana plugins
-// link only once their URL is set.
+// in the cluster the proxmox plugin discovers it from the API once it starts), and the Headlamp
+// and Grafana plugins link only once their URL is set.
 package config
 
 import (
@@ -55,17 +55,9 @@ type Config struct {
 	DataDir    string
 	SettingsUI string
 
-	ProxmoxURL string
-	// ProxmoxNode is the node whose status and guests dash reads. Optional: when empty and a
-	// token is set, dash discovers it from the API at startup if the cluster has exactly one node.
-	ProxmoxNode string
-	// ProxmoxTokenID is "<user>@<realm>!<token>"; with ProxmoxTokenSecret it marks Proxmox
-	// available. Both are empty when Proxmox is off.
-	ProxmoxTokenID     string
-	ProxmoxTokenSecret secret.Value
-
-	// HostNodename is the nodename label of the Proxmox host's node-exporter and IPMI series;
-	// it defaults to plugins.proxmox.node, or to the discovered node when that is empty.
+	// HostNodename is the nodename label of the Proxmox host's node-exporter and IPMI series: the
+	// first hardware host's nodename, else plugins.proxmox.node. Empty when neither is set (the
+	// Manager then uses the node the proxmox plugin discovers). The hardware plugin replaces it.
 	HostNodename string
 	// HostModel is shown next to the host's name, e.g. "Dell R730"; empty shows nothing.
 	HostModel string

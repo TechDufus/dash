@@ -22,7 +22,6 @@ import (
 	"github.com/TechDufus/dash/internal/demo"
 	"github.com/TechDufus/dash/internal/demo/world"
 	"github.com/TechDufus/dash/internal/kube"
-	"github.com/TechDufus/dash/internal/links"
 	"github.com/TechDufus/dash/internal/model"
 	"github.com/TechDufus/dash/internal/plugin"
 	"github.com/TechDufus/dash/internal/plugin/plugintest"
@@ -30,7 +29,6 @@ import (
 	"github.com/TechDufus/dash/internal/plugins/launcher"
 	"github.com/TechDufus/dash/internal/secret"
 	"github.com/TechDufus/dash/internal/topics"
-	"github.com/TechDufus/dash/internal/upstream"
 )
 
 // Every plugins.* section of the tree is an instance, of the type its shim's Config returns.
@@ -108,9 +106,8 @@ func TestFrameworkStartOrderPublishesFirstPoll(t *testing.T) {
 	fw, res := loadFramework(t)
 	cfg := res.Config
 	mgr := topics.New(topics.Deps{
-		Cfg: cfg, Cluster: testCluster(), Hosts: fw.sup, Contributors: fw.sup.Contributors, Links: links.New(cfg),
+		Cfg: cfg, Cluster: testCluster(), Hosts: fw.sup, Contributors: fw.sup.Contributors,
 		Services: fw.sup.Service,
-		PVE:      upstream.NewProxmox("", "", "", cfg.ProxmoxTokenSecret, nil),
 	})
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -119,7 +116,7 @@ func TestFrameworkStartOrderPublishesFirstPoll(t *testing.T) {
 	}
 	defer fw.sup.Shutdown(context.Background())
 
-	want := []string{"core.plugins", "core.overview", "vms", "host", "cluster", "storage", "apps", "flux"}
+	want := []string{"core.plugins", "core.overview", "host", "hardware.machines", "cluster", "storage", "apps", "flux"}
 	deadline := time.Now().Add(5 * time.Second)
 	for {
 		snap, _, cancelSub := fw.hub.Subscribe("", nil)
@@ -137,7 +134,7 @@ func TestFrameworkStartOrderPublishesFirstPoll(t *testing.T) {
 		time.Sleep(10 * time.Millisecond)
 	}
 
-	if fw.sup.Live("plugins.proxmox") {
+	if fw.sup.Live("plugins.kubernetes") {
 		t.Error("a legacy plugin's section applies live, but only a restart can change the Manager")
 	}
 	for _, in := range fw.sup.Infos() {
@@ -240,7 +237,7 @@ func TestDemoPublishesTheLauncherLinksLast(t *testing.T) {
 	}
 	defer fw.sup.Shutdown(context.Background())
 
-	want := []string{"core.plugins", "core.overview", "alertmanager.alerts", "gatus.status", "vms", "host", "cluster", "storage", "apps", "flux", "launcher.links"}
+	want := []string{"core.plugins", "core.overview", "alertmanager.alerts", "gatus.status", "proxmox.vms", "proxmox.node", "proxmox.storage", "host", "hardware.machines", "cluster", "storage", "apps", "flux", "launcher.links"}
 	deadline := time.Now().Add(5 * time.Second)
 	for {
 		snap, _, cancelSub := fw.hub.Subscribe("", nil)

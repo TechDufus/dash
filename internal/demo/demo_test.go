@@ -16,6 +16,7 @@ import (
 	"github.com/TechDufus/dash/internal/plugin"
 	"github.com/TechDufus/dash/internal/plugin/plugintest"
 	"github.com/TechDufus/dash/internal/plugins/alertmanager"
+	"github.com/TechDufus/dash/internal/plugins/proxmox"
 	"github.com/TechDufus/dash/internal/topics"
 )
 
@@ -32,7 +33,7 @@ func published(t *testing.T) *hub.Hub {
 func TestPublishesEveryTopic(t *testing.T) {
 	h := published(t)
 	for _, topic := range []model.Topic{
-		model.TopicOverview, model.TopicHost, model.TopicVMs, model.TopicCluster, model.TopicFlux,
+		model.TopicOverview, model.TopicHost, model.TopicHardwareMachines, model.TopicCluster, model.TopicFlux,
 		model.TopicStorage, model.TopicApps,
 	} {
 		ev, ok := h.Latest("", topic)
@@ -70,9 +71,6 @@ func TestDetailsResolve(t *testing.T) {
 	}
 	if _, err := s.PodDetail(ctx, "nope", "nope"); !errors.Is(err, topics.ErrNotFound) {
 		t.Fatalf("missing pod: %v", err)
-	}
-	if _, err := s.VMDetail(ctx, w.vms.VMs[0].VMID); err != nil {
-		t.Fatalf("vm detail: %v", err)
 	}
 	if _, ok := s.NodeIP(w.cluster.Nodes[0].Name); !ok {
 		t.Fatal("node ip not found")
@@ -138,7 +136,7 @@ func TestDemoPublishesLegacyTopicsAndCorePlugins(t *testing.T) {
 	}
 	// core.plugins first, then the overview, then the integrations' topics under the names
 	// they keep until their plugin migrates (the alertmanager twin is registered by cmd/dash).
-	want := []string{"core.plugins", "core.overview", "vms", "host", "cluster", "storage", "apps", "flux"}
+	want := []string{"core.plugins", "core.overview", "host", "hardware.machines", "cluster", "storage", "apps", "flux"}
 	if strings.Join(got, " ") != strings.Join(want, " ") {
 		t.Fatalf("topics = %v, want %v", got, want)
 	}
@@ -150,16 +148,16 @@ func TestDemoPublishesLegacyTopicsAndCorePlugins(t *testing.T) {
 	if err := json.Unmarshal(env.Data, &pd); err != nil {
 		t.Fatal(err)
 	}
-	if len(pd.Plugins) != 4 { // the shims; the real plugins' twins (prometheus, alertmanager, gatus, victorialogs, grafana, headlamp, launcher) are registered by cmd/dash
-		t.Fatalf("core.plugins lists %d plugins, want 4", len(pd.Plugins))
+	if len(pd.Plugins) != 3 { // the shims; the real plugins' twins (prometheus, alertmanager, gatus, victorialogs, proxmox, grafana, headlamp, launcher) are registered by cmd/dash
+		t.Fatalf("core.plugins lists %d plugins, want 3", len(pd.Plugins))
 	}
 }
 
 func TestDemoPluginsAreHealthy(t *testing.T) {
 	_, sup, _ := demoSupervisor(t, nil)
 	infos := sup.Infos()
-	if len(infos) != 4 {
-		t.Fatalf("%d plugins, want 4", len(infos))
+	if len(infos) != 3 {
+		t.Fatalf("%d plugins, want 3", len(infos))
 	}
 	for _, in := range infos {
 		if in.State != model.PluginHealthy || in.Message != "" {
@@ -199,14 +197,61 @@ func TestDemoOverviewHasTheAlertmanagerKPIOnlyWhileItRuns(t *testing.T) {
 	}
 
 	h := hub.New()
-	d, srcs := overview(plugintest.AllRunning(h, append(topics.LegacyManifests(), alertmanager.New().Manifest())...), h)
+	d, srcs := overview(plugintest.Without(plugintest.AllRunning(h, append(topics.LegacyManifests(), alertmanager.New().Manifest())...), "proxmox"), h)
 	if len(d.KPIList) != 1 || d.KPIList[0].Plugin != "alertmanager" || d.KPIList[0].Key != "firing" || d.KPIList[0].Value != 2 || !hasChip(srcs) {
 		t.Errorf("with alertmanager running: kpiList %+v, sources %+v", d.KPIList, srcs)
 	}
 	h = hub.New()
-	d, srcs = overview(plugintest.Without(plugintest.AllRunning(h, topics.LegacyManifests()...), "alertmanager"), h)
+	d, srcs = overview(plugintest.Without(plugintest.AllRunning(h, topics.LegacyManifests()...), "alertmanager", "proxmox"), h)
 	if len(d.KPIList) != 0 || hasChip(srcs) {
 		t.Errorf("without alertmanager: kpiList %+v, sources %+v", d.KPIList, srcs)
+	}
+}
+
+// The overview's VM tiles, its VMs in the topology and the proxmox source chip are the proxmox
+// plugin's: the demo adds them while its twin runs and leaves them out when the plugin does not run.
+func TestDemoOverviewHasTheProxmoxKPIsOnlyWhileItRuns(t *testing.T) {
+	overview := func(hp plugin.HostProvider, h *hub.Hub) (model.OverviewData, []model.SourceStatus) {
+		s := New(Config(config.Defaults()))
+		s.Plugins(hp)
+		s.publish()
+		ev, ok := h.Latest("", model.TopicOverview)
+		if !ok {
+			t.Fatal("no overview")
+		}
+		var env model.Envelope
+		var d model.OverviewData
+		if err := json.Unmarshal(ev.Data, &env); err != nil || json.Unmarshal(env.Data, &d) != nil {
+			t.Fatalf("bad overview envelope (%v)", err)
+		}
+		return d, env.Sources
+	}
+	hasChip := func(srcs []model.SourceStatus) bool {
+		for _, s := range srcs {
+			if s.Name == "proxmox" {
+				return true
+			}
+		}
+		return false
+	}
+	proxmoxKPIs := func(d model.OverviewData) (n int) {
+		for _, k := range d.KPIList {
+			if k.Plugin == "proxmox" {
+				n++
+			}
+		}
+		return n
+	}
+
+	h := hub.New()
+	d, srcs := overview(plugintest.AllRunning(h, append(topics.LegacyManifests(), proxmox.New().Manifest())...), h)
+	if proxmoxKPIs(d) != 2 || len(d.Topology.VMs) == 0 || !hasChip(srcs) {
+		t.Errorf("with proxmox running: kpiList %+v, topology VMs %d, sources %+v", d.KPIList, len(d.Topology.VMs), srcs)
+	}
+	h = hub.New()
+	d, srcs = overview(plugintest.Without(plugintest.AllRunning(h, topics.LegacyManifests()...), "proxmox"), h)
+	if proxmoxKPIs(d) != 0 || len(d.Topology.VMs) != 0 || d.Topology.VMs == nil || hasChip(srcs) {
+		t.Errorf("without proxmox: kpiList %+v, topology VMs %v, sources %+v", d.KPIList, d.Topology.VMs, srcs)
 	}
 }
 

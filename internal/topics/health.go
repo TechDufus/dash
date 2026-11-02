@@ -71,20 +71,6 @@ func TempHealth(c float64) model.Health {
 	return model.HealthOK
 }
 
-// IsTalosVM reports whether vmid is one of the Talos control-plane VMs (2020-2022).
-func IsTalosVM(vmid int) bool { return vmid >= 2020 && vmid <= 2022 }
-
-// VMHealth: a VM that is not running warns, critical for the Talos VMs; templates are skipped.
-func VMHealth(vmid int, status string, template bool) model.Health {
-	switch {
-	case template, status == "running":
-		return model.HealthOK
-	case IsTalosVM(vmid):
-		return model.HealthCrit
-	}
-	return model.HealthWarn
-}
-
 // WorkloadHealth: ready < desired warns when something is ready, is critical when nothing is.
 func WorkloadHealth(ready, desired int) model.Health {
 	switch {

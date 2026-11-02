@@ -55,7 +55,7 @@ func TestStartupDecryptsStoredSecretsOrFailsListingThem(t *testing.T) {
 		t.Fatal(err)
 	}
 	store.Close()
-	if res.Config.ProxmoxTokenSecret.Reveal() != "stored-secret-0123456789" {
+	if res.Tree.Plugins.Proxmox.TokenSecret.Reveal() != "stored-secret-0123456789" {
 		t.Error("the stored secret must be decrypted at startup")
 	}
 
@@ -92,7 +92,7 @@ func TestStartupRekeysStoredSecretsAndAuditsIt(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if res.Config.ProxmoxTokenSecret.Reveal() != "stored-secret-0123456789" {
+	if res.Tree.Plugins.Proxmox.TokenSecret.Reveal() != "stored-secret-0123456789" {
 		t.Error("both keys open the stored value during the rotation")
 	}
 	store.Close()
@@ -123,7 +123,7 @@ func TestStartupRekeysStoredSecretsAndAuditsIt(t *testing.T) {
 		t.Fatal(err)
 	}
 	store.Close()
-	if res.Config.ProxmoxTokenSecret.Reveal() != "stored-secret-0123456789" {
+	if res.Tree.Plugins.Proxmox.TokenSecret.Reveal() != "stored-secret-0123456789" {
 		t.Error("the new key opens the rekeyed value")
 	}
 }

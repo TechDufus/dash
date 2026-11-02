@@ -18,7 +18,6 @@ import (
 	"github.com/TechDufus/dash/internal/config"
 	"github.com/TechDufus/dash/internal/demo"
 	"github.com/TechDufus/dash/internal/kube"
-	"github.com/TechDufus/dash/internal/links"
 	"github.com/TechDufus/dash/internal/obs"
 	"github.com/TechDufus/dash/internal/plugin"
 	"github.com/TechDufus/dash/internal/secret"
@@ -136,9 +135,6 @@ func run(reg *secret.Registry) error {
 		handler = demo.Wrap(srv.Handler())
 		slog.Info("demo mode: serving fake data, no cluster or upstreams are contacted")
 	} else {
-		if err := resolveProxmoxNode(ctx, &cfg, upstream.NewProxmox(cfg.ProxmoxURL, "", cfg.ProxmoxTokenID, cfg.ProxmoxTokenSecret, nil).Nodes, proxmoxDiscoveryBudget); err != nil {
-			return err
-		}
 		rc, err := kube.LoadConfig(cfg)
 		if err != nil {
 			return err
@@ -155,11 +151,9 @@ func run(reg *secret.Registry) error {
 				return err
 			}
 		}
-		pve := upstream.NewProxmox(cfg.ProxmoxURL, cfg.ProxmoxNode, cfg.ProxmoxTokenID, cfg.ProxmoxTokenSecret, metrics.Upstream("proxmox", nil)) // not a .svc host
-
 		mgr := topics.New(topics.Deps{
-			Cfg: cfg, Cluster: cluster, PVE: pve, Hosts: sup, Contributors: sup.Contributors,
-			Services: sup.Service, LinkProviders: sup.Links, Links: links.New(cfg), Secrets: reg,
+			Cfg: cfg, Cluster: cluster, Hosts: sup, Contributors: sup.Contributors,
+			Services: sup.Service, LinkProviders: sup.Links, Secrets: reg,
 		})
 		// The supervisor starts before the Manager so that no first publish is dropped.
 		if err := fw.start(ctx, registry(mgr.Plugins()), func() { mgr.Run(ctx) }); err != nil {

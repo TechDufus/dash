@@ -22,8 +22,8 @@ func orZero[T any](p *T) T {
 // snapshots that exist, zero values for the rest) and what each running plugin in cs adds.
 func (m *Manager) buildOverview(b built, cs []plugin.Contributor, now time.Time) model.OverviewData {
 	in := AttentionInput{
-		Flux: orZero(b.flux), Cluster: orZero(b.cluster), VMs: orZero(b.vms), Storage: orZero(b.storage),
-		Host: orZero(b.host), Links: m.d.Links, Resolver: m.resolver(), Now: now,
+		Flux: orZero(b.flux), Cluster: orZero(b.cluster), Storage: orZero(b.storage),
+		Host: orZero(b.host), Resolver: m.resolver(), Now: now,
 	}
 	items := legacyAttention(in, m.tracker)
 	topo := topology(in, items)
@@ -114,15 +114,6 @@ func kpis(in AttentionInput) model.Kpis {
 			k.NodesReady++
 		}
 	}
-	for _, vm := range in.VMs.VMs {
-		if vm.Template {
-			continue
-		}
-		k.VMsTotal++
-		if vm.Status == "running" {
-			k.VMsRunning++
-		}
-	}
 	for _, t := range in.Host.PackageTempsC {
 		k.CPUTempMaxC = max(k.CPUTempMaxC, t)
 	}
@@ -153,19 +144,6 @@ func topology(in AttentionInput, items []model.AttentionItem) model.Topology {
 	t := model.Topology{
 		Host: model.TopologyHost{Name: in.Host.Name, Health: hostHealth, PowerWatts: in.Host.PowerWatts, CPUTempC: cpuTemp, MemUsedRatio: memRatio},
 		VMs:  []model.TopologyVM{},
-	}
-	for _, vm := range in.VMs.VMs {
-		if vm.Template {
-			continue
-		}
-		memR := 0.0
-		if vm.MaxMemBytes > 0 {
-			memR = float64(vm.MemBytes) / float64(vm.MaxMemBytes)
-		}
-		t.VMs = append(t.VMs, model.TopologyVM{
-			VMID: vm.VMID, Name: vm.Name, Health: vm.Health, CPURatio: vm.CPURatio, MemRatio: memR,
-			IsK8sNode: vm.K8sNode != nil, Running: vm.Status == "running",
-		})
 	}
 
 	groupOf := map[string]model.Group{}

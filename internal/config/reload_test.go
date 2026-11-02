@@ -257,7 +257,7 @@ func TestReloadReReadsTheSettingsStore(t *testing.T) {
 // picked up by its first poll: the baseline is the startup tree, not the file as found later.
 func TestReloadFirstPollAppliesAChangeMadeBeforeTheReloaderExisted(t *testing.T) {
 	g := newReloadRig(t, headlampConfig("https://hl-a.example.com"))
-	held := g.res.Config.ProxmoxTokenSecret
+	held := g.res.Tree.Plugins.Proxmox.TokenSecret
 	writeFile(t, g.secretPath, "token-two-9876543210\n")
 	log, _ := logBuf()
 	rl := NewReloader(g.res, nil, ReloadOptions{Log: log})
@@ -291,8 +291,9 @@ func TestReloadRotatesSecretsInPlace(t *testing.T) {
 	defer pve.Close()
 
 	g := newReloadRig(t, headlampConfig("https://hl-a.example.com"), "DASH_PLUGINS_PROXMOX_URL="+pve.URL)
-	held := g.res.Config.ProxmoxTokenSecret
-	client := upstream.NewProxmox(g.res.Config.ProxmoxURL, "", g.res.Config.ProxmoxTokenID, held, nil)
+	held := g.res.Tree.Plugins.Proxmox.TokenSecret
+	p := g.res.Tree.Plugins.Proxmox
+	client := upstream.NewProxmox(p.URL, "", p.TokenID, held, nil)
 	if _, err := client.Nodes(context.Background()); err != nil {
 		t.Fatal(err)
 	}
@@ -398,7 +399,7 @@ func TestReloadFlagsASecretThatAppearsAfterStartup(t *testing.T) {
 	if r := rl.RestartRequired(); !slices.Contains(r, "plugins.proxmox.tokenSecret") {
 		t.Errorf("restart required = %v", r)
 	}
-	if res.Config.ProxmoxTokenSecret.IsSet() {
+	if res.Tree.Plugins.Proxmox.TokenSecret.IsSet() {
 		t.Error("the running config must not gain a secret")
 	}
 	if len(got) != 1 || got[0].Section != "plugins.proxmox" {

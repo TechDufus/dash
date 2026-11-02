@@ -62,7 +62,7 @@ export function useMe() {
 export function useVMDetail(vmid: string | number | undefined) {
   return useQuery({
     queryKey: ["vm", String(vmid)],
-    queryFn: () => api.get<VMDetail>(`/api/vms/${vmid}`),
+    queryFn: () => api.get<VMDetail>(`/api/v1/plugins/proxmox/vms/${vmid}`),
     enabled: vmid !== undefined,
     staleTime: 0,
   });

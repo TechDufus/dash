@@ -35,7 +35,7 @@ https://dash.home.techdufus.com.
   temperature into a KPI row, draws the topology from the Proxmox host through its VMs to every
   namespace, and lists what needs attention, worst first.
 - **Live, not polled from the browser.** Informers and upstream pollers rebuild the topics
-  (`host`, `vms`, `cluster`, `flux`, `storage`, `alertmanager.alerts`, `gatus.status`, `apps`), the core composes
+  (`host`, `hardware.machines`, `cluster`, `flux`, `storage`, `apps`), the proxmox plugin publishes `proxmox.vms`, `proxmox.node` and `proxmox.storage`, the alertmanager and gatus plugins `alertmanager.alerts` and `gatus.status`, the core composes
   `core.overview` from what the integrations contribute, and only what changed goes out over a
   single SSE stream. `core.plugins` says which integrations run and whether each is healthy; the
   launcher plugin publishes its links as `launcher.links`.
@@ -196,16 +196,20 @@ restart with `DASH_PLUGINS_PROXMOX_TOKEN_SECRET_FILE`.
 | `plugins.gatus.tls.caFile`, `.insecureSkipVerify` | empty, `false` | a PEM file with the CA that signed Gatus's certificate, added to the system roots; `insecureSkipVerify` skips verification (prefer `caFile`) |
 | `plugins.gatus.criticalGroups` | `[]` | the Gatus groups whose failing checks are critical (matched without regard to case); a failing check in any other group is a warning, so with `[]` every failure is a warning. The Status page lists these groups first, then the others alphabetically. The old built-in rule made `infrastructure` critical: set `DASH_PLUGINS_GATUS_CRITICAL_GROUPS='["infrastructure"]'` to keep it (a JSON list in the environment) |
 | `plugins.gatus.pageSize` | `30` | how many check results Gatus returns per endpoint (its `pageSize` query parameter), drawn as each endpoint's history on the Status page; greater than zero |
-| `plugins.proxmox.tokenID`, `.tokenSecret` | empty (Proxmox off) | API token `<user>!<token>` and its secret; set together |
+| `plugins.proxmox.tokenID`, `.tokenSecret` | empty (Proxmox off) | API token `<user>!<token>` and its secret; set together with `url` (all three turn the plugin on); a change applies without a restart |
 | `plugins.proxmox.url` | required with a token | Proxmox API |
 | `plugins.proxmox.node` | discovered from the API when the cluster has one node | the node to read; set it for multi-node clusters or to skip discovery |
+| `plugins.proxmox.tls.caFile`, `.insecureSkipVerify` | empty, `false` | a PEM file with the CA that signed the Proxmox certificate, added to the system roots; `insecureSkipVerify` skips verification (prefer `caFile`) |
+| `plugins.proxmox.criticalVMs.ids`, `.tags` | empty (no VM is critical) | a stopped VM whose id is in `ids`, or that carries one of `tags` (matched without regard to case), is critical; any other stopped VM is a warning (JSON lists in the environment: `DASH_PLUGINS_PROXMOX_CRITICAL_VMS_IDS='[101,102]'`) |
+| `plugins.proxmox.storage.source` | `api` | where the storage list comes from: `api` (the token needs the `Datastore.Audit` privilege on `/storage`) or `prometheus` (the pve-exporter series through the prometheus plugin) |
+| `plugins.proxmox.series.vmSelector` | `id="qemu/{vmid}"` | the one label matcher that selects a VM in the pve-exporter series behind the VM charts, with `{vmid}` once |
 | `plugins.hardware.hosts` | empty | `[{nodename, model}]`, one entry for now: `nodename` is the label of the host's node-exporter and IPMI series (default: `plugins.proxmox.node`, or the discovered node), `model` is shown next to its name, e.g. `Dell R730` |
 | `plugins.headlamp.url`, `.cluster` | empty, `main` | Headlamp deep links; a change applies without a restart |
 | `plugins.grafana.url` | empty | Grafana links (the alert list on alerts, Grafana on the host); a change applies without a restart |
 | `plugins.launcher.file`, `.links` | empty | the launcher's links, from a YAML or JSON file or inline (not both); the file is read when the launcher starts, so restart dash or change the launcher's settings to read it again |
 | `ui.iconBaseURL` (`DASH_UI_ICON_BASE_URL`) | empty (letter tiles) | where the icons of launcher links come from: a name such as `proxmox` is requested from `<iconBaseURL>/proxmox.png`, an absolute icon URL is used only under it. It covers the launcher only: the icons of apps on the Apps page still come from the CDN URL dash builds. Set it to `https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/png` to keep launcher icons by name; a restart applies it |
 | `plugins.kubernetes.kubeconfig` | in-cluster | used outside the cluster; `KUBECONFIG` is honoured too, as it is, with no `_FILE` form |
-| `plugins.<id>.enabled` | unset (on when configured) | `false` turns that plugin off: its topics are removed, and the web UI drops its rail entry, palette entries, overview tiles and panels and shows a "switched off" page at its address. Unset turns it on when it has the settings it needs: a plugin without them is `disabled` ("not configured: set plugins.<id>.url", naming the setting to make; the launcher names `links` or `file`) and the web UI hides its pages; `true` with settings missing or invalid makes it `unconfigured`. That is how `prometheus`, `alertmanager`, `gatus`, `victorialogs`, `grafana`, `headlamp` and `launcher` behave, and a change to any of their settings applies live: that plugin restarts, and so do the plugins that use or require it (a `grafana` change restarts `alertmanager`). `proxmox`, `hardware`, `kubernetes` and `flux` have not moved to plugins of their own yet: until they do, one without its settings reports `unavailable` ("not configured"), and a change to one of their settings needs a restart. The Kubernetes connection is required whichever plugins are off |
+| `plugins.<id>.enabled` | unset (on when configured) | `false` turns that plugin off: its topics are removed, and the web UI drops its rail entry, palette entries, overview tiles and panels and shows a "switched off" page at its address. Unset turns it on when it has the settings it needs: a plugin without them is `disabled` ("not configured: set plugins.<id>.url", naming the setting to make; the launcher names `links` or `file`) and the web UI hides its pages; `true` with settings missing or invalid makes it `unconfigured`. That is how `prometheus`, `alertmanager`, `gatus`, `victorialogs`, `proxmox`, `grafana`, `headlamp` and `launcher` behave, and a change to any of their settings applies live: that plugin restarts, and so do the plugins that use or require it (a `prometheus` change restarts `proxmox`; a `grafana` change restarts `alertmanager`). `hardware`, `kubernetes` and `flux` have not moved to plugins of their own yet: until they do, one without its settings reports `unavailable` ("not configured"), and a change to one of their settings needs a restart. The Kubernetes connection is required whichever plugins are off |
 | `plugins.<id>.type` | the section name | the plugin type; dash runs one instance per type, so leave it unset or equal to the section name |
 
 `/healthz` answers `ok` while dash runs. `/readyz` answers `ok` once both listeners are bound and
@@ -327,8 +331,9 @@ The public API is under `/api/v1` (`me`, `stream`, `series`, `topics/<topic>`, `
 by [docs/api/openapi.json](docs/api/openapi.json), an OpenAPI 3.1 document generated from the code
 (`dash api openapi`; `make generate` rewrites it and `make check` fails when it drifts or does
 not lint). The SPA uses the same paths. Before 1.0 a breaking change to them is called out in
-the release notes. The unversioned `/api/vms`, `/api/pods` and `/api/actions`
-routes are internal to the SPA and go away as their plugins move; `/api/logs` and `/api/logs/tail`
+the release notes. The unversioned `/api/pods` and `/api/actions`
+routes are internal to the SPA and go away as their plugins move; `/api/vms/{vmid}` is now
+`/api/v1/plugins/proxmox/vms/{vmid}` and the old path answers 404; `/api/logs` and `/api/logs/tail`
 are now `/api/v1/plugins/victorialogs/logs` and `.../logs/tail` and the old paths answer 404; `/api/silences` is already
 gone (silences are the alertmanager plugin's actions, and the old paths answer 404), and
 `/api/me`, `/api/stream` and `/api/series` are now `/api/v1/me`, `/api/v1/stream` and
@@ -431,7 +436,6 @@ name wins), with no `_FILE` form because it is another tool's variable.
 | `internal/topics` | topic builders, health and attention rules, and the shims that stand for each integration in the plugin registry until it becomes a plugin |
 | `internal/hub`, `internal/api` | SSE hub, REST, middleware |
 | `internal/obs` | dash's own Prometheus metrics (`server.metrics`), in a private registry |
-| `internal/links` | Proxmox deep links (Headlamp and Grafana links come from their plugins) |
 | `internal/demo` | fake data for `DASH_DEMO=true`; `internal/demo/world` is the fake homelab the plugins' demo twins publish from |
 | `web/` | React 19, Vite, Tailwind v4, shadcn/ui and Magic UI |
 | `web/src/plugins` | the SPA's plugin modules, registry, slots and generic panels; a module's directory name is its plugin ID |

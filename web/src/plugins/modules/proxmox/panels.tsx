@@ -1,21 +1,28 @@
 import { Monitor, Server } from "lucide-react";
-import type { Health } from "@/api/types";
+import { useTopic } from "@/api/stream";
 import { BytesBar } from "@/components/bytes-bar";
 import { Kpi } from "@/components/kpi";
 import { Empty, Panel, PanelHeader, PanelSkeleton } from "@/components/panel";
+import { formatDuration } from "@/lib/format";
 import { KPI_TILE, KpiLink } from "../../kpi-link";
 import type { ModulePanels, SlotProps } from "../../types";
 
+/**
+ * The plugin's one tile. It owns the presentation of every KPI the plugin publishes (the overview
+ * draws no generic tile for a plugin that contributes one), and takes the health from the
+ * running-VMs KPI itself rather than recomputing it.
+ */
 function VmsTile({ data }: SlotProps["overview.kpis"]) {
-  const k = data.kpis;
-  const vms: Health = k.vmsRunning < k.vmsTotal ? "warn" : "ok";
+  const running = data.kpiList.find((x) => x.plugin === "proxmox" && x.key === "vms.running");
+  const total = data.kpiList.find((x) => x.plugin === "proxmox" && x.key === "vms.total");
+  if (!running || !total) return null;
   return (
-    <KpiLink href="/vms" label={`VMs ${k.vmsRunning} of ${k.vmsTotal} running. Open VMs`}>
+    <KpiLink href="/vms" label={`VMs ${running.value} of ${total.value} running. Open VMs`}>
       <Kpi
         label="VMs"
-        value={k.vmsRunning}
-        suffix={`/ ${k.vmsTotal}`}
-        health={vms}
+        value={running.value}
+        suffix={`/ ${total.value}`}
+        health={running.health}
         icon={<Monitor aria-hidden="true" />}
         className={KPI_TILE}
       />
@@ -23,14 +30,17 @@ function VmsTile({ data }: SlotProps["overview.kpis"]) {
   );
 }
 
-function ProxmoxStoragePanel({ env }: SlotProps["storage"]) {
+/** Reads its own topic, so the storage page needs no kubernetes envelope to draw it. */
+function ProxmoxStoragePanel(_: SlotProps["storage"]) {
+  const env = useTopic("proxmox.storage");
   if (!env) return <PanelSkeleton lines={3} />;
+  const { storages } = env.data;
   return (
     <Panel className="h-full">
       <PanelHeader title="Proxmox storage" icon={<Server />} />
       <div className="space-y-4 px-4 pb-4">
-        {env.data.pveStorages.length === 0 && <Empty className="py-4">No storages.</Empty>}
-        {env.data.pveStorages.map((s) => (
+        {storages.length === 0 && <Empty className="py-4">No storages.</Empty>}
+        {storages.map((s) => (
           <BytesBar key={s.name} used={s.usedBytes} total={s.sizeBytes} label={s.name} />
         ))}
       </div>
@@ -38,10 +48,43 @@ function ProxmoxStoragePanel({ env }: SlotProps["storage"]) {
   );
 }
 
+function Fact({ label, value, title }: { label: string; value: string; title?: string }) {
+  return (
+    <div className="min-w-0">
+      <dt className="text-xs text-muted">{label}</dt>
+      <dd className="num truncate text-sm text-fg" title={title ?? value}>
+        {value}
+      </dd>
+    </div>
+  );
+}
+
+/** The Proxmox node's facts, drawn inside the Hardware page's System panel. */
+function NodeFacts(_: SlotProps["hardware.facts"]) {
+  const env = useTopic("proxmox.node");
+  if (!env) return null;
+  const node = env.data;
+  return (
+    <dl className="grid grid-cols-2 gap-x-4 gap-y-3">
+      <Fact label="Uptime" value={formatDuration(node.uptimeSeconds)} />
+      <Fact label="Proxmox VE" value={node.version || "–"} />
+      <Fact label="Kernel" value={node.kernel || "–"} />
+      <Fact label="CPU" value={node.cpuModel || "–"} />
+    </dl>
+  );
+}
+
 export const panels: ModulePanels = {
   "overview.kpis": [{ id: "vms", order: 40, reads: ["core.overview"], component: VmsTile }],
-  // The Proxmox storages arrive in the kubernetes plugin's storage topic (until a proxmox topic carries them).
   storage: [
-    { id: "proxmox-storage", order: 30, reads: ["storage"], component: ProxmoxStoragePanel },
+    {
+      id: "proxmox-storage",
+      order: 30,
+      reads: ["proxmox.storage"],
+      component: ProxmoxStoragePanel,
+    },
+  ],
+  "hardware.facts": [
+    { id: "proxmox-node", order: 10, reads: ["proxmox.node"], component: NodeFacts },
   ],
 };

@@ -196,7 +196,8 @@ func (b *specBuilder) typeSchema(v any) jsonschema.Schema {
 	return b.refl.Type(reflect.TypeOf(v))
 }
 
-// params lists the path and query parameters; a path parameter is every {name} of the path.
+// params lists the path and query parameters; a path parameter is every {name} of the path. A path
+// parameter nobody documented (a plugin route's) is described by its place in the path.
 func params(path string, pathDocs, query []plugin.Param) []object {
 	out := []object{}
 	doc := map[string]string{}
@@ -205,9 +206,7 @@ func params(path string, pathDocs, query []plugin.Param) []object {
 	}
 	for _, m := range pathVarRE.FindAllStringSubmatch(path, -1) {
 		p := object{"name": m[1], "in": "path", "required": true, "schema": object{"type": "string"}}
-		if d := doc[m[1]]; d != "" {
-			p["description"] = d
-		}
+		p["description"] = cmp.Or(doc[m[1]], "The {"+m[1]+"} segment of the request path.")
 		out = append(out, p)
 	}
 	for _, q := range query {

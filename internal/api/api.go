@@ -32,7 +32,6 @@ import (
 type DataAPI interface {
 	PodDetail(ctx context.Context, ns, name string) (model.PodDetail, error)
 	NodeIP(name string) (string, bool)
-	VMDetail(ctx context.Context, vmid int) (model.VMDetail, error)
 }
 
 // PluginsAPI is the slice of plugin.Supervisor the API uses.

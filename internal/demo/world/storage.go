@@ -45,9 +45,6 @@ func (w *World) storage(now time.Time) model.StorageData {
 		{Name: "media-cache", UsedBytes: gib(9), Health: model.HealthOK},
 	}
 	d.RustFS = model.UsedSize{UsedBytes: gib(159), UsableBytes: gib(1800)}
-	for _, p := range w.PVEStorages() { // still part of the storage payload until the proxmox plugin publishes them
-		d.PVEStorages = append(d.PVEStorages, model.PVEStorage{Name: p.Name, UsedBytes: p.UsedBytes, SizeBytes: p.SizeBytes})
-	}
 	d.CNPG = []model.CNPGCluster{{Namespace: "acme", Name: "acme-db", Instances: 2, ReadyInstances: 2,
 		Phase: "Cluster in healthy state", LastBackupAgeSeconds: new(Around("cnpgbk", now, 5.2*3600, 1800)),
 		Links: w.links.Headlamp("Cluster", "acme", "acme-db")}}

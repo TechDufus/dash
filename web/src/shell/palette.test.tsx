@@ -34,8 +34,8 @@ function connect(rows = shimRows()): FakeEventSource {
   es.open();
   es.emit("core.plugins", pluginsEnvelope(rows));
   es.emit(
-    "vms",
-    envelope("vms", {
+    "proxmox.vms",
+    envelope("proxmox.vms", {
       vms: [
         { vmid: 101, name: "media", template: false },
         { vmid: 9000, name: "base-image", template: true },

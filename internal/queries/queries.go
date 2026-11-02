@@ -37,10 +37,6 @@ const (
 	RustFSUsed   = `max(rustfs_cluster_capacity_used_bytes)`
 	RustFSUsable = `max(rustfs_cluster_capacity_usable_total_bytes)`
 
-	PVEStorageUsed = `pve_disk_usage_bytes{id=~"storage/.+"}`
-	PVEStorageSize = `pve_disk_size_bytes{id=~"storage/.+"}`
-	PVEStorageInfo = `pve_storage_info`
-
 	CNPGBackupAge = `time() - max by (namespace,cluster)(barman_cloud_cloudnative_pg_io_last_available_backup_timestamp{role="primary"})`
 
 	EtcdDB    = `max(etcd_mvcc_db_total_size_in_bytes{job="etcd"})`
@@ -145,12 +141,6 @@ func ValidDNS(s string) bool { return dnsRE.MatchString(s) }
 
 // Series returns the PromQL expression of a named /api/v1/series.
 func Series(name string, a Args) (string, error) {
-	vm := func() (string, error) {
-		if !ValidVMID(a.VMID) {
-			return "", fmt.Errorf("%w: vmid must be 1-9 digits", ErrBadSeries)
-		}
-		return `id="qemu/` + a.VMID + `"`, nil
-	}
 	switch name {
 	case "host.power":
 		return HostPower(a.HostNodename), nil
@@ -164,25 +154,6 @@ func Series(name string, a Args) (string, error) {
 		return HostSensors(a.HostNodename), nil
 	case "host.fans":
 		return HostFans(a.HostNodename), nil
-	case "vm.cpu", "vm.mem", "vm.netIn", "vm.netOut", "vm.diskRead", "vm.diskWrite":
-		sel, err := vm()
-		if err != nil {
-			return "", err
-		}
-		switch name {
-		case "vm.cpu":
-			return `pve_cpu_usage_ratio{` + sel + `}`, nil
-		case "vm.mem":
-			return `pve_memory_usage_bytes{` + sel + `} / pve_memory_size_bytes{` + sel + `}`, nil
-		case "vm.netIn":
-			return `rate(pve_network_receive_bytes_total{` + sel + `}[2m])`, nil
-		case "vm.netOut":
-			return `rate(pve_network_transmit_bytes_total{` + sel + `}[2m])`, nil
-		case "vm.diskRead":
-			return `rate(pve_disk_read_bytes_total{` + sel + `}[2m])`, nil
-		default:
-			return `rate(pve_disk_written_bytes_total{` + sel + `}[2m])`, nil
-		}
 	case "node.cpu":
 		if a.Instance == "" {
 			return "", fmt.Errorf("%w: node required", ErrBadSeries)

@@ -17,8 +17,6 @@ type storageSnap struct {
 	pvcUsed, pvcCap, pvcGrowth map[string]float64 // "<ns>/<pvc>"
 	bucketUsed, bucketQuota    map[string]float64
 	rustfsUsed, rustfsUsable   float64
-	pveUsed, pveSize           map[string]float64 // by id
-	pveNames                   map[string]string  // id -> storage name
 	nasAge                     map[string]float64
 	cnpgAge                    map[string]float64 // "<ns>/<cluster>"
 	etcdDB, etcdQuota          float64
@@ -29,7 +27,6 @@ func (m *Manager) pollStorage(ctx context.Context) {
 		"pvcUsed": queries.PVCUsed, "pvcCap": queries.PVCCapacity, "pvcGrowth": queries.PVCGrowth,
 		"bucketUsed": queries.BucketUsed, "bucketQuota": queries.BucketQuota,
 		"rustfsUsed": queries.RustFSUsed, "rustfsUsable": queries.RustFSUsable,
-		"pveUsed": queries.PVEStorageUsed, "pveSize": queries.PVEStorageSize, "pveInfo": queries.PVEStorageInfo,
 		"cnpg":   queries.CNPGBackupAge,
 		"etcdDB": queries.EtcdDB, "etcdQuota": queries.EtcdQuota,
 	}
@@ -54,14 +51,6 @@ func (m *Manager) pollStorage(ctx context.Context) {
 	set("bucketQuota", func(x []upstream.Sample) { s.bucketQuota = byLabel(x, "bucket") })
 	set("rustfsUsed", func(x []upstream.Sample) { s.rustfsUsed, _ = first(x) })
 	set("rustfsUsable", func(x []upstream.Sample) { s.rustfsUsable, _ = first(x) })
-	set("pveUsed", func(x []upstream.Sample) { s.pveUsed = byLabel(x, "id") })
-	set("pveSize", func(x []upstream.Sample) { s.pveSize = byLabel(x, "id") })
-	set("pveInfo", func(x []upstream.Sample) {
-		s.pveNames = map[string]string{}
-		for _, v := range x {
-			s.pveNames[v.Labels["id"]] = v.Labels["storage"]
-		}
-	})
 	set("nas", func(x []upstream.Sample) { s.nasAge = byLabel(x, "cronjob") })
 	set("cnpg", func(x []upstream.Sample) { s.cnpgAge = byLabels(x, "namespace", "cluster") })
 	set("etcdDB", func(x []upstream.Sample) { s.etcdDB, _ = first(x) })
@@ -75,7 +64,7 @@ func (m *Manager) buildStorage(now time.Time) model.StorageData {
 	s := m.storage
 	m.mu.RUnlock()
 	out := model.StorageData{
-		PVCs: []model.PVC{}, Buckets: []model.Bucket{}, PVEStorages: []model.PVEStorage{},
+		PVCs: []model.PVC{}, Buckets: []model.Bucket{},
 		CNPG: []model.CNPGCluster{}, NASBackups: []model.NASBackup{},
 		RustFS: model.UsedSize{UsedBytes: int64(s.rustfsUsed), UsableBytes: int64(s.rustfsUsable)},
 		Etcd:   model.Etcd{DBBytes: int64(s.etcdDB), QuotaBytes: int64(s.etcdQuota)},
@@ -130,15 +119,6 @@ func (m *Manager) buildStorage(now time.Time) model.StorageData {
 		out.Buckets = append(out.Buckets, bk)
 	}
 	sort.Slice(out.Buckets, func(i, j int) bool { return out.Buckets[i].Name < out.Buckets[j].Name })
-
-	for id, size := range s.pveSize {
-		name := s.pveNames[id]
-		if name == "" {
-			name = id
-		}
-		out.PVEStorages = append(out.PVEStorages, model.PVEStorage{Name: name, UsedBytes: int64(s.pveUsed[id]), SizeBytes: int64(size)})
-	}
-	sort.Slice(out.PVEStorages, func(i, j int) bool { return out.PVEStorages[i].Name < out.PVEStorages[j].Name })
 
 	for _, u := range m.d.Cluster.List(kube.GVRCNPGClusters) {
 		c := model.CNPGCluster{Namespace: u.GetNamespace(), Name: u.GetName(),

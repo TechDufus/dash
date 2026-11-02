@@ -9,8 +9,6 @@ import (
 	"strings"
 	"testing"
 	"time"
-
-	"github.com/TechDufus/dash/internal/secret"
 )
 
 // logBuf captures what Resolve warns about.
@@ -64,7 +62,6 @@ func TestFileLoadsIntoConfig(t *testing.T) {
 		Listen: "0.0.0.0:9090", HealthListen: "127.0.0.1:9091", PublicURL: "https://dash.example.com",
 		AllowedHosts: []string{"media.example.com", "192.0.2.10"}, ReadyRequires: []string{"kubernetes", "flux"}, ReadyTimeout: 2 * time.Minute,
 		DataDir: "/var/lib/dash", SettingsUI: SettingsReadOnly, Limits: defaultLimits,
-		ProxmoxURL: "https://pve.example.com:8006", ProxmoxNode: "pve", ProxmoxTokenID: "dash@pve!dash", ProxmoxTokenSecret: secret.New("s3cret", ""),
 		HostNodename: "box", HostModel: "Dell R730",
 		Kubeconfig: "/etc/dash/kubeconfig",
 		Conventions: Conventions{
@@ -75,6 +72,9 @@ func TestFileLoadsIntoConfig(t *testing.T) {
 	}
 	if !reflect.DeepEqual(res.Config, want) {
 		t.Errorf("Config =\n%+v\nwant\n%+v", res.Config, want)
+	}
+	if p := res.Tree.Plugins.Proxmox; p.URL != "https://pve.example.com:8006" || p.Node != "pve" || p.TokenID != "dash@pve!dash" || p.TokenSecret.Reveal() != "s3cret" {
+		t.Errorf("plugins.proxmox = %+v", p)
 	}
 	// The prometheus plugin reads its own section: the flat view has no field for it.
 	if got := res.Tree.Plugins.Prometheus.URL; got != "http://prometheus.example.com:9090" {

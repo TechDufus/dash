@@ -138,7 +138,7 @@ func TestUISecretRoundTripsThroughResolve(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	v := res.Config.ProxmoxTokenSecret
+	v := res.Tree.Plugins.Proxmox.TokenSecret
 	if v.Reveal() != canary || v.Ref() != "" {
 		t.Errorf("secret ref %q, value ok: %v", v.Ref(), v.Reveal() == canary)
 	}
@@ -154,7 +154,7 @@ func TestUISecretRoundTripsThroughResolve(t *testing.T) {
 		Environ: append([]string{"DASH_PLUGINS_PROXMOX_TOKEN_SECRET=from-env-0123456789"}, pveBase...),
 		UI:      g.store.Values(), Keys: keys,
 	})
-	if err != nil || res.Config.ProxmoxTokenSecret.Reveal() != "from-env-0123456789" {
+	if err != nil || res.Tree.Plugins.Proxmox.TokenSecret.Reveal() != "from-env-0123456789" {
 		t.Errorf("env over a stored secret: %v", err)
 	}
 }
@@ -249,7 +249,7 @@ func TestReplaceWithoutKeyNamesTheKeyAndChangesNothing(t *testing.T) {
 	// dash itself runs, and env and file references work, without a key.
 	file := writeSecretFile(t, canary)
 	res, _, err := resolveWith(t, Sources{Environ: append([]string{"DASH_PLUGINS_PROXMOX_TOKEN_SECRET_FILE=" + file}, pveBase...), UI: g.store.Values()})
-	if err != nil || res.Config.ProxmoxTokenSecret.Reveal() != canary {
+	if err != nil || res.Tree.Plugins.Proxmox.TokenSecret.Reveal() != canary {
 		t.Errorf("a keyless dash must still resolve file refs: %v", err)
 	}
 }
@@ -385,7 +385,7 @@ func TestRekeyReencryptsEveryValueAndAuditsIt(t *testing.T) {
 
 	rotated := keyring(t, 2, 1)
 	// With both keys the old value still resolves, before and after the rekey.
-	if res, _, err := g.resolve(t, rotated); err != nil || res.Config.ProxmoxTokenSecret.Reveal() != canary {
+	if res, _, err := g.resolve(t, rotated); err != nil || res.Tree.Plugins.Proxmox.TokenSecret.Reveal() != canary {
 		t.Fatalf("resolve during rotation: %v", err)
 	}
 	RekeyStore(g.store, rotated, g.alog, slog.New(slog.DiscardHandler))
@@ -397,7 +397,7 @@ func TestRekeyReencryptsEveryValueAndAuditsIt(t *testing.T) {
 	if strings.Contains(g.backups(t), old) {
 		t.Error("the old-key ciphertext survives in a backup")
 	}
-	if res, _, err := g.resolve(t, keyring(t, 2)); err != nil || res.Config.ProxmoxTokenSecret.Reveal() != canary {
+	if res, _, err := g.resolve(t, keyring(t, 2)); err != nil || res.Tree.Plugins.Proxmox.TokenSecret.Reveal() != canary {
 		t.Errorf("after the rotation the current key alone must open it: %v", err)
 	}
 
@@ -465,7 +465,7 @@ func TestRekeySkippedWhenTheIntentCannotBeRecorded(t *testing.T) {
 	if g.stored(t) != old {
 		t.Error("nothing may be rewritten without a recorded intent")
 	}
-	if res, _, err := g.resolve(t, rotated); err != nil || res.Config.ProxmoxTokenSecret.Reveal() != canary {
+	if res, _, err := g.resolve(t, rotated); err != nil || res.Tree.Plugins.Proxmox.TokenSecret.Reveal() != canary {
 		t.Errorf("the value must still decrypt: %v", err)
 	}
 }

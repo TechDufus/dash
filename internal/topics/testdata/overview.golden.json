@@ -200,7 +200,8 @@
       "detail": "VMID 3000",
       "since": "2026-10-30T12:00:00Z",
       "route": "/vms/3000",
-      "links": []
+      "links": [],
+      "ref": "proxmox:VM/3000"
     },
     {
       "id": "gatus:apps_grafana",
@@ -290,8 +291,6 @@
     "sourceVerified": false,
     "nodesReady": 1,
     "nodesTotal": 2,
-    "vmsRunning": 2,
-    "vmsTotal": 3,
     "powerWatts": 412,
     "cpuTempMaxC": 91.5,
     "worstPvc": {
@@ -300,7 +299,24 @@
       "usedRatio": 0.93
     }
   },
-  "kpiList": [],
+  "kpiList": [
+    {
+      "key": "vms.running",
+      "plugin": "proxmox",
+      "label": "VMs running",
+      "unit": "",
+      "value": 2,
+      "health": "warn"
+    },
+    {
+      "key": "vms.total",
+      "plugin": "proxmox",
+      "label": "VMs",
+      "unit": "",
+      "value": 3,
+      "health": "ok"
+    }
+  ],
   "topology": {
     "host": {
       "name": "pve-demo",

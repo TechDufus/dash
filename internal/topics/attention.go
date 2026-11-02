@@ -8,7 +8,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/TechDufus/dash/internal/links"
 	"github.com/TechDufus/dash/internal/model"
 	"github.com/TechDufus/dash/internal/plugin"
 )
@@ -18,11 +17,10 @@ import (
 type AttentionInput struct {
 	Flux    model.FluxData
 	Cluster model.ClusterData
-	VMs     model.VMsData
 	Storage model.StorageData
 	Host    model.HostData
-	Links   *links.Builder
-	// Resolver resolves the Grafana and Headlamp links of the rules' objects; nil means none.
+	// Resolver resolves the links of the rules' objects (Grafana, Headlamp, the Proxmox UI and
+	// shell); nil means none.
 	Resolver plugin.LinkResolver
 	Now      time.Time
 }
@@ -52,7 +50,6 @@ var legacyRules = []struct {
 }{
 	{"flux", attentionFlux},
 	{"kubernetes", attentionCluster},
-	{"proxmox", attentionVMs},
 	{"kubernetes", attentionStorage},
 	{"hardware", attentionHost},
 }
@@ -201,17 +198,6 @@ func podProblem(p model.Pod) string {
 	return "is stuck pending"
 }
 
-func attentionVMs(in AttentionInput, add addFn) {
-	for _, vm := range in.VMs.VMs {
-		if vm.Template {
-			continue
-		}
-		add(fmt.Sprintf("vm:%d", vm.VMID), VMHealth(vm.VMID, vm.Status, vm.Template), "proxmox",
-			fmt.Sprintf("VM %s is %s", vm.Name, vm.Status), fmt.Sprintf("VMID %d", vm.VMID), time.Time{},
-			fmt.Sprintf("/vms/%d", vm.VMID), vm.Links)
-	}
-}
-
 func attentionStorage(in AttentionInput, add addFn) {
 	for _, p := range in.Storage.PVCs {
 		if p.UsedRatio == nil {
@@ -231,7 +217,7 @@ func attentionStorage(in AttentionInput, add addFn) {
 }
 
 func attentionHost(in AttentionInput, add addFn) {
-	hl := append(in.Links.ProxmoxUI(), in.Links.HostShell()...)
+	hl := append(in.link("ProxmoxUI", "", ""), in.link("HostShell", "", "")...)
 	for _, p := range in.Host.Pools {
 		if !strings.EqualFold(p.State, "online") {
 			add("zfs:pool:"+p.Name, model.HealthCrit, "zfs", fmt.Sprintf("ZFS pool %s is %s", p.Name, p.State), "", time.Time{}, "/hardware", hl)

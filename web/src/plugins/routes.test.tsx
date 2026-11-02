@@ -47,10 +47,12 @@ describe("PluginRoutes", () => {
 
   it("passes route params to the page and matches the optional segment", async () => {
     const es = connect();
-    es.emit("vms", envelope("vms", { vms: [], machines: [], tasks: [] }));
+    es.emit("proxmox.vms", envelope("proxmox.vms", { vms: [], tasks: [] }));
     renderApp(<PluginRoutes />, { path: "/vms/101" });
     // The VM page asks for the detail of the VM named in the URL.
-    await waitFor(() => expect(fetchStub.calls.some((c) => c.path === "/api/vms/101")).toBe(true));
+    await waitFor(() =>
+      expect(fetchStub.calls.some((c) => c.path === "/api/v1/plugins/proxmox/vms/101")).toBe(true),
+    );
   });
 
   it("shows a loading page, and mounts nothing, until the plugin list is known", () => {
@@ -118,10 +120,10 @@ describe("PluginRoutes", () => {
 
   it("never mounts or fetches a hidden plugin's page", async () => {
     const es = connect(withState(shimRows(), "proxmox", "disabled"));
-    es.emit("vms", envelope("vms", { vms: [], machines: [], tasks: [] })); // data a hidden plugin should not show
+    es.emit("proxmox.vms", envelope("proxmox.vms", { vms: [], tasks: [] })); // data a hidden plugin should not show
     renderApp(<PluginRoutes />, { path: "/vms/101" });
     expect(screen.getByRole("status")).toHaveTextContent("Proxmox VE is switched off.");
-    // The VM sheet would ask for /api/vms/101 the moment the page mounted.
+    // The VM sheet would ask for /api/v1/plugins/proxmox/vms/101 the moment the page mounted.
     await new Promise((r) => setTimeout(r, 20));
     expect(fetchStub.calls).toEqual([]);
   });

@@ -6,7 +6,8 @@ import (
 	"github.com/TechDufus/dash/internal/model"
 )
 
-// VMs is the Proxmox payload: guests, the machines the gatus checks vouch for, and recent tasks.
+// VMs is the proxmox.vms payload of the fake lab: guests and recent tasks. The proxmox twin
+// decorates the guests (ref, critical flag, links); the machines are Machines.
 func (w *World) VMs() model.VMsData { return w.vms(w.clock()) }
 
 func (w *World) vms(now time.Time) model.VMsData {
@@ -32,7 +33,7 @@ func (w *World) vms(now time.Time) model.VMsData {
 		vm := model.VM{
 			VMID: v.id, Name: v.name, Status: "stopped", Health: model.HealthOK, Tags: v.tags, CPUs: v.cpus,
 			MaxMemBytes: gib(v.memGiB), Template: v.id == 9000, Lock: "",
-			Links: w.links.VMConsole(v.id, v.name),
+			Links: []model.Link{}, // the proxmox twin adds the console and Proxmox links
 		}
 		if v.running {
 			vm.Status = "running"
@@ -46,9 +47,6 @@ func (w *World) vms(now time.Time) model.VMsData {
 			vm.K8sNode = &model.K8sNodeRef{Name: v.node, Ready: true}
 		}
 		d.VMs = append(d.VMs, vm)
-	}
-	for _, m := range w.Machines() { // the machines still ride in the VMs payload; hardware.machines carries them next
-		d.Machines = append(d.Machines, model.Machine{Name: m.Name, Up: m.Up, Source: m.Source})
 	}
 	d.Tasks = []model.PVETask{
 		{UPID: "UPID:pve-demo:0001:qmsnapshot", Type: "qmsnapshot", ID: "101", User: "root@pam", Status: "OK", StartTime: ago(now, 26*time.Hour), EndTime: agoP(now, 26*time.Hour-40*time.Second)},

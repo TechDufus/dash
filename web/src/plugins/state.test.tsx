@@ -193,7 +193,7 @@ describe("usePluginVisible and useTopicAvailable", () => {
       () => ({
         proxmox: usePluginVisible("proxmox"),
         ghost: usePluginVisible("ghost"),
-        vms: useTopicAvailable("vms"),
+        vms: useTopicAvailable("proxmox.vms"),
         overview: useTopicAvailable("core.overview"),
       }),
       { wrapper },

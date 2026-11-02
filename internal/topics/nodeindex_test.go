@@ -16,7 +16,6 @@ import (
 	"github.com/TechDufus/dash/internal/config"
 	"github.com/TechDufus/dash/internal/hub"
 	"github.com/TechDufus/dash/internal/kube"
-	"github.com/TechDufus/dash/internal/links"
 	"github.com/TechDufus/dash/internal/model"
 	"github.com/TechDufus/dash/internal/plugin"
 	"github.com/TechDufus/dash/internal/plugin/plugintest"
@@ -52,7 +51,7 @@ func nodeCluster() *kube.Cluster {
 
 func nodeIndexManager(c *kube.Cluster) *Manager {
 	cfg := config.Defaults()
-	return New(Deps{Cfg: cfg, Cluster: c, Hosts: plugintest.AllRunning(hub.New(), LegacyManifests()...), Links: links.New(cfg)})
+	return New(Deps{Cfg: cfg, Cluster: c, Hosts: plugintest.AllRunning(hub.New(), LegacyManifests()...)})
 }
 
 // The Manager answers svc.NodeIndex from the informers: no node is known before they sync, then
@@ -182,7 +181,7 @@ func TestKubernetesShimExportsTheNodeIndex(t *testing.T) {
 	if !isIdx || idx != svc.NodeIndex(m) {
 		t.Fatalf("the service is %T, want the Manager as svc.NodeIndex", got)
 	}
-	for _, id := range []plugin.ID{"proxmox", "hardware", "flux"} {
+	for _, id := range []plugin.ID{"hardware", "flux"} {
 		if s, ok := sup.Service(id); ok || s != nil {
 			t.Errorf("shim %s exports %v", id, s)
 		}
@@ -194,12 +193,12 @@ func TestKubernetesShimExportsTheNodeIndex(t *testing.T) {
 // that has no legacy name, like hardware.machines in P3.6, still has an owner.
 func TestOwnersAreKeyedByWireName(t *testing.T) {
 	want := map[model.Topic]owner{
-		"vms":     {"proxmox", "vms"},
-		"host":    {"hardware", "hosts"},
-		"cluster": {"kubernetes", "cluster"},
-		"storage": {"kubernetes", "storage"},
-		"apps":    {"kubernetes", "apps"},
-		"flux":    {"flux", "objects"},
+		"host":              {"hardware", "hosts"},
+		"hardware.machines": {"hardware", "machines"},
+		"cluster":           {"kubernetes", "cluster"},
+		"storage":           {"kubernetes", "storage"},
+		"apps":              {"kubernetes", "apps"},
+		"flux":              {"flux", "objects"},
 	}
 	if len(owners) != len(want) {
 		t.Errorf("owners has %d entries, want %d: %v", len(owners), len(want), owners)

@@ -18,10 +18,11 @@ import (
 
 	"github.com/TechDufus/dash/internal/config"
 	"github.com/TechDufus/dash/internal/kube"
-	"github.com/TechDufus/dash/internal/links"
 	"github.com/TechDufus/dash/internal/model"
 	"github.com/TechDufus/dash/internal/plugin"
 	"github.com/TechDufus/dash/internal/plugin/plugintest"
+	"github.com/TechDufus/dash/internal/pluginconf"
+	"github.com/TechDufus/dash/internal/plugins/proxmox"
 	"github.com/TechDufus/dash/internal/secret"
 	"github.com/TechDufus/dash/internal/svc"
 	"github.com/TechDufus/dash/internal/topics"
@@ -61,13 +62,31 @@ func TestStreamEndpointNeverCarriesUpstreamDetail(t *testing.T) {
 	cluster := kube.NewFromClients(fake.NewClientset(), dynfake.NewSimpleDynamicClientWithCustomListKinds(runtime.NewScheme(), listKinds))
 
 	cfg := config.Defaults()
-	cfg.PublicURL, cfg.ProxmoxNode, cfg.HostNodename = testOrigin+"/", "pve", "pve"
+	cfg.PublicURL, cfg.HostNodename = testOrigin+"/", "pve"
 	promClient := upstream.NewProm(prom.URL, nil)
 	gatus := &authGatus{}
+	pveCfg := pluginconf.DefaultProxmox()
+	pveCfg.URL, pveCfg.Node, pveCfg.TokenID, pveCfg.TokenSecret = pve.URL, "pve", "u@pve!t", token
 	s := newServer(func(d *Deps) {
 		d.Cfg, d.Secrets = cfg, reg
+		// The proxmox plugin itself polls the failing Proxmox and publishes proxmox.vms into the
+		// hub the stream serves.
+		set := &plugintest.Settings{}
+		set.Set(plugin.InstanceConfig{Name: "proxmox", Type: "proxmox", Config: &pveCfg})
+		sup := plugin.NewSupervisor(plugin.Options{
+			Publisher: d.Hub, Settings: set, StatusEvery: 20 * time.Millisecond, StopTimeout: time.Second, ScrubLog: reg.Scrub,
+		})
+		if err := sup.Add(proxmox.New); err != nil {
+			t.Fatal(err)
+		}
+		sctx, scancel := context.WithCancel(context.Background())
+		if err := sup.Run(sctx); err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { scancel(); sup.Shutdown(context.Background()) })
+		d.Plugins = sup
 		m := topics.New(topics.Deps{
-			Cfg: cfg, Cluster: cluster, Hosts: plugintest.AllRunning(d.Hub, topics.LegacyManifests()...), Links: links.New(cfg), Secrets: reg,
+			Cfg: cfg, Cluster: cluster, Hosts: plugintest.AllRunning(d.Hub, topics.LegacyManifests()...), Secrets: reg,
 			// The prometheus and gatus plugins' services: a plain client and a Gatus that wants
 			// credentials, read by the Manager through Services.
 			Services: func(id plugin.ID) (any, bool) {
@@ -79,7 +98,6 @@ func TestStreamEndpointNeverCarriesUpstreamDetail(t *testing.T) {
 				}
 				return nil, false
 			},
-			PVE: upstream.NewProxmox(pve.URL, "pve", "u@pve!t", token, nil),
 		})
 		ctx, cancel := context.WithCancel(context.Background())
 		t.Cleanup(cancel)
@@ -90,7 +108,7 @@ func TestStreamEndpointNeverCarriesUpstreamDetail(t *testing.T) {
 
 	_, lines := sseClient(t, s.Handler(), "/api/v1/stream")
 	var stream strings.Builder
-	want := []string{`"http_500"`, `"tls"`, `"auth"`} // proxmox, victoriametrics, gatus (on apps and vms)
+	want := []string{`"http_500"`, `"tls"`, `"auth"`} // proxmox, prometheus, gatus (on apps)
 	deadline := time.After(15 * time.Second)
 	for missing := true; missing; {
 		select {

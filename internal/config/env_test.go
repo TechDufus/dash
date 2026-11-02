@@ -336,7 +336,7 @@ func TestEnvSetsFieldsWithJSONForLists(t *testing.T) {
 	}
 	c := res.Config
 	if !slices.Equal(c.AllowedHosts, []string{"media.example.com", "192.0.2.10"}) || c.HostNodename != "box" || c.HostModel != "Dell R730" ||
-		c.ProxmoxNode != "pve" || c.Conventions.NASBackupNamespace != "backup" || c.Conventions.NASBackupCronJob != "nightly" {
+		res.Tree.Plugins.Proxmox.Node != "pve" || c.Conventions.NASBackupNamespace != "backup" || c.Conventions.NASBackupCronJob != "nightly" {
 		t.Errorf("config = %+v", c)
 	}
 	if strings.Contains(log, "WARN") {
@@ -551,7 +551,7 @@ func TestEnvTable(t *testing.T) {
 	if v := byPath["settings.ui"]; !v.Restart {
 		t.Errorf("settings.ui is read once at startup: %+v", v)
 	}
-	for _, want := range []string{"PATH", "DASH_PLUGINS_PROXMOX_TOKEN_SECRET", "DASH_DATA_DIR", "KUBECONFIG", "_FILE", "applies live for prometheus", "plugins that use or require it", "proxmox, hardware, kubernetes or flux"} {
+	for _, want := range []string{"PATH", "DASH_PLUGINS_PROXMOX_TOKEN_SECRET", "DASH_DATA_DIR", "KUBECONFIG", "_FILE", "applies live for prometheus", "plugins that use or require it", "a grafana change restarts alertmanager", "A change to hardware, kubernetes or"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("table lacks %q:\n%s", want, out)
 		}

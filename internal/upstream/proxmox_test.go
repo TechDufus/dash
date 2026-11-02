@@ -6,9 +6,11 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/TechDufus/dash/internal/model"
 	"github.com/TechDufus/dash/internal/secret"
@@ -31,21 +33,21 @@ func pveServer(t *testing.T, routes map[string]string) (*httptest.Server, *[]str
 
 func TestProxmoxNodeStatusAndVMs(t *testing.T) {
 	s, auth := pveServer(t, map[string]string{
-		"/api2/json/nodes/pve-730/status": `{"data":{"uptime":2422190,"kversion":"Linux 7.0.2-6-pve #1 SMP","pveversion":"pve-manager/9.2.2/b9984c6d90a4bd80","current-kernel":{"release":"7.0.2-6-pve"},"cpuinfo":{"model":"Intel(R) Xeon(R) CPU E5-2683 v4 @ 2.10GHz","cpus":64}}}`,
+		"/api2/json/nodes/pve-1/status": `{"data":{"uptime":2422190,"kversion":"Linux 7.0.2-6-pve #1 SMP","pveversion":"pve-manager/9.2.2/b9984c6d90a4bd80","current-kernel":{"release":"7.0.2-6-pve"},"cpuinfo":{"model":"Example CPU @ 2.10GHz","cpus":64}}}`,
 		"/api2/json/cluster/resources?type=vm": `{"data":[
-		  {"uptime":2421124,"type":"qemu","id":"qemu/2020","maxdisk":68719476736,"netout":475752853144,"status":"running","node":"pve-730","template":0,"netin":628308715878,"name":"talos-cp-1","maxmem":25769803776,"maxcpu":8,"tags":"homelab;talos","cpu":0.265756734687807,"mem":21573279744,"vmid":2020},
+		  {"uptime":2421124,"type":"qemu","id":"qemu/101","maxdisk":68719476736,"netout":475752853144,"status":"running","node":"pve-1","template":0,"netin":628308715878,"name":"k8s-cp-1","maxmem":25769803776,"maxcpu":8,"tags":"lab;k8s","cpu":0.265756734687807,"mem":21573279744,"vmid":101},
 		  {"id":"qemu/9000","vmid":"9000","name":"tmpl","status":"stopped","template":"1","maxcpu":"2","maxmem":"2147483648","mem":0,"lock":"clone"}]}`,
 	})
 	tok := secret.New("secret-value", "")
-	p := NewProxmox(s.URL, "pve-730", "csi@pve!homelab", tok, nil)
-	if !p.Enabled() || NewProxmox(s.URL, "n", "", secret.Value{}, nil).Enabled() || NewProxmox(s.URL, "n", "csi@pve!homelab", secret.Value{}, nil).Enabled() {
+	p := NewProxmox(s.URL, "pve-1", "ci@pve!dash", tok, nil)
+	if !p.Enabled() || NewProxmox(s.URL, "n", "", secret.Value{}, nil).Enabled() || NewProxmox(s.URL, "n", "ci@pve!dash", secret.Value{}, nil).Enabled() {
 		t.Fatal("Enabled")
 	}
 	h, err := p.NodeStatus(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if h != (PVEHost{UptimeSeconds: 2422190, PVEVersion: "9.2.2", Kernel: "7.0.2-6-pve", CPUModel: "Intel(R) Xeon(R) CPU E5-2683 v4 @ 2.10GHz"}) {
+	if h != (PVEHost{UptimeSeconds: 2422190, PVEVersion: "9.2.2", Kernel: "7.0.2-6-pve", CPUModel: "Example CPU @ 2.10GHz"}) {
 		t.Fatalf("host: %+v", h)
 	}
 	vms, err := p.VMs(ctx)
@@ -53,7 +55,7 @@ func TestProxmoxNodeStatusAndVMs(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := []PVEVM{
-		{VMID: 2020, Name: "talos-cp-1", Status: "running", Tags: []string{"homelab", "talos"}, CPUs: 8, CPURatio: 0.265756734687807,
+		{VMID: 101, Name: "k8s-cp-1", Status: "running", Tags: []string{"lab", "k8s"}, CPUs: 8, CPURatio: 0.265756734687807,
 			MemBytes: 21573279744, MaxMemBytes: 25769803776, UptimeSeconds: 2421124, NetInBytes: 628308715878, NetOutBytes: 475752853144},
 		{VMID: 9000, Name: "tmpl", Status: "stopped", Tags: []string{}, CPUs: 2, MaxMemBytes: 2147483648, Template: true, Lock: "clone"},
 	}
@@ -61,7 +63,7 @@ func TestProxmoxNodeStatusAndVMs(t *testing.T) {
 		t.Fatalf("vms:\n%+v\nwant\n%+v", vms, want)
 	}
 	for _, a := range *auth {
-		if a != "PVEAPIToken=csi@pve!homelab=secret-value" {
+		if a != "PVEAPIToken=ci@pve!dash=secret-value" {
 			t.Fatalf("Authorization = %q", a)
 		}
 	}
@@ -71,25 +73,25 @@ func TestProxmoxNodeStatusAndVMs(t *testing.T) {
 	if _, err := p.NodeStatus(ctx); err != nil {
 		t.Fatal(err)
 	}
-	if len(*auth) != 1 || (*auth)[0] != "PVEAPIToken=csi@pve!homelab=rotated" {
+	if len(*auth) != 1 || (*auth)[0] != "PVEAPIToken=ci@pve!dash=rotated" {
 		t.Fatalf("Authorization after rotation = %q", *auth)
 	}
 
-	if _, err := NewProxmox(s.URL, "pve-730", "", secret.Value{}, nil).VMs(ctx); !errors.Is(err, ErrDisabled) {
+	if _, err := NewProxmox(s.URL, "pve-1", "", secret.Value{}, nil).VMs(ctx); !errors.Is(err, ErrDisabled) {
 		t.Fatalf("disabled: %v", err)
 	}
 }
 
 func TestProxmoxTasks(t *testing.T) {
 	var tasks []string
-	tasks = append(tasks, `{"upid":"UPID:run","type":"qmstart","id":"2020","user":"root@pam","starttime":1793390000,"node":"pve-730"}`)
+	tasks = append(tasks, `{"upid":"UPID:run","type":"qmstart","id":"101","user":"root@pam","starttime":1793390000,"node":"pve-1"}`)
 	for i := range 25 {
-		tasks = append(tasks, `{"upid":"UPID:`+string(rune('a'+i))+`","type":"qmconfig","id":"2020","user":"csi@pve","status":"OK","starttime":`+
+		tasks = append(tasks, `{"upid":"UPID:`+string(rune('a'+i))+`","type":"qmconfig","id":"101","user":"ci@pve","status":"OK","starttime":`+
 			itoa(1793380000+i)+`,"endtime":`+itoa(1793380001+i)+`}`)
 	}
 	body := `{"data":[` + strings.Join(tasks, ",") + `]}`
 	s, _ := pveServer(t, map[string]string{"/api2/json/cluster/tasks": body})
-	got, err := NewProxmox(s.URL, "pve-730", "u@pve!t", secret.New("t", ""), nil).Tasks(ctx)
+	got, err := NewProxmox(s.URL, "pve-1", "u@pve!t", secret.New("t", ""), nil).Tasks(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -114,14 +116,14 @@ func itoa(i int) string { b, _ := json.Marshal(i); return string(b) }
 
 func TestProxmoxVMConfig(t *testing.T) {
 	s, _ := pveServer(t, map[string]string{
-		"/api2/json/nodes/pve-730/qemu/2020/config": `{"data":{"name":"talos-cp-1","ostype":"l26","onboot":1,"cores":8,"sockets":1,"memory":"24576","balloon":24576,
-		  "agent":"enabled=1,fstrim_cloned_disks=0,type=virtio","ide2":"fast-zfs:vm-2020-cloudinit,media=cdrom","scsi0":"fast-zfs:vm-2020-disk-0,size=64G",
-		  "scsi10":"fast-zfs:vm-9999-pvc-z,size=1G","scsi2":"fast-zfs:vm-9999-pvc-a,size=1G","efidisk0":"fast-zfs:vm-2020-disk-1,size=1M",
-		  "net1":"virtio=02:0a:00:14:00:21,bridge=vmbr1","net0":"virtio=02:0a:00:14:00:20,bridge=vmbr0,firewall=0","netfoo":"x","scsihw":"virtio-scsi-single","smbios1":"uuid=x"}}`,
-		"/api2/json/nodes/pve-730/qemu/9/config": `{"data":{}}`,
+		"/api2/json/nodes/pve-1/qemu/101/config": `{"data":{"name":"k8s-cp-1","ostype":"l26","onboot":1,"cores":8,"sockets":1,"memory":"24576","balloon":24576,
+		  "agent":"enabled=1,fstrim_cloned_disks=0,type=virtio","ide2":"local-zfs:vm-101-cloudinit,media=cdrom","scsi0":"local-zfs:vm-101-disk-0,size=64G",
+		  "scsi10":"local-zfs:vm-999-pvc-z,size=1G","scsi2":"local-zfs:vm-999-pvc-a,size=1G","efidisk0":"local-zfs:vm-101-disk-1,size=1M",
+		  "net1":"virtio=02:00:5e:00:53:21,bridge=vmbr1","net0":"virtio=02:00:5e:00:53:20,bridge=vmbr0,firewall=0","netfoo":"x","scsihw":"virtio-scsi-single","smbios1":"uuid=x"}}`,
+		"/api2/json/nodes/pve-1/qemu/9/config": `{"data":{}}`,
 	})
-	p := NewProxmox(s.URL, "pve-730", "u@pve!t", secret.New("t", ""), nil)
-	got, err := p.VMConfig(ctx, 2020)
+	p := NewProxmox(s.URL, "pve-1", "u@pve!t", secret.New("t", ""), nil)
+	got, err := p.VMConfig(ctx, 101)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -129,15 +131,15 @@ func TestProxmoxVMConfig(t *testing.T) {
 		Cores: 8, Sockets: 1, MemoryMiB: 24576, BalloonMiB: 24576, OSType: "l26",
 		Agent: "enabled=1,fstrim_cloned_disks=0,type=virtio",
 		Disks: []model.KeySpec{
-			{Key: "efidisk0", Spec: "fast-zfs:vm-2020-disk-1,size=1M"},
-			{Key: "ide2", Spec: "fast-zfs:vm-2020-cloudinit,media=cdrom"},
-			{Key: "scsi0", Spec: "fast-zfs:vm-2020-disk-0,size=64G"},
-			{Key: "scsi2", Spec: "fast-zfs:vm-9999-pvc-a,size=1G"},
-			{Key: "scsi10", Spec: "fast-zfs:vm-9999-pvc-z,size=1G"},
+			{Key: "efidisk0", Spec: "local-zfs:vm-101-disk-1,size=1M"},
+			{Key: "ide2", Spec: "local-zfs:vm-101-cloudinit,media=cdrom"},
+			{Key: "scsi0", Spec: "local-zfs:vm-101-disk-0,size=64G"},
+			{Key: "scsi2", Spec: "local-zfs:vm-999-pvc-a,size=1G"},
+			{Key: "scsi10", Spec: "local-zfs:vm-999-pvc-z,size=1G"},
 		},
 		NICs: []model.KeySpec{
-			{Key: "net0", Spec: "virtio=02:0a:00:14:00:20,bridge=vmbr0,firewall=0"},
-			{Key: "net1", Spec: "virtio=02:0a:00:14:00:21,bridge=vmbr1"},
+			{Key: "net0", Spec: "virtio=02:00:5e:00:53:20,bridge=vmbr0,firewall=0"},
+			{Key: "net1", Spec: "virtio=02:00:5e:00:53:21,bridge=vmbr1"},
 		},
 	}
 	if !reflect.DeepEqual(got, want) {
@@ -154,30 +156,30 @@ func TestProxmoxVMConfig(t *testing.T) {
 
 func TestProxmoxVMIPsAndSnapshots(t *testing.T) {
 	s, _ := pveServer(t, map[string]string{
-		"/api2/json/nodes/pve-730/qemu/2020/agent/network-get-interfaces": `{"data":{"result":[
+		"/api2/json/nodes/pve-1/qemu/101/agent/network-get-interfaces": `{"data":{"result":[
 		  {"name":"lo","hardware-address":"00:00:00:00:00:00","ip-addresses":[{"ip-address-type":"ipv4","prefix":8,"ip-address":"127.0.0.1"},{"ip-address-type":"ipv6","prefix":128,"ip-address":"::1"}]},
-		  {"name":"bond0","hardware-address":"da:65:d3:b5:d7:8a"},
-		  {"name":"eth0","ip-addresses":[{"ip-address-type":"ipv4","prefix":24,"ip-address":"10.0.20.20"},{"ip-address-type":"ipv6","prefix":64,"ip-address":"fe80::1"}]}]}}`,
-		"/api2/json/nodes/pve-730/qemu/2020/snapshot": `{"data":[
+		  {"name":"bond0","hardware-address":"02:00:5e:00:53:8a"},
+		  {"name":"eth0","ip-addresses":[{"ip-address-type":"ipv4","prefix":24,"ip-address":"192.0.2.20"},{"ip-address-type":"ipv6","prefix":64,"ip-address":"fe80::1"}]}]}}`,
+		"/api2/json/nodes/pve-1/qemu/101/snapshot": `{"data":[
 		  {"name":"pre-upgrade","description":"before 1.13","snaptime":1793300000,"vmstate":0},
 		  {"name":"no-time","description":""},
 		  {"name":"current","description":"You are here!","digest":"6b93","running":1}]}`,
 	})
-	p := NewProxmox(s.URL, "pve-730", "u@pve!t", secret.New("t", ""), nil)
+	p := NewProxmox(s.URL, "pve-1", "u@pve!t", secret.New("t", ""), nil)
 
-	ips := p.VMIPs(ctx, 2020)
-	want := []model.IfaceAddr{{Iface: "eth0", Address: "10.0.20.20"}, {Iface: "eth0", Address: "fe80::1"}}
+	ips := p.VMIPs(ctx, 101)
+	want := []model.IfaceAddr{{Iface: "eth0", Address: "192.0.2.20"}, {Iface: "eth0", Address: "fe80::1"}}
 	if !reflect.DeepEqual(ips, want) {
 		t.Fatalf("ips: %+v", ips)
 	}
 	// No guest agent (501 from the server) or a bad id: empty, never nil.
-	for _, id := range []int{2021, -1} {
+	for _, id := range []int{102, -1} {
 		if got := p.VMIPs(ctx, id); got == nil || len(got) != 0 {
 			t.Fatalf("vm %d ips = %v", id, got)
 		}
 	}
 
-	snaps, err := p.Snapshots(ctx, 2020)
+	snaps, err := p.Snapshots(ctx, 101)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -185,7 +187,199 @@ func TestProxmoxVMIPsAndSnapshots(t *testing.T) {
 		snaps[0].Time == nil || snaps[0].Time.Unix() != 1793300000 || snaps[1].Time != nil {
 		t.Fatalf("snapshots: %+v", snaps)
 	}
-	if _, err := p.Snapshots(ctx, 2021); err == nil {
+	if _, err := p.Snapshots(ctx, 102); err == nil {
 		t.Fatal("want upstream error")
+	}
+}
+
+func TestProxmoxNodes(t *testing.T) {
+	s, auth := pveServer(t, map[string]string{"/api2/json/nodes": `{"data":[{"node":"pve-2","status":"online"},{"node":"pve-1","status":"online"}]}`})
+	got, err := NewProxmox(s.URL, "", "u@pve!t", secret.New("t", ""), nil).Nodes(ctx)
+	if err != nil || !reflect.DeepEqual(got, []string{"pve-2", "pve-1"}) {
+		t.Fatalf("nodes = %v, %v", got, err)
+	}
+	if len(*auth) != 1 || (*auth)[0] != "PVEAPIToken=u@pve!t=t" {
+		t.Errorf("Authorization = %q", *auth)
+	}
+}
+
+// A client built without a node lists the nodes, the VMs and the tasks, and refuses every call
+// that addresses a node without sending a request.
+func TestProxmoxClientWithoutANodeAddressesNoNode(t *testing.T) {
+	var hits int
+	s := serve(t, func(w http.ResponseWriter, r *http.Request) {
+		hits++
+		io.WriteString(w, `{"data":[]}`)
+	})
+	p := NewProxmox(s.URL, "", "u@pve!t", secret.New("t", ""), nil)
+	if _, err := p.NodeStatus(ctx); !errors.Is(err, ErrInvalid) {
+		t.Errorf("NodeStatus: %v", err)
+	}
+	if _, err := p.Storages(ctx); !errors.Is(err, ErrInvalid) {
+		t.Errorf("Storages: %v", err)
+	}
+	if _, err := p.VMConfig(ctx, 101); !errors.Is(err, ErrInvalid) {
+		t.Errorf("VMConfig: %v", err)
+	}
+	if _, err := p.Snapshots(ctx, 101); !errors.Is(err, ErrInvalid) {
+		t.Errorf("Snapshots: %v", err)
+	}
+	if ips := p.VMIPs(ctx, 101); len(ips) != 0 {
+		t.Errorf("VMIPs: %v", ips)
+	}
+	if hits != 0 {
+		t.Fatalf("%d requests went out for calls that address a node", hits)
+	}
+	for name, call := range map[string]func() error{
+		"Nodes": func() error { _, err := p.Nodes(ctx); return err },
+		"VMs":   func() error { _, err := p.VMs(ctx); return err },
+		"Tasks": func() error { _, err := p.Tasks(ctx); return err },
+	} {
+		if err := call(); err != nil {
+			t.Errorf("%s: %v", name, err)
+		}
+	}
+	if hits != 3 {
+		t.Errorf("hits = %d, want the three calls that need no node", hits)
+	}
+}
+
+func TestProxmoxStorages(t *testing.T) {
+	s, _ := pveServer(t, map[string]string{"/api2/json/nodes/pve-1/storage": `{"data":[
+	  {"storage":"tank","type":"zfspool","active":1,"total":1000,"used":250},
+	  {"storage":"local","type":"dir","active":1,"total":"4000","used":"1000"},
+	  {"storage":"nas","type":"nfs","active":0,"shared":1},
+	  {"storage":"","total":5}]}`})
+	got, err := NewProxmox(s.URL, "pve-1", "u@pve!t", secret.New("t", ""), nil).Storages(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []PVEStorage{{Name: "local", UsedBytes: 1000, SizeBytes: 4000}, {Name: "tank", UsedBytes: 250, SizeBytes: 1000}}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("storages = %+v, want %+v (sorted, inactive and unnamed ones left out)", got, want)
+	}
+	// An empty answer is an empty list, never nil.
+	s2, _ := pveServer(t, map[string]string{"/api2/json/nodes/pve-1/storage": `{"data":[]}`})
+	if got, err := NewProxmox(s2.URL, "pve-1", "u@pve!t", secret.New("t", ""), nil).Storages(ctx); err != nil || got == nil || len(got) != 0 {
+		t.Fatalf("empty storages = %#v, %v", got, err)
+	}
+}
+
+// The options are the plugin client's: its timeout and its redirect policy reach the requests.
+func TestProxmoxHonoursTheClientOptions(t *testing.T) {
+	block := make(chan struct{})
+	slow := serve(t, func(w http.ResponseWriter, r *http.Request) { <-block })
+	defer close(block)
+	p := NewProxmox(slow.URL, "pve-1", "u@pve!t", secret.New("t", ""), nil, Timeout(30*time.Millisecond))
+	start := time.Now()
+	_, err := p.Nodes(ctx)
+	if err == nil || Category(err) != CategoryTimeout || time.Since(start) > 2*time.Second {
+		t.Fatalf("a slow Proxmox: %v (%s) after %v", err, Category(err), time.Since(start))
+	}
+
+	var refused bool
+	target := serve(t, func(w http.ResponseWriter, r *http.Request) { t.Error("the redirect was followed") })
+	redirecting := serve(t, func(w http.ResponseWriter, r *http.Request) { http.Redirect(w, r, target.URL, http.StatusFound) })
+	p = NewProxmox(redirecting.URL, "pve-1", "u@pve!t", secret.New("t", ""), nil,
+		CheckRedirect(func(*http.Request, []*http.Request) error { refused = true; return errors.New("redirect refused") }))
+	if _, err := p.Nodes(ctx); err == nil || !refused {
+		t.Fatalf("redirect: err = %v, policy consulted = %v", err, refused)
+	}
+}
+
+// Both generations of Proxmox answer in the shapes the client reads: the facts, the guests (numbers
+// that arrive as strings or booleans included), the config, the guest-agent addresses, the
+// snapshots and the storages, from recorded responses.
+func TestProxmoxDecodesPVE8AndPVE9(t *testing.T) {
+	type expect struct {
+		host     PVEHost
+		vms      []PVEVM
+		cfg      model.VMConfig
+		ips      []model.IfaceAddr
+		snaps    []string
+		storages []PVEStorage
+	}
+	disks := []model.KeySpec{
+		{Key: "ide2", Spec: "local:iso/ci.iso,media=cdrom"},
+		{Key: "scsi0", Spec: "local-zfs:vm-101-disk-0,iothread=1,size=64G"},
+		{Key: "scsi1", Spec: "local-zfs:vm-101-disk-1,size=10G"},
+	}
+	nics := []model.KeySpec{{Key: "net0", Spec: "virtio=02:00:5e:00:53:01,bridge=vmbr0,firewall=1"}}
+	cfg := model.VMConfig{Cores: 4, Sockets: 1, MemoryMiB: 8192, BalloonMiB: 4096, OSType: "l26",
+		Agent: "enabled=1,fstrim_cloned_disks=1", Disks: disks, NICs: nics}
+	k8s := []string{"k8s", "control-plane"}
+	for _, tc := range []struct {
+		dir  string
+		want expect
+	}{
+		{"pve8", expect{
+			host: PVEHost{UptimeSeconds: 864203, PVEVersion: "8.4.1", Kernel: "6.8.12-9-pve", CPUModel: "Example CPU @ 2.20GHz"},
+			vms: []PVEVM{
+				{VMID: 101, Name: "k8s-cp-1", Status: "running", Tags: k8s, CPUs: 4, CPURatio: 0.0873, MemBytes: 4017299456, MaxMemBytes: 8589934592, UptimeSeconds: 86400, NetInBytes: 1250000, NetOutBytes: 730000},
+				{VMID: 102, Name: "db-1", Status: "stopped", Tags: []string{"lab"}, CPUs: 2, MaxMemBytes: 4294967296, Lock: "backup"},
+				{VMID: 9000, Name: "k8s-template", Status: "stopped", Tags: []string{"template"}, CPUs: 2, MaxMemBytes: 2147483648, Template: true},
+			},
+			cfg: cfg, ips: []model.IfaceAddr{{Iface: "eth0", Address: "192.0.2.21"}, {Iface: "eth0", Address: "fe80::1"}},
+			snaps:    []string{"pre-upgrade"},
+			storages: []PVEStorage{{Name: "local", UsedBytes: 4415053824, SizeBytes: 100861726720}, {Name: "local-zfs", UsedBytes: 651000000000, SizeBytes: 1829000000000}},
+		}},
+		{"pve9", expect{
+			host: PVEHost{UptimeSeconds: 2422190, PVEVersion: "9.0.5", Kernel: "6.14.8-2-pve", CPUModel: "Example CPU @ 2.10GHz"},
+			vms: []PVEVM{
+				{VMID: 101, Name: "k8s-cp-1", Status: "running", Tags: k8s, CPUs: 4, CPURatio: 0.0873, MemBytes: 4017299456, MaxMemBytes: 8589934592, UptimeSeconds: 86400, NetInBytes: 1250000, NetOutBytes: 730000},
+				{VMID: 102, Name: "db-1", Status: "stopped", Tags: []string{"lab"}, CPUs: 2, MaxMemBytes: 4294967296, Lock: "backup"},
+				{VMID: 9000, Name: "k8s-template", Status: "stopped", Tags: []string{"template"}, CPUs: 2, MaxMemBytes: 2147483648, Template: true},
+			},
+			cfg: cfg, ips: []model.IfaceAddr{{Iface: "eth0", Address: "192.0.2.21"}, {Iface: "eth0", Address: "fe80::1"}, {Iface: "tailscale0", Address: "198.51.100.7"}},
+			snaps: []string{"pre-upgrade", "no-time"},
+			storages: []PVEStorage{
+				{Name: "local", UsedBytes: 5415053824, SizeBytes: 100861726720},
+				{Name: "local-zfs", UsedBytes: 651000000000, SizeBytes: 1829000000000},
+				{Name: "tank", UsedBytes: 4100000000000, SizeBytes: 10900000000000},
+			},
+		}},
+	} {
+		t.Run(tc.dir, func(t *testing.T) {
+			read := func(name string) string {
+				b, err := os.ReadFile("testdata/proxmox/" + tc.dir + "/" + name)
+				if err != nil {
+					t.Fatal(err)
+				}
+				return string(b)
+			}
+			s, _ := pveServer(t, map[string]string{
+				"/api2/json/nodes/pve-1/status":                                read("nodes_status.json"),
+				"/api2/json/cluster/resources?type=vm":                         read("cluster_resources.json"),
+				"/api2/json/nodes/pve-1/qemu/101/config":                       read("qemu_config.json"),
+				"/api2/json/nodes/pve-1/qemu/101/agent/network-get-interfaces": read("agent_network.json"),
+				"/api2/json/nodes/pve-1/qemu/101/snapshot":                     read("snapshot.json"),
+				"/api2/json/nodes/pve-1/storage":                               read("storage.json"),
+			})
+			p := NewProxmox(s.URL, "pve-1", "ci@pve!dash", secret.New("s", ""), nil)
+
+			if got, err := p.NodeStatus(ctx); err != nil || got != tc.want.host {
+				t.Errorf("host = %+v, %v; want %+v", got, err, tc.want.host)
+			}
+			if got, err := p.VMs(ctx); err != nil || !reflect.DeepEqual(got, tc.want.vms) {
+				t.Errorf("vms = %+v, %v\nwant %+v", got, err, tc.want.vms)
+			}
+			if got, err := p.VMConfig(ctx, 101); err != nil || !reflect.DeepEqual(got, tc.want.cfg) {
+				t.Errorf("config = %+v, %v\nwant %+v", got, err, tc.want.cfg)
+			}
+			if got := p.VMIPs(ctx, 101); !reflect.DeepEqual(got, tc.want.ips) {
+				t.Errorf("ips = %+v, want %+v", got, tc.want.ips)
+			}
+			snaps, err := p.Snapshots(ctx, 101)
+			var names []string
+			for _, sn := range snaps {
+				names = append(names, sn.Name)
+			}
+			if err != nil || !reflect.DeepEqual(names, tc.want.snaps) {
+				t.Errorf("snapshots = %v, %v; want %v", names, err, tc.want.snaps)
+			}
+			if got, err := p.Storages(ctx); err != nil || !reflect.DeepEqual(got, tc.want.storages) {
+				t.Errorf("storages = %+v, %v\nwant %+v", got, err, tc.want.storages)
+			}
+		})
 	}
 }

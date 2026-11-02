@@ -645,6 +645,35 @@
         ],
         "type": "object"
       },
+      "Envelope.hardware.machines": {
+        "additionalProperties": false,
+        "description": "The envelope of the hardware.machines topic.",
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/MachinesData"
+          },
+          "sources": {
+            "items": {
+              "$ref": "#/components/schemas/SourceStatus"
+            },
+            "type": "array"
+          },
+          "topic": {
+            "const": "hardware.machines"
+          },
+          "updatedAt": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "data",
+          "sources",
+          "topic",
+          "updatedAt"
+        ],
+        "type": "object"
+      },
       "Envelope.host": {
         "additionalProperties": false,
         "description": "The envelope of the host topic.",
@@ -703,6 +732,93 @@
         ],
         "type": "object"
       },
+      "Envelope.proxmox.node": {
+        "additionalProperties": false,
+        "description": "The envelope of the proxmox.node topic.",
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/NodeData"
+          },
+          "sources": {
+            "items": {
+              "$ref": "#/components/schemas/SourceStatus"
+            },
+            "type": "array"
+          },
+          "topic": {
+            "const": "proxmox.node"
+          },
+          "updatedAt": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "data",
+          "sources",
+          "topic",
+          "updatedAt"
+        ],
+        "type": "object"
+      },
+      "Envelope.proxmox.storage": {
+        "additionalProperties": false,
+        "description": "The envelope of the proxmox.storage topic.",
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/PVEStorageData"
+          },
+          "sources": {
+            "items": {
+              "$ref": "#/components/schemas/SourceStatus"
+            },
+            "type": "array"
+          },
+          "topic": {
+            "const": "proxmox.storage"
+          },
+          "updatedAt": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "data",
+          "sources",
+          "topic",
+          "updatedAt"
+        ],
+        "type": "object"
+      },
+      "Envelope.proxmox.vms": {
+        "additionalProperties": false,
+        "description": "The envelope of the proxmox.vms topic.",
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/VMsData"
+          },
+          "sources": {
+            "items": {
+              "$ref": "#/components/schemas/SourceStatus"
+            },
+            "type": "array"
+          },
+          "topic": {
+            "const": "proxmox.vms"
+          },
+          "updatedAt": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "data",
+          "sources",
+          "topic",
+          "updatedAt"
+        ],
+        "type": "object"
+      },
       "Envelope.storage": {
         "additionalProperties": false,
         "description": "The envelope of the storage topic.",
@@ -718,35 +834,6 @@
           },
           "topic": {
             "const": "storage"
-          },
-          "updatedAt": {
-            "format": "date-time",
-            "type": "string"
-          }
-        },
-        "required": [
-          "data",
-          "sources",
-          "topic",
-          "updatedAt"
-        ],
-        "type": "object"
-      },
-      "Envelope.vms": {
-        "additionalProperties": false,
-        "description": "The envelope of the vms topic.",
-        "properties": {
-          "data": {
-            "$ref": "#/components/schemas/VMsData"
-          },
-          "sources": {
-            "items": {
-              "$ref": "#/components/schemas/SourceStatus"
-            },
-            "type": "array"
-          },
-          "topic": {
-            "const": "vms"
           },
           "updatedAt": {
             "format": "date-time",
@@ -949,9 +1036,6 @@
       "HostData": {
         "additionalProperties": false,
         "properties": {
-          "cpuModel": {
-            "type": "string"
-          },
           "cpuRatio": {
             "type": "number"
           },
@@ -966,9 +1050,6 @@
               "$ref": "#/components/schemas/Fan"
             },
             "type": "array"
-          },
-          "kernel": {
-            "type": "string"
           },
           "links": {
             "items": {
@@ -1009,9 +1090,6 @@
             },
             "type": "array"
           },
-          "pveVersion": {
-            "type": "string"
-          },
           "scrubTracked": {
             "type": "boolean"
           },
@@ -1023,9 +1101,18 @@
               "$ref": "#/components/schemas/Sensor"
             },
             "type": "array"
+          }
+        },
+        "type": "object"
+      },
+      "IfaceAddr": {
+        "additionalProperties": false,
+        "properties": {
+          "address": {
+            "type": "string"
           },
-          "uptimeSeconds": {
-            "type": "integer"
+          "iface": {
+            "type": "string"
           }
         },
         "type": "object"
@@ -1066,6 +1153,18 @@
         },
         "type": "object"
       },
+      "KeySpec": {
+        "additionalProperties": false,
+        "properties": {
+          "key": {
+            "type": "string"
+          },
+          "spec": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
       "Kpis": {
         "additionalProperties": false,
         "properties": {
@@ -1092,12 +1191,6 @@
           },
           "sourceVerified": {
             "type": "boolean"
-          },
-          "vmsRunning": {
-            "type": "integer"
-          },
-          "vmsTotal": {
-            "type": "integer"
           },
           "worstPvc": {
             "$ref": "#/components/schemas/WorstPVC"
@@ -1175,11 +1268,26 @@
           "name": {
             "type": "string"
           },
+          "ref": {
+            "type": "string"
+          },
           "source": {
             "type": "string"
           },
           "up": {
             "type": "boolean"
+          }
+        },
+        "type": "object"
+      },
+      "MachinesData": {
+        "additionalProperties": false,
+        "properties": {
+          "machines": {
+            "items": {
+              "$ref": "#/components/schemas/Machine"
+            },
+            "type": "array"
           }
         },
         "type": "object"
@@ -1361,6 +1469,30 @@
         },
         "type": "object"
       },
+      "NodeData": {
+        "additionalProperties": false,
+        "properties": {
+          "cpuModel": {
+            "type": "string"
+          },
+          "kernel": {
+            "type": "string"
+          },
+          "node": {
+            "type": "string"
+          },
+          "ref": {
+            "type": "string"
+          },
+          "uptimeSeconds": {
+            "type": "integer"
+          },
+          "version": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
       "OverviewData": {
         "additionalProperties": false,
         "properties": {
@@ -1457,11 +1589,26 @@
           "name": {
             "type": "string"
           },
+          "ref": {
+            "type": "string"
+          },
           "sizeBytes": {
             "type": "integer"
           },
           "usedBytes": {
             "type": "integer"
+          }
+        },
+        "type": "object"
+      },
+      "PVEStorageData": {
+        "additionalProperties": false,
+        "properties": {
+          "storages": {
+            "items": {
+              "$ref": "#/components/schemas/PVEStorage"
+            },
+            "type": "array"
           }
         },
         "type": "object"
@@ -1736,6 +1883,22 @@
         },
         "type": "object"
       },
+      "Snapshot": {
+        "additionalProperties": false,
+        "properties": {
+          "description": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "time": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
       "SourceStatus": {
         "additionalProperties": false,
         "properties": {
@@ -1800,12 +1963,6 @@
           "pvcs": {
             "items": {
               "$ref": "#/components/schemas/PVC"
-            },
-            "type": "array"
-          },
-          "pveStorages": {
-            "items": {
-              "$ref": "#/components/schemas/PVEStorage"
             },
             "type": "array"
           },
@@ -1944,6 +2101,9 @@
           "cpus": {
             "type": "number"
           },
+          "critical": {
+            "type": "boolean"
+          },
           "health": {
             "type": "string"
           },
@@ -1974,6 +2134,9 @@
           "netOutBytes": {
             "type": "integer"
           },
+          "ref": {
+            "type": "string"
+          },
           "status": {
             "type": "string"
           },
@@ -1995,15 +2158,69 @@
         },
         "type": "object"
       },
-      "VMsData": {
+      "VMConfig": {
         "additionalProperties": false,
         "properties": {
-          "machines": {
+          "agent": {
+            "type": "string"
+          },
+          "balloonMiB": {
+            "type": "integer"
+          },
+          "cores": {
+            "type": "integer"
+          },
+          "disks": {
             "items": {
-              "$ref": "#/components/schemas/Machine"
+              "$ref": "#/components/schemas/KeySpec"
             },
             "type": "array"
           },
+          "memoryMiB": {
+            "type": "integer"
+          },
+          "nics": {
+            "items": {
+              "$ref": "#/components/schemas/KeySpec"
+            },
+            "type": "array"
+          },
+          "ostype": {
+            "type": "string"
+          },
+          "sockets": {
+            "type": "integer"
+          }
+        },
+        "type": "object"
+      },
+      "VMDetail": {
+        "additionalProperties": false,
+        "properties": {
+          "config": {
+            "$ref": "#/components/schemas/VMConfig"
+          },
+          "ips": {
+            "items": {
+              "$ref": "#/components/schemas/IfaceAddr"
+            },
+            "type": "array"
+          },
+          "snapshots": {
+            "items": {
+              "$ref": "#/components/schemas/Snapshot"
+            },
+            "type": "array"
+          },
+          "vm": {
+            "$ref": "#/components/schemas/VM"
+          }
+        },
+        "type": "object"
+      },
+      "VMsData": {
+        "additionalProperties": false,
+        "properties": {
           "tasks": {
             "items": {
               "$ref": "#/components/schemas/PVETask"
@@ -2329,6 +2546,48 @@
         "x-dash-scope": "actions:alertmanager"
       }
     },
+    "/api/v1/plugins/proxmox/vms/{vmid}": {
+      "get": {
+        "operationId": "proxmox_get_vms_vmid",
+        "parameters": [
+          {
+            "description": "The {vmid} segment of the request path.",
+            "in": "path",
+            "name": "vmid",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VMDetail"
+                }
+              }
+            },
+            "description": "Configuration, guest-agent addresses and snapshots of one VM",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/XRequestId"
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "summary": "Configuration, guest-agent addresses and snapshots of one VM",
+        "tags": [
+          "proxmox"
+        ],
+        "x-dash-min-role": "viewer",
+        "x-dash-scope": "read"
+      }
+    },
     "/api/v1/plugins/victorialogs/logs": {
       "get": {
         "operationId": "victorialogs_get_logs",
@@ -2652,16 +2911,25 @@
                       "$ref": "#/components/schemas/Envelope.gatus.status"
                     },
                     {
+                      "$ref": "#/components/schemas/Envelope.hardware.machines"
+                    },
+                    {
                       "$ref": "#/components/schemas/Envelope.host"
                     },
                     {
                       "$ref": "#/components/schemas/Envelope.launcher.links"
                     },
                     {
-                      "$ref": "#/components/schemas/Envelope.storage"
+                      "$ref": "#/components/schemas/Envelope.proxmox.node"
                     },
                     {
-                      "$ref": "#/components/schemas/Envelope.vms"
+                      "$ref": "#/components/schemas/Envelope.proxmox.storage"
+                    },
+                    {
+                      "$ref": "#/components/schemas/Envelope.proxmox.vms"
+                    },
+                    {
+                      "$ref": "#/components/schemas/Envelope.storage"
                     }
                   ]
                 }
@@ -2732,6 +3000,10 @@
     {
       "description": "Alertmanager: Alerts and silences.",
       "name": "alertmanager"
+    },
+    {
+      "description": "Proxmox VE: Virtual machines, containers and the hypervisor.",
+      "name": "proxmox"
     },
     {
       "description": "VictoriaLogs: The pod logs the UI shows.",

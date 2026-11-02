@@ -49,7 +49,6 @@ func (f *fakeProm) Range(_ context.Context, expr string, start, end time.Time, s
 
 type fakeData struct {
 	nodes  map[string]string
-	vmErr  error
 	podErr error
 }
 
@@ -63,10 +62,6 @@ func (f fakeData) PodDetail(_ context.Context, ns, name string) (model.PodDetail
 func (f fakeData) NodeIP(name string) (string, bool) {
 	ip, ok := f.nodes[name]
 	return ip, ok
-}
-
-func (f fakeData) VMDetail(_ context.Context, vmid int) (model.VMDetail, error) {
-	return model.VMDetail{}, f.vmErr
 }
 
 // promPlugin is a running supervisor with one fake plugin, "prometheus", whose service is q: the
@@ -248,15 +243,14 @@ func TestSeriesArgs(t *testing.T) {
 		code  int
 		want  string // expected PromQL substring
 	}{
-		{"bad vmid", "name=vm.cpu&range=1h&vmid=abc", 400, ""},
-		{"missing vmid", "name=vm.cpu&range=1h", 400, ""},
+		// The vm.* series are the proxmox plugin's: without it running they are unknown (400).
+		{"vm series without the plugin", "name=vm.cpu&range=6h&vmid=100", 400, ""},
 		{"unknown name", "name=nope&range=1h", 400, ""},
 		{"unknown range", "name=node.cpu&range=2y&node=cp1", 400, ""},
 		{"unknown node", "name=node.cpu&range=1h&node=ghost", 404, ""},
 		{"missing node", "name=node.cpu&range=1h", 400, ""},
 		{"bad pod args", "name=pod.cpu&range=1h&ns=Bad_NS&pod=x", 400, ""},
 		{"host ok", "name=host.cpu&range=15m", 200, `nodename="pve-730"`},
-		{"vm ok", "name=vm.cpu&range=6h&vmid=100", 200, `id="qemu/100"`},
 		{"node ok", "name=node.cpu&range=1h&node=cp1", 200, `instance="10.0.0.5:9100"`},
 		{"pod ns alias", "name=pod.mem&range=1h&ns=media&pod=plex-0", 200, `namespace="media",pod="plex-0"`},
 		{"pod namespace", "name=pod.mem&range=1h&namespace=media&pod=plex-0", 200, `namespace="media",pod="plex-0"`},
@@ -314,8 +308,6 @@ func TestDetails(t *testing.T) {
 		path string
 		code int
 	}{
-		{"/api/vms/100", 200},
-		{"/api/vms/abc", 400},
 		{"/api/pods/media/plex-0", 200},
 		{"/api/pods/media/missing", 404},
 		{"/api/pods/Bad_NS/x", 400},

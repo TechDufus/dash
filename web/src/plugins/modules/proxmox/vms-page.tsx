@@ -14,7 +14,7 @@ import {
 import { useMemo } from "react";
 import { Link, useLocation } from "wouter";
 import { useTopic } from "@/api/stream";
-import type { Machine, PVETask, VM } from "@/api/types";
+import type { PVETask, VM } from "@/api/types";
 import { BytesBar, PVE_MEM_TIP } from "@/components/bytes-bar";
 import { Gauge } from "@/components/gauge";
 import { Page, Reveal } from "@/components/page";
@@ -32,6 +32,7 @@ import {
 import { formatBytes, formatDuration, formatNumber, formatRelative } from "@/lib/format";
 import { useNow } from "@/lib/hooks";
 import { cn } from "@/lib/utils";
+import { useTopicAvailable } from "@/plugins/state";
 import { VMSheet } from "./vm-sheet";
 
 const SKELETON_KEYS = ["a", "b", "c", "d", "e", "f"];
@@ -180,7 +181,10 @@ function Templates({ templates }: { templates: VM[] }) {
   );
 }
 
-function Machines({ machines, loaded }: { machines: Machine[]; loaded: boolean }) {
+function Machines() {
+  const env = useTopic("hardware.machines");
+  const machines = env?.data.machines ?? [];
+  const loaded = !!env;
   return (
     <Panel>
       <PanelHeader title="Other machines" icon={<Server />} />
@@ -321,7 +325,8 @@ function Activity({ tasks, loaded }: { tasks: PVETask[]; loaded: boolean }) {
 
 export function VMsPage({ vmid }: { vmid?: string }) {
   const [, navigate] = useLocation();
-  const env = useTopic("vms");
+  const env = useTopic("proxmox.vms");
+  const machinesOn = useTopicAvailable("hardware.machines") !== false;
   const data = env?.data;
   const { vms, templates } = useMemo(() => {
     const sorted = [...(data?.vms ?? [])].sort((a, b) => a.vmid - b.vmid);
@@ -366,9 +371,11 @@ export function VMsPage({ vmid }: { vmid?: string }) {
 
       {data && <Templates templates={templates} />}
 
-      <Reveal index={2}>
-        <Machines machines={data?.machines ?? []} loaded={!!data} />
-      </Reveal>
+      {machinesOn && (
+        <Reveal index={2}>
+          <Machines />
+        </Reveal>
+      )}
 
       <Reveal index={3}>
         <Activity tasks={data?.tasks ?? []} loaded={!!data} />

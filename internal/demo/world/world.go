@@ -18,14 +18,12 @@ import (
 const HostName = "pve-demo"
 
 // LinkSource supplies the deep links the fixtures attach to objects, so the demo can hand over
-// the production link builder or, later, the link provider of a plugin. Both return an empty,
-// non-nil slice when the target tool is not configured.
+// the link provider of a plugin. It returns an empty, non-nil slice when the target tool is not
+// configured.
 type LinkSource interface {
 	// Headlamp links to an object in Headlamp; kind is a Kubernetes kind and namespace is empty
 	// for cluster-scoped objects.
 	Headlamp(kind, namespace, name string) []model.Link
-	// VMConsole is the console of a Proxmox VM.
-	VMConsole(vmid int, name string) []model.Link
 }
 
 // World builds the payloads of the fake homelab. It holds no state besides its inputs: every

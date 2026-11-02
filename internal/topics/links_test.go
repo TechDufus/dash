@@ -17,7 +17,6 @@ import (
 	"github.com/TechDufus/dash/internal/config"
 	"github.com/TechDufus/dash/internal/hub"
 	"github.com/TechDufus/dash/internal/kube"
-	"github.com/TechDufus/dash/internal/links"
 	"github.com/TechDufus/dash/internal/model"
 	"github.com/TechDufus/dash/internal/plugin"
 	"github.com/TechDufus/dash/internal/plugin/plugintest"
@@ -66,7 +65,7 @@ func newLinkRig(t *testing.T, cfg config.Config, lab ...plugin.InstanceConfig) *
 		r.set.Set(ic)
 	}
 	r.m = New(Deps{
-		Cfg: cfg, Cluster: podCluster(), Hosts: r.sup, Links: links.New(cfg), Contributors: r.sup.Contributors,
+		Cfg: cfg, Cluster: podCluster(), Hosts: r.sup, Contributors: r.sup.Contributors,
 		LinkProviders: func() plugin.LinkResolver { r.providerReads.Add(1); return r.sup.Links() },
 	})
 	if err := r.sup.Add(append(r.m.Plugins(), grafana.New, headlamp.New, alertmanager.New)...); err != nil {
@@ -205,7 +204,7 @@ func TestProvidersAreReadOncePerRebuild(t *testing.T) {
 	cfg := config.Defaults()
 	var reads atomic.Int32
 	m := New(Deps{
-		Cfg: cfg, Cluster: podCluster(), Links: links.New(cfg),
+		Cfg: cfg, Cluster: podCluster(),
 		Hosts:         plugintest.AllRunning(hub.New(), LegacyManifests()...),
 		LinkProviders: func() plugin.LinkResolver { reads.Add(1); return plugin.NoLinks },
 	})
@@ -232,7 +231,7 @@ func TestProvidersAreReadOncePerRebuild(t *testing.T) {
 // non-nil link lists instead of panicking.
 func TestManagerWithoutProvidersBuildsEmptyLinks(t *testing.T) {
 	cfg := config.Defaults()
-	m := New(Deps{Cfg: cfg, Cluster: podCluster(), Links: links.New(cfg)})
+	m := New(Deps{Cfg: cfg, Cluster: podCluster()})
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	m.d.Cluster.Start(ctx)

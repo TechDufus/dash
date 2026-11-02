@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -15,10 +16,8 @@ import (
 
 	"github.com/TechDufus/dash/internal/api"
 	"github.com/TechDufus/dash/internal/config"
-	"github.com/TechDufus/dash/internal/links"
 	"github.com/TechDufus/dash/internal/secret"
 	"github.com/TechDufus/dash/internal/topics"
-	"github.com/TechDufus/dash/internal/upstream"
 )
 
 // lockedBuf is a log sink the test can read while the reloader writes to it.
@@ -46,11 +45,59 @@ func writeTestFile(t *testing.T, path, body string) {
 	}
 }
 
-// The wiring as main runs it: a rotated secret file reaches the credential of a client built
-// from the loaded config, an invalid edit changes nothing, and /readyz answers 200 throughout
-// (P1.7 acceptance).
-func TestReloadedSecretReachesTheProxmoxClientWhileReadinessHolds(t *testing.T) {
-	pve := newFakePVE(t, always(200, nodesBody("pve")))
+// fakePVE is a Proxmox API with one node and one VM that records the Authorization header of
+// every request.
+type fakePVE struct {
+	*httptest.Server
+	mu   sync.Mutex
+	auth []string
+}
+
+func newFakePVE(t *testing.T) *fakePVE {
+	t.Helper()
+	bodies := map[string]string{
+		"/api2/json/nodes":             `{"data":[{"node":"pve","status":"online"}]}`,
+		"/api2/json/nodes/pve/status":  `{"data":{"uptime":1,"pveversion":"pve-manager/9.0.5/x","current-kernel":{"release":"6.8"},"cpuinfo":{"model":"Example CPU"}}}`,
+		"/api2/json/cluster/resources": `{"data":[{"id":"qemu/101","vmid":101,"name":"vm-101","status":"running","template":0,"maxcpu":2,"maxmem":1073741824}]}`,
+		"/api2/json/cluster/tasks":     `{"data":[]}`,
+		"/api2/json/nodes/pve/storage": `{"data":[]}`,
+
+		"/api2/json/nodes/pve/qemu/101/config":                       `{"data":{"name":"vm-101","cores":2,"memory":"1024"}}`,
+		"/api2/json/nodes/pve/qemu/101/agent/network-get-interfaces": `{"data":{"result":[]}}`,
+		"/api2/json/nodes/pve/qemu/101/snapshot":                     `{"data":[]}`,
+	}
+	f := &fakePVE{}
+	f.Server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		f.mu.Lock()
+		f.auth = append(f.auth, r.Header.Get("Authorization"))
+		f.mu.Unlock()
+		body, ok := bodies[r.URL.Path]
+		if !ok {
+			http.NotFound(w, r)
+			return
+		}
+		_, _ = io.WriteString(w, body)
+	}))
+	t.Cleanup(f.Close)
+	return f
+}
+
+// lastAuth is the Authorization header of the latest request.
+func (f *fakePVE) lastAuth() string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if len(f.auth) == 0 {
+		return ""
+	}
+	return f.auth[len(f.auth)-1]
+}
+
+// The wiring as main runs it, with the proxmox plugin of the framework: a rotated secret file
+// reaches the credential of the plugin's client (its next request carries the new token), an
+// invalid edit changes nothing, a proxmox change is applied live (no restart is asked for), and
+// /readyz answers 200 throughout (P1.7 acceptance).
+func TestReloadedSecretReachesTheProxmoxPluginWhileReadinessHolds(t *testing.T) {
+	pve := newFakePVE(t)
 	dir := t.TempDir()
 	cfgPath, tokenPath := filepath.Join(dir, "config.yaml"), filepath.Join(dir, "token")
 	writeTestFile(t, cfgPath, "plugins:\n  flux:\n    suspendReasonAnnotation: example.com/a\n")
@@ -73,20 +120,17 @@ func TestReloadedSecretReachesTheProxmoxClientWhileReadinessHolds(t *testing.T) 
 	// Readiness as main wires it: the supervisor, waiting for the informers of the topic manager
 	// (server.readyRequires = [kubernetes]), not the reloader.
 	cfg := res.Config
-	pveClient := upstream.NewProxmox(cfg.ProxmoxURL, "", cfg.ProxmoxTokenID, cfg.ProxmoxTokenSecret, nil)
 	fw := newFramework(res, store, config.ReloadOptions{Interval: time.Millisecond}, nil, nil, false)
 	sup, reloader := fw.sup, fw.reloader
 	mgr := topics.New(topics.Deps{
-		Cfg: cfg, Cluster: testCluster(),
-		PVE: pveClient, Hosts: sup, Services: sup.Service,
-		Links: links.New(cfg), Secrets: reg,
+		Cfg: cfg, Cluster: testCluster(), Hosts: sup, Services: sup.Service, LinkProviders: sup.Links, Secrets: reg,
 	})
 	ctx, cancel := context.WithCancel(context.Background())
-	if err := fw.start(ctx, mgr.Plugins(), func() { mgr.Run(ctx) }); err != nil {
+	if err := fw.start(ctx, registry(mgr.Plugins()), func() { mgr.Run(ctx) }); err != nil {
 		t.Fatal(err)
 	}
 	defer sup.Shutdown(context.Background())
-	srv := api.New(api.Deps{Cfg: cfg, Hub: fw.hub, Secrets: reg, Health: sup})
+	srv := api.New(api.Deps{Cfg: cfg, Hub: fw.hub, Secrets: reg, Health: sup, Plugins: sup, Data: mgr})
 	srv.MarkServing()
 	health := srv.HealthHandler()
 	ready := func() int {
@@ -94,13 +138,17 @@ func TestReloadedSecretReachesTheProxmoxClientWhileReadinessHolds(t *testing.T) 
 		health.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/readyz", nil))
 		return rec.Code
 	}
+	// detail asks the plugin's route for VM 101, which makes the plugin call Proxmox now.
+	detail := func() int {
+		r := httptest.NewRequest(http.MethodGet, cfg.PublicURL+"/api/v1/plugins/proxmox/vms/101", nil)
+		r.Header.Set("X-Forwarded-Preferred-Username", "alice")
+		rec := httptest.NewRecorder()
+		srv.Handler().ServeHTTP(rec, r)
+		return rec.Code
+	}
 	lastAuth := func() string {
-		if _, err := pveClient.Nodes(context.Background()); err != nil {
-			t.Fatal(err)
-		}
-		pve.mu.Lock()
-		defer pve.mu.Unlock()
-		return pve.auth[len(pve.auth)-1]
+		waitFor(t, func() bool { return detail() == http.StatusOK })
+		return pve.lastAuth()
 	}
 
 	events := make(chan config.Change, 8)
@@ -126,7 +174,7 @@ func TestReloadedSecretReachesTheProxmoxClientWhileReadinessHolds(t *testing.T) 
 		t.Errorf("an invalid edit changes nothing: %q, ready %d", got, ready())
 	}
 
-	// Fixed: the rotation applies live, the changed URL is flagged for a restart.
+	// Fixed: the rotation applies live to the plugin's client.
 	writeTestFile(t, cfgPath, "plugins:\n  flux:\n    suspendReasonAnnotation: example.com/b\n")
 	seen := map[string]bool{}
 	for len(seen) < 2 {
@@ -143,6 +191,7 @@ func TestReloadedSecretReachesTheProxmoxClientWhileReadinessHolds(t *testing.T) 
 	if got := lastAuth(); !strings.HasSuffix(got, "=token-two-9876543210") || ready() != 200 {
 		t.Errorf("after the reload: %q, ready %d", got, ready())
 	}
+	// Only the Manager's flux section needs a restart: the proxmox plugin applied its change.
 	if r := reloader.RestartRequired(); len(r) != 1 || r[0] != "plugins.flux.suspendReasonAnnotation" {
 		t.Errorf("restart required = %v", r)
 	}

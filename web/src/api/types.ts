@@ -78,7 +78,14 @@ export type LinkKind = typeof LinkKindHeadlamp | typeof LinkKindProxmox | typeof
  */
 export const TopicOverview = "core.overview";
 export const TopicHost = "host";
-export const TopicVMs = "vms";
+export const TopicVMs = "proxmox.vms";
+/**
+ * TopicProxmoxNode is the Proxmox node's facts (proxmox/model.NodeData), TopicProxmoxStorage
+ * its storages (PVEStorageData): both published by the proxmox plugin.
+ */
+export const TopicProxmoxNode = "proxmox.node";
+export const TopicProxmoxStorage = "proxmox.storage";
+export const TopicHardwareMachines = "hardware.machines";
 export const TopicCluster = "cluster";
 export const TopicFlux = "flux";
 export const TopicStorage = "storage";
@@ -98,7 +105,7 @@ export const TopicLauncherLinks = "launcher.links";
  * plugin supervisor. The core.* names belong to dash itself, not to a plugin.
  */
 export const TopicPlugins = "core.plugins";
-export type Topic = typeof TopicOverview | typeof TopicHost | typeof TopicVMs | typeof TopicCluster | typeof TopicFlux | typeof TopicStorage | typeof TopicAlerts | typeof TopicStatus | typeof TopicApps | typeof TopicLauncherLinks | typeof TopicPlugins;
+export type Topic = typeof TopicOverview | typeof TopicHost | typeof TopicVMs | typeof TopicProxmoxNode | typeof TopicProxmoxStorage | typeof TopicHardwareMachines | typeof TopicCluster | typeof TopicFlux | typeof TopicStorage | typeof TopicAlerts | typeof TopicStatus | typeof TopicApps | typeof TopicLauncherLinks | typeof TopicPlugins;
 export interface Link {
   label: string;
   href: string;
@@ -159,8 +166,6 @@ export interface Kpis {
   sourceVerified: boolean;
   nodesReady: number /* int */;
   nodesTotal: number /* int */;
-  vmsRunning: number /* int */;
-  vmsTotal: number /* int */;
   powerWatts: number /* float64 */;
   cpuTempMaxC: number /* float64 */;
   worstPvc?: WorstPVC;
@@ -252,10 +257,6 @@ export interface HostData {
    */
   model: string;
   name: string;
-  uptimeSeconds: number /* int64 */;
-  pveVersion: string;
-  kernel: string;
-  cpuModel: string;
   cpuRatio: number /* float64 */;
   memUsedBytes: number /* int64 */;
   memTotalBytes: number /* int64 */;
@@ -279,10 +280,19 @@ export interface K8sNodeRef {
   ready: boolean;
 }
 export interface VM {
+  /**
+   * Ref is proxmox:VM/<vmid> (design L.6).
+   */
+  ref: string;
   vmid: number /* int */;
   name: string;
   status: string;
   health: Health;
+  /**
+   * Critical is true when the VM is listed in plugins.proxmox.criticalVMs (by id or by tag): a
+   * stopped critical VM is critical, any other stopped VM warns.
+   */
+  critical: boolean;
   tags: string[];
   cpus: number /* float64 */;
   cpuRatio: number /* float64 */;
@@ -296,11 +306,6 @@ export interface VM {
   k8sNode?: K8sNodeRef;
   links: Link[];
 }
-export interface Machine {
-  name: string;
-  up: boolean;
-  source: string;
-}
 export interface PVETask {
   upid: string;
   type: string;
@@ -312,7 +317,6 @@ export interface PVETask {
 }
 export interface VMsData {
   vms: VM[];
-  machines: Machine[];
   tasks: PVETask[];
 }
 export interface KeySpec {
@@ -521,11 +525,6 @@ export interface UsedSize {
   usedBytes: number /* int64 */;
   usableBytes: number /* int64 */;
 }
-export interface PVEStorage {
-  name: string;
-  usedBytes: number /* int64 */;
-  sizeBytes: number /* int64 */;
-}
 export interface CNPGCluster {
   namespace: string;
   name: string;
@@ -547,7 +546,6 @@ export interface StorageData {
   pvcs: PVC[];
   buckets: Bucket[];
   rustfs: UsedSize;
-  pveStorages: PVEStorage[];
   cnpg: CNPGCluster[];
   nasBackups: NASBackup[];
   etcd: Etcd;

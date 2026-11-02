@@ -50,9 +50,15 @@ type Proxmox struct {
 	tokenSecret secret.Value // read per request, so a rotated secret file applies without a restart
 }
 
-func NewProxmox(baseURL, node, tokenID string, tokenSecret secret.Value, rt http.RoundTripper) *Proxmox {
-	return &Proxmox{c: newClient(baseURL, rt, 5*time.Second), node: node, tokenID: tokenID, tokenSecret: tokenSecret}
+// NewProxmox builds the client. node may be empty for a client that only lists the cluster's nodes
+// (Nodes), the VM list and the tasks: every call that addresses a node refuses with ErrInvalid.
+// Requests time out after 5s unless opts say otherwise (Timeout).
+func NewProxmox(baseURL, node, tokenID string, tokenSecret secret.Value, rt http.RoundTripper, opts ...Option) *Proxmox {
+	return &Proxmox{c: newClient(baseURL, rt, 5*time.Second, opts...), node: node, tokenID: tokenID, tokenSecret: tokenSecret}
 }
+
+// errNoNode is what a call that addresses a node returns on a client built without one.
+var errNoNode = fmt.Errorf("%w: the client has no node", ErrInvalid)
 
 // Enabled reports whether a token is configured.
 func (p *Proxmox) Enabled() bool { return p.tokenID != "" && p.tokenSecret.IsSet() }
@@ -106,6 +112,9 @@ func (p *Proxmox) nodePath(suffix string) string {
 }
 
 func (p *Proxmox) vmPath(vmid int, suffix string) (string, error) {
+	if p.node == "" {
+		return "", errNoNode
+	}
 	if vmid <= 0 {
 		return "", fmt.Errorf("%w: bad vmid", ErrInvalid)
 	}
@@ -140,6 +149,9 @@ func (p *Proxmox) NodeStatus(ctx context.Context) (PVEHost, error) {
 			Model string `json:"model"`
 		} `json:"cpuinfo"`
 	}
+	if p.node == "" {
+		return PVEHost{}, errNoNode
+	}
 	if err := p.get(ctx, p.nodePath("/status"), &d); err != nil {
 		return PVEHost{}, err
 	}
@@ -152,6 +164,37 @@ func (p *Proxmox) NodeStatus(ctx context.Context) (PVEHost, error) {
 		h.Kernel = d.KVersion
 	}
 	return h, nil
+}
+
+// PVEStorage is one storage of the node with its usage.
+type PVEStorage struct {
+	Name                 string
+	UsedBytes, SizeBytes int64
+}
+
+// Storages lists the node's storages that report a size (GET /nodes/{node}/storage); a storage
+// that is not active on the node has none and is left out. The token needs Datastore.Audit.
+func (p *Proxmox) Storages(ctx context.Context) ([]PVEStorage, error) {
+	if p.node == "" {
+		return nil, errNoNode
+	}
+	var raw []struct {
+		Storage string `json:"storage"`
+		Used    flex   `json:"used"`
+		Total   flex   `json:"total"`
+	}
+	if err := p.get(ctx, p.nodePath("/storage"), &raw); err != nil {
+		return nil, err
+	}
+	out := make([]PVEStorage, 0, len(raw))
+	for _, r := range raw {
+		if r.Storage == "" || r.Total <= 0 {
+			continue
+		}
+		out = append(out, PVEStorage{Name: r.Storage, UsedBytes: r.Used.int64(), SizeBytes: r.Total.int64()})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
+	return out, nil
 }
 
 // VMs lists qemu guests (including templates) of the whole cluster.

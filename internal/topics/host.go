@@ -13,21 +13,11 @@ import (
 type hostSnap struct{ data model.HostData }
 
 func (m *Manager) pollHost(ctx context.Context) {
-	n, scrub := m.d.Cfg.HostNodename, m.d.Cfg.Conventions.ZFSScrubMetricPrefix
+	n, scrub := m.hostNode(), m.d.Cfg.Conventions.ZFSScrubMetricPrefix
 	m.mu.RLock()
 	d := m.host.data // last good values survive a failed query
 	m.mu.RUnlock()
-	d.Name, d.ScrubTracked = m.d.Cfg.ProxmoxNode, scrub != ""
-
-	if m.d.PVE.Enabled() {
-		st, err := m.d.PVE.NodeStatus(ctx)
-		m.setSource("host:proxmox", err)
-		if err == nil {
-			d.UptimeSeconds, d.PVEVersion, d.Kernel, d.CPUModel = st.UptimeSeconds, st.PVEVersion, st.Kernel, st.CPUModel
-		}
-	} else {
-		m.setSource("host:proxmox", upstream.ErrDisabled)
-	}
+	d.Name, d.ScrubTracked = n, scrub != ""
 
 	qs := map[string]string{
 		"cpu":      queries.HostCPU(n),
@@ -173,7 +163,7 @@ func (m *Manager) buildHost() model.HostData {
 	m.mu.RLock()
 	d := m.host.data
 	m.mu.RUnlock()
-	d.Name = m.d.Cfg.ProxmoxNode
+	d.Name = m.hostNode()
 	if d.PackageTempsC == nil {
 		d.PackageTempsC = []float64{}
 	}
@@ -193,6 +183,6 @@ func (m *Manager) buildHost() model.HostData {
 		d.Disks = []model.Disk{}
 	}
 	d.Model = m.d.Cfg.HostModel
-	d.Links = append(append(m.d.Links.ProxmoxUI(), m.d.Links.HostShell()...), m.link("Host", "", "")...)
+	d.Links = append(append(m.link("ProxmoxUI", "", ""), m.link("HostShell", "", "")...), m.link("Host", "", "")...)
 	return d
 }

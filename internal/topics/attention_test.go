@@ -5,14 +5,13 @@ import (
 	"time"
 
 	"github.com/TechDufus/dash/internal/config"
-	"github.com/TechDufus/dash/internal/links"
 	"github.com/TechDufus/dash/internal/model"
 )
 
 var testNow = time.Date(2026, 10, 30, 12, 0, 0, 0, time.UTC)
 
 func input() AttentionInput {
-	return AttentionInput{Links: links.New(config.Defaults()), Now: testNow}
+	return AttentionInput{Now: testNow}
 }
 
 // severityOf returns the severity of the item with id, or "" when there is none.
@@ -92,49 +91,6 @@ func TestCertBoundaries(t *testing.T) {
 				t.Errorf("attention severity = %q, want %q", got, want)
 			}
 		})
-	}
-}
-
-func TestVMHealth(t *testing.T) {
-	tests := []struct {
-		name     string
-		vmid     int
-		status   string
-		template bool
-		want     model.Health
-	}{
-		{"talos running", 2020, "running", false, model.HealthOK},
-		{"talos stopped", 2020, "stopped", false, model.HealthCrit},
-		{"talos 2022 stopped", 2022, "stopped", false, model.HealthCrit},
-		{"2023 is not talos", 2023, "stopped", false, model.HealthWarn},
-		{"omp-cloud stopped", 3000, "stopped", false, model.HealthWarn},
-		{"template stopped", 9000, "stopped", true, model.HealthOK},
-	}
-	for _, tc := range tests {
-		if got := VMHealth(tc.vmid, tc.status, tc.template); got != tc.want {
-			t.Errorf("%s: %s, want %s", tc.name, got, tc.want)
-		}
-	}
-
-	in := input()
-	in.VMs.VMs = []model.VM{
-		{VMID: 2020, Name: "talos-cp-1", Status: "stopped"},
-		{VMID: 3000, Name: "omp-cloud", Status: "stopped"},
-		{VMID: 9000, Name: "tmpl", Status: "stopped", Template: true},
-		{VMID: 2021, Name: "talos-cp-2", Status: "running"},
-	}
-	items := Attention(in, nil)
-	if got := severityOf(items, "vm:2020"); got != model.SeverityCrit {
-		t.Errorf("talos stopped = %q, want crit", got)
-	}
-	if got := severityOf(items, "vm:3000"); got != model.SeverityWarn {
-		t.Errorf("omp-cloud stopped = %q, want warn", got)
-	}
-	if severityOf(items, "vm:9000") != "" || severityOf(items, "vm:2021") != "" {
-		t.Errorf("template and running VMs must not raise attention: %+v", items)
-	}
-	if got := items[0].Route; got != "/vms/2020" {
-		t.Errorf("crit item must sort first with route /vms/2020, got %s", got)
 	}
 }
 
@@ -299,7 +255,7 @@ func TestOverallStatusAndOrdering(t *testing.T) {
 func TestTrackerKeepsFirstSeen(t *testing.T) {
 	tr := NewTracker()
 	in := input()
-	in.VMs.VMs = []model.VM{{VMID: 3000, Name: "omp-cloud", Status: "stopped"}}
+	in.Cluster.Nodes = []model.Node{{Name: "cp-1", Ready: false}} // no time of its own: the tracker gives it one
 	first := Attention(in, tr)[0].Since
 	if !first.Equal(testNow) {
 		t.Fatalf("first sighting = %v, want now", first)
@@ -308,9 +264,9 @@ func TestTrackerKeepsFirstSeen(t *testing.T) {
 	if got := Attention(in, tr)[0].Since; !got.Equal(first) {
 		t.Errorf("since moved to %v, must stay %v", got, first)
 	}
-	in.VMs.VMs[0].Status = "running"
+	in.Cluster.Nodes[0].Ready = true
 	Attention(in, tr)
-	in.VMs.VMs[0].Status = "stopped"
+	in.Cluster.Nodes[0].Ready = false
 	in.Now = testNow.Add(20 * time.Minute)
 	if got := Attention(in, tr)[0].Since; !got.Equal(in.Now) {
 		t.Errorf("a recovered then failing item starts over, got %v", got)

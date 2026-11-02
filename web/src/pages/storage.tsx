@@ -4,21 +4,39 @@ import { Empty, Panel, PanelSkeleton } from "@/components/panel";
 import { Slot } from "@/plugins/slots";
 import { usePluginsState, useTopicAvailable } from "@/plugins/state";
 
-/** The storage topic comes from the kubernetes plugin; the panels come from every plugin that has one. */
+/**
+ * The panels come from every plugin that has one. The kubernetes plugin's storage topic feeds its
+ * own panels; the Proxmox panel reads proxmox.storage itself, so the page is usable with either
+ * plugin alone.
+ */
 export function StoragePage() {
   const env = useTopic("storage");
   const available = useTopicAvailable("storage");
+  const proxmoxAvailable = useTopicAvailable("proxmox.storage");
   const { byId } = usePluginsState();
 
-  if (available === false) {
-    const state = byId.get("kubernetes")?.state;
+  if (available === false && proxmoxAvailable === false) {
+    const kube = byId.get("kubernetes")?.state ?? "not available";
+    const pve = byId.get("proxmox")?.state ?? "not available";
     return (
       <Page>
         <Panel>
           <Empty>
-            Storage data comes from the kubernetes plugin, which is {state ?? "not available"}.
+            Storage data comes from the kubernetes plugin, which is {kube}, and the proxmox plugin,
+            which is {pve}.
           </Empty>
         </Panel>
+      </Page>
+    );
+  }
+
+  // Only the Proxmox panel can draw: the kubernetes panels read a topic that nobody publishes.
+  if (available === false) {
+    return (
+      <Page>
+        <div className="grid gap-4 lg:grid-cols-2">
+          <Slot id="storage" env={undefined} />
+        </div>
       </Page>
     );
   }

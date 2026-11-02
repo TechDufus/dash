@@ -12,10 +12,18 @@ import (
 	"testing"
 
 	"github.com/TechDufus/dash/internal/config"
-	"github.com/TechDufus/dash/internal/links"
 	"github.com/TechDufus/dash/internal/secret"
 	"github.com/TechDufus/dash/internal/upstream"
 )
+
+// bearer sends a credential with every request, as an authenticated client does.
+type bearer struct{ token secret.Value }
+
+func (b bearer) RoundTrip(r *http.Request) (*http.Response, error) {
+	r = r.Clone(r.Context())
+	r.Header.Set("Authorization", "Bearer "+b.token.Reveal())
+	return http.DefaultTransport.RoundTrip(r)
+}
 
 const canarySecret = "CANARYSECRET123456"
 
@@ -52,30 +60,26 @@ func TestViewerStreamNeverCarriesUpstreamDetail(t *testing.T) {
 	token := secret.New(canarySecret, "")
 	reg.Add(token)
 
-	// Proxmox answers 500 and echoes the Authorization header it was sent.
-	pve := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	// Prometheus answers 500 and echoes the Authorization header it was sent. (The Proxmox half of
+	// this canary is the proxmox plugin's: internal/plugins/proxmox TestProxmoxDoesNotLeakTheTokenOrTheURL.)
+	prom := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
 		io.WriteString(w, "internal error for "+r.Header.Get("Authorization"))
 	}))
-	t.Cleanup(pve.Close)
-	// Prometheus is behind a certificate the client does not trust.
-	prom := httptest.NewTLSServer(http.NotFoundHandler())
 	t.Cleanup(prom.Close)
 
 	cfg := config.Defaults()
-	cfg.ProxmoxNode, cfg.HostNodename = "pve", "pve"
+	cfg.HostNodename = "pve"
 	m := New(Deps{
 		Cfg:      cfg,
-		Services: promServices(upstream.NewProm(prom.URL, nil)),
-		PVE:      upstream.NewProxmox(pve.URL, "pve", "u@pve!t", token, nil),
-		Links:    links.New(cfg),
+		Services: promServices(upstream.NewProm(prom.URL, bearer{token})),
 		Secrets:  reg,
 	})
 	ctx := context.Background()
 	m.pollHost(ctx)
 
-	keys := []string{"host:proxmox", "host:victoriametrics"}
-	want := map[string]string{"proxmox": "http_500", "victoriametrics": "tls"}
+	keys := []string{"host:victoriametrics"}
+	want := map[string]string{"victoriametrics": "http_500"}
 	sources := m.sources(keys...)
 	for _, s := range sources {
 		if s.OK || s.Error != want[s.Name] {

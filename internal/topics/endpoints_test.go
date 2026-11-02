@@ -20,12 +20,12 @@ import (
 	"github.com/TechDufus/dash/internal/config"
 	"github.com/TechDufus/dash/internal/hub"
 	"github.com/TechDufus/dash/internal/kube"
-	"github.com/TechDufus/dash/internal/links"
 	"github.com/TechDufus/dash/internal/model"
 	"github.com/TechDufus/dash/internal/plugin"
 	"github.com/TechDufus/dash/internal/plugin/plugintest"
 	"github.com/TechDufus/dash/internal/pluginconf"
 	"github.com/TechDufus/dash/internal/plugins/gatus"
+	hwmodel "github.com/TechDufus/dash/internal/plugins/hardware/model"
 	"github.com/TechDufus/dash/internal/secret"
 	"github.com/TechDufus/dash/internal/svc"
 	"github.com/TechDufus/dash/internal/upstream"
@@ -128,7 +128,7 @@ func manualManager(t *testing.T, services func(plugin.ID) (any, bool)) (*Manager
 	cfg := config.Defaults()
 	m := New(Deps{
 		Cfg: cfg, Cluster: routeCluster(), Hosts: plugintest.AllRunning(h, LegacyManifests()...),
-		Links: links.New(cfg), Services: services,
+		Services: services,
 	})
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
@@ -171,7 +171,7 @@ func appDot(t *testing.T, h *hub.Hub) (dot *bool, srcs []model.SourceStatus, pub
 // rpiUp is the rpi-control machine's state, and whether vms is published at all.
 func rpiUp(t *testing.T, h *hub.Hub) (up bool, srcs []model.SourceStatus, published bool) {
 	t.Helper()
-	d, srcs, ok := decodeTopic[model.VMsData](t, h, model.TopicVMs)
+	d, srcs, ok := decodeTopic[hwmodel.MachinesData](t, h, model.TopicHardwareMachines)
 	if !ok {
 		return false, nil, false
 	}
@@ -375,7 +375,7 @@ func TestAppsAndVMsPublishWithGatusNotRunning(t *testing.T) {
 		t.Fatalf("vms published=%v up=%v, want published with rpi-control down", ok, up)
 	}
 	wantGatusChip(t, "vms", vsrcs, false, "not_configured")
-	if len(srcs) != 2 || len(vsrcs) != 4 {
+	if len(srcs) != 2 || len(vsrcs) != 2 {
 		t.Errorf("apps sources %+v, vms sources %+v: one chip each for gatus, none twice", srcs, vsrcs)
 	}
 
@@ -473,9 +473,8 @@ func newGatusRig(t *testing.T, row plugin.InstanceConfig) *gatusRig {
 	r.h.SetOrder(r.sup.TopicOrder)
 	cfg := config.Defaults()
 	r.m = New(Deps{
-		Cfg: cfg, Cluster: routeCluster(), Hosts: r.sup, Links: links.New(cfg), Contributors: r.sup.Contributors,
+		Cfg: cfg, Cluster: routeCluster(), Hosts: r.sup, Contributors: r.sup.Contributors,
 		Services: r.sup.Service, Secrets: secret.NewRegistry(),
-		PVE: upstream.NewProxmox("", "", "", secret.Value{}, nil),
 	})
 	if err := r.sup.Add(append(r.m.Plugins(), gatus.New)...); err != nil {
 		t.Fatal(err)
@@ -630,11 +629,11 @@ func appDotQuiet(h *hub.Hub) (dot *bool, srcs []model.SourceStatus, ok bool) {
 }
 
 func rpiUpQuiet(h *hub.Hub) (up bool, srcs []model.SourceStatus, ok bool) {
-	env, found := latest(h, model.TopicVMs)
+	env, found := latest(h, model.TopicHardwareMachines)
 	if !found {
 		return false, nil, false
 	}
-	var d model.VMsData
+	var d hwmodel.MachinesData
 	if json.Unmarshal(env.Data, &d) != nil {
 		return false, nil, false
 	}

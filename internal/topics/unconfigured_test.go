@@ -12,8 +12,6 @@ import (
 	"testing"
 
 	"github.com/TechDufus/dash/internal/config"
-	"github.com/TechDufus/dash/internal/links"
-	"github.com/TechDufus/dash/internal/secret"
 	"github.com/TechDufus/dash/internal/upstream"
 )
 
@@ -32,24 +30,15 @@ func TestUnconfiguredUpstreamsMakeNoRequests(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	rt := &failingTransport{}
-	m := New(Deps{
-		Cfg:   cfg,
-		PVE:   upstream.NewProxmox(cfg.ProxmoxURL, cfg.ProxmoxNode, cfg.ProxmoxTokenID, cfg.ProxmoxTokenSecret, rt),
-		Links: links.New(cfg),
-	})
+	// No prometheus plugin runs and nothing is configured: the pollers have no upstream to ask.
+	m := New(Deps{Cfg: cfg})
 
 	ctx := context.Background()
 	for _, poll := range []func(context.Context){m.pollHost, m.pollVMs, m.pollUsage, m.pollStorage} {
 		poll(ctx)
 	}
-
-	if n := rt.n.Load(); n != 0 {
-		t.Errorf("%d upstream requests with nothing configured", n)
-	}
 	for _, key := range []string{
-		"host:victoriametrics", "cluster:victoriametrics", "storage:victoriametrics", "vms:victoriametrics",
-		"host:proxmox", "vms:proxmox",
+		"host:victoriametrics", "cluster:victoriametrics", "storage:victoriametrics", "machines:prometheus",
 	} {
 		s := m.sources(key)[0]
 		if s.OK || s.Error != "not_configured" {
@@ -79,8 +68,7 @@ func TestScrubAndNASQueriesNeedTheirConventions(t *testing.T) {
 		cfg := config.Defaults()
 		cfg.HostNodename, cfg.Conventions = "pve-a", c
 		m := New(Deps{
-			Cfg: cfg, Services: promServices(upstream.NewProm(prom.URL, nil)), PVE: upstream.NewProxmox("", "", "", secret.Value{}, nil),
-			Links: links.New(cfg),
+			Cfg: cfg, Services: promServices(upstream.NewProm(prom.URL, nil)),
 		})
 		m.pollHost(context.Background())
 		m.pollStorage(context.Background())
@@ -118,8 +106,7 @@ func TestHostDataSaysWhetherScrubIsTracked(t *testing.T) {
 		cfg.HostNodename, cfg.Conventions.ZFSScrubMetricPrefix = "pve-a", prefix
 		rt := &failingTransport{} // the queries fail; the flag does not depend on their answer
 		m := New(Deps{
-			Cfg: cfg, Services: promServices(upstream.NewProm("http://prom.example.com", rt)), PVE: upstream.NewProxmox("", "", "", secret.Value{}, nil),
-			Links: links.New(cfg),
+			Cfg: cfg, Services: promServices(upstream.NewProm("http://prom.example.com", rt)),
 		})
 		m.pollHost(context.Background())
 		if got := m.buildHost().ScrubTracked; got != want {

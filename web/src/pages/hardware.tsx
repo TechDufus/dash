@@ -30,7 +30,6 @@ import {
   ageSeconds,
   formatBytes,
   formatCelsius,
-  formatDuration,
   formatNumber,
   formatPercent,
   formatRelative,
@@ -39,6 +38,7 @@ import {
 import { HEALTH_TEXT, worstHealth } from "@/lib/health";
 import { useNow } from "@/lib/hooks";
 import { cn } from "@/lib/utils";
+import { Slot } from "@/plugins/slots";
 
 const fmtTemp = (v: number) => `${v.toFixed(0)}°C`;
 const fmtRpm = (v: number) => `${Math.round(v)} rpm`;
@@ -167,28 +167,12 @@ function Temps({ host }: { host: HostData }) {
   );
 }
 
-function Fact({ label, value, title }: { label: string; value: string; title?: string }) {
-  return (
-    <div className="min-w-0">
-      <dt className="text-xs text-muted">{label}</dt>
-      <dd className="num truncate text-sm text-fg" title={title ?? value}>
-        {value}
-      </dd>
-    </div>
-  );
-}
-
 function System({ host }: { host: HostData }) {
   return (
     <Panel>
       <PanelHeader title="System" icon={<Cpu />} />
       <div className="space-y-4 px-4 pb-4">
-        <dl className="grid grid-cols-2 gap-x-4 gap-y-3">
-          <Fact label="Uptime" value={formatDuration(host.uptimeSeconds)} />
-          <Fact label="Proxmox VE" value={host.pveVersion || "–"} />
-          <Fact label="Kernel" value={host.kernel || "–"} />
-          <Fact label="CPU" value={host.cpuModel || "–"} />
-        </dl>
+        <Slot id="hardware.facts" host={host} />
         <div className="space-y-3">
           <div>
             <div className="mb-1 flex items-baseline justify-between text-xs">

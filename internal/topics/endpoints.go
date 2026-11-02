@@ -54,7 +54,7 @@ func (m *Manager) endpointsReady() bool {
 	return !running || ep.Revision() > 0
 }
 
-// watchEndpoints marks apps and vms when the gatus service or its Revision differs from the last
+// watchEndpoints marks apps and the machines when the gatus service or its Revision differs from the last
 // round's. A plugin cannot mark the Manager's topics, and a callback registered once would not
 // survive a reload (which builds a new service), so the Manager compares on its own tick. It
 // runs at the top of rebuild, ahead of the early return for a quiet round.
@@ -65,5 +65,5 @@ func (m *Manager) watchEndpoints() {
 		return
 	}
 	m.seenEndpoints, m.seenRevision = id, rev
-	m.mark(model.TopicApps, model.TopicVMs)
+	m.mark(model.TopicApps, model.TopicHardwareMachines)
 }

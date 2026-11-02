@@ -7,6 +7,7 @@ import (
 	"github.com/TechDufus/dash/internal/model"
 	"github.com/TechDufus/dash/internal/plugin"
 	"github.com/TechDufus/dash/internal/pluginconf"
+	hwmodel "github.com/TechDufus/dash/internal/plugins/hardware/model"
 	"github.com/TechDufus/dash/internal/svc"
 	"github.com/TechDufus/dash/internal/upstream"
 )
@@ -77,7 +78,7 @@ func Owner(topic model.Topic) (id plugin.ID, local string, ok bool) {
 // them does, so a disabled integration costs no upstream request.
 var pollUsers = map[string][]plugin.ID{
 	"host":    {"hardware"},
-	"vms":     {"proxmox"},
+	"vms":     {"hardware"},
 	"usage":   {"kubernetes"},
 	"storage": {"kubernetes"},
 }
@@ -90,16 +91,16 @@ func legacyManifests() []plugin.Manifest {
 		return plugin.UISpec{Nav: []model.NavItem{{Path: path, Label: label, Title: title, Icon: icon}}}
 	}
 	return []plugin.Manifest{
-		{ID: "proxmox", Name: "Proxmox VE", Description: "Virtual machines, containers and the hypervisor.", Version: "1.0.0",
-			Uses:   []plugin.ID{"kubernetes", "prometheus"},
-			Config: func() any { return &pluginconf.Proxmox{} },
-			Topics: []plugin.TopicSpec{{Name: "vms", Legacy: "vms", Type: model.VMsData{}, Doc: "Virtual machines and containers."}},
-			UI:     nav("/vms", "VMs", "Virtual machines", "Server")},
 		{ID: "hardware", Name: "Hardware", Description: "The physical host behind the cluster.", Version: "1.0.0",
 			Uses:   []plugin.ID{"prometheus", "proxmox"},
 			Config: func() any { return &pluginconf.Hardware{} },
-			Topics: []plugin.TopicSpec{{Name: "hosts", Legacy: "host", Type: model.HostData{}, Doc: "The host's sensors, power, disks and pools."}},
-			UI:     nav("/hardware", "Hardware", "Hardware", "Cpu")},
+			Topics: []plugin.TopicSpec{
+				{Name: "hosts", Legacy: "host", Type: model.HostData{}, Doc: "The host's sensors, power, disks and pools."},
+				// No Legacy name: its wire name is hardware.machines (see owners). The Manager
+				// publishes it until the hardware plugin does.
+				{Name: "machines", Type: hwmodel.MachinesData{}, Doc: "The machines dash watches that are neither VMs nor cluster nodes."},
+			},
+			UI: nav("/hardware", "Hardware", "Hardware", "Cpu")},
 		{ID: "kubernetes", Name: "Kubernetes", Description: "How dash reaches and reads the cluster.", Version: "1.0.0",
 			Uses:   []plugin.ID{"prometheus", "gatus"},
 			Config: func() any { return &config.KubernetesConfig{} },
@@ -142,13 +143,11 @@ func (m *Manager) Plugins() []plugin.Factory {
 
 // pollKeys are the source keys (m.srcs) that decide a poller-backed shim's state.
 var pollKeys = map[plugin.ID][]string{
-	"proxmox":  {"vms:proxmox", "host:proxmox"},
 	"hardware": {"host:victoriametrics"},
 }
 
 // setting names what to configure for a shim whose source is off, for its status message.
 var setting = map[plugin.ID]string{
-	"proxmox":  "plugins.proxmox.url, tokenID and tokenSecret",
 	"hardware": "plugins.prometheus.url",
 }
 

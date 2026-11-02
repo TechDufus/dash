@@ -28,10 +28,8 @@ func (w *World) host(now time.Time) model.HostData {
 	power := Around("power", now, 214, 26)
 	memTotal := gib(256)
 	memUsed := int64(float64(memTotal) * Around("hostmem", now, 0.41, 0.02))
-	node := w.pveNode(now)
 	h := model.HostData{
-		Model: HostModel, Name: HostName, UptimeSeconds: node.UptimeSeconds,
-		PVEVersion: node.Version, Kernel: node.Kernel, CPUModel: node.CPUModel,
+		Model: HostModel, Name: HostName,
 		CPURatio: Around("hostcpu", now, 0.19, 0.07), MemUsedBytes: memUsed, MemTotalBytes: memTotal,
 		PowerWatts: power, PackageTempsC: temps, Sensors: sensors,
 		PSUs:         []model.PSU{{Name: "PS1 Status", State: model.HealthOK}, {Name: "PS2 Status", State: model.HealthOK}},

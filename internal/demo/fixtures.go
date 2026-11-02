@@ -3,30 +3,26 @@ package demo
 import (
 	"context"
 
-	"github.com/TechDufus/dash/internal/config"
 	"github.com/TechDufus/dash/internal/demo/world"
-	"github.com/TechDufus/dash/internal/links"
 	"github.com/TechDufus/dash/internal/model"
 	"github.com/TechDufus/dash/internal/plugin"
 	"github.com/TechDufus/dash/internal/pluginconf"
 	"github.com/TechDufus/dash/internal/plugins/headlamp"
 )
 
-// demoLinks gives the fake homelab its links: the Proxmox console from the production builder,
-// pointed at example.com by Config, and the Headlamp links from the headlamp plugin pointed at
-// the fake lab, as its demo twin is.
+// demoLinks gives the fake homelab its Headlamp links, from the headlamp plugin pointed at the
+// fake lab, as its demo twin is. The Proxmox links are the proxmox twin's.
 type demoLinks struct {
-	*links.Builder
 	hl *headlamp.Plugin
 }
 
 var _ world.LinkSource = demoLinks{}
 
-func newLinks(cfg config.Config) demoLinks {
+func newLinks() demoLinks {
 	hl := &headlamp.Plugin{}
 	// Start only records where Headlamp is: it takes no host and cannot fail for this section.
 	_ = hl.Start(context.Background(), nil, &pluginconf.Headlamp{URL: world.HeadlampURL, Cluster: world.HeadlampCluster})
-	return demoLinks{Builder: links.New(cfg), hl: hl}
+	return demoLinks{hl: hl}
 }
 
 // Headlamp links to an object in the fake lab's Headlamp.
@@ -39,7 +35,6 @@ func (d demoLinks) Headlamp(kind, namespace, name string) []model.Link {
 type built struct {
 	overview model.OverviewData
 	host     model.HostData
-	vms      model.VMsData
 	cluster  model.ClusterData
 	flux     model.FluxData
 	storage  model.StorageData
@@ -50,7 +45,7 @@ type built struct {
 func (s *Source) build() built {
 	w := s.world.Build()
 	return built{
-		overview: w.Overview, host: w.Host, vms: w.VMs, cluster: w.Cluster, flux: w.Flux,
+		overview: w.Overview, host: w.Host, cluster: w.Cluster, flux: w.Flux,
 		storage: w.Storage, status: w.Status, apps: w.Apps,
 	}
 }

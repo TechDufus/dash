@@ -26,13 +26,13 @@ export function shimRows(): PluginInfo[] {
     pluginInfo({
       id: "proxmox",
       name: "Proxmox VE",
-      topics: ["vms"],
+      topics: ["proxmox.vms", "proxmox.node", "proxmox.storage"],
       nav: nav("/vms", "VMs", "Virtual machines", "Server"),
     }),
     pluginInfo({
       id: "hardware",
       name: "Hardware",
-      topics: ["host"],
+      topics: ["host", "hardware.machines"],
       nav: nav("/hardware", "Hardware", "Hardware", "Cpu"),
     }),
     pluginInfo({

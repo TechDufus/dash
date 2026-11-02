@@ -19,12 +19,6 @@ func TestSeries(t *testing.T) {
 		{"host.mem", a, `1 - node_memory_MemAvailable_bytes{nodename="pve-730"} / node_memory_MemTotal_bytes{nodename="pve-730"}`},
 		{"host.temps", a, `ipmi_temperature_celsius{nodename="pve-730"}`},
 		{"host.fans", a, `ipmi_fan_speed_rpm{nodename="pve-730"}`},
-		{"vm.cpu", a, `pve_cpu_usage_ratio{id="qemu/2020"}`},
-		{"vm.mem", a, `pve_memory_usage_bytes{id="qemu/2020"} / pve_memory_size_bytes{id="qemu/2020"}`},
-		{"vm.netIn", a, `rate(pve_network_receive_bytes_total{id="qemu/2020"}[2m])`},
-		{"vm.netOut", a, `rate(pve_network_transmit_bytes_total{id="qemu/2020"}[2m])`},
-		{"vm.diskRead", a, `rate(pve_disk_read_bytes_total{id="qemu/2020"}[2m])`},
-		{"vm.diskWrite", a, `rate(pve_disk_written_bytes_total{id="qemu/2020"}[2m])`},
 		{"node.cpu", a, `1 - avg by (instance)(rate(node_cpu_seconds_total{job="node-exporter",instance="10.0.20.20:9100",mode="idle"}[2m]))`},
 		{"node.mem", a, `1 - node_memory_MemAvailable_bytes{job="node-exporter",instance="10.0.20.20:9100"} / node_memory_MemTotal_bytes{job="node-exporter",instance="10.0.20.20:9100"}`},
 		{"pod.cpu", a, `sum(rate(container_cpu_usage_seconds_total{metrics_path="/metrics/cadvisor",container!="",container!="POD",namespace="homepage",pod="homepage-abc"}[2m]))`},
@@ -44,10 +38,6 @@ func TestSeriesRejectsBadInput(t *testing.T) {
 		args Args
 	}{
 		{"nope", Args{}},
-		{"vm.cpu", Args{VMID: ""}},
-		{"vm.cpu", Args{VMID: "20x"}},
-		{"vm.cpu", Args{VMID: `1"}or{`}},
-		{"vm.cpu", Args{VMID: "1234567890"}},
 		{"node.cpu", Args{}},
 		{"pod.cpu", Args{Namespace: "ok"}},
 		{"pod.mem", Args{Namespace: "Bad", Pod: "p"}},

@@ -1,14 +1,13 @@
 import { screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { AppsData, HostData, LauncherData, OverviewData, StorageData } from "@/api/types";
+import type { AppsData, HostData, LauncherData, OverviewData } from "@/api/types";
 import { connectStream, type TestStream } from "@/plugins/test-util";
 import { pluginInfo, renderApp, stubFetch } from "@/test/harness";
 import { shimRows, withState } from "@/test/shims";
 import { AppsPage } from "./apps";
 import { HardwarePage } from "./hardware";
 import { OverviewPage } from "./overview";
-import { StoragePage } from "./storage";
 
 // The topology diagram measures and animates; the overview tests are about the tiles.
 vi.mock("@/pages/topology", async (importOriginal) => ({
@@ -37,6 +36,22 @@ const overview = (extra: Partial<OverviewData> = {}): OverviewData =>
         value: 2,
         health: "warn",
       },
+      {
+        key: "vms.running",
+        plugin: "proxmox",
+        label: "VMs running",
+        unit: "",
+        value: 5,
+        health: "ok",
+      },
+      {
+        key: "vms.total",
+        plugin: "proxmox",
+        label: "VMs",
+        unit: "",
+        value: 6,
+        health: "ok",
+      },
     ],
     topology: { host: {}, vms: [], groups: [] },
     kpis: {
@@ -46,24 +61,11 @@ const overview = (extra: Partial<OverviewData> = {}): OverviewData =>
       sourceVerified: true,
       nodesReady: 3,
       nodesTotal: 3,
-      vmsRunning: 5,
-      vmsTotal: 6,
       powerWatts: 240,
       cpuTempMaxC: 62,
     },
     ...extra,
   }) as unknown as OverviewData;
-
-const storage = (): StorageData =>
-  ({
-    pvcs: [],
-    buckets: [],
-    rustfs: { usedBytes: 1, usableBytes: 2 },
-    pveStorages: [{ name: "local-zfs", usedBytes: 1, sizeBytes: 2 }],
-    cnpg: [],
-    nasBackups: [],
-    etcd: { dbBytes: 1, quotaBytes: 2 },
-  }) as StorageData;
 
 const app = (name: string, group: string, host = name): AppsData["apps"][number] => ({
   name,
@@ -193,7 +195,8 @@ describe("pages built from slots", () => {
       expect(tileLabels()).toEqual(tiles.slice(1));
 
       stream.plugins(rows);
-      stream.send("core.overview", overview({ kpiList: [] }));
+      // The VM tile draws from its own KPIs: only the alerts KPI goes.
+      stream.send("core.overview", overview({ kpiList: overview().kpiList.slice(1) }));
       expect(tileLabels()).toEqual(tiles.slice(1));
     });
 
@@ -242,6 +245,8 @@ describe("pages built from slots", () => {
             entry("alertmanager", "firing", "Published alerts", 2),
             entry("hardware", "power", "Published power", 240),
             entry("hardware", "cpuTemp", "Published temperature", 62),
+            entry("proxmox", "vms.running", "Published running VMs", 5),
+            entry("proxmox", "vms.total", "Published VMs", 6),
             entry("queue", "depth", "Queue depth", 42),
           ],
         }),
@@ -334,61 +339,6 @@ describe("pages built from slots", () => {
       // The chips sit on the heading row and nowhere else on the page.
       expect(screen.getAllByText(/source unreachable: kubernetes/)).toHaveLength(1);
       expect(row.parentElement).toHaveClass("space-y-5");
-    });
-  });
-
-  describe("Storage", () => {
-    const names = [
-      "Persistent volumes",
-      "Object storage",
-      "Proxmox storage",
-      "Postgres clusters (CNPG)",
-      "NAS backups",
-      "etcd database",
-    ];
-    const panelNames = () => screen.getAllByRole("heading", { level: 2 }).map((h) => h.textContent);
-
-    it("draws one panel per contribution, in the page's layout", () => {
-      renderApp(<StoragePage />);
-      stream.plugins(shimRows());
-      stream.send("storage", storage());
-
-      expect(panelNames()).toEqual(names);
-      const cell = (name: string) =>
-        screen.getByRole("heading", { name }).closest("div.lg\\:col-span-2");
-      expect(cell("Persistent volumes")).not.toBeNull();
-      for (const half of names.slice(1)) expect(cell(half), half).toBeNull();
-    });
-
-    it("drops the Proxmox panel when proxmox is off", () => {
-      renderApp(<StoragePage />);
-      const rows = shimRows();
-      stream.plugins(rows);
-      stream.send("storage", storage());
-
-      stream.plugins(withState(rows, "proxmox", "disabled"));
-      expect(panelNames()).toEqual(names.filter((n) => n !== "Proxmox storage"));
-    });
-
-    it("shows one explanation when kubernetes, the source of the storage topic, is off", () => {
-      renderApp(<StoragePage />);
-      const rows = shimRows();
-      stream.plugins(rows);
-      stream.send("storage", storage());
-
-      stream.plugins(withState(rows, "kubernetes", "disabled"));
-      expect(screen.queryAllByRole("heading", { level: 2 })).toEqual([]);
-      expect(
-        screen.getByText("Storage data comes from the kubernetes plugin, which is disabled."),
-      ).toBeInTheDocument();
-      expect(document.querySelector("[aria-busy=true]")).toBeNull();
-    });
-
-    it("shows the skeleton until the storage topic arrives", () => {
-      renderApp(<StoragePage />);
-      stream.plugins(shimRows());
-      expect(document.querySelector("[aria-busy=true]")).not.toBeNull();
-      expect(screen.queryAllByRole("heading", { level: 2 })).toEqual([]);
     });
   });
 
@@ -702,10 +652,6 @@ describe("pages built from slots", () => {
       ({
         model,
         name: "pve-demo",
-        uptimeSeconds: 3600,
-        pveVersion: "9.0.11",
-        kernel: "",
-        cpuModel: "",
         cpuRatio: 0.1,
         memUsedBytes: 1,
         memTotalBytes: 2,

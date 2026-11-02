@@ -218,11 +218,11 @@ func TestDeploymentEnvCompat(t *testing.T) {
 		"DASH_PLUGINS_ALERTMANAGER_URL":     res.Tree.Plugins.Alertmanager.URL,
 		"DASH_PLUGINS_VICTORIALOGS_URL":     res.Tree.Plugins.VictoriaLogs.URL,
 		"DASH_PLUGINS_GATUS_URL":            res.Tree.Plugins.Gatus.URL,
-		"DASH_PLUGINS_PROXMOX_URL":          c.ProxmoxURL,
+		"DASH_PLUGINS_PROXMOX_URL":          res.Tree.Plugins.Proxmox.URL,
 		"DASH_PLUGINS_HEADLAMP_URL":         res.Tree.Plugins.Headlamp.URL,
 		"DASH_PLUGINS_GRAFANA_URL":          res.Tree.Plugins.Grafana.URL,
-		"DASH_PLUGINS_PROXMOX_TOKEN_ID":     c.ProxmoxTokenID,
-		"DASH_PLUGINS_PROXMOX_TOKEN_SECRET": c.ProxmoxTokenSecret.Reveal(),
+		"DASH_PLUGINS_PROXMOX_TOKEN_ID":     res.Tree.Plugins.Proxmox.TokenID,
+		"DASH_PLUGINS_PROXMOX_TOKEN_SECRET": res.Tree.Plugins.Proxmox.TokenSecret.Reveal(),
 	}
 	for name, want := range e {
 		if got := fields[name]; got != want {
@@ -232,7 +232,7 @@ func TestDeploymentEnvCompat(t *testing.T) {
 	if len(fields) != len(e) {
 		t.Errorf("table covers %d env names, env sets %d", len(fields), len(e))
 	}
-	if c.ProxmoxNode != "" || c.HostNodename != "" {
-		t.Errorf("node = %q, nodename = %q, want both empty before discovery", c.ProxmoxNode, c.HostNodename)
+	if res.Tree.Plugins.Proxmox.Node != "" || c.HostNodename != "" {
+		t.Errorf("node = %q, nodename = %q, want both empty before discovery", res.Tree.Plugins.Proxmox.Node, c.HostNodename)
 	}
 }

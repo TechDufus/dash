@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/TechDufus/dash/internal/config"
-	"github.com/TechDufus/dash/internal/links"
 	"github.com/TechDufus/dash/internal/model"
 	"github.com/TechDufus/dash/internal/plugin"
 )
@@ -28,12 +27,6 @@ func goldenSnapshots() built {
 			Pools: []model.Pool{{Name: "bulk", State: "degraded"}, {Name: "fast", State: "online", ScrubErrors: 3, LastScrubEnd: agoP(48 * time.Hour)}},
 			Disks: []model.Disk{{Bay: "4", Serial: "S1", Device: "sdd", Healthy: false}, {Bay: "5", Healthy: true}},
 		},
-		vms: &model.VMsData{VMs: []model.VM{
-			{VMID: 100, Name: "k8s-node-1", Status: "running", Health: model.HealthOK, CPURatio: 0.4, MemBytes: 6 << 30, MaxMemBytes: 8 << 30, K8sNode: &model.K8sNodeRef{Name: "cp-1", Ready: true}},
-			{VMID: 101, Name: "k8s-node-2", Status: "running", Health: model.HealthWarn, CPURatio: 0.9, MemBytes: 7 << 30, MaxMemBytes: 8 << 30, K8sNode: &model.K8sNodeRef{Name: "cp-2", Ready: false}},
-			{VMID: 3000, Name: "scratch", Status: "stopped", Health: model.HealthWarn},
-			{VMID: 9000, Name: "template", Status: "stopped", Template: true},
-		}},
 		cluster: &model.ClusterData{
 			Nodes: []model.Node{{Name: "cp-1", IP: "192.0.2.11", Ready: true}, {Name: "cp-2", IP: "192.0.2.12", Ready: false}},
 			Namespaces: []model.Namespace{
@@ -85,12 +78,25 @@ func goldenSnapshots() built {
 	}
 }
 
+// goldenProxmoxLinks stands in for the running proxmox plugin's LinkProvider: the Proxmox UI and
+// the host shell of the lab's node, as the plugin builds them (its own tests pin the hrefs).
+type goldenProxmoxLinks struct{}
+
+func (goldenProxmoxLinks) Links(req plugin.LinkRequest) []model.Link {
+	switch req.Kind {
+	case "ProxmoxUI":
+		return []model.Link{{Label: "Proxmox UI", Href: "https://pve.example.com:8006/", Kind: model.LinkKindProxmox}}
+	case "HostShell":
+		return []model.Link{{Label: "Host shell", Href: "https://pve.example.com:8006/?console=shell&novnc=1&node=pve-demo&resize=off&cmd=", Kind: model.LinkKindProxmox}}
+	}
+	return nil
+}
+
 // goldenManager is a Manager that has only what the overview needs.
 func goldenManager(t *testing.T) *Manager {
 	cfg := config.Defaults()
-	cfg.ProxmoxURL, cfg.ProxmoxNode = "https://pve.example.com:8006", "pve-demo"
-	lab := labLinks(t)
-	m := New(Deps{Cfg: cfg, Links: links.New(cfg), LinkProviders: func() plugin.LinkResolver { return lab }})
+	lab := append(labLinks(t).(providers), goldenProxmoxLinks{})
+	m := New(Deps{Cfg: cfg, LinkProviders: func() plugin.LinkResolver { return lab }})
 	m.now = func() time.Time { return testNow }
 	return m
 }
@@ -141,13 +147,57 @@ func (goldenGatus) Attention(time.Time) []model.AttentionItem {
 	}
 }
 
+// goldenVMs is the lab's guests as the proxmox plugin publishes them.
+func goldenVMs() []model.VM {
+	return []model.VM{
+		{Ref: "proxmox:VM/100", VMID: 100, Name: "k8s-node-1", Status: "running", Health: model.HealthOK, CPURatio: 0.4, MemBytes: 6 << 30, MaxMemBytes: 8 << 30, K8sNode: &model.K8sNodeRef{Name: "cp-1", Ready: true}},
+		{Ref: "proxmox:VM/101", VMID: 101, Name: "k8s-node-2", Status: "running", Health: model.HealthWarn, CPURatio: 0.9, MemBytes: 7 << 30, MaxMemBytes: 8 << 30, K8sNode: &model.K8sNodeRef{Name: "cp-2", Ready: false}},
+		{Ref: "proxmox:VM/3000", VMID: 3000, Name: "scratch", Status: "stopped", Health: model.HealthWarn, Links: []model.Link{}},
+		{Ref: "proxmox:VM/9000", VMID: 9000, Name: "template", Status: "stopped", Template: true},
+	}
+}
+
+// goldenProxmox stands in for the running proxmox plugin: the attention items, KPIs and topology
+// VMs it derives from the lab's guests (the rules are the plugin's, tested there).
+type goldenProxmox struct{ vms []model.VM }
+
+func (g goldenProxmox) Attention(time.Time) []model.AttentionItem {
+	return []model.AttentionItem{
+		{ID: "vm:3000", Severity: model.SeverityWarn, Source: "proxmox", Plugin: "proxmox", Title: "VM scratch is stopped",
+			Detail: "VMID 3000", Since: testNow, Route: "/vms/3000", Links: []model.Link{}, Ref: "proxmox:VM/3000"},
+	}
+}
+
+func (g goldenProxmox) KPIs() []model.KPI {
+	return []model.KPI{
+		{Key: "vms.running", Plugin: "proxmox", Label: "VMs running", Value: 2, Health: model.HealthWarn},
+		{Key: "vms.total", Plugin: "proxmox", Label: "VMs", Value: 3, Health: model.HealthOK},
+	}
+}
+
+func (g goldenProxmox) Topology() model.Topology {
+	t := model.Topology{VMs: []model.TopologyVM{}, Groups: []model.TopologyGroup{}}
+	for _, vm := range g.vms {
+		if vm.Template {
+			continue
+		}
+		t.VMs = append(t.VMs, model.TopologyVM{
+			VMID: vm.VMID, Name: vm.Name, Health: vm.Health, CPURatio: vm.CPURatio, MemRatio: float64(vm.MemBytes) / max(float64(vm.MaxMemBytes), 1),
+			IsK8sNode: vm.K8sNode != nil, Running: vm.Status == "running",
+		})
+	}
+	return t
+}
+
 // The overview a lab gets is unchanged by composing it from plugin contributions: the golden file
 // was written by the code that built it from the topics directly. The alerts now arrive from the
 // alertmanager contribution, and Kpis.alertsFiring is gone (its tile is the plugin's KPI).
 func TestOverviewOutputIsUnchanged(t *testing.T) {
+	gp := goldenProxmox{vms: goldenVMs()}
 	cs := []plugin.Contributor{
 		{ID: "alertmanager", Attention: goldenAlerts{lab: labLinks(t)}},
 		{ID: "gatus", Attention: goldenGatus{}},
+		{ID: "proxmox", Attention: gp, KPIs: gp, Topology: gp},
 	}
 	got, err := json.MarshalIndent(goldenManager(t).buildOverview(goldenSnapshots(), cs, testNow), "", "  ")
 	if err != nil {

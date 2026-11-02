@@ -91,11 +91,20 @@ func (w *World) overviewOf(now time.Time, s Snapshot) model.OverviewData {
 	}
 	fluxTotal := len(s.Flux.Sources) + len(s.Flux.Kustomizations) + len(s.Flux.HelmReleases)
 	o.Status = model.HealthCrit
-	// The alertmanager plugin's one KPI, as its KPIs() computes it for the default severityMap.
-	o.KPIList = []model.KPI{{Key: "firing", Plugin: "alertmanager", Label: "Alerts firing", Value: float64(firing), Health: alertHealth}}
+	// The alertmanager plugin's one KPI, as its KPIs() computes it for the default severityMap, and
+	// the proxmox plugin's two, as its kpisOf computes them (ordered by plugin, as compose does).
+	vmHealth := model.HealthOK
+	if running < total {
+		vmHealth = model.HealthWarn
+	}
+	o.KPIList = []model.KPI{
+		{Key: "firing", Plugin: "alertmanager", Label: "Alerts firing", Value: float64(firing), Health: alertHealth},
+		{Key: "vms.running", Plugin: "proxmox", Label: "VMs running", Value: float64(running), Health: vmHealth},
+		{Key: "vms.total", Plugin: "proxmox", Label: "VMs", Value: float64(total), Health: model.HealthOK},
+	}
 	o.Kpis = model.Kpis{
 		FluxReady: fluxTotal, FluxTotal: fluxTotal, FluxSuspended: 1, SourceVerified: true,
-		NodesReady: len(nodeNames), NodesTotal: len(nodeNames), VMsRunning: running, VMsTotal: total,
+		NodesReady: len(nodeNames), NodesTotal: len(nodeNames),
 		PowerWatts: s.Host.PowerWatts, CPUTempMaxC: cpuTemp,
 		WorstPVC: &model.WorstPVC{Namespace: worst.Namespace, Name: worst.Name, UsedRatio: *worst.UsedRatio},
 	}

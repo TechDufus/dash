@@ -42,10 +42,15 @@ type Topic string
 const (
 	TopicOverview Topic = "core.overview"
 	TopicHost     Topic = "host"
-	TopicVMs      Topic = "vms"
-	TopicCluster  Topic = "cluster"
-	TopicFlux     Topic = "flux"
-	TopicStorage  Topic = "storage"
+	TopicVMs      Topic = "proxmox.vms"
+	// TopicProxmoxNode is the Proxmox node's facts (proxmox/model.NodeData), TopicProxmoxStorage
+	// its storages (PVEStorageData): both published by the proxmox plugin.
+	TopicProxmoxNode      Topic = "proxmox.node"
+	TopicProxmoxStorage   Topic = "proxmox.storage"
+	TopicHardwareMachines Topic = "hardware.machines"
+	TopicCluster          Topic = "cluster"
+	TopicFlux             Topic = "flux"
+	TopicStorage          Topic = "storage"
 	// TopicAlerts is the alerts and silences (AlertsData), published by the alertmanager plugin.
 	TopicAlerts Topic = "alertmanager.alerts"
 	TopicStatus Topic = "gatus.status"
@@ -115,8 +120,6 @@ type Kpis struct {
 	SourceVerified bool      `json:"sourceVerified"`
 	NodesReady     int       `json:"nodesReady"`
 	NodesTotal     int       `json:"nodesTotal"`
-	VMsRunning     int       `json:"vmsRunning"`
-	VMsTotal       int       `json:"vmsTotal"`
 	PowerWatts     float64   `json:"powerWatts"`
 	CPUTempMaxC    float64   `json:"cpuTempMaxC"`
 	WorstPVC       *WorstPVC `json:"worstPvc,omitempty"`
@@ -218,10 +221,6 @@ type HostData struct {
 	// manager fills it from plugins.hardware.hosts[0].model.
 	Model         string    `json:"model"`
 	Name          string    `json:"name"`
-	UptimeSeconds int64     `json:"uptimeSeconds"`
-	PVEVersion    string    `json:"pveVersion"`
-	Kernel        string    `json:"kernel"`
-	CPUModel      string    `json:"cpuModel"`
 	CPURatio      float64   `json:"cpuRatio"`
 	MemUsedBytes  int64     `json:"memUsedBytes"`
 	MemTotalBytes int64     `json:"memTotalBytes"`
@@ -247,10 +246,15 @@ type K8sNodeRef struct {
 }
 
 type VM struct {
-	VMID          int         `json:"vmid"`
-	Name          string      `json:"name"`
-	Status        string      `json:"status"`
-	Health        Health      `json:"health"`
+	// Ref is proxmox:VM/<vmid> (design L.6).
+	Ref    string `json:"ref"`
+	VMID   int    `json:"vmid"`
+	Name   string `json:"name"`
+	Status string `json:"status"`
+	Health Health `json:"health"`
+	// Critical is true when the VM is listed in plugins.proxmox.criticalVMs (by id or by tag): a
+	// stopped critical VM is critical, any other stopped VM warns.
+	Critical      bool        `json:"critical"`
 	Tags          []string    `json:"tags"`
 	CPUs          float64     `json:"cpus"`
 	CPURatio      float64     `json:"cpuRatio"`
@@ -265,12 +269,6 @@ type VM struct {
 	Links         []Link      `json:"links"`
 }
 
-type Machine struct {
-	Name   string `json:"name"`
-	Up     bool   `json:"up"`
-	Source string `json:"source"`
-}
-
 type PVETask struct {
 	UPID      string     `json:"upid"`
 	Type      string     `json:"type"`
@@ -282,9 +280,8 @@ type PVETask struct {
 }
 
 type VMsData struct {
-	VMs      []VM      `json:"vms"`
-	Machines []Machine `json:"machines"`
-	Tasks    []PVETask `json:"tasks"`
+	VMs   []VM      `json:"vms"`
+	Tasks []PVETask `json:"tasks"`
 }
 
 type KeySpec struct {
@@ -515,12 +512,6 @@ type UsedSize struct {
 	UsableBytes int64 `json:"usableBytes"`
 }
 
-type PVEStorage struct {
-	Name      string `json:"name"`
-	UsedBytes int64  `json:"usedBytes"`
-	SizeBytes int64  `json:"sizeBytes"`
-}
-
 type CNPGCluster struct {
 	Namespace            string   `json:"namespace"`
 	Name                 string   `json:"name"`
@@ -542,13 +533,12 @@ type Etcd struct {
 }
 
 type StorageData struct {
-	PVCs        []PVC         `json:"pvcs"`
-	Buckets     []Bucket      `json:"buckets"`
-	RustFS      UsedSize      `json:"rustfs"`
-	PVEStorages []PVEStorage  `json:"pveStorages"`
-	CNPG        []CNPGCluster `json:"cnpg"`
-	NASBackups  []NASBackup   `json:"nasBackups"`
-	Etcd        Etcd          `json:"etcd"`
+	PVCs       []PVC         `json:"pvcs"`
+	Buckets    []Bucket      `json:"buckets"`
+	RustFS     UsedSize      `json:"rustfs"`
+	CNPG       []CNPGCluster `json:"cnpg"`
+	NASBackups []NASBackup   `json:"nasBackups"`
+	Etcd       Etcd          `json:"etcd"`
 }
 
 // ---- alerts ----

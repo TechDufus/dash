@@ -7,8 +7,7 @@ import (
 	pvemodel "github.com/TechDufus/dash/internal/plugins/proxmox/model"
 )
 
-// The facts of the fake Proxmox node. Host() draws the same ones onto the host payload until the
-// Hardware page gets them from the proxmox plugin.
+// The facts of the fake Proxmox node: the proxmox twin's proxmox.node payload.
 const (
 	pveVersion  = "9.0.11"
 	pveKernel   = "6.14.11-4-pve"

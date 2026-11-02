@@ -44,12 +44,12 @@ func TestResolvedConfigNeverContainsTheSecret(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if res.Config.ProxmoxTokenSecret.Reveal() != canary {
+	if res.Tree.Plugins.Proxmox.TokenSecret.Reveal() != canary {
 		t.Fatal("the secret must be usable through Reveal")
 	}
 
 	var logged strings.Builder
-	slog.New(slog.NewJSONHandler(&logged, nil)).Info("cfg", "config", res.Config, "tree", res.Tree, "token", res.Config.ProxmoxTokenSecret)
+	slog.New(slog.NewJSONHandler(&logged, nil)).Info("cfg", "config", res.Config, "tree", res.Tree, "token", res.Tree.Plugins.Proxmox.TokenSecret)
 	asJSON := func(v any) string {
 		b, err := json.Marshal(v)
 		if err != nil {
@@ -108,7 +108,7 @@ func TestSecretLayersAcceptLiteralEnvAndFileRefs(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			v := res.Config.ProxmoxTokenSecret
+			v := res.Tree.Plugins.Proxmox.TokenSecret
 			if v.Reveal() != canary || v.Ref() != tc.wantRef {
 				t.Errorf("secret ref %q (value ok: %v), want ref %q", v.Ref(), v.Reveal() == canary, tc.wantRef)
 			}
@@ -160,7 +160,7 @@ func TestLiteralSecretInTheConfigFileWarnsOnce(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if res.Config.ProxmoxTokenSecret.Reveal() != canary {
+	if res.Tree.Plugins.Proxmox.TokenSecret.Reveal() != canary {
 		t.Error("a literal in the file still works")
 	}
 	if n := strings.Count(log, "level=WARN"); n != 1 || !strings.Contains(log, "plugins.proxmox.tokenSecret") || !strings.Contains(log, "/etc/dash/config.yaml") {

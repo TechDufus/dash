@@ -86,24 +86,6 @@ func (s *Server) seriesExpr(name string, a queries.Args) (string, error) {
 	return queries.Series(name, a)
 }
 
-func (s *Server) vmDetail(w http.ResponseWriter, r *http.Request) {
-	raw := r.PathValue("vmid")
-	if !queries.ValidVMID(raw) {
-		writeErr(w, http.StatusBadRequest, model.ErrCodeInvalidInput, "invalid vmid")
-		return
-	}
-	vmid, _ := strconv.Atoi(raw)
-	d, err := s.d.Data.VMDetail(r.Context(), vmid)
-	switch {
-	case errors.Is(err, topics.ErrNotFound):
-		writeErr(w, http.StatusNotFound, model.ErrCodeNotFound, "vm not found")
-	case err != nil:
-		s.badGateway(w, "vm details unavailable", err)
-	default:
-		writeJSON(w, http.StatusOK, d)
-	}
-}
-
 func (s *Server) podDetail(w http.ResponseWriter, r *http.Request) {
 	ns, name := r.PathValue("ns"), r.PathValue("name")
 	if !queries.ValidDNS(ns) || !queries.ValidDNS(name) {

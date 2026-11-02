@@ -193,7 +193,9 @@ describe("Slot", () => {
     };
     mocked.PANELS.kubernetes = {
       // Reads a topic proxmox publishes: hidden with proxmox, never waiting for data.
-      "hardware.facts": [{ id: "k", order: 3, reads: ["vms"], component: fact("needs vms") }],
+      "hardware.facts": [
+        { id: "k", order: 3, reads: ["proxmox.vms"], component: fact("needs vms") },
+      ],
     };
     stream.plugins(shimRows()); // a new list makes the slot read the contributions again
     expect(rendered()).toEqual(["early:box", "late:box", "needs vms:box"]);

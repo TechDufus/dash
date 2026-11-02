@@ -1,0 +1,41 @@
+{
+  "vm": {
+    "vmid": 101,
+    "name": "k8s-cp-1",
+    "status": "running",
+    "health": "ok",
+    "tags": ["k8s", "control-plane"],
+    "cpus": 4,
+    "cpuRatio": 0.25,
+    "memBytes": 4294967296,
+    "maxMemBytes": 8589934592,
+    "uptimeSeconds": 3600,
+    "netInBytes": 100,
+    "netOutBytes": 200,
+    "template": false,
+    "lock": "",
+    "k8sNode": { "name": "k8s-cp-1", "ready": true },
+    "links": [
+      {
+        "label": "Console",
+        "href": "{{URL}}/?console=kvm&novnc=1&vmid=101&vmname=k8s-cp-1&node=pve-1&resize=off&cmd=",
+        "kind": "proxmox"
+      },
+      { "label": "Proxmox UI", "href": "{{URL}}/", "kind": "proxmox" }
+    ]
+  },
+  "config": {
+    "cores": 4,
+    "sockets": 1,
+    "memoryMiB": 8192,
+    "balloonMiB": 0,
+    "ostype": "l26",
+    "agent": "enabled=1",
+    "disks": [{ "key": "scsi0", "spec": "local-zfs:vm-101-disk-0,size=64G" }],
+    "nics": [{ "key": "net0", "spec": "virtio=02:00:5e:00:53:01,bridge=vmbr0" }]
+  },
+  "ips": [{ "iface": "eth0", "address": "192.0.2.21" }],
+  "snapshots": [
+    { "name": "pre-upgrade", "time": "2026-10-29T18:53:20Z", "description": "before the upgrade" }
+  ]
+}

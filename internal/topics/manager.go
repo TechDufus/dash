@@ -1,7 +1,7 @@
-// Package topics builds the six integration topics (host, vms, cluster, flux, storage, apps) from
-// the Kubernetes informers and the upstream clients, and composes core.overview
-// from them and from what plugins contribute. Each topic is published through the Host of the
-// plugin that owns it (legacy.go), so a disabled plugin publishes nothing.
+// Package topics builds the integration topics that still run in the dash process (host, the
+// machines, cluster, flux, storage, apps) from the Kubernetes informers and the upstream clients,
+// and composes core.overview from them and from what plugins contribute. Each topic is published
+// through the Host of the plugin that owns it (legacy.go), so a disabled plugin publishes nothing.
 package topics
 
 import (
@@ -15,10 +15,11 @@ import (
 
 	"github.com/TechDufus/dash/internal/config"
 	"github.com/TechDufus/dash/internal/kube"
-	"github.com/TechDufus/dash/internal/links"
 	"github.com/TechDufus/dash/internal/model"
 	"github.com/TechDufus/dash/internal/plugin"
+	hwmodel "github.com/TechDufus/dash/internal/plugins/hardware/model"
 	"github.com/TechDufus/dash/internal/secret"
+	"github.com/TechDufus/dash/internal/svc"
 	"github.com/TechDufus/dash/internal/upstream"
 )
 
@@ -29,10 +30,6 @@ var ErrNotFound = errors.New("not found")
 type Deps struct {
 	Cfg     config.Config
 	Cluster *kube.Cluster
-	PVE     *upstream.Proxmox
-	// Links builds the Proxmox links (VM console, host shell, Proxmox UI). The links into
-	// Headlamp and Grafana come from LinkProviders.
-	Links *links.Builder
 	// Hosts hands out the Host each topic is published through, and says which plugins run.
 	Hosts plugin.HostProvider
 	// Contributors lists the running plugins that add to the overview (Supervisor.Contributors);
@@ -74,13 +71,13 @@ type Manager struct {
 	d   Deps
 	now func() time.Time
 
-	mu      sync.RWMutex
-	srcs    map[string]srcState
-	done    map[string]bool // first poll attempt finished
-	host    hostSnap
-	vms     vmsSnap
-	usage   usageSnap
-	storage storageSnap
+	mu       sync.RWMutex
+	srcs     map[string]srcState
+	done     map[string]bool // first poll attempt finished
+	host     hostSnap
+	machines machinesSnap
+	usage    usageSnap
+	storage  storageSnap
 
 	built   built
 	linkSet atomic.Pointer[plugin.LinkResolver] // the provider snapshot of the running rebuild
@@ -101,12 +98,12 @@ type Manager struct {
 
 // built holds the latest typed data of every topic; the overview derives from them.
 type built struct {
-	host    *model.HostData
-	vms     *model.VMsData
-	cluster *model.ClusterData
-	flux    *model.FluxData
-	storage *model.StorageData
-	apps    *model.AppsData
+	host     *model.HostData
+	machines *hwmodel.MachinesData
+	cluster  *model.ClusterData
+	flux     *model.FluxData
+	storage  *model.StorageData
+	apps     *model.AppsData
 }
 
 // New returns a Manager; call Run to start it.
@@ -273,7 +270,7 @@ func (m *Manager) mark(topics ...model.Topic) {
 }
 
 func (m *Manager) markAll() {
-	m.mark(model.TopicHost, model.TopicVMs, model.TopicCluster, model.TopicFlux, model.TopicStorage,
+	m.mark(model.TopicHost, model.TopicHardwareMachines, model.TopicCluster, model.TopicFlux, model.TopicStorage,
 		model.TopicApps)
 }
 
@@ -281,7 +278,7 @@ func (m *Manager) onKubeChange(k kube.Kind) {
 	switch k {
 	case kube.KindNodes:
 		m.nodeRev.Add(1)
-		m.mark(model.TopicCluster, model.TopicVMs)
+		m.mark(model.TopicCluster)
 	case kube.KindNamespaces:
 		m.mark(model.TopicCluster, model.TopicApps)
 	case kube.KindPods, kube.KindWorkloads, kube.KindEvents, kube.KindCertificates, kube.KindExtSecrets:
@@ -322,7 +319,7 @@ func (m *Manager) anyRunning(ids []plugin.ID) bool {
 // keyPoller names the poller (the name Run and pollUsers use) that writes the source keys with
 // a given scope. Keys outside it, the informers' "kubernetes", are always live.
 var keyPoller = map[string]string{
-	"host": "host", "vms": "vms", "cluster": "usage", "storage": "storage",
+	"host": "host", "machines": "vms", "cluster": "usage", "storage": "storage",
 }
 
 // polled reports whether source key k is being written: its poller runs only while a plugin that
@@ -367,6 +364,27 @@ func (m *Manager) link(kind, namespace, name string) []model.Link {
 	return m.resolver().Resolve(plugin.LinkRequest{Kind: kind, Namespace: namespace, Name: name})
 }
 
+// hostNode is the node whose node-exporter and IPMI series the host topic reads, and the name it
+// shows. The flat HostNodename is plugins.hardware.hosts[0].nodename, else plugins.proxmox.node
+// (config resolves it that way); when both are unset the node is the one the proxmox plugin found
+// by discovery, which its service answers once it is known. Until P3.7 moves the host into the
+// hardware plugin.
+func (m *Manager) hostNode() string {
+	if n := m.d.Cfg.HostNodename; n != "" {
+		return n
+	}
+	if m.d.Services != nil {
+		if v, ok := m.d.Services("proxmox"); ok {
+			if nn, ok := v.(svc.NodeName); ok {
+				if name, known := nn.NodeName(); known {
+					return name
+				}
+			}
+		}
+	}
+	return ""
+}
+
 // rebuild rebuilds every dirty topic whose prerequisites are ready, then composes the overview
 // from what exists. The overview waits for no topic: it is recomposed after any change, and on
 // every round while a plugin contributes to it (the hub drops an unchanged result).
@@ -407,7 +425,7 @@ func (m *Manager) rebuild() {
 		m.mu.Lock()
 		m.built.host = &d
 		m.mu.Unlock()
-		return d, m.sources("host:proxmox", "host:victoriametrics")
+		return d, m.sources("host:victoriametrics")
 	})
 	build(model.TopicCluster, synced, func() (any, []model.SourceStatus) {
 		d := m.buildCluster(now)
@@ -423,12 +441,12 @@ func (m *Manager) rebuild() {
 		m.mu.Unlock()
 		return d, m.sources("kubernetes")
 	})
-	build(model.TopicVMs, synced && m.pollDone("vms"), func() (any, []model.SourceStatus) {
-		d := m.buildVMs()
+	build(model.TopicHardwareMachines, m.pollDone("vms"), func() (any, []model.SourceStatus) {
+		d := m.buildMachines()
 		m.mu.Lock()
-		m.built.vms = &d
+		m.built.machines = &d
 		m.mu.Unlock()
-		return d, append(m.sources("vms:proxmox", "vms:victoriametrics", "kubernetes"), m.endpoints().SourceStatuses()...)
+		return d, append(m.sources("machines:prometheus"), m.endpoints().SourceStatuses()...)
 	})
 	build(model.TopicStorage, synced && m.pollDone("storage"), func() (any, []model.SourceStatus) {
 		d := m.buildStorage(now)
@@ -449,7 +467,7 @@ func (m *Manager) rebuild() {
 	b := m.built
 	m.mu.RUnlock()
 	srcs := m.sources(
-		"kubernetes", "host:proxmox", "host:victoriametrics", "vms:proxmox", "vms:victoriametrics",
+		"kubernetes", "host:victoriametrics", "machines:prometheus",
 		"cluster:victoriametrics", "storage:victoriametrics")
 	m.publish(model.TopicOverview, m.buildOverview(b, contributors, now), mergeSources(srcs, m.contributorSources(contributors)))
 }

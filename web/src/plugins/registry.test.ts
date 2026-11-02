@@ -26,10 +26,13 @@ describe("module registry", () => {
       "cluster",
       "flux",
       "gatus.status",
+      "hardware.machines",
       "host",
       "launcher.links",
+      "proxmox.node",
+      "proxmox.storage",
+      "proxmox.vms",
       "storage",
-      "vms",
     ]);
   });
 

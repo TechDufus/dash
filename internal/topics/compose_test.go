@@ -131,7 +131,7 @@ func TestOverviewDoesNotWaitForAllTopics(t *testing.T) {
 	if _, ok := h.Latest("", model.TopicHost); !ok {
 		t.Fatal("the host topic is not published")
 	}
-	for _, topic := range []model.Topic{model.TopicVMs, model.TopicCluster, model.TopicStorage} {
+	for _, topic := range []model.Topic{model.TopicHardwareMachines, model.TopicCluster, model.TopicStorage} {
 		if _, ok := h.Latest("", topic); ok {
 			t.Fatalf("%s is published before its prerequisites", topic)
 		}
@@ -236,7 +236,6 @@ func TestAttentionItemsCarryPlugin(t *testing.T) {
 		"flux:source-unverified": "flux", "flux:Kustomization/flux-system/apps": "flux",
 		"node:cp-2": "kubernetes", "pod:media/app-0": "kubernetes", "workload:Deployment/media/app": "kubernetes",
 		"cert:media/tls": "kubernetes", "pvc:media/data": "kubernetes", "bucket:backups": "kubernetes",
-		"vm:3000":       "proxmox",
 		"zfs:pool:bulk": "hardware", "smart:4": "hardware", "host:cpu-temp": "hardware",
 	}
 	got := map[string]string{}

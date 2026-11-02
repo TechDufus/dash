@@ -19,10 +19,6 @@ func (fakeLinks) Headlamp(kind, namespace, name string) []model.Link {
 	return []model.Link{{Label: "Headlamp", Href: "https://headlamp.example.com/" + kind + "/" + namespace + "/" + name}}
 }
 
-func (fakeLinks) VMConsole(vmid int, name string) []model.Link {
-	return []model.Link{{Label: "Console " + name, Href: "https://pve.example.com/console"}}
-}
-
 var (
 	testStart = time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
 	testNow   = time.Date(2026, 1, 3, 10, 20, 30, 0, time.UTC)
@@ -136,44 +132,58 @@ func TestWorldIsCoherent(t *testing.T) {
 	}
 }
 
-// PVENode, PVEStorages and Machines are the parts the proxmox and hardware twins publish; the
-// payloads that still carry them (host, storage, vms) are built from the same values, so a twin
-// and the legacy source cannot disagree about the node's version or a machine's state.
-func TestSplitPartsAgreeWithThePayloads(t *testing.T) {
+// PVENode, PVEStorages and Machines are the parts the proxmox and hardware twins publish.
+func TestSplitPartsAreWellFormed(t *testing.T) {
 	w := testWorld()
-	s := w.Build()
 
 	n := w.PVENode()
 	if n.Node != HostName || n.Version == "" || n.Kernel == "" || n.CPUModel == "" || n.UptimeSeconds <= 0 {
 		t.Errorf("PVENode = %+v", n)
 	}
-	if s.Host.PVEVersion != n.Version || s.Host.Kernel != n.Kernel || s.Host.CPUModel != n.CPUModel || s.Host.UptimeSeconds != n.UptimeSeconds {
-		t.Errorf("host facts %q %q %q %d differ from the node %+v", s.Host.PVEVersion, s.Host.Kernel, s.Host.CPUModel, s.Host.UptimeSeconds, n)
-	}
-
 	ps := w.PVEStorages()
-	if len(ps) == 0 || len(ps) != len(s.Storage.PVEStorages) {
-		t.Fatalf("PVEStorages = %+v, storage payload has %d", ps, len(s.Storage.PVEStorages))
+	if len(ps) == 0 {
+		t.Fatal("no PVE storage")
 	}
 	for i, p := range ps {
-		c := s.Storage.PVEStorages[i]
-		if p.Name != c.Name || p.UsedBytes != c.UsedBytes || p.SizeBytes != c.SizeBytes || p.SizeBytes <= p.UsedBytes || p.UsedBytes <= 0 {
-			t.Errorf("storage %d: part %+v, payload %+v", i, p, c)
+		if p.Name == "" || p.SizeBytes <= p.UsedBytes || p.UsedBytes <= 0 {
+			t.Errorf("storage %d: %+v", i, p)
 		}
 	}
-
 	ms := w.Machines()
-	if len(ms) == 0 || len(ms) != len(s.VMs.Machines) {
-		t.Fatalf("Machines = %+v, vms payload has %d", ms, len(s.VMs.Machines))
+	if len(ms) == 0 {
+		t.Fatal("no machines")
 	}
-	for i, m := range ms {
-		c := s.VMs.Machines[i]
-		if m.Name != c.Name || m.Up != c.Up || m.Source != c.Source {
-			t.Errorf("machine %d: part %+v, payload %+v", i, m, c)
-		}
+	for _, m := range ms {
 		if m.Source != "prometheus" && m.Source != "gatus" {
 			t.Errorf("machine %s has source %q, want prometheus or gatus", m.Name, m.Source)
 		}
+	}
+}
+
+// The overview's proxmox KPIs count the guests of the VMs payload, as the plugin's KPIs do.
+func TestOverviewVMKPIsAgreeWithTheGuests(t *testing.T) {
+	s := testWorld().Build()
+	running, total := 0, 0
+	for _, vm := range s.VMs.VMs {
+		if vm.Template {
+			continue
+		}
+		total++
+		if vm.Status == "running" {
+			running++
+		}
+	}
+	got := map[string]float64{}
+	for _, k := range s.Overview.KPIList {
+		if k.Plugin == "proxmox" {
+			got[k.Key] = k.Value
+		}
+	}
+	if got["vms.running"] != float64(running) || got["vms.total"] != float64(total) || total == 0 {
+		t.Errorf("proxmox KPIs %v, guests %d running of %d", got, running, total)
+	}
+	if len(s.Overview.Topology.VMs) != total {
+		t.Errorf("topology has %d VMs, want %d", len(s.Overview.Topology.VMs), total)
 	}
 }
 

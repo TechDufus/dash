@@ -18,7 +18,6 @@ import (
 // to this list (a decision), and each plugin migration deletes its entries together with the
 // route. P3.13 deletes the Legacy flag and this list.
 var legacyRoutes = []string{
-	"GET /api/vms/{vmid}",
 	"GET /api/pods/{ns}/{name}",
 	"POST /api/actions/restart",
 	"POST /api/actions/reconcile",
@@ -217,7 +216,7 @@ func TestLegacyRoutesKeepTheirPathsAndGetTheEnvelope(t *testing.T) {
 
 // The core paths that moved to /api/v1 or into a plugin are gone, with no alias. The silence
 // routes moved into the alertmanager plugin's actions (P3.3), the logs into the victorialogs
-// plugin's routes (P3.5).
+// plugin's routes (P3.5), the VM detail into the proxmox plugin's (P3.6).
 func TestMovedCorePathsAre404WithCode(t *testing.T) {
 	h := newServer(nil).Handler()
 	for _, c := range []struct{ method, path string }{
@@ -225,6 +224,7 @@ func TestMovedCorePathsAre404WithCode(t *testing.T) {
 		{"GET", "/api/topics/cluster"}, {"GET", "/api/plugins"}, {"GET", "/api/config"},
 		{"GET", "/api/logs?ns=media&pod=web"}, {"GET", "/api/logs/tail?ns=media&pod=web"},
 		{"POST", "/api/silences"}, {"DELETE", "/api/silences/00000000-0000-4000-8000-000000000001"},
+		{"GET", "/api/vms/100"}, // the proxmox plugin's route (P3.6): /api/v1/plugins/proxmox/vms/{vmid}
 	} {
 		path := c.path
 		w := req{method: c.method, path: path}.do(h)

@@ -2,9 +2,10 @@ import { Server } from "lucide-react";
 import { lazy } from "react";
 import type { VMsData } from "@/api/types";
 import { definePlugin, type PaletteGroup, type RouteProps, topic } from "../../types";
+import type { NodeData, PVEStorageData } from "./model.gen";
 
 const VMsPage = lazy(() =>
-  import("@/pages/vms").then((m) => ({
+  import("./vms-page").then((m) => ({
     default: ({ params }: RouteProps) => <m.VMsPage vmid={params.vmid} />,
   })),
 );
@@ -12,10 +13,14 @@ const VMsPage = lazy(() =>
 export default definePlugin({
   id: "proxmox",
   order: 10,
-  topics: { vms: topic<VMsData>() },
+  topics: {
+    "proxmox.vms": topic<VMsData>(),
+    "proxmox.node": topic<NodeData>(),
+    "proxmox.storage": topic<PVEStorageData>(),
+  },
   routes: [{ path: "/vms/:vmid?", page: VMsPage }],
   palette: (ctx): readonly PaletteGroup[] => {
-    const vms = ctx.topic("vms")?.vms.filter((v) => !v.template) ?? [];
+    const vms = ctx.topic("proxmox.vms")?.vms.filter((v) => !v.template) ?? [];
     return [
       {
         id: "vms",

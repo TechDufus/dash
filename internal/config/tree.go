@@ -140,6 +140,7 @@ func defaults(dev, demo bool) Tree {
 			Alertmanager: pluginconf.DefaultAlertmanager(),
 			VictoriaLogs: pluginconf.DefaultVictoriaLogs(),
 			Gatus:        pluginconf.DefaultGatus(),
+			Proxmox:      pluginconf.DefaultProxmox(),
 			Headlamp:     pluginconf.DefaultHeadlamp(),
 		},
 	}
@@ -194,11 +195,12 @@ func (t Tree) config(dev, demo bool) Config {
 			BodyReadTimeout: time.Duration(t.Server.Limits.BodyReadTimeout),
 			MaxHeaderBytes:  t.Server.Limits.MaxHeaderBytes,
 		},
-		DataDir:      t.DataDir,
-		SettingsUI:   t.Settings.UI,
-		ProxmoxURL:   p.Proxmox.URL,
-		ProxmoxNode:  p.Proxmox.Node,
-		HostNodename: p.Proxmox.Node, // overridden by hosts[0] below
+		DataDir:    t.DataDir,
+		SettingsUI: t.Settings.UI,
+		// The host's nodename: plugins.hardware.hosts[0] below, else the proxmox node. Until the
+		// hardware plugin moves, the legacy host series read it (the Manager adds the node the
+		// proxmox plugin discovers).
+		HostNodename: p.Proxmox.Node,
 		IconBaseURL:  t.UI.IconBaseURL,
 		Kubeconfig:   p.Kubernetes.Kubeconfig,
 		Conventions: Conventions{
@@ -209,7 +211,6 @@ func (t Tree) config(dev, demo bool) Config {
 			ZFSScrubMetricPrefix:    p.Hardware.ZFSScrubMetricPrefix,
 		},
 	}
-	c.ProxmoxTokenID, c.ProxmoxTokenSecret = p.Proxmox.TokenID, p.Proxmox.TokenSecret
 	if len(p.Hardware.Hosts) > 0 {
 		if h := p.Hardware.Hosts[0]; h.Nodename != "" {
 			c.HostNodename = h.Nodename
