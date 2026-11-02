@@ -237,7 +237,7 @@
       "properties": {
         "requireWhenSpecVerify": {
           "default": true,
-          "description": "A GitRepository or OCIRepository that has spec.verify must report SourceVerified=True: without it the source is critical on the overview. false turns this check off; the sources listed in sources are always checked. The default is true.",
+          "description": "A GitRepository or OCIRepository that has spec.verify must report SourceVerified=True: without it the source is critical on the overview, in the verified tile and on the GitOps page. false puts only the sources listed in sources in scope, for the attention items, the tile and the page alike. The default is true.",
           "type": "boolean"
         },
         "sources": {

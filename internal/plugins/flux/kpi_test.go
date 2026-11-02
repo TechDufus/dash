@@ -77,7 +77,7 @@ func TestFluxVerifiedKPI(t *testing.T) {
 		{"a signed source that is not verified", cfgOf(true), []model.FluxObj{fo(git, "g", "r", sgn())}, nil, 0, true},
 		{"one of two signed sources is not verified", cfgOf(true),
 			[]model.FluxObj{fo(git, "g", "r", sgn(), vrf(true)), fo(oci, "g", "c", sgn(), vrf(false))}, nil, 0, true},
-		{"a signed source still counts with the check off", cfgOf(false), []model.FluxObj{fo(git, "g", "r", sgn())}, nil, 0, true},
+		{"a signed source is out of scope with the check off", cfgOf(false), []model.FluxObj{fo(git, "g", "r", sgn())}, nil, 0, false},
 		{"a pin that is verified", cfgOf(false, pin(git, "g", "r")), []model.FluxObj{fo(git, "g", "r", sgn(), vrf(true))}, nil, 1, true},
 		{"a pin without spec.verify", cfgOf(true, pin(git, "g", "r")), []model.FluxObj{fo(git, "g", "r", vrf(true))}, nil, 0, true},
 		{"a pin that is missing", cfgOf(true, pin(git, "g", "r")), nil, nil, 0, true},

@@ -88,7 +88,8 @@ func objectOf(u *unstructured.Unstructured, kind model.FluxKind, reasonAnnotatio
 }
 
 // verifiedSources are the sources the GitOps page reports the signature of: the pinned ones
-// (whether or not they exist) and every source with spec.verify, each once, sorted by kind,
+// (whether or not they exist) and, while requireWhenSpecVerify is on, every source with
+// spec.verify: the scope of the signature check (verify.go), each once, sorted by kind,
 // namespace and name. It is never nil.
 func verifiedSources(d model.FluxData, cfg pluginconf.Flux) []model.FluxSourceRef {
 	out := []model.FluxSourceRef{}
@@ -98,10 +99,10 @@ func verifiedSources(d model.FluxData, cfg pluginconf.Flux) []model.FluxSourceRe
 		}
 	}
 	for _, p := range cfg.Verify.Sources {
-		add(model.FluxSourceRef{Kind: model.FluxKind(p.Kind), Namespace: p.Namespace, Name: p.Name})
+		add(pinRef(p))
 	}
 	for _, s := range d.Sources {
-		if s.SpecVerify {
+		if verifiable(s.Kind) && inScope(cfg, false, s) {
 			add(model.FluxSourceRef{Kind: s.Kind, Namespace: s.Namespace, Name: s.Name})
 		}
 	}

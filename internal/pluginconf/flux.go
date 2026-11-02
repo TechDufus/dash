@@ -16,7 +16,7 @@ type Flux struct {
 
 // FluxVerify is how the signature checks of the Flux sources are judged.
 type FluxVerify struct {
-	RequireWhenSpecVerify bool           `json:"requireWhenSpecVerify" doc:"A GitRepository or OCIRepository that has spec.verify must report SourceVerified=True: without it the source is critical on the overview. false turns this check off; the sources listed in sources are always checked. The default is true."`
+	RequireWhenSpecVerify bool           `json:"requireWhenSpecVerify" doc:"A GitRepository or OCIRepository that has spec.verify must report SourceVerified=True: without it the source is critical on the overview, in the verified tile and on the GitOps page. false puts only the sources listed in sources in scope, for the attention items, the tile and the page alike. The default is true."`
 	Sources               []VerifySource `json:"sources" doc:"Sources that must be signed and verified, as [{kind, namespace, name}] with kind GitRepository or OCIRepository. Each is critical on the overview when it lacks spec.verify or SourceVerified=True, or when it does not exist, and each is listed on the GitOps page. A JSON list in the environment."`
 }
 

@@ -432,7 +432,7 @@ Which Flux sources must be signature-verified.
 
 | Setting | Variable | Type | Default | Description |
 |---|---|---|---|---|
-| `plugins.flux.verify.requireWhenSpecVerify` | `DASH_PLUGINS_FLUX_VERIFY_REQUIRE_WHEN_SPEC_VERIFY` | boolean | `true` | A GitRepository or OCIRepository that has spec.verify must report SourceVerified=True: without it the source is critical on the overview. false turns this check off; the sources listed in sources are always checked. The default is true. |
+| `plugins.flux.verify.requireWhenSpecVerify` | `DASH_PLUGINS_FLUX_VERIFY_REQUIRE_WHEN_SPEC_VERIFY` | boolean | `true` | A GitRepository or OCIRepository that has spec.verify must report SourceVerified=True: without it the source is critical on the overview, in the verified tile and on the GitOps page. false puts only the sources listed in sources in scope, for the attention items, the tile and the page alike. The default is true. |
 | `plugins.flux.verify.sources` | `DASH_PLUGINS_FLUX_VERIFY_SOURCES` | list of objects (JSON) | - | Sources that must be signed and verified, as [{kind, namespace, name}] with kind GitRepository or OCIRepository. Each is critical on the overview when it lacks spec.verify or SourceVerified=True, or when it does not exist, and each is listed on the GitOps page. A JSON list in the environment. |
 
 ## `plugins.flux.actions`

@@ -47,11 +47,9 @@ func (p *Plugin) lastBuilt() (*built, pluginconf.Flux) {
 //   - a suspended object, of any of the five kinds, is a warning with the reason annotation's text
 //     ("suspended" without one); it is not also "not ready";
 //   - an object that is not ready and not suspended is a warning, since its last transition;
-//   - a GitRepository or OCIRepository is critical when it is pinned and is not both signed
-//     (spec.verify) and verified (SourceVerified=True), or when requireWhenSpecVerify is on and it
-//     is signed and not verified;
-//   - a pin that no source matches is critical ("pinned source not found"), unless the list of
-//     that kind could not be read.
+//   - a source that fails the signature check (verdicts, verify.go) is critical, and so is a pin
+//     that no source matches ("pinned source not found") unless the list of its kind could not be
+//     read.
 func attentionOf(b built, cfg pluginconf.Flux) []model.AttentionItem {
 	items := []model.AttentionItem{}
 	add := func(id string, sev model.Health, title, detail string, since time.Time, o model.FluxObj) {
@@ -65,8 +63,17 @@ func attentionOf(b built, cfg pluginconf.Flux) []model.AttentionItem {
 		})
 	}
 
-	pinned := pinsOf(cfg)
-	found := map[model.FluxSourceRef]bool{}
+	failing := map[model.FluxSourceRef]verdict{}
+	var missing []verdict
+	for _, v := range verdicts(b, cfg) {
+		switch {
+		case !v.failed():
+		case v.obj == nil:
+			missing = append(missing, v)
+		default:
+			failing[v.ref] = v
+		}
+	}
 	for _, list := range [][]model.FluxObj{b.data.Sources, b.data.Kustomizations, b.data.HelmReleases} {
 		for _, o := range list {
 			name := fmt.Sprintf("%s %s/%s", o.Kind, o.Namespace, o.Name)
@@ -86,55 +93,27 @@ func attentionOf(b built, cfg pluginconf.Flux) []model.AttentionItem {
 				}
 				add("flux:"+path, model.HealthWarn, name+" not ready", firstLine(o.Message), since, o)
 			}
-			if !verifiable(o.Kind) {
-				continue
-			}
-			ref := model.FluxSourceRef{Kind: o.Kind, Namespace: o.Namespace, Name: o.Name}
-			found[ref] = true
-			verified := o.Verified != nil && *o.Verified
-			var detail string
-			switch {
-			case pinned[ref] && !o.SpecVerify:
-				detail = "the pinned source has no spec.verify"
-			case (pinned[ref] || cfg.Verify.RequireWhenSpecVerify && o.SpecVerify) && !verified:
-				detail = "SourceVerified is not True"
-			default:
+			v, ok := failing[model.FluxSourceRef{Kind: o.Kind, Namespace: o.Namespace, Name: o.Name}]
+			if !ok || !verifiable(o.Kind) {
 				continue
 			}
 			var since time.Time
 			if o.LastTransition != nil {
 				since = *o.LastTransition
 			}
-			add("flux:source-unverified/"+path, model.HealthCrit, name+" signature not verified", detail, since, o)
+			add("flux:source-unverified/"+path, model.HealthCrit, name+" signature not verified", v.detail, since, o)
 		}
 	}
-	for _, p := range cfg.Verify.Sources {
-		ref := model.FluxSourceRef{Kind: model.FluxKind(p.Kind), Namespace: p.Namespace, Name: p.Name}
-		if found[ref] || b.unknown[ref.Kind] {
-			continue
-		}
+	for _, v := range missing {
+		k, ns, n := v.ref.Kind, v.ref.Namespace, v.ref.Name
 		items = append(items, model.AttentionItem{
-			ID: fmt.Sprintf("flux:source-unverified/%s/%s/%s", p.Kind, p.Namespace, p.Name), Severity: model.SeverityCrit,
-			Source: string(ID), Plugin: string(ID), Title: fmt.Sprintf("%s %s/%s signature not verified", p.Kind, p.Namespace, p.Name),
-			Detail: "pinned source not found", Route: "/gitops", Links: []model.Link{},
-			Ref: plugin.Ref(ID, p.Kind, p.Namespace, p.Name),
+			ID: fmt.Sprintf("flux:source-unverified/%s/%s/%s", k, ns, n), Severity: model.SeverityCrit,
+			Source: string(ID), Plugin: string(ID), Title: fmt.Sprintf("%s %s/%s signature not verified", k, ns, n),
+			Detail: v.detail, Route: "/gitops", Links: []model.Link{},
+			Ref: plugin.Ref(ID, string(k), ns, n),
 		})
 	}
 	return items
-}
-
-// verifiable reports that a source of kind can carry spec.verify and a SourceVerified condition.
-func verifiable(kind model.FluxKind) bool {
-	return kind == model.FluxKindGitRepository || kind == model.FluxKindOCIRepository
-}
-
-// pinsOf is the configured pins as a set.
-func pinsOf(cfg pluginconf.Flux) map[model.FluxSourceRef]bool {
-	out := map[model.FluxSourceRef]bool{}
-	for _, p := range cfg.Verify.Sources {
-		out[model.FluxSourceRef{Kind: model.FluxKind(p.Kind), Namespace: p.Namespace, Name: p.Name}] = true
-	}
-	return out
 }
 
 // firstLine is s up to its first line break, trimmed.

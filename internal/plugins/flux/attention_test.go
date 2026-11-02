@@ -215,9 +215,13 @@ func TestVerifyOffIgnoresSpecVerify(t *testing.T) {
 	if a := r.attention(); len(a) != 0 {
 		t.Errorf("attention = %v, want an empty list: spec.verify is ignored without a pin", itemIDs(a))
 	}
-	// The setting turns the attention rule off, not the fact: the signed source is still reported.
-	if k, ok := kpi(r.kpis(), "verified"); !ok || k.Value != 0 {
-		t.Errorf("verified = %+v (present %v): the KPI reports the signed source's state whatever the setting says", k, ok)
+	// The same scope for the tile and the page: with the setting off and nothing pinned, nothing is
+	// checked, so the tile is absent and the page lists no source.
+	if k, ok := kpi(r.kpis(), "verified"); ok {
+		t.Errorf("verified = %+v: the KPI follows the setting, so a signed source is out of scope", k)
+	}
+	if d, _, _ := r.published(); len(d.VerifiedSources) != 0 {
+		t.Errorf("verifiedSources = %+v, want none while the setting is off and nothing is pinned", d.VerifiedSources)
 	}
 }
 
