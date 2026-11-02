@@ -253,7 +253,7 @@ func TestStreamUsesTheConfiguredWriteTimeout(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 	defer cancel()
 	r := httptest.NewRequestWithContext(ctx, http.MethodGet, "/api/v1/stream", nil)
-	r.Host = testHost
+	r.Host, r.RemoteAddr = testHost, testPeer
 	r.Header.Set("X-Forwarded-Preferred-Username", "alice")
 	d := &deadlineWriter{ResponseRecorder: httptest.NewRecorder()}
 	start := time.Now()

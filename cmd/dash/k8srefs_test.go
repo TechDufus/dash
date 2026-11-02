@@ -171,6 +171,7 @@ func TestK8sRefFillStartsTheConsumer(t *testing.T) {
 
 	detail := func() int {
 		r := httptest.NewRequest(http.MethodGet, p.cfg.PublicURL+"/api/v1/plugins/proxmox/vms/101", nil)
+		r.RemoteAddr = "127.0.0.1:41000" // the proxy next to dash, the peer whose identity header dash believes
 		r.Header.Set("X-Forwarded-Preferred-Username", "alice")
 		rec := httptest.NewRecorder()
 		p.srv.Handler().ServeHTTP(rec, r)

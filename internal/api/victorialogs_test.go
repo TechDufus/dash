@@ -242,7 +242,7 @@ func TestVictoriaLogsDeniedNamespaceIs403OnBothRoutes(t *testing.T) {
 	e.waitRunning(t)
 	e.tails = newStreamLimiter(0, 0) // every slot taken, for everybody
 
-	w := e.get(vlLogsPath + "?ns=kube-system&pod=coredns")
+	w := req{path: vlLogsPath + "?ns=kube-system&pod=coredns", peer: "[::1]:41000"}.do(e.Handler())
 	var body model.APIError
 	if err := json.Unmarshal(w.Body.Bytes(), &body); w.Code != http.StatusForbidden || err != nil || body.Code != model.ErrCodeForbidden {
 		t.Fatalf("denied query = %d %s", w.Code, w.Body)
@@ -258,8 +258,8 @@ func TestVictoriaLogsDeniedNamespaceIs403OnBothRoutes(t *testing.T) {
 	if n != 0 {
 		t.Errorf("the upstream saw %d requests for a denied namespace", n)
 	}
-	// One record per peer and minute: the query came from the recorder's address, the tails from
-	// the loopback client, and the second tail is the same peer in the same minute.
+	// One record per peer and minute: the query came from the IPv6 loopback, the tails from the
+	// IPv4 loopback client, and the second tail is the same peer in the same minute.
 	recs := e.audit(t)
 	if len(recs) != 2 {
 		t.Fatalf("records = %+v, want one denial per peer", recs)

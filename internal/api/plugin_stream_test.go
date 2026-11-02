@@ -172,7 +172,7 @@ func TestPluginStreamWritesUnderADeadlineAndTheLastOneIsResetByDone(t *testing.T
 
 	d := &deadlineWriter{ResponseRecorder: httptest.NewRecorder()}
 	r := httptest.NewRequest(http.MethodGet, tailPath, nil)
-	r.Host = testHost
+	r.Host, r.RemoteAddr = testHost, testPeer
 	r.Header.Set("X-Forwarded-Preferred-Username", "alice")
 	start := time.Now()
 	h.Handler().ServeHTTP(d, r)

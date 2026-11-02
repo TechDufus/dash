@@ -354,7 +354,7 @@ func TestActionWritesIntentAndOutcome(t *testing.T) {
 			}
 			for _, r := range recs {
 				if r.Action != "restart" || r.Plugin != "aa" || r.Target != (audit.Target{Kind: "Workload", Namespace: "apps", Name: "web"}) ||
-					r.Actor.User != "alice" || r.Actor.Surface != "ui" || r.AuthMode != "proxy" || r.Peer != "192.0.2.1" {
+					r.Actor.User != "alice" || r.Actor.Surface != "ui" || r.AuthMode != "proxy" || r.Peer != "127.0.0.1" {
 					t.Errorf("record = %+v", r)
 				}
 			}

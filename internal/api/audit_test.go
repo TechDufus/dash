@@ -153,7 +153,7 @@ func TestActionsWriteIntentThenOutcome(t *testing.T) {
 				}
 				wantActor := audit.Actor{Type: mode.name, User: "alice", Surface: "ui"}
 				for _, r := range []audit.Record{in, out} {
-					if r.Actor != wantActor || r.AuthMode != mode.name || r.Peer != "192.0.2.1" {
+					if r.Actor != wantActor || r.AuthMode != mode.name || r.Peer != "127.0.0.1" {
 						t.Errorf("%s: actor %+v mode %q peer %q", tc.name, r.Actor, r.AuthMode, r.Peer)
 					}
 				}
@@ -329,7 +329,7 @@ func TestDenialsAreAuditedOncePerPeerAndMinute(t *testing.T) {
 				t.Fatalf("records after one denial = %d: %+v", len(recs), recs)
 			}
 			r := recs[0]
-			if r.Kind != audit.KindDenial || r.Reason != tc.reason || r.Peer != "192.0.2.1" || r.AuthMode != "proxy" || r.Actor.User != tc.user {
+			if r.Kind != audit.KindDenial || r.Reason != tc.reason || r.Peer != "127.0.0.1" || r.AuthMode != "proxy" || r.Actor.User != tc.user {
 				t.Errorf("denial = %+v", r)
 			}
 

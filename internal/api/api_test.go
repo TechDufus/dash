@@ -28,6 +28,10 @@ const testOrigin = "https://dash.example.com"
 // testHost is the Host header requests carry unless a test sets another.
 const testHost = "dash.example.com"
 
+// testPeer is the TCP peer requests come from unless a test sets another: the address of a
+// proxy sitting next to dash, which is the one peer whose identity headers dash believes.
+const testPeer = "127.0.0.1:41000"
+
 var fixedNow = time.Date(2026, 10, 30, 12, 0, 0, 123456789, time.UTC)
 
 // fakeProm is the svc.Querier of the fake "prometheus" plugin: it records the last range query.
@@ -127,6 +131,7 @@ func newServer(mod func(*Deps)) *Server {
 type req struct {
 	method, path string
 	host         string // Host header; defaults to testHost
+	peer         string // RemoteAddr; defaults to testPeer
 	body         any
 	header       map[string]string
 	raw          bool // do not add CSRF headers
@@ -148,6 +153,7 @@ func (r req) do(h http.Handler) *httptest.ResponseRecorder {
 	}
 	hr := httptest.NewRequest(r.method, r.path, rd)
 	hr.Host = cmp.Or(r.host, testHost)
+	hr.RemoteAddr = cmp.Or(r.peer, testPeer)
 	hr.Header.Set("X-Forwarded-Preferred-Username", "alice")
 	if !r.raw && r.method != http.MethodGet {
 		hr.Header.Set("X-Dash-Csrf", "1")

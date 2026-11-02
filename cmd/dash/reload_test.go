@@ -144,6 +144,7 @@ func TestReloadedSecretReachesTheProxmoxPluginWhileReadinessHolds(t *testing.T) 
 	// detail asks the plugin's route for VM 101, which makes the plugin call Proxmox now.
 	detail := func() int {
 		r := httptest.NewRequest(http.MethodGet, cfg.PublicURL+"/api/v1/plugins/proxmox/vms/101", nil)
+		r.RemoteAddr = "127.0.0.1:41000" // the proxy next to dash, the peer whose identity header dash believes
 		r.Header.Set("X-Forwarded-Preferred-Username", "alice")
 		rec := httptest.NewRecorder()
 		srv.Handler().ServeHTTP(rec, r)
