@@ -23,6 +23,7 @@ func kubeObj(name string) *unstructured.Unstructured {
 
 func TestKubeClusterStartsSyncedServedListedAndEmpty(t *testing.T) {
 	k := NewKubeCluster()
+	k.Watch(gvrA)
 	if !k.Synced() || !k.Has(gvrA) || !k.Listed(gvrA) {
 		t.Errorf("Synced=%v Has=%v Listed=%v, want all true", k.Synced(), k.Has(gvrA), k.Listed(gvrA))
 	}
@@ -42,6 +43,7 @@ func TestKubeClusterStartsSyncedServedListedAndEmpty(t *testing.T) {
 
 func TestKubeClusterSetObjectsReplacesAndListReturnsACopy(t *testing.T) {
 	k := NewKubeCluster()
+	k.Watch(gvrA)
 	k.SetObjects(gvrA, kubeObj("one"), kubeObj("two"))
 	k.SetObjects(gvrA, kubeObj("three"))
 	got := k.List(gvrA)
@@ -79,27 +81,54 @@ func TestKubeClusterRevisionSumsPerGVR(t *testing.T) {
 	}
 }
 
-func TestKubeClusterSwitchesBumpTheirGVR(t *testing.T) {
+// The revision contract is the real cluster's: an object change and a CRD appearing or going
+// move it; a list completing or becoming refused does not (the manager compares those separately).
+func TestKubeClusterRevisionMovesOnlyWhereTheRealClusterBumps(t *testing.T) {
 	k := NewKubeCluster()
-	for name, fn := range map[string]func(){
-		"SetServed":    func() { k.SetServed(gvrA, false) },
-		"SetListed":    func() { k.SetListed(gvrA, false) },
-		"SetRefused":   func() { k.SetRefused(gvrA, "auth") },
-		"ClearRefused": func() { k.ClearRefused(gvrA) },
+	k.Watch(gvrA, gvrB)
+	for _, c := range []struct {
+		name string
+		fn   func()
+		bump bool
+	}{
+		{"SetObjects", func() { k.SetObjects(gvrA, kubeObj("x")) }, true},
+		{"SetServed", func() { k.SetServed(gvrA, false) }, true},
+		{"SetListed", func() { k.SetListed(gvrA, false) }, false},
+		{"SetRefused", func() { k.SetRefused(gvrA, "auth") }, false},
+		{"ClearRefused", func() { k.ClearRefused(gvrA) }, false},
 	} {
 		beforeA, beforeB := k.GVRRevision(gvrA), k.GVRRevision(gvrB)
-		fn()
-		if k.GVRRevision(gvrA) <= beforeA {
-			t.Errorf("%s did not bump the revision of its gvr", name)
+		c.fn()
+		if got := k.GVRRevision(gvrA) > beforeA; got != c.bump {
+			t.Errorf("%s moved the revision of its gvr = %v, want %v", c.name, got, c.bump)
 		}
 		if k.GVRRevision(gvrB) != beforeB {
-			t.Errorf("%s bumped the revision of another gvr", name)
+			t.Errorf("%s moved the revision of another gvr", c.name)
 		}
+	}
+}
+
+func TestKubeClusterServesOnlyWatchedResources(t *testing.T) {
+	k := NewKubeCluster()
+	k.SetObjects(gvrA, kubeObj("x"))
+	if k.Has(gvrA) || k.Listed(gvrA) || k.List(gvrA) != nil {
+		t.Errorf("before Watch: Has=%v Listed=%v List=%v, want false false nil", k.Has(gvrA), k.Listed(gvrA), k.List(gvrA))
+	}
+	k.Watch(gvrA)
+	if !k.Has(gvrA) || !k.Listed(gvrA) {
+		t.Errorf("after Watch: Has=%v Listed=%v, want true true", k.Has(gvrA), k.Listed(gvrA))
+	}
+	if got := k.List(gvrA); len(got) != 1 || got[0].GetName() != "x" {
+		t.Errorf("after Watch: List = %v, want x", got)
+	}
+	if k.Has(gvrB) || k.Listed(gvrB) || k.List(gvrB) != nil {
+		t.Errorf("a gvr never watched: Has=%v Listed=%v List=%v, want false false nil", k.Has(gvrB), k.Listed(gvrB), k.List(gvrB))
 	}
 }
 
 func TestKubeClusterAbsentGVRListsNilAndCountsAsListed(t *testing.T) {
 	k := NewKubeCluster()
+	k.Watch(gvrA)
 	k.SetObjects(gvrA, kubeObj("x"))
 	k.SetServed(gvrA, false)
 	if k.Has(gvrA) {
