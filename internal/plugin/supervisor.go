@@ -657,26 +657,28 @@ func (s *Supervisor) evaluate(in *instance, ic InstanceConfig) plan {
 	// sits in the section, optional credentials included: a plugin that built its client
 	// without the value would never use it, and one that sent requests without it would be
 	// refused. It is checked before Configured because the plugin's own answer cannot tell.
-	if msg := s.waitingRow(in, ic); msg != "" {
-		pl.msg = msg
-		if configured || ic.Enabled != nil {
-			pl.state = StateUnconfigured
-		} else {
-			pl.state = StateDisabled
-		}
-		return pl
-	}
-	if !configured {
-		msg := msgNotConfigured
-		if h, ok := probe.(ConfigHinter); ok {
-			if hint := h.ConfigHint(); hint != "" {
-				msg += ": set " + hint
+	waiting := s.waitingRow(in, ic)
+	if !configured || waiting != "" {
+		var msg string
+		if !configured {
+			msg = msgNotConfigured
+			if h, ok := probe.(ConfigHinter); ok {
+				if hint := h.ConfigHint(); hint != "" {
+					msg += ": set " + hint
+				}
 			}
 		}
-		if ic.Enabled == nil {
-			pl.state, pl.msg = StateDisabled, msg
+		switch {
+		case msg == "":
+			msg = waiting
+		case waiting != "":
+			msg += "; " + waiting // the operator still has to learn what else is missing
+		}
+		pl.msg = msg
+		if !configured && ic.Enabled == nil {
+			pl.state = StateDisabled
 		} else {
-			pl.state, pl.msg = StateUnconfigured, msg
+			pl.state = StateUnconfigured
 		}
 		return pl
 	}

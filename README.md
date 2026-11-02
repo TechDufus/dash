@@ -502,7 +502,8 @@ A plugin does not start while any `k8s:` reference in its section is unread, an 
 credential included (`auth.bearerToken` and `auth.basic.password` of the Prometheus,
 Alertmanager, Gatus and VictoriaLogs sources too): it would otherwise query without the
 credential. Its row says `waiting for a Kubernetes Secret (see plugins.<id>.<field>)` (once for
-each such field) and its state is `unconfigured` when its other settings are complete, otherwise
+each such field), after `not configured: set plugins.<id>.<setting>` when something else is
+missing too. Its state is `unconfigured` when its other settings are complete, otherwise
 `disabled` (or `unconfigured` when `enabled: true`). The row never names the namespace, the
 Secret, the key or the reason; dash's log does, once per change (`not_found`, `key_missing`,
 `forbidden`, `unreachable`, `kubernetes_unavailable`). The plugin starts by itself when the

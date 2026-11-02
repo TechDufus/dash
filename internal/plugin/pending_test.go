@@ -81,7 +81,8 @@ func TestPendingMessageIsGenericForViewers(t *testing.T) {
 	if st != model.PluginUnconfigured {
 		t.Fatalf("state = %s, want unconfigured with enabled: true", st)
 	}
-	want := "waiting for a Kubernetes Secret (see plugins.aa.bearerToken)" +
+	want := "not configured: set plugins.aa.token" +
+		"; waiting for a Kubernetes Secret (see plugins.aa.bearerToken)" +
 		"; waiting for a Kubernetes Secret (see plugins.aa.token)" +
 		"; waiting for a Kubernetes Secret (see plugins.aa.basic.password)"
 	if msg != want {
@@ -116,7 +117,7 @@ func TestDisabledWithEnabledUnsetAndUnconfiguredWhenEnabled(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			e := pendingEnv(t, secret.NewK8sRefs(nil), func(i *plugin.InstanceConfig) { i.Enabled = tc.enabled }, nil).run(t)
 			st, msg := e.state(t, "aa")
-			if st != tc.want || msg != "waiting for a Kubernetes Secret (see plugins.aa.token)" {
+			if st != tc.want || msg != "not configured: set plugins.aa.token; waiting for a Kubernetes Secret (see plugins.aa.token)" {
 				t.Errorf("state %s, message %q", st, msg)
 			}
 		})
@@ -206,6 +207,34 @@ func optionalFake() *plugintest.Fake {
 	f.ConfiguredFn = func(c any) bool { return c.(*optionalCfg).URL != "" }
 	f.Hint = "plugins.aa.url"
 	return f
+}
+
+// Not configured and pending: the row leads with what is missing besides the Secret, then says it
+// waits; the state follows `enabled` as for any unconfigured plugin. Configured and pending is
+// the test below: the waiting part alone.
+func TestNotConfiguredAndPendingLeadsWithTheHint(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		enabled *bool
+		want    model.PluginState
+	}{
+		{"unset", nil, model.PluginDisabled},
+		{"true", new(true), model.PluginUnconfigured},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			refs := secret.NewK8sRefs(nil)
+			f := optionalFake()
+			e := newEnv(t, nil, f.Factory())
+			token, _ := refs.Handle(refToken)
+			e.set.Set(plugin.InstanceConfig{Name: "aa", Enabled: tc.enabled, Config: &optionalCfg{Token: token}}) // no URL
+			e.run(t)
+			st, msg := e.state(t, "aa")
+			want := "not configured: set plugins.aa.url; waiting for a Kubernetes Secret (see plugins.aa.token)"
+			if st != tc.want || msg != want || f.Starts() != 0 {
+				t.Errorf("state %s, message %q, %d starts; want %s, %q", st, msg, f.Starts(), tc.want, want)
+			}
+		})
+	}
 }
 
 // A pending secret anywhere in the section, an optional credential included, keeps a plugin that
