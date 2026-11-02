@@ -349,6 +349,8 @@ type VMDetail struct {
 // ---- cluster ----
 
 type Node struct {
+	// Ref is kubernetes:Node/<name> (design L.6).
+	Ref            string  `json:"ref"`
 	Name           string  `json:"name"`
 	IP             string  `json:"ip"`
 	Ready          bool    `json:"ready"`
@@ -360,6 +362,8 @@ type Node struct {
 }
 
 type Namespace struct {
+	// Ref is kubernetes:Namespace/<name> (design L.6).
+	Ref               string `json:"ref"`
 	Name              string `json:"name"`
 	Group             Group  `json:"group"`
 	Protected         bool   `json:"protected"`
@@ -395,6 +399,8 @@ const (
 )
 
 type Workload struct {
+	// Ref is kubernetes:Workload/<Kind>/<ns>/<name> (design L.6).
+	Ref       string       `json:"ref"`
 	Kind      WorkloadKind `json:"kind"`
 	Namespace string       `json:"namespace"`
 	Name      string       `json:"name"`
@@ -414,6 +420,8 @@ type OwnerRef struct {
 }
 
 type Pod struct {
+	// Ref is kubernetes:Pod/<ns>/<name> (design L.6).
+	Ref             string    `json:"ref"`
 	Namespace       string    `json:"namespace"`
 	Name            string    `json:"name"`
 	Phase           string    `json:"phase"`
@@ -441,6 +449,8 @@ type Event struct {
 }
 
 type Cert struct {
+	// Ref is kubernetes:Certificate/<ns>/<name> (design L.6).
+	Ref       string     `json:"ref"`
 	Namespace string     `json:"namespace"`
 	Name      string     `json:"name"`
 	Ready     bool       `json:"ready"`
@@ -449,6 +459,8 @@ type Cert struct {
 }
 
 type ExtSecret struct {
+	// Ref is kubernetes:ExternalSecret/<ns>/<name> (design L.6).
+	Ref       string `json:"ref"`
 	Namespace string `json:"namespace"`
 	Name      string `json:"name"`
 	Ready     bool   `json:"ready"`
@@ -515,6 +527,8 @@ type FluxData struct {
 // ---- storage ----
 
 type PVC struct {
+	// Ref is kubernetes:PVC/<ns>/<name> (design L.6).
+	Ref               string   `json:"ref"`
 	Namespace         string   `json:"namespace"`
 	Name              string   `json:"name"`
 	StorageClass      string   `json:"storageClass"`
@@ -555,6 +569,15 @@ type NASBackup struct {
 	LastSuccessAgeSeconds *float64 `json:"lastSuccessAgeSeconds,omitempty"`
 }
 
+// BackupJob is the age of the last successful run of a backup CronJob, the kubernetes plugin's
+// generalisation of NASBackup.
+type BackupJob struct {
+	// Ref is kubernetes:BackupJob/<ns>/<name> (design L.6).
+	Ref                   string   `json:"ref"`
+	Name                  string   `json:"name"`
+	LastSuccessAgeSeconds *float64 `json:"lastSuccessAgeSeconds,omitempty"`
+}
+
 type Etcd struct {
 	DBBytes    int64 `json:"dbBytes"`
 	QuotaBytes int64 `json:"quotaBytes"`
@@ -566,7 +589,9 @@ type StorageData struct {
 	RustFS     UsedSize      `json:"rustfs"`
 	CNPG       []CNPGCluster `json:"cnpg"`
 	NASBackups []NASBackup   `json:"nasBackups"`
-	Etcd       Etcd          `json:"etcd"`
+	// BackupJobs replaces NASBackups under the kubernetes plugin (design L.6).
+	BackupJobs []BackupJob `json:"backupJobs"`
+	Etcd       Etcd        `json:"etcd"`
 }
 
 // ---- alerts ----
@@ -649,9 +674,14 @@ type App struct {
 	Name        string `json:"name"`
 	Description string `json:"description"`
 	IconURL     string `json:"iconUrl"`
-	Href        string `json:"href"`
-	Group       Group  `json:"group"`
-	Namespace   string `json:"namespace"`
+	// Icon is the raw icon token of the app (a dashboard-icons name, a same-origin path or a URL);
+	// the SPA resolves it, and it replaces IconURL (design D9).
+	Icon string `json:"icon"`
+	// Ref is kubernetes:App/<ns>/<source>/<resource>/<host> (design L.6).
+	Ref       string `json:"ref"`
+	Href      string `json:"href"`
+	Group     Group  `json:"group"`
+	Namespace string `json:"namespace"`
 	// Healthy comes from the Gatus endpoint for the hostname; nil when none matches.
 	Healthy *bool `json:"healthy,omitempty"`
 }

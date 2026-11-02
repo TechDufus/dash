@@ -398,6 +398,10 @@ export interface VMDetail {
   snapshots: Snapshot[];
 }
 export interface Node {
+  /**
+   * Ref is kubernetes:Node/<name> (design L.6).
+   */
+  ref: string;
   name: string;
   ip: string;
   ready: boolean;
@@ -408,6 +412,10 @@ export interface Node {
   links: Link[];
 }
 export interface Namespace {
+  /**
+   * Ref is kubernetes:Namespace/<name> (design L.6).
+   */
+  ref: string;
   name: string;
   group: Group;
   protected: boolean;
@@ -438,6 +446,10 @@ export const FluxKindOCIRepository = "OCIRepository";
 export const FluxKindHelmRepository = "HelmRepository";
 export type FluxKind = typeof FluxKindKustomization | typeof FluxKindHelmRelease | typeof FluxKindGitRepository | typeof FluxKindOCIRepository | typeof FluxKindHelmRepository;
 export interface Workload {
+  /**
+   * Ref is kubernetes:Workload/<Kind>/<ns>/<name> (design L.6).
+   */
+  ref: string;
   kind: WorkloadKind;
   namespace: string;
   name: string;
@@ -457,6 +469,10 @@ export interface OwnerRef {
   name: string;
 }
 export interface Pod {
+  /**
+   * Ref is kubernetes:Pod/<ns>/<name> (design L.6).
+   */
+  ref: string;
   namespace: string;
   name: string;
   phase: string;
@@ -484,6 +500,10 @@ export interface Event {
   lastSeen: string;
 }
 export interface Cert {
+  /**
+   * Ref is kubernetes:Certificate/<ns>/<name> (design L.6).
+   */
+  ref: string;
   namespace: string;
   name: string;
   ready: boolean;
@@ -491,6 +511,10 @@ export interface Cert {
   links: Link[];
 }
 export interface ExtSecret {
+  /**
+   * Ref is kubernetes:ExternalSecret/<ns>/<name> (design L.6).
+   */
+  ref: string;
   namespace: string;
   name: string;
   ready: boolean;
@@ -550,6 +574,10 @@ export interface FluxData {
   helmReleases: FluxObj[];
 }
 export interface PVC {
+  /**
+   * Ref is kubernetes:PVC/<ns>/<name> (design L.6).
+   */
+  ref: string;
   namespace: string;
   name: string;
   storageClass: string;
@@ -587,6 +615,18 @@ export interface NASBackup {
   name: string;
   lastSuccessAgeSeconds?: number /* float64 */;
 }
+/**
+ * BackupJob is the age of the last successful run of a backup CronJob, the kubernetes plugin's
+ * generalisation of NASBackup.
+ */
+export interface BackupJob {
+  /**
+   * Ref is kubernetes:BackupJob/<ns>/<name> (design L.6).
+   */
+  ref: string;
+  name: string;
+  lastSuccessAgeSeconds?: number /* float64 */;
+}
 export interface Etcd {
   dbBytes: number /* int64 */;
   quotaBytes: number /* int64 */;
@@ -597,6 +637,10 @@ export interface StorageData {
   rustfs: UsedSize;
   cnpg: CNPGCluster[];
   nasBackups: NASBackup[];
+  /**
+   * BackupJobs replaces NASBackups under the kubernetes plugin (design L.6).
+   */
+  backupJobs: BackupJob[];
   etcd: Etcd;
 }
 export interface Alert {
@@ -676,6 +720,15 @@ export interface App {
   name: string;
   description: string;
   iconUrl: string;
+  /**
+   * Icon is the raw icon token of the app (a dashboard-icons name, a same-origin path or a URL);
+   * the SPA resolves it, and it replaces IconURL (design D9).
+   */
+  icon: string;
+  /**
+   * Ref is kubernetes:App/<ns>/<source>/<resource>/<host> (design L.6).
+   */
+  ref: string;
   href: string;
   group: Group;
   namespace: string;

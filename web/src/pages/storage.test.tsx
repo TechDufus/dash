@@ -23,6 +23,7 @@ const storage = (): StorageData =>
     rustfs: { usedBytes: 1, usableBytes: 2 },
     cnpg: [],
     nasBackups: [],
+    backupJobs: [],
     etcd: { dbBytes: 1, quotaBytes: 2 },
   }) as StorageData;
 

@@ -187,6 +187,9 @@
           "href": {
             "type": "string"
           },
+          "icon": {
+            "type": "string"
+          },
           "iconUrl": {
             "type": "string"
           },
@@ -194,6 +197,9 @@
             "type": "string"
           },
           "namespace": {
+            "type": "string"
+          },
+          "ref": {
             "type": "string"
           }
         },
@@ -246,6 +252,21 @@
             "type": "string"
           },
           "title": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "BackupJob": {
+        "additionalProperties": false,
+        "properties": {
+          "lastSuccessAgeSeconds": {
+            "type": "number"
+          },
+          "name": {
+            "type": "string"
+          },
+          "ref": {
             "type": "string"
           }
         },
@@ -320,6 +341,9 @@
           },
           "ready": {
             "type": "boolean"
+          },
+          "ref": {
+            "type": "string"
           }
         },
         "type": "object"
@@ -902,6 +926,9 @@
           },
           "ready": {
             "type": "boolean"
+          },
+          "ref": {
+            "type": "string"
           }
         },
         "type": "object"
@@ -1424,6 +1451,9 @@
           "protected": {
             "type": "boolean"
           },
+          "ref": {
+            "type": "string"
+          },
           "restarts": {
             "type": "integer"
           },
@@ -1483,6 +1513,9 @@
           },
           "ready": {
             "type": "boolean"
+          },
+          "ref": {
+            "type": "string"
           }
         },
         "type": "object"
@@ -1587,6 +1620,9 @@
             "type": "string"
           },
           "phase": {
+            "type": "string"
+          },
+          "ref": {
             "type": "string"
           },
           "storageClass": {
@@ -1764,6 +1800,9 @@
             "type": "integer"
           },
           "reason": {
+            "type": "string"
+          },
+          "ref": {
             "type": "string"
           },
           "restarts": {
@@ -1972,6 +2011,12 @@
       "StorageData": {
         "additionalProperties": false,
         "properties": {
+          "backupJobs": {
+            "items": {
+              "$ref": "#/components/schemas/BackupJob"
+            },
+            "type": "array"
+          },
           "buckets": {
             "items": {
               "$ref": "#/components/schemas/Bucket"
@@ -2307,6 +2352,9 @@
           },
           "ready": {
             "type": "integer"
+          },
+          "ref": {
+            "type": "string"
           },
           "restartable": {
             "type": "boolean"
