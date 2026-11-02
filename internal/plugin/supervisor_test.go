@@ -276,6 +276,31 @@ func TestDependentIsBlockedWhenItsStartMakesTheDependencyUnavailable(t *testing.
 	}
 }
 
+// Two dependents of one plugin: the second one's decision must not overwrite the availability
+// entry the first was decided against. aa's Start makes xx unavailable; bb is decided after it.
+// The status loop must still see that xx differs from the snapshot, so both end blocked.
+func TestTwoDependentsAreBothBlockedWhenTheFirstsStartMakesTheDependencyUnavailable(t *testing.T) {
+	var mu sync.Mutex
+	st := plugin.StateHealthy
+	a := plugintest.New("aa", plugintest.Requires("xx"))
+	b := plugintest.New("bb", plugintest.Requires("xx"))
+	x := plugintest.New("xx")
+	x.StatusFn = func() plugin.Status { mu.Lock(); defer mu.Unlock(); return plugin.Status{State: st, Message: "gone"} }
+	a.StartFn = func(context.Context, plugin.Host, any) error {
+		mu.Lock()
+		st = plugin.StateUnavailable
+		mu.Unlock()
+		return nil
+	}
+	e := start(t, a.Factory(), b.Factory(), x.Factory())
+	eventually(t, "aa and bb to be blocked", func() bool { return !e.sup.Running("aa") && !e.sup.Running("bb") })
+	for _, id := range []string{"aa", "bb"} {
+		if s, msg := e.state(t, id); s != model.PluginBlocked || !strings.HasPrefix(msg, "requires xx (unavailable") {
+			t.Errorf("%s = %s %q, want blocked", id, s, msg)
+		}
+	}
+}
+
 func TestDependencyInErrorDoesNotBlock(t *testing.T) {
 	a := plugintest.New("aa", plugintest.Requires("xx"))
 	x := plugintest.New("xx", plugintest.Status(plugin.StateError, "upstream down"))

@@ -126,6 +126,8 @@ type Supervisor struct {
 	started   atomic.Bool // Run's first reconcile returned: every Start has
 	readyWarn sync.Once
 	avail     map[ID]bool // availability() when the last reconcile began; only reconcile and loop touch it
+	// availNoted holds the dependencies whose avail entry the running reconcile has refreshed.
+	availNoted map[ID]bool
 
 	pubMu         sync.Mutex
 	lastPublished []model.PluginInfo
@@ -519,14 +521,17 @@ func (s *Supervisor) availability() map[ID]bool {
 	return out
 }
 
-// noteAvailability re-reads the entries of ids in the snapshot of the running reconcile: a
-// dependency started or stopped since the snapshot was taken is what its dependents are decided
-// against.
+// noteAvailability re-reads the entries of ids in the snapshot of the running reconcile, each
+// entry once per reconcile: a dependency started or stopped since the snapshot was taken is what
+// its first dependent is decided against. A later dependent must not refresh it again, or it
+// would overwrite the entry the first one was decided against and hide a dependency that became
+// unavailable while that one started: the status loop would then see no change.
 func (s *Supervisor) noteAvailability(ids []ID) {
 	for _, id := range ids {
-		if _, ok := s.avail[id]; !ok {
+		if _, ok := s.avail[id]; !ok || s.availNoted[id] {
 			continue
 		}
+		s.availNoted[id] = true
 		if dep := s.lookup(id); dep != nil {
 			st, _ := s.liveState(dep)
 			s.avail[id] = dep.isRunning() && st == StateUnavailable
@@ -832,11 +837,12 @@ func (s *Supervisor) reconcile() {
 	if s.down {
 		return
 	}
-	// The availability the decisions below are based on. The start phase refreshes the entries of
-	// an instance's dependencies just before it decides about the instance (noteAvailability), so
-	// a dependency that becomes unavailable while the instance is being started differs from the
-	// snapshot afterwards and the status loop reconciles again.
+	// The availability the decisions below are based on. The start phase refreshes the entry of
+	// each dependency once, just before the first instance that requires it is decided about
+	// (noteAvailability), so a dependency that becomes unavailable while an instance is being
+	// started differs from the snapshot afterwards and the status loop reconciles again.
 	s.avail = s.availability()
+	s.availNoted = map[ID]bool{}
 	cfgs := s.configs()
 	s.mu.RLock()
 	order := slices.Clone(s.order)
