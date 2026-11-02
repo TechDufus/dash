@@ -235,6 +235,18 @@ func TestTopologyOfAnEmptyClusterHasTheThreeGroups(t *testing.T) {
 	}
 }
 
+// kubeContributor is the plugin's contributor as the overview sees it.
+func kubeContributor(t *testing.T, e *env) plugin.Contributor {
+	t.Helper()
+	for _, c := range e.sup.Contributors() {
+		if c.ID == ID {
+			return c
+		}
+	}
+	t.Fatal("the plugin has no contributor")
+	return plugin.Contributor{}
+}
+
 // An errored kubernetes row is visible, so the supervisor keeps its contributor; the plugin itself
 // has no opinion while its service is withdrawn, and has one again when the sync completes.
 func TestAttentionAndKPIsAreNilWhileTheServiceIsWithdrawn(t *testing.T) {
@@ -250,18 +262,60 @@ func TestAttentionAndKPIsAreNilWhileTheServiceIsWithdrawn(t *testing.T) {
 	}})
 	e.clock.advance(60 * time.Second)
 	e.state(plugin.StateError)
-	for _, c := range e.sup.Contributors() {
-		if c.ID != ID {
-			continue
-		}
-		if c.Sources == nil || len(c.Sources()) == 0 {
-			t.Error("the errored plugin lost its sources")
-		}
-		if c.Attention != nil && c.Attention.Attention(clNow) != nil {
-			t.Error("attention while the service is withdrawn")
-		}
-		if c.KPIs != nil && c.KPIs.KPIs() != nil {
-			t.Error("KPIs while the service is withdrawn")
-		}
+
+	c := kubeContributor(t, e)
+	if c.Sources == nil || len(c.Sources()) == 0 {
+		t.Error("the errored plugin lost its sources")
 	}
+	if c.Attention == nil || c.KPIs == nil || c.Topology == nil {
+		t.Fatalf("the visible errored plugin lost a source: attention %v, kpis %v, topology %v", c.Attention != nil, c.KPIs != nil, c.Topology != nil)
+	}
+	if items := c.Attention.Attention(clNow); items != nil {
+		t.Errorf("attention while the service is withdrawn: %+v", items)
+	}
+	if ks := c.KPIs.KPIs(); ks != nil {
+		t.Errorf("KPIs while the service is withdrawn: %+v", ks)
+	}
+	if topo := c.Topology.Topology(); topo.VMs == nil || topo.Groups == nil || len(topo.Groups) != 0 {
+		t.Errorf("topology while the service is withdrawn = %+v, want empty non-nil lists", topo)
+	}
+
+	forbid.set(false)
+	e.healthy()
+	c = kubeContributor(t, e)
+	waitFor(t, "the nodes, once the sync completes", func() bool {
+		return c.Attention != nil && len(c.Attention.Attention(clNow)) == 1 && len(c.KPIs.KPIs()) > 0 && len(c.Topology.Topology().Groups) == 3
+	})
+}
+
+// What the plugin built is not shown while its service is withdrawn: the payloads exist (the
+// plugin is healthy, then the probe is cut past the debounce), and still Attention, KPIs and
+// Topology have no opinion until the API server answers again.
+func TestOverviewSourcesHaveNoOpinionOnBuiltPayloadsWhileUnavailable(t *testing.T) {
+	e := newEnv(t, envOpts{fakeClock: true, objs: []k8sruntime.Object{node("cp-1", "192.0.2.10", false)}})
+	e.healthy()
+	p := e.plugin()
+	waitFor(t, "the built payloads to give items", func() bool {
+		return len(p.Attention(clNow)) == 1 && len(p.KPIs()) > 0 && len(p.Topology().Groups) == 3
+	})
+
+	e.failProbe.Store(true)
+	e.probeFailing()
+	e.clock.advance(10 * time.Second)
+	e.state(plugin.StateUnavailable)
+	if items := p.Attention(clNow); items != nil {
+		t.Errorf("attention while unavailable: %+v", items)
+	}
+	if ks := p.KPIs(); ks != nil {
+		t.Errorf("KPIs while unavailable: %+v", ks)
+	}
+	if topo := p.Topology(); topo.VMs == nil || topo.Groups == nil || len(topo.Groups) != 0 {
+		t.Errorf("topology while unavailable = %+v, want empty non-nil lists", topo)
+	}
+
+	e.failProbe.Store(false)
+	e.state(plugin.StateHealthy)
+	waitFor(t, "the built payloads to be shown again", func() bool {
+		return len(p.Attention(clNow)) == 1 && len(p.KPIs()) > 0 && len(p.Topology().Groups) == 3
+	})
 }

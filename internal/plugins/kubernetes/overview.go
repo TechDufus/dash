@@ -21,6 +21,11 @@ const (
 // published last. It has no opinion (nil) until both the cluster and the storage payload exist,
 // so a restarted plugin does not prune the supervisor's first sightings with a half-built list;
 // an item without a time of its own gets the time it was first seen, from the supervisor.
+//
+// Every item therefore waits for the storage payload, where v0.9.0 showed the cluster's items as
+// soon as the cluster payload existed. storageReady needs both the first storage poll, up to
+// pollTimeout (25 s), and the CNPG list, which while it is refused takes up to 60 s of
+// API-server up-time (listedOrStuck): the item waits for the later of the two.
 func (p *Plugin) Attention(now time.Time) []model.AttentionItem {
 	r := p.rt.Load()
 	if r == nil || r.withdrawn() {
@@ -98,10 +103,12 @@ func kpisOf(cl *model.ClusterData, st *model.StorageData) []model.KPI {
 }
 
 // Topology implements plugin.TopologySource: the cluster's three groups with their namespaces and
-// the pods they run on each node. It has no host and no VMs of its own.
+// the pods they run on each node. It has no host and no VMs of its own. While the service is
+// withdrawn it is empty, as it is before the first publish: the groups of a cluster nobody can
+// reach would all read "ok".
 func (p *Plugin) Topology() model.Topology {
 	r := p.rt.Load()
-	if r == nil {
+	if r == nil || r.withdrawn() {
 		return model.Topology{VMs: []model.TopologyVM{}, Groups: []model.TopologyGroup{}}
 	}
 	cl, _ := r.builtPayloads()
