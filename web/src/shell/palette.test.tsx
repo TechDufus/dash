@@ -77,10 +77,11 @@ function connect(rows = shimRows()): FakeEventSource {
     }),
   );
   es.emit(
-    "flux",
-    envelope("flux", {
-      kustomizations: [{ kind: "Kustomization", namespace: "flux-system", name: "apps" }],
+    "flux.objects",
+    envelope("flux.objects", {
+      kustomizations: [{ kind: "Kustomization", namespace: "gitops", name: "apps" }],
       helmReleases: [{ kind: "HelmRelease", namespace: "media", name: "player" }],
+      verifiedSources: [{ kind: "GitRepository", namespace: "gitops", name: "root" }],
     }),
   );
   return es;
@@ -144,7 +145,10 @@ describe("command palette", () => {
     const dialog = await open();
     expect(headings(dialog).filter((h) => h === "Actions")).toHaveLength(1);
     // Kubernetes comes before flux in module order, but flux ranks its item first, as in v0.5.0.
-    expect(itemsOf(dialog, "Actions")).toEqual(["Reconcile flux-system", "Restart media/app"]);
+    expect(itemsOf(dialog, "Actions")).toEqual([
+      "Reconcile gitops/rootGitRepository",
+      "Restart media/app",
+    ]);
   });
 
   it("keeps module order between items of the same rank", async () => {
@@ -166,7 +170,7 @@ describe("command palette", () => {
     renderApp(<CommandPalette />);
     const dialog = await open();
     expect(itemsOf(dialog, "Actions")).toEqual([
-      "Reconcile flux-system",
+      "Reconcile gitops/rootGitRepository",
       "Restart media/a",
       "Restart media/b",
       "Restart media/c",
@@ -182,7 +186,10 @@ describe("command palette", () => {
       connect();
       renderApp(<CommandPalette />);
       const dialog = await open();
-      expect(itemsOf(dialog, "Actions")).toEqual(["Reconcile flux-system", "Restart media/app"]);
+      expect(itemsOf(dialog, "Actions")).toEqual([
+        "Reconcile gitops/rootGitRepository",
+        "Restart media/app",
+      ]);
     } finally {
       methods.forEach((m, i) => {
         const d = saved[i];

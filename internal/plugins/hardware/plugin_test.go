@@ -36,9 +36,6 @@ func TestManifest(t *testing.T) {
 	if _, ok := m.Topics[1].Type.(hwmodel.MachinesData); !ok {
 		t.Errorf("machines payload type %T", m.Topics[1].Type)
 	}
-	if m.Topics[0].Legacy != "" || m.Topics[1].Legacy != "" {
-		t.Error("a plugin topic carries a legacy name")
-	}
 	if len(m.Series) != 6 || len(m.Actions) != 0 {
 		t.Errorf("series %d actions %d", len(m.Series), len(m.Actions))
 	}

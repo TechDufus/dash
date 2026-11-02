@@ -86,7 +86,7 @@ type PluginInfo struct {
 	Version      string        `json:"version"`
 	State        PluginState   `json:"state"`
 	Message      string        `json:"message"`
-	Topics       []string      `json:"topics"`  // full SSE names: "proxmox.vms", or the un-namespaced legacy name ("vms") until the plugin's G3 leaf
+	Topics       []string      `json:"topics"`  // full SSE names: "proxmox.vms"
 	Actions      []ActionInfo  `json:"actions"` // only the ones mounted (actions.enabled)
 	Nav          []NavItem     `json:"nav"`
 	Generic      []GenericView `json:"generic"` // views the SPA renders for this plugin; empty when it has a module of its own

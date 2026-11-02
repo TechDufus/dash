@@ -29,15 +29,3 @@ func newLinks() demoLinks {
 func (d demoLinks) Headlamp(kind, namespace, name string) []model.Link {
 	return d.hl.Links(plugin.LinkRequest{Kind: kind, Namespace: namespace, Name: name})
 }
-
-// built is the payloads the legacy publisher still publishes, at one instant: the overview and
-// the flux shim's topic (the kubernetes twin builds its own from the same world).
-type built struct {
-	overview model.OverviewData
-	flux     model.FluxData
-}
-
-func (s *Source) build() built {
-	w := s.world.Build()
-	return built{overview: w.Overview, flux: w.Flux}
-}

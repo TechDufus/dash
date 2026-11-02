@@ -422,24 +422,14 @@ func TestChangedInstanceAndDependentsRestart(t *testing.T) {
 	}
 }
 
-func TestRestartOnlyInstanceIsNotTouched(t *testing.T) {
-	r := plugintest.New("rr", plugintest.Config(cfgOf))
+func TestLiveReportsTheSectionsOfInstances(t *testing.T) {
 	a := plugintest.New("aa", plugintest.Config(cfgOf))
-	e := start(t, plugintest.RestartOnly(r), a.Factory())
-	if e.sup.Live("plugins.rr") {
-		t.Fatal("a RestartOnly section is live")
-	}
+	e := start(t, a.Factory())
 	if !e.sup.Live("plugins.aa") || e.sup.Live("plugins.nope") || e.sup.Live("server") || e.sup.Live("plugins.") {
 		t.Fatal("Live reports the wrong sections")
 	}
-	e.set.Set(plugin.InstanceConfig{Name: "rr", Config: &cfg{URL: "xx"}}, plugin.InstanceConfig{Name: "aa", Config: &cfg{URL: "xx"}})
+	e.set.Set(plugin.InstanceConfig{Name: "aa", Config: &cfg{URL: "xx"}})
 	e.reloadUntil(t, "a to restart", func() bool { return a.Starts() == 2 })
-	e.set.Set(plugin.InstanceConfig{Name: "rr", Enabled: new(false)})
-	e.sup.Reload()
-	time.Sleep(50 * time.Millisecond)
-	if r.Starts() != 1 || r.Stops() != 0 || !e.sup.Running("rr") {
-		t.Fatalf("r starts %d stops %d running %v", r.Starts(), r.Stops(), e.sup.Running("rr"))
-	}
 }
 
 func TestSecondInstanceOfOneTypeIsRejected(t *testing.T) {
@@ -768,50 +758,30 @@ func TestPublishNamespacesDropsUndeclaredWrongTypeAndAfterStop(t *testing.T) {
 	}
 }
 
-func TestPublishUsesLegacyNameWhenSet(t *testing.T) {
+// A plugin's topics are listed in PluginInfo.Topics and removed when it is disabled under their
+// namespaced names.
+func TestTopicsAreNamespacedListedAndRemoved(t *testing.T) {
 	var h plugin.Host
 	f := plugintest.New("hw", func(f *plugintest.Fake) {
-		f.M.Topics = []plugin.TopicSpec{{Name: "rows", Legacy: "old", Type: item{}}, {Name: "disks"}}
+		f.M.Topics = []plugin.TopicSpec{{Name: "rows", Type: item{}}, {Name: "disks"}}
 	})
 	f.StartFn = func(_ context.Context, host plugin.Host, _ any) error { h = host; return nil }
 	e := start(t, f.Factory())
 	h.Publish("rows", item{1}, nil)
 	h.Publish("disks", item{1}, nil)
-	if _, ok := e.hub.Last("old"); !ok {
-		t.Fatal("nothing published as the legacy name")
-	}
-	if _, ok := e.hub.Last("hw.rows"); ok {
-		t.Fatal("published under the namespaced name too")
+	if _, ok := e.hub.Last("hw.rows"); !ok {
+		t.Fatal("nothing published as hw.rows")
 	}
 	if _, ok := e.hub.Last("hw.disks"); !ok {
-		t.Fatal("a topic without a legacy name is namespaced")
+		t.Fatal("hw.disks is not published")
 	}
-	if got := e.info(t, "hw").Topics; !slices.Equal(got, []string{"old", "hw.disks"}) {
+	if got := e.info(t, "hw").Topics; !slices.Equal(got, []string{"hw.rows", "hw.disks"}) {
 		t.Fatalf("Topics = %v", got)
 	}
 	e.set.Set(plugin.InstanceConfig{Name: "hw", Enabled: new(false)})
 	e.reloadUntil(t, "removal", func() bool { return len(e.hub.Removed()) == 2 })
-	if got := e.hub.Removed(); !slices.Equal(got, []model.Topic{"old", "hw.disks"}) {
+	if got := e.hub.Removed(); !slices.Equal(got, []model.Topic{"hw.rows", "hw.disks"}) {
 		t.Fatalf("removed = %v", got)
-	}
-}
-
-func TestLegacyNamesAreValidatedAndUnique(t *testing.T) {
-	with := func(id plugin.ID, topics ...plugin.TopicSpec) plugin.Factory {
-		return plugintest.New(id, func(f *plugintest.Fake) { f.M.Topics = topics }).Factory()
-	}
-	for name, fs := range map[string][]plugin.Factory{
-		"invalid legacy":            {with("aa", plugin.TopicSpec{Name: "xx", Legacy: "Bad"})},
-		"legacy with a dot":         {with("aa", plugin.TopicSpec{Name: "xx", Legacy: "a.b"})},
-		"duplicate within a plugin": {with("aa", plugin.TopicSpec{Name: "xx", Legacy: "v"}, plugin.TopicSpec{Name: "y", Legacy: "v"})},
-		"duplicate across plugins":  {with("aa", plugin.TopicSpec{Name: "xx", Legacy: "v"}), with("bb", plugin.TopicSpec{Name: "y", Legacy: "v"})},
-	} {
-		if err := plugin.NewSupervisor(plugin.Options{}).Add(fs...); err == nil {
-			t.Errorf("%s accepted", name)
-		}
-	}
-	if err := plugin.NewSupervisor(plugin.Options{}).Add(with("aa", plugin.TopicSpec{Name: "xx", Legacy: "v"}), with("bb", plugin.TopicSpec{Name: "v"})); err != nil {
-		t.Errorf("a legacy name equal to another plugin's local name is fine: %v", err)
 	}
 }
 
@@ -962,9 +932,9 @@ func TestInfosOrderAndFields(t *testing.T) {
 
 func TestTopicOrder(t *testing.T) {
 	a := plugintest.New("aa", plugintest.Topics("one", "two"))
-	b := plugintest.New("bb", func(f *plugintest.Fake) { f.M.Topics = []plugin.TopicSpec{{Name: "rows", Legacy: "old"}} })
+	b := plugintest.New("bb", func(f *plugintest.Fake) { f.M.Topics = []plugin.TopicSpec{{Name: "rows"}} })
 	e := newEnv(t, nil, a.Factory(), b.Factory())
-	want := []model.Topic{model.TopicPlugins, model.TopicOverview, "aa.one", "aa.two", "old"}
+	want := []model.Topic{model.TopicPlugins, model.TopicOverview, "aa.one", "aa.two", "bb.rows"}
 	if got := e.sup.TopicOrder(); !slices.Equal(got, want) {
 		t.Fatalf("order = %v, want %v", got, want)
 	}
@@ -1271,15 +1241,11 @@ func TestHostHTTPClientWarnsOnInsecureSkipVerify(t *testing.T) {
 	}
 }
 
-// genericPlugin is plugin id with the topics "items" and "other" and the given UI. Only aa gives
-// "items" a legacy name ("rows"): those are unique across plugins.
+// genericPlugin is plugin id with the topics "items" and "other" and the given UI.
 func genericPlugin(id plugin.ID, ui plugin.UISpec) plugin.Factory {
 	return plugintest.New(id, func(f *plugintest.Fake) {
 		f.M.Name = "Generic " + string(id)
 		f.M.Topics = []plugin.TopicSpec{{Name: "items"}, {Name: "other"}}
-		if id == "aa" {
-			f.M.Topics[0].Legacy = "rows"
-		}
 		f.M.UI = ui
 	}).Factory()
 }
@@ -1341,12 +1307,12 @@ func TestInfosResolveGenericTopics(t *testing.T) {
 	)
 
 	aa := e.info(t, "aa")
-	// The manifest names the topic "items"; the row carries the name it is published under (the
-	// legacy one when set) so the SPA can read the envelope with no lookup.
-	if len(aa.Generic) != 2 || aa.Generic[0].Topic != "rows" || aa.Generic[1].Topic != "aa.other" {
-		t.Fatalf("generic topics = %+v, want rows and aa.other", aa.Generic)
+	// The manifest names the topic "items"; the row carries the name it is published under so the
+	// SPA can read the envelope with no lookup.
+	if len(aa.Generic) != 2 || aa.Generic[0].Topic != "aa.items" || aa.Generic[1].Topic != "aa.other" {
+		t.Fatalf("generic topics = %+v, want aa.items and aa.other", aa.Generic)
 	}
-	if !slices.Equal(aa.Topics, []string{"rows", "aa.other"}) {
+	if !slices.Equal(aa.Topics, []string{"aa.items", "aa.other"}) {
 		t.Fatalf("topics = %v", aa.Topics)
 	}
 	if g := aa.Generic[0]; g.ID != "items" || g.Kind != model.GenericTable || g.Path != "/rows" || !slices.Equal(g.Columns, cols) {

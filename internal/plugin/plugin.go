@@ -92,12 +92,6 @@ type TopicSpec struct {
 	Name string // "vms" is published as SSE event "proxmox.vms"; [a-z][a-z0-9_]{0,31}
 	Doc  string
 	Type any // zero value of the payload; Host.Publish rejects another type (pointers are dereferenced)
-	// Legacy is the pre-namespace SSE name ("vms", "host", "cluster", …). Only the legacy shims
-	// set it: design A.7 renames each topic in the PR that migrates its plugin, in Go and web
-	// together, with no alias topics, so until then the topic is published, listed in
-	// PluginInfo.Topics and removed under this name, not "<instance>.<Name>". The G3 leaf that
-	// migrates the plugin deletes the field and renames the topic. Unique, [a-z][a-z0-9_]{0,31}.
-	Legacy string
 }
 
 // ActionSpec declares one action. Destructive, Idempotent and Input also define the MCP tool
@@ -189,10 +183,6 @@ type ConfigHinter interface{ ConfigHint() string }
 
 // Provider exports what Host.Service(id) returns to a plugin that declares it in Requires or Uses.
 type Provider interface{ Service() any }
-
-// RestartOnly marks an instance that cannot be stopped and started in-process (the legacy
-// shims): the supervisor never reconfigures it, and a change of its section needs a restart.
-type RestartOnly interface{ RestartOnly() }
 
 // Actor runs the plugin's actions.
 type Actor interface {
@@ -297,7 +287,7 @@ type (
 
 // Host is what the core gives a running instance.
 type Host interface {
-	// Publish publishes the declared topic under "<instance>.<topic>" (or its Legacy name). An
+	// Publish publishes the declared topic under "<instance>.<topic>". An
 	// undeclared topic, a payload of the wrong type, or a call after Stop is logged and dropped.
 	Publish(topic string, data any, sources []model.SourceStatus)
 	// Logger is slog.Default().With("plugin", instance): already behind the redacting handler.
@@ -357,7 +347,7 @@ type Publisher interface {
 }
 
 // HostProvider hands out the Host of an instance to code that publishes on behalf of plugins
-// it hosts: topics.Manager and demo.Source until G3.
+// it hosts (demo.Source until P3.13), and the core's Host to topics.Manager.
 type HostProvider interface {
 	// HostFor never returns nil. For an instance that is not running (or unknown) every call is
 	// a no-op; HostFor(plugin.Core) is always live (core.* topics).

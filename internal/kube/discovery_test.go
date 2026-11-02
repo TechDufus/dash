@@ -154,7 +154,7 @@ func TestMissingOptionalCRDDoesNotBlockSync(t *testing.T) {
 	})
 	r.disc.set(nil, served(GVRCertificates)...) // the cluster serves no Flux
 	ctx := r.start(t)
-	if err := r.c.Discover(map[schema.GroupVersionResource]Kind{GVRKustomizations: KindFlux, GVRCertificates: KindCertificates}); err != nil {
+	if err := r.c.Discover(map[schema.GroupVersionResource]Kind{GVRKustomizations: KindOther, GVRCertificates: KindCertificates}); err != nil {
 		t.Fatalf("Discover: %v", err)
 	}
 	syncCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
@@ -244,23 +244,23 @@ func TestAddDynamicAfterStartFiresOnChange(t *testing.T) {
 }
 
 func TestWatchUsesTheKindOfAKnownResource(t *testing.T) {
-	r := newRig(t, []schema.GroupVersionResource{GVRKustomizations}, object(GVRKustomizations, "Kustomization", "flux-system", "apps"))
+	r := newRig(t, []schema.GroupVersionResource{GVRCertificates}, object(GVRCertificates, "Certificate", "app", "web-tls"))
 	var got atomic.Value
 	r.c.OnChange(func(k Kind) {
 		if k != KindCRDs {
 			got.Store(k)
 		}
 	})
-	r.disc.set(nil, served(GVRKustomizations)...)
+	r.disc.set(nil, served(GVRCertificates)...)
 	r.start(t)
-	r.c.Watch(GVRKustomizations)
-	r.c.Watch(GVRKustomizations) // idempotent
+	r.c.Watch(GVRCertificates)
+	r.c.Watch(GVRCertificates) // idempotent
 	if err := r.c.Discover(nil); err != nil {
 		t.Fatal(err)
 	}
-	waitFor(t, "the first list", func() bool { return r.c.Listed(GVRKustomizations) && got.Load() != nil })
-	if got.Load() != KindFlux {
-		t.Errorf("kind = %v, want flux", got.Load())
+	waitFor(t, "the first list", func() bool { return r.c.Listed(GVRCertificates) && got.Load() != nil })
+	if got.Load() != KindCertificates {
+		t.Errorf("kind = %v, want certificates", got.Load())
 	}
 	if len(r.c.dynamics) != 1 {
 		t.Errorf("Watch twice registered %d resources", len(r.c.dynamics))

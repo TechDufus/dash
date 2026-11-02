@@ -32,10 +32,6 @@ type Route struct {
 	// TopicEnvelope marks the topic snapshot: its response is the envelope of whichever topic
 	// was asked for, a oneOf of the per-topic envelopes in the document.
 	TopicEnvelope bool
-	// Legacy marks an unversioned integration route the SPA still calls. It is registered and
-	// gets the same middleware, error envelope and request ids, but it is not part of the
-	// contract: it stays out of the OpenAPI document and disappears when its plugin migrates.
-	Legacy bool
 	// Plugin marks a route every plugin instance shares. The document lists it once per
 	// registered manifest (their actions and routes), not under this generic path.
 	Plugin bool
@@ -53,7 +49,7 @@ func (r Route) pattern() string {
 }
 
 // routeTable lists every route the server registers: the /api/v1 contract, the generic plugin
-// routes, the legacy integration routes, and the two catch-alls.
+// routes, and the two catch-alls.
 func (s *Server) routeTable() []Route {
 	viewer := auth.RoleViewer
 	return []Route{
@@ -106,10 +102,6 @@ func (s *Server) routeTable() []Route {
 			Method: "POST", Path: "/api/v1/plugins/{id}/actions/{name}", Plugin: true, Handler: s.runAction,
 			Summary: "Run an action of a running plugin", Tag: "Plugins", Role: auth.RoleAdmin,
 		},
-
-		// The unversioned integration routes the SPA still calls. Each disappears with the
-		// plugin that takes it over (design A.7); routes_test.go pins the list.
-		{Method: "POST", Path: "/api/actions/reconcile", Legacy: true, Handler: s.reconcile},
 
 		{Path: "/api/", Infra: true, Handler: func(w http.ResponseWriter, _ *http.Request) {
 			writeErr(w, http.StatusNotFound, model.ErrCodeNotFound, "not found")

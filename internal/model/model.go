@@ -52,12 +52,13 @@ const (
 	// TopicCluster, TopicStorage and TopicApps are the kubernetes plugin's topics (ClusterData,
 	// StorageData, AppsData).
 	TopicCluster Topic = "kubernetes.cluster"
-	TopicFlux    Topic = "flux"
 	TopicStorage Topic = "kubernetes.storage"
+	TopicApps    Topic = "kubernetes.apps"
+	// TopicFlux is the Flux objects (FluxData), published by the flux plugin.
+	TopicFlux Topic = "flux.objects"
 	// TopicAlerts is the alerts and silences (AlertsData), published by the alertmanager plugin.
 	TopicAlerts Topic = "alertmanager.alerts"
 	TopicStatus Topic = "gatus.status"
-	TopicApps   Topic = "kubernetes.apps"
 	// TopicLauncherLinks is the launcher's infrastructure links (LauncherData), published by the
 	// launcher plugin.
 	TopicLauncherLinks Topic = "launcher.links"
@@ -108,13 +109,6 @@ type AttentionItem struct {
 	// Ref is the plugin:Kind/id reference of the object the item points at (design L.6); empty
 	// for items of code that has not migrated to plugins yet.
 	Ref string `json:"ref,omitempty"`
-}
-
-type Kpis struct {
-	FluxReady      int  `json:"fluxReady"`
-	FluxTotal      int  `json:"fluxTotal"`
-	FluxSuspended  int  `json:"fluxSuspended"`
-	SourceVerified bool `json:"sourceVerified"`
 }
 
 type TopologyHost struct {
@@ -170,9 +164,7 @@ type Topology struct {
 type OverviewData struct {
 	Status    Health          `json:"status"`
 	Attention []AttentionItem `json:"attention"`
-	// Kpis is the fixed row of headline numbers the integrations that still run in the topic
-	// manager fill; KPIList is what plugins contribute, sorted by plugin and key.
-	Kpis     Kpis     `json:"kpis"`
+	// KPIList is what plugins contribute, sorted by plugin and key.
 	KPIList  []KPI    `json:"kpiList"`
 	Topology Topology `json:"topology"`
 }
@@ -779,7 +771,7 @@ type RestartRequest struct {
 	Confirm string `json:"confirm"`
 }
 
-// ReconcileRequest is the body of POST /api/actions/reconcile.
+// ReconcileRequest is the input of the flux plugin's reconcile action.
 type ReconcileRequest struct {
 	// Kind is any FluxKind; anything else is 400.
 	Kind      FluxKind `json:"kind"`

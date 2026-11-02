@@ -45,12 +45,6 @@ func (s *Server) auditRecord(r *http.Request, action string, t audit.Target) aud
 	}
 }
 
-// begin records the intent of an action before it touches an upstream. Without a durable
-// record the action must not run, so a failure answers 503 and reports false.
-func (s *Server) begin(w http.ResponseWriter, r *http.Request, action string, t audit.Target) (audit.Pending, bool) {
-	return s.beginRecord(w, s.auditRecord(r, action, t))
-}
-
 func (s *Server) beginRecord(w http.ResponseWriter, rec audit.Record) (audit.Pending, bool) {
 	p, err := s.d.Audit.Intent(rec)
 	if err != nil {

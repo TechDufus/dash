@@ -12,15 +12,7 @@ import (
 	"strings"
 	"testing"
 
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/apimachinery/pkg/runtime/schema"
-	dynfake "k8s.io/client-go/dynamic/fake"
-	k8stesting "k8s.io/client-go/testing"
-
 	"github.com/TechDufus/dash/internal/auth"
-	"github.com/TechDufus/dash/internal/model"
 	"github.com/TechDufus/dash/internal/plugin"
 	"github.com/TechDufus/dash/internal/secret"
 	"github.com/TechDufus/dash/internal/upstream"
@@ -134,66 +126,10 @@ func bodyWithoutRequestID(w *httptest.ResponseRecorder) string {
 	return strings.ReplaceAll(w.Body.String(), id, "")
 }
 
-// Kubernetes 403/404/409/422 stay verbatim (an admission denial must reach the user); other
-// Kubernetes failures are a category.
-func TestKubeErrorsKeepPolicyMessagesAndCategoriseTheRest(t *testing.T) {
-	s := newServer(func(d *Deps) { d.Secrets = canaryRegistry() })
-	gr := schema.GroupResource{Resource: "deployments"}
-
-	w := httptest.NewRecorder()
-	s.writeKubeErr(w, apierrors.NewForbidden(gr, "plex", errors.New("guardrail: protected namespace")))
-	if w.Code != 403 || !strings.Contains(decodeErr(t, w), "guardrail: protected namespace") {
-		t.Errorf("forbidden: %d %s", w.Code, w.Body)
-	}
-
-	w = httptest.NewRecorder()
-	s.writeKubeErr(w, apierrors.NewInternalError(fmt.Errorf("etcd at https://192.0.2.9:2379 timed out, token %s", canary)))
-	if w.Code != 502 || decodeErr(t, w) != "kubernetes: http_500" {
-		t.Errorf("internal error: %d %s", w.Code, w.Body)
-	}
-
-	w = httptest.NewRecorder()
-	s.writeKubeErr(w, fmt.Errorf("dial tcp 192.0.2.9:6443: connect: connection refused"))
-	if w.Code != 502 || decodeErr(t, w) != "kubernetes: unreachable" {
-		t.Errorf("unreachable: %d %s", w.Code, w.Body)
-	}
-}
-
-// The four Kubernetes codes that keep their message are the one error path that passes upstream
-// text to the browser; the scrubbing there is what stops a credential an admission webhook
-// echoes (P1.4 acceptance). Through the real reconcile action, so removing the Scrub fails it.
-func TestKubePolicyMessagesAreScrubbedOnTheWayOut(t *testing.T) {
-	const pat = "dash_pat_abcdefghij0123456789ABCDEFGHIJ0123456789abc"
-	msg := "homelab guardrail: denied; webhook echoed " + strings.Join(canaryForms(), " ") + " and " + pat
-	gvr := schema.GroupVersionResource{Group: "kustomize.toolkit.fluxcd.io", Version: "v1", Resource: "kustomizations"}
-	for _, code := range []int32{403, 404, 409, 422} {
-		t.Run(fmt.Sprint(code), func(t *testing.T) {
-			reg := canaryRegistry()
-			dyn := dynfake.NewSimpleDynamicClientWithCustomListKinds(runtime.NewScheme(), map[schema.GroupVersionResource]string{gvr: "KustomizationList"},
-				fluxObject(gvr, "Kustomization"))
-			kerr := &apierrors.StatusError{ErrStatus: metav1.Status{Status: metav1.StatusFailure, Code: code, Message: msg}}
-			dyn.PrependReactor("patch", "kustomizations", func(k8stesting.Action) (bool, runtime.Object, error) { return true, nil, kerr })
-			s := newServer(func(d *Deps) { withCluster(dyn)(d); d.Secrets = reg })
-			w := req{method: "POST", path: "/api/actions/reconcile", body: model.ReconcileRequest{Kind: "Kustomization", Namespace: "flux-system", Name: "app"}}.do(s.Handler())
-			if w.Code != int(code) {
-				t.Fatalf("code = %d, want %d (%s)", w.Code, code, w.Body)
-			}
-			if !strings.Contains(w.Body.String(), "homelab guardrail: denied") {
-				t.Errorf("the policy message must still reach the user: %s", w.Body)
-			}
-			for _, leak := range append(canaryForms(), pat) {
-				if strings.Contains(w.Body.String(), leak) {
-					t.Errorf("response carries %q: %s", leak, w.Body)
-				}
-			}
-		})
-	}
-}
-
 // The refusal a plugin action makes is its own text and may carry what an upstream echoed (a
-// Kubernetes admission webhook behind the Flux reconcile will, from the flux plugin on), so the
-// core scrubs it on the way out whatever the status: the home of the check above once the legacy
-// route is gone.
+// Kubernetes admission webhook behind the flux plugin's reconcile will), so the core scrubs it on
+// the way out whatever the status. The flux plugin's own mapping of API errors is tested in the
+// plugin (TestReconcileAPIErrorsAreMappedAndScrubbed).
 func TestPluginActionRefusalsAreScrubbedOnTheWayOut(t *testing.T) {
 	const pat = "dash_pat_abcdefghij0123456789ABCDEFGHIJ0123456789abc"
 	msg := "homelab guardrail: denied; webhook echoed " + strings.Join(canaryForms(), " ") + " and " + pat

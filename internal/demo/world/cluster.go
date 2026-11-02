@@ -27,7 +27,7 @@ var namespaces = []nsSpec{
 		{"coredns", "registry.k8s.io/coredns/coredns:v1.12.3", model.WorkloadKindDeployment, 2},
 		{"cilium", "quay.io/cilium/cilium:v1.18.2", model.WorkloadKindDaemonSet, 3},
 	}},
-	{"flux-system", model.GroupPlatform, true, "", []appSpec{
+	{FluxNamespace, model.GroupPlatform, true, "", []appSpec{
 		{"source-controller", "ghcr.io/fluxcd/source-controller:v1.7.1", model.WorkloadKindDeployment, 1},
 		{"kustomize-controller", "ghcr.io/fluxcd/kustomize-controller:v1.7.0", model.WorkloadKindDeployment, 1},
 		{"helm-controller", "ghcr.io/fluxcd/helm-controller:v1.4.1", model.WorkloadKindDeployment, 1},

@@ -78,14 +78,13 @@ func startK8sProcess(t *testing.T, cfgBody string, env ...string) *k8sProcess {
 	if p.cfg.Demo {
 		src := demo.New(p.cfg)
 		src.HasReal = hasRealPlugin
-		if err := p.fw.start(ctx, registry(src.Plugins(p.fw.sup), p.refs), func() { src.Run(ctx) }); err != nil {
+		src.Attach(p.fw.sup)
+		if err := p.fw.start(ctx, registry(p.refs), func() { src.Run(ctx) }); err != nil {
 			t.Fatal(err)
 		}
 	} else {
-		mgr := topics.New(topics.Deps{
-			Cfg: p.cfg, Cluster: kubernetesCluster(p.fw.sup), Hosts: p.fw.sup, LinkProviders: p.fw.sup.Links,
-		})
-		if err := p.fw.start(ctx, registry(mgr.Plugins(), p.refs), func() { mgr.Run(ctx) }); err != nil {
+		mgr := topics.New(topics.Deps{Hosts: p.fw.sup, Contributors: p.fw.sup.Contributors})
+		if err := p.fw.start(ctx, registry(p.refs), func() { mgr.Run(ctx) }); err != nil {
 			t.Fatal(err)
 		}
 	}

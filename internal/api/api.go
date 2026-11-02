@@ -20,7 +20,6 @@ import (
 	"github.com/TechDufus/dash/internal/obs"
 	"github.com/TechDufus/dash/internal/plugin"
 	"github.com/TechDufus/dash/internal/secret"
-	"github.com/TechDufus/dash/internal/svc"
 	"github.com/TechDufus/dash/internal/upstream"
 	"github.com/TechDufus/dash/web"
 )
@@ -45,10 +44,6 @@ type Deps struct {
 	Cfg     config.Config
 	Version string
 	Hub     *hub.Hub
-	// Cluster is the kubernetes plugin's svc.Cluster while the plugin runs, else false: the Flux
-	// reconcile route patches through it and answers 503 upstream_unavailable without it. nil
-	// means no cluster.
-	Cluster func() (svc.Cluster, bool)
 	Plugins PluginsAPI   // nil = no plugins
 	Health  HealthSource // readiness; see health.go
 	Metrics *obs.Metrics // nil = metrics off; every method is nil-safe
@@ -115,18 +110,9 @@ func writeErr(w http.ResponseWriter, status int, code, msg string) {
 // maxBody caps JSON request bodies.
 const maxBody = 64 << 10
 
-// decodeBody reads a JSON body into v; it answers 400 itself and reports false on failure.
-func (s *Server) decodeBody(w http.ResponseWriter, r *http.Request, v any) bool {
-	return s.decode(w, r, v, false)
-}
-
-// decodeStrict is decodeBody for a body with a declared shape: a field v does not have is an
-// error (the action framework's input structs).
-func (s *Server) decodeStrict(w http.ResponseWriter, r *http.Request, v any) bool {
-	return s.decode(w, r, v, true)
-}
-
-// decode is decodeBody and decodeStrict.
+// decodeStrict reads a JSON body with a declared shape into v: a field v does not have is an
+// error (the action framework's input structs). It answers 400 itself and reports false on
+// failure.
 //
 // The read deadline bounds the whole body. On failure it is left set, so net/http's drain of
 // the unread remainder fails at once and closes the connection instead of waiting for a
@@ -135,14 +121,12 @@ func (s *Server) decodeStrict(w http.ResponseWriter, r *http.Request, v any) boo
 // starts the background read after the body is drained; the explicit clear keeps a deadline
 // from outliving the body (and, once it fired, cancelling the request context of a handler
 // that outlasts the timeout) independent of the Go version.
-func (s *Server) decode(w http.ResponseWriter, r *http.Request, v any, strict bool) bool {
+func (s *Server) decodeStrict(w http.ResponseWriter, r *http.Request, v any) bool {
 	rc := http.NewResponseController(w)
 	armed := rc.SetReadDeadline(time.Now().Add(s.bodyTimeout)) == nil
 	body := http.MaxBytesReader(w, r.Body, maxBody)
 	dec := json.NewDecoder(body)
-	if strict {
-		dec.DisallowUnknownFields()
-	}
+	dec.DisallowUnknownFields()
 	if err := dec.Decode(v); err != nil {
 		writeErr(w, http.StatusBadRequest, model.ErrCodeInvalidInput, "invalid request body")
 		return false

@@ -94,14 +94,17 @@ export const TopicHardwareMachines = "hardware.machines";
  * StorageData, AppsData).
  */
 export const TopicCluster = "kubernetes.cluster";
-export const TopicFlux = "flux";
 export const TopicStorage = "kubernetes.storage";
+export const TopicApps = "kubernetes.apps";
+/**
+ * TopicFlux is the Flux objects (FluxData), published by the flux plugin.
+ */
+export const TopicFlux = "flux.objects";
 /**
  * TopicAlerts is the alerts and silences (AlertsData), published by the alertmanager plugin.
  */
 export const TopicAlerts = "alertmanager.alerts";
 export const TopicStatus = "gatus.status";
-export const TopicApps = "kubernetes.apps";
 /**
  * TopicLauncherLinks is the launcher's infrastructure links (LauncherData), published by the
  * launcher plugin.
@@ -112,7 +115,7 @@ export const TopicLauncherLinks = "launcher.links";
  * plugin supervisor. The core.* names belong to dash itself, not to a plugin.
  */
 export const TopicPlugins = "core.plugins";
-export type Topic = typeof TopicOverview | typeof TopicHost | typeof TopicVMs | typeof TopicProxmoxNode | typeof TopicProxmoxStorage | typeof TopicHardwareMachines | typeof TopicCluster | typeof TopicFlux | typeof TopicStorage | typeof TopicAlerts | typeof TopicStatus | typeof TopicApps | typeof TopicLauncherLinks | typeof TopicPlugins;
+export type Topic = typeof TopicOverview | typeof TopicHost | typeof TopicVMs | typeof TopicProxmoxNode | typeof TopicProxmoxStorage | typeof TopicHardwareMachines | typeof TopicCluster | typeof TopicStorage | typeof TopicApps | typeof TopicFlux | typeof TopicAlerts | typeof TopicStatus | typeof TopicLauncherLinks | typeof TopicPlugins;
 export interface Link {
   label: string;
   href: string;
@@ -160,12 +163,6 @@ export interface AttentionItem {
    * for items of code that has not migrated to plugins yet.
    */
   ref?: string;
-}
-export interface Kpis {
-  fluxReady: number /* int */;
-  fluxTotal: number /* int */;
-  fluxSuspended: number /* int */;
-  sourceVerified: boolean;
 }
 export interface TopologyHost {
   name: string;
@@ -218,10 +215,8 @@ export interface OverviewData {
   status: Health;
   attention: AttentionItem[];
   /**
-   * Kpis is the fixed row of headline numbers the integrations that still run in the topic
-   * manager fill; KPIList is what plugins contribute, sorted by plugin and key.
+   * KPIList is what plugins contribute, sorted by plugin and key.
    */
-  kpis: Kpis;
   kpiList: KPI[];
   topology: Topology;
 }
@@ -856,7 +851,7 @@ export interface RestartRequest {
   confirm: string;
 }
 /**
- * ReconcileRequest is the body of POST /api/actions/reconcile.
+ * ReconcileRequest is the input of the flux plugin's reconcile action.
  */
 export interface ReconcileRequest {
   /**
@@ -974,7 +969,7 @@ export interface PluginInfo {
   version: string;
   state: PluginState;
   message: string;
-  topics: string[]; // full SSE names: "proxmox.vms", or the un-namespaced legacy name ("vms") until the plugin's G3 leaf
+  topics: string[]; // full SSE names: "proxmox.vms"
   actions: ActionInfo[]; // only the ones mounted (actions.enabled)
   nav: NavItem[];
   generic: GenericView[]; // views the SPA renders for this plugin; empty when it has a module of its own

@@ -7,7 +7,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/TechDufus/dash/internal/config"
 	"github.com/TechDufus/dash/internal/model"
 	"github.com/TechDufus/dash/internal/plugin"
 	"github.com/TechDufus/dash/internal/pluginconf"
@@ -83,7 +82,7 @@ func hasSource(srcs []model.SourceStatus, name string) (model.SourceStatus, bool
 // providers resolve for Kind "Alerts": the Grafana alert list while grafana runs, none after.
 func TestAlertmanagerAttentionReachesTheOverviewWithRefAndLinks(t *testing.T) {
 	am := fakeAlertmanager(t)
-	r := newLinkRig(t, config.Defaults(), grafanaOn("https://gf.example.com"), headlampOn("https://hl.example.com"), alertmanagerOn(am.URL))
+	r := newLinkRig(t, grafanaOn("https://gf.example.com"), headlampOn("https://hl.example.com"), alertmanagerOn(am.URL))
 
 	var got model.AttentionItem
 	eventually(t, "the alert on the overview", func() bool {
@@ -161,7 +160,7 @@ func TestAlertmanagerDownStillListsItsOverviewSource(t *testing.T) {
 	am := fakeAlertmanager(t)
 	url := am.URL
 	am.Close()
-	r := newLinkRig(t, config.Defaults(), alertmanagerOn(url))
+	r := newLinkRig(t, alertmanagerOn(url))
 	eventually(t, "the failing alertmanager on the overview sources", func() bool {
 		_, srcs, ok := r.overview(t)
 		s, has := hasSource(srcs, "alertmanager")
@@ -177,14 +176,13 @@ func TestAlertmanagerDownStillListsItsOverviewSource(t *testing.T) {
 	r.set.Set(alertmanagerOff(url))
 	r.sup.Reload()
 	eventually(t, "the chip to go with the plugin", func() bool {
-		r.m.mark(model.TopicFlux) // with nothing contributing, the overview waits for a topic to change
 		_, srcs, ok := r.overview(t)
 		_, has := hasSource(srcs, "alertmanager")
 		return ok && !has
 	})
 
 	// No URL: the row is disabled from the start and has no chip either.
-	r2 := newLinkRig(t, config.Defaults())
+	r2 := newLinkRig(t)
 	eventually(t, "an overview", func() bool { _, _, ok := r2.overview(t); return ok })
 	if _, srcs, _ := r2.overview(t); len(srcs) > 0 {
 		if _, has := hasSource(srcs, "alertmanager"); has {

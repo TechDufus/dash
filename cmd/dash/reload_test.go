@@ -104,7 +104,7 @@ func TestReloadedSecretReachesTheProxmoxPluginWhileReadinessHolds(t *testing.T) 
 	pve := newFakePVE(t)
 	dir := t.TempDir()
 	cfgPath, tokenPath := filepath.Join(dir, "config.yaml"), filepath.Join(dir, "token")
-	writeTestFile(t, cfgPath, "plugins:\n  flux:\n    suspendReasonAnnotation: example.com/a\n")
+	writeTestFile(t, cfgPath, "server:\n  limits:\n    streams: 100\n")
 	writeTestFile(t, tokenPath, "token-one-0123456789\n")
 	startEnv(t, dir,
 		"DASH_CONFIG="+cfgPath, "DASH_PLUGINS_PROXMOX_URL="+pve.URL, `DASH_SERVER_READY_REQUIRES=["kubernetes"]`,
@@ -127,11 +127,9 @@ func TestReloadedSecretReachesTheProxmoxPluginWhileReadinessHolds(t *testing.T) 
 	cfg := res.Config
 	fw := newFramework(res, store, config.ReloadOptions{Interval: time.Millisecond}, nil, nil, nil, false)
 	sup, reloader := fw.sup, fw.reloader
-	mgr := topics.New(topics.Deps{
-		Cfg: cfg, Cluster: kubernetesCluster(sup), Hosts: sup, LinkProviders: sup.Links,
-	})
+	mgr := topics.New(topics.Deps{Hosts: sup, Contributors: sup.Contributors})
 	ctx, cancel := context.WithCancel(context.Background())
-	if err := fw.start(ctx, registry(mgr.Plugins(), nil), func() { mgr.Run(ctx) }); err != nil {
+	if err := fw.start(ctx, registry(nil), func() { mgr.Run(ctx) }); err != nil {
 		t.Fatal(err)
 	}
 	defer sup.Shutdown(context.Background())
@@ -171,7 +169,7 @@ func TestReloadedSecretReachesTheProxmoxPluginWhileReadinessHolds(t *testing.T) 
 	// An invalid config file, then a rotated secret: while the file stays invalid, the rotation
 	// is refused with it. The token is rotated only once the reloader has seen the invalid
 	// file; a tick that read the old file before both writes could otherwise apply the rotation.
-	writeTestFile(t, cfgPath, "plugins:\n  flux:\n    suspendReasonAnnotationn: example.com/b\n")
+	writeTestFile(t, cfgPath, "server:\n  limits:\n    streamss: 200\n")
 	waitFor(t, func() bool { return strings.Contains(logs.String(), "configuration reload failed") })
 	writeTestFile(t, tokenPath, "token-two-9876543210\n")
 	time.Sleep(20 * time.Millisecond) // many ticks at 1 ms
@@ -180,7 +178,7 @@ func TestReloadedSecretReachesTheProxmoxPluginWhileReadinessHolds(t *testing.T) 
 	}
 
 	// Fixed: the rotation applies live to the plugin's client.
-	writeTestFile(t, cfgPath, "plugins:\n  flux:\n    suspendReasonAnnotation: example.com/b\n")
+	writeTestFile(t, cfgPath, "server:\n  limits:\n    streams: 200\n")
 	seen := map[string]bool{}
 	for len(seen) < 2 {
 		select {
@@ -190,14 +188,14 @@ func TestReloadedSecretReachesTheProxmoxPluginWhileReadinessHolds(t *testing.T) 
 			t.Fatalf("change events so far: %v\n%s", seen, logs.String())
 		}
 	}
-	if !seen["plugins.proxmox"] || !seen["plugins.flux"] {
+	if !seen["plugins.proxmox"] || !seen["server"] {
 		t.Errorf("sections = %v", seen)
 	}
 	if got := lastAuth(); !strings.HasSuffix(got, "=token-two-9876543210") || ready() != 200 {
 		t.Errorf("after the reload: %q, ready %d", got, ready())
 	}
-	// Only the Manager's flux section needs a restart: the proxmox plugin applied its change.
-	if r := reloader.RestartRequired(); len(r) != 1 || r[0] != "plugins.flux.suspendReasonAnnotation" {
+	// Only the startup setting needs a restart: the proxmox plugin applied its change.
+	if r := reloader.RestartRequired(); len(r) != 1 || r[0] != "server.limits.streams" {
 		t.Errorf("restart required = %v", r)
 	}
 	for _, s := range []string{"token-one-0123456789", "token-two-9876543210"} {

@@ -12,7 +12,7 @@ import type { ModulePanels, SlotProps } from "./types";
 const mocked = vi.hoisted(() => ({ PANELS: {} as Record<string, ModulePanels> }));
 vi.mock("./panels", () => ({ PANELS: mocked.PANELS }));
 
-const data = { kpis: {}, attention: [], kpiList: [] } as unknown as OverviewData;
+const data = { attention: [], kpiList: [] } as unknown as OverviewData;
 
 function label(text: string) {
   // biome-ignore lint/correctness/noComponentHookFactories: each contribution needs its own component; the factory runs per test, never during a render

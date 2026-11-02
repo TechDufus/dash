@@ -3,7 +3,6 @@ package topics
 import (
 	"testing"
 
-	"github.com/TechDufus/dash/internal/config"
 	"github.com/TechDufus/dash/internal/hub"
 	"github.com/TechDufus/dash/internal/model"
 	"github.com/TechDufus/dash/internal/plugin"
@@ -48,13 +47,13 @@ func sourceNamed(srcs []model.SourceStatus, name string) (model.SourceStatus, bo
 	return model.SourceStatus{}, false
 }
 
-// A contributor's source health reaches core.overview.sources, merged with the Manager's own, so a
-// dead upstream of a migrated plugin still shows on the Overview panels.
+// A contributor's source health reaches core.overview.sources, so a dead upstream of a plugin still
+// shows on the Overview panels; a plugin that contributes no source adds no chip.
 func TestOverviewCarriesContributorSources(t *testing.T) {
 	h := hub.New()
 	src := &source{items: []model.AttentionItem{{ID: "fake:1", Severity: model.SeverityWarn}}}
 	failing := true
-	m := testManagerWith(config.Defaults(), plugintest.AllRunning(h, LegacyManifests()...), func() []plugin.Contributor {
+	m := testManagerWith(plugintest.AllRunning(h), func() []plugin.Contributor {
 		return []plugin.Contributor{{ID: "fake", Attention: src, Sources: func() []model.SourceStatus {
 			if failing {
 				return []model.SourceStatus{{Name: "fakeupstream", Error: "unreachable"}}
@@ -70,8 +69,8 @@ func TestOverviewCarriesContributorSources(t *testing.T) {
 	if s, found := sourceNamed(env.Sources, "fakeupstream"); !found || s.OK || s.Error != "unreachable" {
 		t.Fatalf("sources = %+v", env.Sources)
 	}
-	if _, found := sourceNamed(env.Sources, "kubernetes"); !found {
-		t.Errorf("the Manager's own sources are kept: %+v", env.Sources)
+	if len(env.Sources) != 1 {
+		t.Errorf("only what the plugins report is on the overview, no chip of the Manager's own: %+v", env.Sources)
 	}
 
 	failing = false

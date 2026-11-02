@@ -4,21 +4,7 @@ import (
 	"net/http"
 
 	"github.com/TechDufus/dash/internal/plugin"
-	"github.com/TechDufus/dash/internal/svc"
 )
-
-// kubernetesCluster is the kubernetes plugin's svc.Cluster while the plugin runs, else false. It
-// reads the supervisor per call: the plugin restarts on a reload and its service changes with it.
-func kubernetesCluster(sup *plugin.Supervisor) func() (svc.Cluster, bool) {
-	return func() (svc.Cluster, bool) {
-		v, ok := sup.Service("kubernetes")
-		if !ok {
-			return nil, false
-		}
-		c, ok := v.(svc.Cluster)
-		return c, ok
-	}
-}
 
 // apiServerTransporter is what the kubernetes plugin's service offers the transport hook.
 type apiServerTransporter interface {

@@ -34,7 +34,7 @@ function deferred() {
 }
 
 const vmsRow = (state = "healthy") => pluginInfo({ id: "proxmox", topics: ["vms"], state });
-const fluxRow = (state = "healthy") => pluginInfo({ id: "flux", topics: ["flux"], state });
+const fluxRow = (state = "healthy") => pluginInfo({ id: "flux", topics: ["flux.objects"], state });
 
 beforeEach(() => {
   ES = installEventSource();
@@ -56,7 +56,12 @@ describe("stream.ts per-plugin topics", () => {
   it("attaches a listener for every topic a core.plugins event lists, hidden plugins included", () => {
     const es = connect();
     es.emit("core.plugins", pluginsEnvelope([vmsRow(), fluxRow("disabled")]));
-    expect([...es.listenedTo].sort()).toEqual(["core.overview", "core.plugins", "flux", "vms"]);
+    expect([...es.listenedTo].sort()).toEqual([
+      "core.overview",
+      "core.plugins",
+      "flux.objects",
+      "vms",
+    ]);
 
     es.emit("vms", envelope("vms", { vms: [] }));
     expect(getEnvelope("vms")?.data).toEqual({ vms: [] });
@@ -75,12 +80,12 @@ describe("stream.ts per-plugin topics", () => {
     es.emit("core.plugins", pluginsEnvelope([vmsRow(), fluxRow()]));
     es.emit("core.overview", envelope("core.overview", { n: 1 }));
     es.emit("vms", envelope("vms", { vms: [] }));
-    es.emit("flux", envelope("flux", { objects: [] }));
+    es.emit("flux.objects", envelope("flux.objects", { objects: [] }));
 
     es.emit("core.plugins", pluginsEnvelope([vmsRow("disabled"), fluxRow()]));
 
     expect(getEnvelope("vms")).toBeUndefined();
-    expect(getEnvelope("flux")).toBeDefined();
+    expect(getEnvelope("flux.objects")).toBeDefined();
     expect(getEnvelope("core.overview")).toBeDefined();
     expect(getEnvelope("core.plugins")).toBeDefined();
   });
@@ -137,16 +142,16 @@ describe("stream.ts snapshot seeding", () => {
   });
 
   it("fetches a topic once when a plugin appears in a later core.plugins event", async () => {
-    fetchStub.route(topicRoute("flux"), envelope("flux", { objects: ["a"] }));
+    fetchStub.route(topicRoute("flux.objects"), envelope("flux.objects", { objects: ["a"] }));
     const es = connect();
     es.emit("core.plugins", pluginsEnvelope([vmsRow()]));
 
     es.emit("core.plugins", pluginsEnvelope([vmsRow(), fluxRow("starting")]));
-    await vi.waitFor(() => expect(getEnvelope("flux")?.data).toEqual({ objects: ["a"] }));
+    await vi.waitFor(() => expect(getEnvelope("flux.objects")?.data).toEqual({ objects: ["a"] }));
 
     // The same row again does not fetch again, and the topic already known is not fetched at all.
     es.emit("core.plugins", pluginsEnvelope([vmsRow(), fluxRow()]));
-    expect(fetchStub.callsTo(topicRoute("flux"))).toHaveLength(1);
+    expect(fetchStub.callsTo(topicRoute("flux.objects"))).toHaveLength(1);
     expect(fetchStub.callsTo(topicRoute("vms"))).toHaveLength(0);
   });
 
@@ -168,84 +173,84 @@ describe("stream.ts snapshot seeding", () => {
   it("shows a topic event resent right after the core.plugins event that made its row visible", async () => {
     const es = connect();
     es.emit("core.plugins", pluginsEnvelope([vmsRow(), fluxRow("unconfigured")]));
-    expect(getEnvelope("flux")).toBeUndefined();
+    expect(getEnvelope("flux.objects")).toBeUndefined();
 
     // The server re-publishes a plugin's latest events after the row turns visible (a restart or
     // an enable); the topic already had a listener, so nothing seeds it and nothing needs to.
     es.emit("core.plugins", pluginsEnvelope([vmsRow(), fluxRow("starting")]));
-    es.emit("flux", envelope("flux", { objects: ["resent"] }));
+    es.emit("flux.objects", envelope("flux.objects", { objects: ["resent"] }));
     await flush();
 
-    expect(getEnvelope("flux")?.data).toEqual({ objects: ["resent"] });
-    expect(fetchStub.callsTo(topicRoute("flux"))).toHaveLength(0);
+    expect(getEnvelope("flux.objects")?.data).toEqual({ objects: ["resent"] });
+    expect(fetchStub.callsTo(topicRoute("flux.objects"))).toHaveLength(0);
   });
 
   it("keeps a topic's first publish when it arrives before the event that makes it visible", async () => {
     const es = connect();
     es.emit("core.plugins", pluginsEnvelope([vmsRow(), fluxRow("disabled")]));
-    expect(getEnvelope("flux")).toBeUndefined();
+    expect(getEnvelope("flux.objects")).toBeUndefined();
 
-    es.emit("flux", envelope("flux", { objects: ["first"] }));
+    es.emit("flux.objects", envelope("flux.objects", { objects: ["first"] }));
     es.emit("core.plugins", pluginsEnvelope([vmsRow(), fluxRow("starting")]));
     await flush();
 
-    expect(getEnvelope("flux")?.data).toEqual({ objects: ["first"] });
-    expect(fetchStub.callsTo(topicRoute("flux"))).toHaveLength(0);
+    expect(getEnvelope("flux.objects")?.data).toEqual({ objects: ["first"] });
+    expect(fetchStub.callsTo(topicRoute("flux.objects"))).toHaveLength(0);
   });
 
   it("does not overwrite what the stream delivered while the fetch was running", async () => {
     const { gate, release } = deferred();
-    fetchStub.route(topicRoute("flux"), () => gate);
+    fetchStub.route(topicRoute("flux.objects"), () => gate);
     const es = connect();
     es.emit("core.plugins", pluginsEnvelope([vmsRow()]));
     es.emit("core.plugins", pluginsEnvelope([vmsRow(), fluxRow()]));
-    es.emit("flux", envelope("flux", { objects: ["from stream"] }));
-    await vi.waitFor(() => expect(fetchStub.callsTo(topicRoute("flux"))).toHaveLength(1));
-    release(envelope("flux", { objects: ["from fetch"] }));
+    es.emit("flux.objects", envelope("flux.objects", { objects: ["from stream"] }));
+    await vi.waitFor(() => expect(fetchStub.callsTo(topicRoute("flux.objects"))).toHaveLength(1));
+    release(envelope("flux.objects", { objects: ["from fetch"] }));
     await flush();
-    expect(getEnvelope("flux")?.data).toEqual({ objects: ["from stream"] });
+    expect(getEnvelope("flux.objects")?.data).toEqual({ objects: ["from stream"] });
   });
 
   it("ignores a 404: the plugin has not published yet", async () => {
     const es = connect();
     es.emit("core.plugins", pluginsEnvelope([vmsRow()]));
     es.emit("core.plugins", pluginsEnvelope([vmsRow(), fluxRow()]));
-    await vi.waitFor(() => expect(fetchStub.callsTo(topicRoute("flux"))).toHaveLength(1));
+    await vi.waitFor(() => expect(fetchStub.callsTo(topicRoute("flux.objects"))).toHaveLength(1));
     await flush();
-    expect(getEnvelope("flux")).toBeUndefined();
-    es.emit("flux", envelope("flux", { objects: [] }));
-    expect(getEnvelope("flux")).toBeDefined();
+    expect(getEnvelope("flux.objects")).toBeUndefined();
+    es.emit("flux.objects", envelope("flux.objects", { objects: [] }));
+    expect(getEnvelope("flux.objects")).toBeDefined();
   });
 
   it("drops a fetch that finishes after the connection was replaced", async () => {
     const { gate, release } = deferred();
-    fetchStub.route(topicRoute("flux"), () => gate);
+    fetchStub.route(topicRoute("flux.objects"), () => gate);
     const es = connect();
     es.emit("core.plugins", pluginsEnvelope([vmsRow()]));
     es.emit("core.plugins", pluginsEnvelope([vmsRow(), fluxRow()]));
-    await vi.waitFor(() => expect(fetchStub.callsTo(topicRoute("flux"))).toHaveLength(1));
+    await vi.waitFor(() => expect(fetchStub.callsTo(topicRoute("flux.objects"))).toHaveLength(1));
 
     // A new connection lists flux as visible too, so only the connection check can stop the fetch.
     stopStream();
     const next = connect();
     next.emit("core.plugins", pluginsEnvelope([vmsRow(), fluxRow()]));
-    release(envelope("flux", { objects: ["stale"] }));
+    release(envelope("flux.objects", { objects: ["stale"] }));
     await flush();
-    expect(getEnvelope("flux")).toBeUndefined();
+    expect(getEnvelope("flux.objects")).toBeUndefined();
   });
 
   it("drops a fetch that finishes after its plugin turned hidden", async () => {
     const { gate, release } = deferred();
-    fetchStub.route(topicRoute("flux"), () => gate);
+    fetchStub.route(topicRoute("flux.objects"), () => gate);
     const es = connect();
     es.emit("core.plugins", pluginsEnvelope([vmsRow()]));
     es.emit("core.plugins", pluginsEnvelope([vmsRow(), fluxRow("starting")]));
-    await vi.waitFor(() => expect(fetchStub.callsTo(topicRoute("flux"))).toHaveLength(1));
+    await vi.waitFor(() => expect(fetchStub.callsTo(topicRoute("flux.objects"))).toHaveLength(1));
 
     es.emit("core.plugins", pluginsEnvelope([vmsRow(), fluxRow("disabled")]));
-    release(envelope("flux", { objects: ["hidden"] }));
+    release(envelope("flux.objects", { objects: ["hidden"] }));
     await flush();
-    expect(getEnvelope("flux")).toBeUndefined();
+    expect(getEnvelope("flux.objects")).toBeUndefined();
   });
 
   it("starts over after a reconnect: boot listeners again, and no seeding on the new connect", async () => {
@@ -262,7 +267,12 @@ describe("stream.ts snapshot seeding", () => {
 
     next.open();
     next.emit("core.plugins", pluginsEnvelope([vmsRow(), fluxRow()]));
-    expect([...next.listenedTo].sort()).toEqual(["core.overview", "core.plugins", "flux", "vms"]);
+    expect([...next.listenedTo].sort()).toEqual([
+      "core.overview",
+      "core.plugins",
+      "flux.objects",
+      "vms",
+    ]);
     expect(fetchStub.calls.filter((c) => c.path.startsWith("/api/v1/topics/"))).toEqual([]);
   });
 });

@@ -17,7 +17,7 @@ import (
 )
 
 // Fake is a plugin whose behaviour tests set field by field. It implements every optional
-// interface except RestartOnly (see RestartOnly), each neutral while its field is nil:
+// interface, each neutral while its field is nil:
 // Configured is true, Validate is nil, Service is nil (no service), Act fails, Routes registers
 // nothing, and the sources contribute nothing. The zero Status is healthy.
 //
@@ -151,13 +151,6 @@ func (f *Fake) Config() any {
 
 // Factory is f as a plugin.Factory: every call returns f.
 func (f *Fake) Factory() plugin.Factory { return func() plugin.Plugin { return f } }
-
-type restartOnly struct{ *Fake }
-
-func (restartOnly) RestartOnly() {}
-
-// RestartOnly is f as a factory for a plugin that also implements plugin.RestartOnly.
-func RestartOnly(f *Fake) plugin.Factory { return func() plugin.Plugin { return restartOnly{f} } }
 
 // Options for New.
 
@@ -311,25 +304,10 @@ func (h *Hub) Last(topic model.Topic) (Event, bool) {
 }
 
 // AllRunning is a HostProvider in which every instance runs. Publish prefixes the topic with
-// "<instance>." (core: "core.") and forwards it to p; with the manifests of the plugins it
-// stands in for, a topic that declares a Legacy name is forwarded under that name, as the
-// supervisor does. It checks nothing else.
-func AllRunning(p plugin.Publisher, manifests ...plugin.Manifest) plugin.HostProvider {
-	legacy := map[string]model.Topic{}
-	for _, m := range manifests {
-		for _, t := range m.Topics {
-			if t.Legacy != "" {
-				legacy[string(m.ID)+"."+t.Name] = model.Topic(t.Legacy)
-			}
-		}
-	}
-	return allRunning{p, legacy}
-}
+// "<instance>." (core: "core.") and forwards it to p. It checks nothing else.
+func AllRunning(p plugin.Publisher) plugin.HostProvider { return allRunning{p} }
 
-type allRunning struct {
-	p      plugin.Publisher
-	legacy map[string]model.Topic
-}
+type allRunning struct{ p plugin.Publisher }
 
 func (a allRunning) HostFor(id plugin.ID) plugin.Host { return runningHost{a, id} }
 func (a allRunning) Running(plugin.ID) bool           { return true }
@@ -340,12 +318,7 @@ type runningHost struct {
 }
 
 func (h runningHost) Publish(topic string, data any, sources []model.SourceStatus) {
-	name := string(h.id) + "." + topic
-	t := model.Topic(name)
-	if l, ok := h.a.legacy[name]; ok {
-		t = l
-	}
-	_, _ = h.a.p.Publish(t, data, sources)
+	_, _ = h.a.p.Publish(model.Topic(string(h.id)+"."+topic), data, sources)
 }
 
 func (h runningHost) Logger() *slog.Logger { return slog.Default().With("plugin", string(h.id)) }

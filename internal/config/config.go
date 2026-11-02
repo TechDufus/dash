@@ -59,8 +59,6 @@ type Config struct {
 	// only origin an absolute launcher icon URL may come from; empty means letter tiles and no
 	// third-party icon request from the launcher (apps are not affected). The SPA reads it with /me.
 	IconBaseURL string
-
-	Conventions Conventions
 }
 
 // Limits is server.limits as the flat view reads it.
@@ -71,13 +69,6 @@ type Limits struct {
 	SSEWriteTimeout         time.Duration
 	BodyReadTimeout         time.Duration
 	MaxHeaderBytes          int // of the API listener
-}
-
-// Conventions are the labels, annotations and metric names dash reads from the cluster that the
-// core still reads itself; the kubernetes plugin's own are plugins.kubernetes.conventions.
-type Conventions struct {
-	// SuspendReasonAnnotation on a Flux object is shown as the reason it is suspended.
-	SuspendReasonAnnotation string
 }
 
 // ProcessSources reads the layers the process itself provides: its environment and the config

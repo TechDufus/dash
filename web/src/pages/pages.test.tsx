@@ -83,14 +83,12 @@ const overview = (extra: Partial<OverviewData> = {}): OverviewData =>
         value: 62,
         health: "ok",
       },
+      { key: "ready", plugin: "flux", label: "Ready", unit: "", value: 8, health: "ok" },
+      { key: "total", plugin: "flux", label: "Total", unit: "", value: 9, health: "ok" },
+      { key: "suspended", plugin: "flux", label: "Suspended", unit: "", value: 0, health: "ok" },
+      { key: "verified", plugin: "flux", label: "Verified", unit: "", value: 1, health: "ok" },
     ],
     topology: { host: {}, vms: [], groups: [] },
-    kpis: {
-      fluxReady: 8,
-      fluxTotal: 9,
-      fluxSuspended: 0,
-      sourceVerified: true,
-    },
     ...extra,
   }) as unknown as OverviewData;
 
@@ -273,6 +271,8 @@ describe("pages built from slots", () => {
           kpiList: [
             entry("alertmanager", "firing", "Published alerts", 2),
             entry("hardware", "power", "Published power", 240),
+            entry("flux", "ready", "Published ready", 8),
+            entry("flux", "total", "Published total", 9),
             entry("hardware", "cpuTemp", "Published temperature", 62),
             entry("kubernetes", "nodes.ready", "Published ready nodes", 3),
             entry("kubernetes", "nodes.total", "Published nodes", 3),

@@ -1,4 +1,4 @@
-// Plugin rows for tests: the eleven shims as /api/v1/plugins reports them (internal/topics/legacy.go).
+// Plugin rows for tests: the eleven shims as /api/v1/plugins reports them (the built-in plugins' own descriptors).
 import type { ActionInfo, PluginInfo } from "@/api/types";
 import { pluginInfo } from "./harness";
 
@@ -56,8 +56,9 @@ export function shimRows(): PluginInfo[] {
     pluginInfo({
       id: "flux",
       name: "Flux",
-      topics: ["flux"],
+      topics: ["flux.objects"],
       nav: nav("/gitops", "GitOps", "GitOps (Flux)", "GitBranch"),
+      actions: [action("reconcile", "admin")],
     }),
     pluginInfo({ id: "grafana", name: "Grafana" }),
     pluginInfo({ id: "headlamp", name: "Headlamp" }),

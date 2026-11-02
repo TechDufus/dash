@@ -22,8 +22,7 @@ import (
 // manifests give the same bytes, so the file in docs/api can be diffed in CI.
 //
 // manifests are the plugins to document: each one's actions (as if enabled) and, through
-// routes, its GET routes. routes may be nil. The unversioned legacy routes are not in the
-// document: the contract is /api/v1, and they disappear as their plugins migrate.
+// routes, its GET routes. routes may be nil.
 func OpenAPI(manifests []plugin.Manifest, routes func(plugin.ID) []plugin.RouteInfo) (doc []byte, err error) {
 	defer func() { // the reflector panics on a type it cannot describe
 		if p := recover(); p != nil {
@@ -66,7 +65,7 @@ var pathVarRE = regexp.MustCompile(`\{([A-Za-z0-9_]+)(?:\.\.\.)?\}`)
 
 func (b *specBuilder) build() object {
 	for _, r := range (&Server{}).routeTable() {
-		if r.Legacy || r.Plugin || r.Infra {
+		if r.Plugin || r.Infra {
 			continue
 		}
 		b.add(r.Path, r.Method, b.operation(r), r.Tag, tagDocs[r.Tag])
@@ -284,9 +283,6 @@ func (b *specBuilder) topicTypes() map[string]reflect.Type {
 	for _, m := range b.manifests {
 		for _, ts := range m.Topics {
 			name := string(m.ID) + "." + ts.Name
-			if ts.Legacy != "" {
-				name = ts.Legacy
-			}
 			var typ reflect.Type
 			if ts.Type != nil {
 				typ = reflect.TypeOf(ts.Type)

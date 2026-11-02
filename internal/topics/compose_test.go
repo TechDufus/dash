@@ -8,7 +8,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/TechDufus/dash/internal/config"
 	"github.com/TechDufus/dash/internal/hub"
 	"github.com/TechDufus/dash/internal/model"
 	"github.com/TechDufus/dash/internal/plugin"
@@ -86,7 +85,7 @@ func ids(items []model.AttentionItem) string {
 func TestOverviewPublishesWithOneContributor(t *testing.T) {
 	h := hub.New()
 	src := &source{items: []model.AttentionItem{{ID: "fake:1", Severity: model.SeverityWarn, Source: "Fake", Title: "something"}}}
-	m := testManagerWith(config.Defaults(), plugintest.AllRunning(h, LegacyManifests()...), contributing("fake", src))
+	m := testManagerWith(plugintest.AllRunning(h), contributing("fake", src))
 	m.rebuild()
 
 	ov := overviewOf(t, h)
@@ -96,52 +95,44 @@ func TestOverviewPublishesWithOneContributor(t *testing.T) {
 	if ov.Attention[0].Links == nil {
 		t.Error("an item's links are never null")
 	}
-	for _, topic := range legacyTopics {
-		if _, ok := h.Latest("", topic); ok {
-			t.Errorf("%s is published although nothing built it", topic)
-		}
-	}
 }
 
-// With nothing to say and nothing to rebuild, a round publishes nothing.
-func TestOverviewNeedsADirtyTopicOrAContributor(t *testing.T) {
+// With no contributor there is nothing to say: a round publishes nothing, and the first
+// contributor's round publishes the overview (no topic is marked dirty or awaited).
+func TestOverviewNeedsAContributor(t *testing.T) {
 	h := hub.New()
-	m := testManager(config.Defaults(), plugintest.AllRunning(h, LegacyManifests()...))
+	var cs []plugin.Contributor
+	m := testManagerWith(plugintest.AllRunning(h), func() []plugin.Contributor { return cs })
 	m.rebuild()
 	if _, ok := h.Latest("", model.TopicOverview); ok {
 		t.Fatal("an overview from nothing")
 	}
-	m.mark(model.TopicFlux)
+	cs = []plugin.Contributor{{ID: "fake", Attention: &source{}}}
 	m.rebuild()
 	if _, ok := h.Latest("", model.TopicOverview); !ok {
-		t.Fatal("no overview after a topic changed")
+		t.Fatal("no overview with a contributor")
 	}
 }
 
-// The overview comes at once, with nothing built: it waits for no topic, and a topic whose
-// prerequisites are not ready (no kubernetes service) is not published yet.
-func TestOverviewDoesNotWaitForAllTopics(t *testing.T) {
+// A contributor with nothing to report gives the zero-valued overview: ok, no items, no KPIs, an
+// empty topology, every collection empty and never null.
+func TestOverviewOfAnIdleContributorIsEmpty(t *testing.T) {
 	h := hub.New()
-	m := testManager(config.Defaults(), plugintest.AllRunning(h, LegacyManifests()...))
-	m.mark(model.TopicFlux)
+	m := testManagerWith(plugintest.AllRunning(h), contributing("fake", &source{}))
 	m.rebuild()
-
-	for _, topic := range legacyTopics {
-		if _, ok := h.Latest("", topic); ok {
-			t.Fatalf("%s is published before its prerequisites", topic)
-		}
-	}
 	ov := overviewOf(t, h)
-	if ov.Topology.Host.Name != "" || len(ov.Topology.Groups) != 0 {
-		t.Errorf("the early overview should be the zero-valued one: %+v", ov.Topology)
+	if ov.Status != model.HealthOK || len(ov.Attention) != 0 || len(ov.KPIList) != 0 || ov.Topology.Host.Name != "" || len(ov.Topology.Groups) != 0 || len(ov.Topology.VMs) != 0 {
+		t.Errorf("the idle overview should be the zero-valued one: %+v", ov)
+	}
+	if env := mustEnvelope(t, h, model.TopicOverview); strings.Contains(string(env.Data), ":null") {
+		t.Errorf("a collection is null: %s", env.Data)
 	}
 }
 
 // The overview is published as core.overview through the core host, and under no other name.
 func TestCoreOverviewPublishesThroughCoreHost(t *testing.T) {
 	rec := &plugintest.Hub{}
-	m := testManager(config.Defaults(), plugintest.AllRunning(rec, LegacyManifests()...))
-	m.mark(model.TopicFlux)
+	m := testManagerWith(plugintest.AllRunning(rec), contributing("fake", &source{}))
 	m.rebuild()
 
 	var names []string
@@ -162,7 +153,7 @@ func TestCoreOverviewPublishesThroughCoreHost(t *testing.T) {
 func TestOverviewFollowsAContributorChange(t *testing.T) {
 	h := hub.New()
 	src := &source{}
-	m := testManagerWith(config.Defaults(), plugintest.AllRunning(h, LegacyManifests()...), contributing("fake", src))
+	m := testManagerWith(plugintest.AllRunning(h), contributing("fake", src))
 	m.rebuild()
 	if ov := overviewOf(t, h); len(ov.Attention) != 0 || ov.Status != model.HealthOK {
 		t.Fatalf("before: %+v", ov)
@@ -189,7 +180,7 @@ func TestOverviewFollowsAContributorChange(t *testing.T) {
 func TestOverviewIsPublishedByTheRebuildLoop(t *testing.T) {
 	h := hub.New()
 	src := &source{items: []model.AttentionItem{{ID: "x", Severity: model.SeverityWarn}}}
-	m := testManagerWith(config.Defaults(), plugintest.AllRunning(h, LegacyManifests()...), contributing("fake", src))
+	m := testManagerWith(plugintest.AllRunning(h), contributing("fake", src))
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	m.Run(ctx)
@@ -204,7 +195,7 @@ func TestPanickingContributorDoesNotStopTheOverview(t *testing.T) {
 	h := hub.New()
 	bad := &source{panics: true}
 	good := &source{items: []model.AttentionItem{{ID: "ok", Severity: model.SeverityWarn}}}
-	m := testManagerWith(config.Defaults(), plugintest.AllRunning(h, LegacyManifests()...), func() []plugin.Contributor {
+	m := testManagerWith(plugintest.AllRunning(h), func() []plugin.Contributor {
 		return []plugin.Contributor{{ID: "bad", Attention: bad}, {ID: "good", Attention: good}}
 	})
 	m.rebuild()
@@ -214,63 +205,43 @@ func TestPanickingContributorDoesNotStopTheOverview(t *testing.T) {
 	}
 	bad.set(func(s *source) { s.panics = false })
 	m.rebuild()
-	m.mu.RLock()
+	m.mu.Lock()
 	_, still := m.badSources["bad"]
-	m.mu.RUnlock()
+	m.mu.Unlock()
 	if still {
 		t.Error("a recovered plugin is still marked bad")
 	}
 }
 
-// The legacy rule's items name the plugin that owns the source (design A.7).
-func TestAttentionItemsCarryPlugin(t *testing.T) {
-	m := goldenManager(t)
-	items := m.buildOverview(goldenSnapshots(), nil, testNow).Attention
-	want := map[string]string{
-		"flux:source-unverified": "flux", "flux:Kustomization/flux-system/apps": "flux",
-	}
-	got := map[string]string{}
-	for _, it := range items {
-		got[it.ID] = it.Plugin
-		if it.Plugin == "" {
-			t.Errorf("%s carries no plugin", it.ID)
-		}
-	}
-	for id, plug := range want {
-		if got[id] != plug {
-			t.Errorf("%s: plugin %q, want %q", id, got[id], plug)
-		}
-	}
-}
-
-// Compose orders what it is given as the table always did, whoever contributed it, and stamps
-// a contributing plugin's id over whatever the item says.
+// Compose orders what it is given by severity, time and id, whoever contributed it, and stamps
+// a contributing plugin's id over whatever the item says; a contribution with no plugin leaves
+// its items as they are.
 func TestComposeOrdersAndStampsAttention(t *testing.T) {
 	at := func(d time.Duration) time.Time { return testNow.Add(-d) }
 	ov := compose([]contribution{
 		{attention: []model.AttentionItem{
-			{ID: "legacy-warn-new", Severity: model.SeverityWarn, Since: at(time.Minute), Plugin: "kubernetes"},
-			{ID: "legacy-crit-old", Severity: model.SeverityCrit, Since: at(time.Hour), Plugin: "flux"},
+			{ID: "bare-warn-new", Severity: model.SeverityWarn, Since: at(time.Minute), Plugin: "kubernetes"},
+			{ID: "bare-crit-old", Severity: model.SeverityCrit, Since: at(time.Hour), Plugin: "flux"},
 		}},
 		{plugin: "zed", attention: []model.AttentionItem{
 			{ID: "b-warn-new", Severity: model.SeverityWarn, Since: at(time.Minute), Plugin: "liar"},
 			{ID: "crit-new", Severity: model.SeverityCrit, Since: at(time.Second)},
 		}},
-	}, legacyOverview{kpis: model.Kpis{FluxTotal: 4}})
+	})
 
-	if got, want := ids(ov.Attention), "crit-new legacy-crit-old b-warn-new legacy-warn-new"; got != want {
+	if got, want := ids(ov.Attention), "crit-new bare-crit-old b-warn-new bare-warn-new"; got != want {
 		t.Errorf("order = %q, want %q", got, want)
 	}
 	for _, it := range ov.Attention {
-		if it.ID == "b-warn-new" && it.Plugin != "zed" || it.ID == "legacy-crit-old" && it.Plugin != "flux" {
+		if it.ID == "b-warn-new" && it.Plugin != "zed" || it.ID == "bare-crit-old" && it.Plugin != "flux" {
 			t.Errorf("%s: plugin %q", it.ID, it.Plugin)
 		}
 		if it.Links == nil {
 			t.Errorf("%s: nil links", it.ID)
 		}
 	}
-	if ov.Status != model.HealthCrit || ov.Kpis.FluxTotal != 4 || ov.KPIList == nil {
-		t.Errorf("status %s, kpis %+v, kpiList %v", ov.Status, ov.Kpis, ov.KPIList)
+	if ov.Status != model.HealthCrit || ov.KPIList == nil {
+		t.Errorf("status %s, kpiList %v", ov.Status, ov.KPIList)
 	}
 }
 
@@ -292,7 +263,7 @@ func TestKPIListAndTopologyMerge(t *testing.T) {
 			kpis: []model.KPI{{Key: "b", Label: "B"}, {Key: "a", Label: "A"}}},
 		{plugin: "pa", topology: tp("other", []model.TopologyVM{{VMID: 2}}),
 			kpis: []model.KPI{{Key: "z", Label: "Z", Plugin: "ignored"}}},
-	}, legacyOverview{})
+	})
 
 	var keys []string
 	for _, k := range ov.KPIList {
@@ -323,7 +294,7 @@ func TestKPIListAndTopologyMerge(t *testing.T) {
 	}
 
 	// With nothing at all the collections are still empty, never null.
-	empty := compose(nil, legacyOverview{})
+	empty := compose(nil)
 	b, _ := json.Marshal(empty)
 	for _, null := range []string{`"attention":null`, `"kpiList":null`, `"vms":null`, `"groups":null`} {
 		if strings.Contains(string(b), null) {
@@ -332,12 +303,12 @@ func TestKPIListAndTopologyMerge(t *testing.T) {
 	}
 }
 
-// The host falls back to the first topology when none names one, so a legacy overview with no
-// host name keeps the host it computed.
-func TestTopologyKeepsTheLegacyHostWhenNoOneNamesIt(t *testing.T) {
-	legacyHost := model.TopologyHost{Health: model.HealthWarn, PowerWatts: 12}
-	ov := compose([]contribution{{topology: &model.Topology{Host: legacyHost}}, {plugin: "p", topology: &model.Topology{}}}, legacyOverview{})
-	if ov.Topology.Host != legacyHost {
-		t.Errorf("host = %+v, want %+v", ov.Topology.Host, legacyHost)
+// The host falls back to the first topology when none names one, so a contribution that computes
+// a host without a name keeps it.
+func TestTopologyKeepsTheFirstHostWhenNoOneNamesIt(t *testing.T) {
+	unnamed := model.TopologyHost{Health: model.HealthWarn, PowerWatts: 12}
+	ov := compose([]contribution{{plugin: "h", topology: &model.Topology{Host: unnamed}}, {plugin: "p", topology: &model.Topology{}}})
+	if ov.Topology.Host != unnamed {
+		t.Errorf("host = %+v, want %+v", ov.Topology.Host, unnamed)
 	}
 }

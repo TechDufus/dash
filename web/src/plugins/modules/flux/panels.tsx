@@ -1,38 +1,52 @@
-import { ShieldAlert, ShieldCheck } from "lucide-react";
+import { GitMerge, ShieldAlert, ShieldCheck } from "lucide-react";
 import type { Health } from "@/api/types";
 import { Kpi } from "@/components/kpi";
 import { cn } from "@/lib/utils";
 import { KPI_TILE, KpiLink } from "../../kpi-link";
 import type { ModulePanels, SlotProps } from "../../types";
 
+/**
+ * The plugin's one tile. It owns the presentation of every KPI the plugin publishes (the overview
+ * draws no generic tile for a plugin that contributes one). `verified` is published only when a
+ * source is pinned or signed: absent means there is nothing to verify, 0 means one of them is not.
+ */
 function GitOpsTile({ data }: SlotProps["overview.kpis"]) {
-  const k = data.kpis;
-  const gitops: Health = k.fluxReady < k.fluxTotal || !k.sourceVerified ? "warn" : "ok";
+  const kpi = (key: string) =>
+    data.kpiList.find((x) => x.plugin === "flux" && x.key === key)?.value;
+  const ready = kpi("ready");
+  const total = kpi("total");
+  if (ready === undefined || total === undefined) return null;
+  const suspended = kpi("suspended") ?? 0;
+  const verified = kpi("verified");
+  const unverified = verified === 0;
+  const gitops: Health = ready < total || unverified ? "warn" : "ok";
   const note = [
-    k.sourceVerified ? "Source verified" : "Source not verified",
-    k.fluxSuspended > 0 ? `${k.fluxSuspended} suspended` : "",
+    verified === undefined ? "" : unverified ? "Source not verified" : "Source verified",
+    suspended > 0 ? `${suspended} suspended` : "",
   ]
     .filter(Boolean)
     .join(" · ");
   return (
-    <KpiLink href="/gitops" label={`GitOps ${k.fluxReady} of ${k.fluxTotal} ready. Open GitOps`}>
+    <KpiLink href="/gitops" label={`GitOps ${ready} of ${total} ready. Open GitOps`}>
       <Kpi
         label="GitOps"
-        value={k.fluxReady}
-        suffix={`/ ${k.fluxTotal}`}
+        value={ready}
+        suffix={`/ ${total}`}
         health={gitops}
         icon={
-          k.sourceVerified ? (
-            <ShieldCheck className="text-ok" role="img" aria-label="Source verified" />
-          ) : (
+          verified === undefined ? (
+            <GitMerge aria-hidden="true" />
+          ) : unverified ? (
             <ShieldAlert className="text-warn" role="img" aria-label="Source not verified" />
+          ) : (
+            <ShieldCheck className="text-ok" role="img" aria-label="Source verified" />
           )
         }
         spark={
           <p
             className={cn(
               "flex h-full items-end px-1 text-xs",
-              k.sourceVerified && k.fluxSuspended === 0 ? "text-muted" : "text-warn",
+              !unverified && suspended === 0 ? "text-muted" : "text-warn",
             )}
           >
             {note}

@@ -21,13 +21,12 @@ import (
 	"github.com/TechDufus/dash/internal/plugin"
 	"github.com/TechDufus/dash/internal/plugin/plugintest"
 	"github.com/TechDufus/dash/internal/pluginconf"
+	"github.com/TechDufus/dash/internal/plugins/flux"
 	"github.com/TechDufus/dash/internal/plugins/gatus"
 	"github.com/TechDufus/dash/internal/plugins/kubernetes"
 	"github.com/TechDufus/dash/internal/plugins/prometheus"
 	"github.com/TechDufus/dash/internal/plugins/proxmox"
 	"github.com/TechDufus/dash/internal/secret"
-	"github.com/TechDufus/dash/internal/svc"
-	"github.com/TechDufus/dash/internal/topics"
 )
 
 // fakeConnection is how the kubernetes plugin reaches the cluster in this test: an empty one whose
@@ -64,7 +63,7 @@ func topicLineHas(stream, topic, want string) bool {
 // plugins poll them, publish into the hub, and the SSE handler serves what a browser would
 // read. Not their URLs, host names or ports, not what they answered, and not the credential an
 // upstream echoes back (P1.4 canary test, end to end). The kubernetes plugin runs next to them,
-// over a fake cluster, with the Manager for flux reading it: its three topics carry the
+// over a fake cluster, with the flux plugin reading it: its three topics carry the
 // categories of the prometheus and gatus it reads and nothing more.
 func TestStreamEndpointNeverCarriesUpstreamDetail(t *testing.T) {
 	const credential = "CANARYSECRET123456"
@@ -102,6 +101,7 @@ func TestStreamEndpointNeverCarriesUpstreamDetail(t *testing.T) {
 	gatCfg := pluginconf.DefaultGatus()
 	gatCfg.URL = gat.URL
 	kubeCfg := pluginconf.DefaultKubernetes()
+	fluxCfg := pluginconf.DefaultFlux()
 	s := newServer(func(d *Deps) {
 		d.Cfg, d.Secrets = cfg, reg
 		// The plugins themselves poll the failing upstreams and publish into the hub the stream
@@ -112,20 +112,12 @@ func TestStreamEndpointNeverCarriesUpstreamDetail(t *testing.T) {
 			plugin.InstanceConfig{Name: "prometheus", Type: "prometheus", Config: &promCfg},
 			plugin.InstanceConfig{Name: "gatus", Type: "gatus", Config: &gatCfg},
 			plugin.InstanceConfig{Name: "kubernetes", Type: "kubernetes", Config: &kubeCfg},
+			plugin.InstanceConfig{Name: "flux", Type: "flux", Config: &fluxCfg},
 		)
 		sup := plugin.NewSupervisor(plugin.Options{
 			Publisher: d.Hub, Settings: set, StatusEvery: 20 * time.Millisecond, StopTimeout: time.Second, ScrubLog: reg.Scrub,
 		})
-		// The Manager publishes flux from the kubernetes plugin's service, as cmd/dash wires it.
-		cluster := func() (svc.Cluster, bool) {
-			v, ok := sup.Service("kubernetes")
-			c, isCluster := v.(svc.Cluster)
-			return c, ok && isCluster
-		}
-		mgr := topics.New(topics.Deps{
-			Cfg: cfg, Cluster: cluster, Hosts: sup, Contributors: sup.Contributors, LinkProviders: sup.Links,
-		})
-		if err := sup.Add(append(mgr.Plugins(), proxmox.New, prometheus.New, gatus.New, kubernetes.FactoryWithConnect(nil, fakeConnection))...); err != nil {
+		if err := sup.Add(proxmox.New, prometheus.New, gatus.New, kubernetes.FactoryWithConnect(nil, fakeConnection), flux.New); err != nil {
 			t.Fatal(err)
 		}
 		sctx, scancel := context.WithCancel(context.Background())
@@ -133,16 +125,14 @@ func TestStreamEndpointNeverCarriesUpstreamDetail(t *testing.T) {
 			t.Fatal(err)
 		}
 		t.Cleanup(func() { scancel(); sup.Shutdown(context.Background()) })
-		mgr.Run(sctx)
 		d.Plugins = sup
-		d.Cluster = cluster
 	})
 	s.heartbeat = 20 * time.Millisecond
 
 	_, lines := sseClient(t, s.Handler(), "/api/v1/stream")
 	var stream strings.Builder
 	// proxmox, prometheus (on proxmox.storage), gatus, then the topics of the kubernetes plugin and flux
-	want := []string{`"http_500"`, `"tls"`, `"auth"`, `"topic":"kubernetes.cluster"`, `"topic":"kubernetes.storage"`, `"topic":"kubernetes.apps"`, `"topic":"flux"`}
+	want := []string{`"http_500"`, `"tls"`, `"auth"`, `"topic":"kubernetes.cluster"`, `"topic":"kubernetes.storage"`, `"topic":"kubernetes.apps"`, `"topic":"flux.objects"`}
 	deadline := time.After(15 * time.Second)
 	for missing := true; missing; {
 		select {

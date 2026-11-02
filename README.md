@@ -34,8 +34,7 @@ https://dash.home.techdufus.com.
 - **One screen for the whole lab.** The overview rolls alerts, GitOps, nodes, VMs, power and CPU
   temperature into a KPI row, draws the topology from the Proxmox host through its VMs to every
   namespace, and lists what needs attention, worst first.
-- **Live, not polled from the browser.** Informers and upstream pollers rebuild the topics
-  (`flux`), the kubernetes plugin publishes `kubernetes.cluster`, `kubernetes.storage` and `kubernetes.apps`, the hardware plugin publishes `hardware.hosts` and `hardware.machines`, the proxmox plugin publishes `proxmox.vms`, `proxmox.node` and `proxmox.storage`, the alertmanager and gatus plugins `alertmanager.alerts` and `gatus.status`, the core composes
+- **Live, not polled from the browser.** Informers and upstream pollers rebuild the topics: the flux plugin publishes `flux.objects`, the kubernetes plugin publishes `kubernetes.cluster`, `kubernetes.storage` and `kubernetes.apps`, the hardware plugin publishes `hardware.hosts` and `hardware.machines`, the proxmox plugin publishes `proxmox.vms`, `proxmox.node` and `proxmox.storage`, the alertmanager and gatus plugins `alertmanager.alerts` and `gatus.status`, the core composes
   `core.overview` from what the integrations contribute, and only what changed goes out over a
   single SSE stream. `core.plugins` says which integrations run and whether each is healthy; the
   launcher plugin publishes its links as `launcher.links`.
@@ -51,7 +50,8 @@ https://dash.home.techdufus.com.
   you are looking at, and a command palette (`Ctrl K`) jumps to any page, VM, node,
   workload or pod.
 - **Safe by design.** Writes are limited to three operations: a workload rollout restart (off
-  until `plugins.kubernetes.actions.enabled` is set), a Flux reconcile request, and Alertmanager
+  until `plugins.kubernetes.actions.enabled` is set), a Flux reconcile request (off until
+  `plugins.flux.actions.enabled` is set), and Alertmanager
   silences that expire (off until `plugins.alertmanager.actions.enabled` is set). The homelab
   guardrail `kubernetes/platform/guardrails/policy-dash.yaml` fences the ServiceAccount to exactly
   those. dash also starts and serves Proxmox with no cluster at all: the kubernetes plugin is then
@@ -224,11 +224,15 @@ restart with `DASH_PLUGINS_PROXMOX_TOKEN_SECRET_FILE`.
 | `plugins.kubernetes.upstreamViaAPIServer` | `false` | send the other plugins' requests to in-cluster service URLs (`http://<service>.<namespace>.svc`) through the API server's service proxy, with the Kubernetes credentials: for running dash on a laptop against a remote cluster (`DASH_DEV` no longer does this). Applies to requests made after the plugin starts |
 | `plugins.kubernetes.actions.enabled` | `false` | mounts the `restart` action (a rollout restart of a Deployment, StatefulSet or DaemonSet, admin only); a namespace that the protected label marks needs the workload's name typed as a confirmation. `DASH_PLUGINS_KUBERNETES_ACTIONS_ENABLED=true`; a change restarts the plugin |
 | `plugins.kubernetes.actions.denyNamespaces` | `[]` | namespaces where `restart` answers 403 and the refusal is audited (a JSON list in the environment) |
+| `plugins.flux.verify.requireWhenSpecVerify` | `true` | a GitRepository or OCIRepository that has `spec.verify` must report `SourceVerified=True`, or it is critical on the overview and the GitOps page; `false` turns that check off (the sources in `verify.sources` are always checked). `DASH_PLUGINS_FLUX_VERIFY_REQUIRE_WHEN_SPEC_VERIFY` |
+| `plugins.flux.verify.sources` | `[]` | `[{kind, namespace, name}]` (a JSON list in the environment), kind `GitRepository` or `OCIRepository`: sources that must be signed and verified. Each is critical when it lacks `spec.verify` or `SourceVerified=True`, or does not exist, and each is listed on the GitOps page. `DASH_PLUGINS_FLUX_VERIFY_SOURCES='[{"kind":"GitRepository","namespace":"gitops","name":"fleet"}]'`; an entry with an unknown field, another kind or no namespace or name is refused when the configuration loads |
+| `plugins.flux.actions.enabled` | `false` | mounts the `reconcile` action (a `reconcile.fluxcd.io/requestedAt` annotation on a source, Kustomization or HelmRelease, admin only); until it is set the GitOps page shows no Reconcile button. `DASH_PLUGINS_FLUX_ACTIONS_ENABLED=true`; a change restarts the plugin |
+| `plugins.flux.actions.denyNamespaces` | `[]` | namespaces where `reconcile` answers 403 and the refusal is audited (a JSON list in the environment) |
 | `plugins.kubernetes.apps.gateways` | `[]` (every route) | `[{namespace, name}]` (a JSON list in the environment): only HTTPRoutes whose `spec.parentRefs` name one of these gateways are apps; a parent reference without a namespace means the route's own namespace. Empty accepts every HTTPRoute. `DASH_PLUGINS_KUBERNETES_APPS_GATEWAYS='[{"namespace":"gateways","name":"main"}]'` |
 | `plugins.kubernetes.apps.excludeNamespaces` | `[]` (none) | namespaces whose routes and ingresses are never apps, typically dash's own (a JSON list in the environment) |
 | `plugins.kubernetes.apps.annotationPrefix` | `gethomepage.dev` | the annotation keys read for an app: `<prefix>/name`, `/group`, `/description` and `/icon`; a trailing `/` is ignored. `/icon` is a [dashboard-icons](https://github.com/homarr-labs/dashboard-icons) name, a same-origin path or a URL under `ui.iconBaseURL`; homepage-style `mdi-`, `si-` and `sh-` names show no icon |
 | `plugins.kubernetes.apps.ingress` | `false` | also reads `networking.k8s.io/v1` Ingresses, one app per rule host (`https://<host>`), with the same annotations and exclusions; needs the `ingresses` permission under [Kubernetes permissions](#kubernetes-permissions-rbac) |
-| `plugins.<id>.enabled` | unset (on when configured) | `false` turns that plugin off: its topics are removed, and the web UI drops its rail entry, palette entries, overview tiles and panels and shows a "switched off" page at its address. Unset turns it on when it has the settings it needs: a plugin without them is `disabled` ("not configured: set plugins.<id>.url", naming the setting to make; the launcher names `links` or `file`; the hardware plugin names `hosts` or `machines`) and the web UI hides its pages; `true` with settings missing or invalid makes it `unconfigured`. That is how `prometheus`, `alertmanager`, `gatus`, `victorialogs`, `proxmox`, `hardware`, `kubernetes`, `grafana`, `headlamp` and `launcher` behave, and a change to any of their settings applies live: that plugin restarts, and so do the plugins that use or require it (a `prometheus` change restarts `proxmox`, `hardware` and `kubernetes`; a `gatus` change restarts `hardware` and `kubernetes`; a `proxmox` change restarts `hardware`; a `kubernetes` change restarts `proxmox`; a `grafana` change restarts `alertmanager`). `flux` has not moved to a plugin of its own yet: a change to it needs a restart |
+| `plugins.<id>.enabled` | unset (on when configured) | `false` turns that plugin off: its topics are removed, and the web UI drops its rail entry, palette entries, overview tiles and panels and shows a "switched off" page at its address. Unset turns it on when it has the settings it needs: a plugin without them is `disabled` ("not configured: set plugins.<id>.url", naming the setting to make; the launcher names `links` or `file`; the hardware plugin names `hosts` or `machines`) and the web UI hides its pages; `true` with settings missing or invalid makes it `unconfigured`. That is how `prometheus`, `alertmanager`, `gatus`, `victorialogs`, `proxmox`, `hardware`, `kubernetes`, `flux`, `grafana`, `headlamp` and `launcher` behave, and a change to any of their settings applies live: that plugin restarts, and so do the plugins that use or require it (a `prometheus` change restarts `proxmox`, `hardware` and `kubernetes`; a `gatus` change restarts `hardware` and `kubernetes`; a `proxmox` change restarts `hardware`; a `kubernetes` change restarts `proxmox` and `flux`; a `grafana` change restarts `alertmanager`). |
 | `plugins.<id>.type` | the section name | the plugin type; dash runs one instance per type, so leave it unset or equal to the section name |
 
 `/healthz` answers `ok` while dash runs. `/readyz` answers `ok` once both listeners are bound and
@@ -255,7 +259,7 @@ while one is empty, the feature that depends on it is off.
 |---|---|---|
 | `plugins.kubernetes.conventions.protectedLabel` | empty (no namespace is protected) | namespace label (`"true"`) that makes a restart ask you to type the name |
 | `plugins.kubernetes.conventions.tenantLabel` | empty | namespace label that puts it under Tenants |
-| `plugins.flux.suspendReasonAnnotation` | empty | Flux annotation shown as the reason an object is suspended |
+| `plugins.flux.suspendReasonAnnotation` | empty | Flux object annotation whose value is shown as the reason the object is suspended (the suspended warning's detail and the GitOps page); empty shows "suspended" alone. `DASH_PLUGINS_FLUX_SUSPEND_REASON_ANNOTATION`; a change applies without a restart of dash |
 | `plugins.kubernetes.conventions.appsFluxPrefix` | empty | namespaces applied by a Kustomization with this prefix go under Apps |
 | `plugins.hardware.zfsScrubMetricPrefix` | empty (no scrub data: not queried, and the pool cards show none) | `<prefix>_last_end_timestamp_seconds`, `_last_errors`, `_in_progress`; a valid metric name when set |
 | `plugins.kubernetes.backupJobs` | empty (no backup rows) | `[{namespace, cronjob, label}]`, up to 8 (a JSON list in the environment): the age of the last success of the CronJob `cronjob`, or of one named `<cronjob>-<suffix>`, read from kube-state-metrics' `kube_cronjob_status_last_successful_time` through the prometheus plugin. With a `label` the entry is one row of that name, aged by its freshest CronJob; without one each matching CronJob is a row named after itself |
@@ -350,10 +354,10 @@ The public API is under `/api/v1` (`me`, `stream`, `series`, `topics/<topic>`, `
 by [docs/api/openapi.json](docs/api/openapi.json), an OpenAPI 3.1 document generated from the code
 (`dash api openapi`; `make generate` rewrites it and `make check` fails when it drifts or does
 not lint). The SPA uses the same paths. Before 1.0 a breaking change to them is called out in
-the release notes. The unversioned `/api/actions/reconcile`
-route is internal to the SPA and goes away as its plugin moves; `/api/pods/{ns}/{name}` is now
-`/api/v1/plugins/kubernetes/pods/{ns}/{name}` and `/api/actions/restart` is the kubernetes
-plugin's `restart` action; both old paths answer 404; `/api/vms/{vmid}` is now
+the release notes. `/api/actions/reconcile` is the flux plugin's `reconcile` action and
+`/api/actions/restart` the kubernetes plugin's `restart` action; both old paths answer 404;
+`/api/pods/{ns}/{name}` is now
+`/api/v1/plugins/kubernetes/pods/{ns}/{name}` and the old path answers 404; `/api/vms/{vmid}` is now
 `/api/v1/plugins/proxmox/vms/{vmid}` and the old path answers 404; `/api/logs` and `/api/logs/tail`
 are now `/api/v1/plugins/victorialogs/logs` and `.../logs/tail` and the old paths answer 404; `/api/silences` is already
 gone (silences are the alertmanager plugin's actions, and the old paths answer 404), and
@@ -373,15 +377,18 @@ navigation (the same rows arrive on the `core.plugins` stream topic). A running 
 read routes live under `/api/v1/plugins/<id>/…`.
 
 The framework mounts a plugin's actions as `POST /api/v1/plugins/<id>/actions/<name>` while
-`plugins.<id>.actions.enabled` is true. Two plugins have them so far: the alertmanager plugin's
-`silence.create` and `silence.expire`, and the kubernetes plugin's `restart` (a rollout restart
-of a Deployment, StatefulSet or DaemonSet), all for admins and all answering 202. Set
-`plugins.alertmanager.actions.enabled` (`DASH_PLUGINS_ALERTMANAGER_ACTIONS_ENABLED=true`) or
-`plugins.kubernetes.actions.enabled` (`DASH_PLUGINS_KUBERNETES_ACTIONS_ENABLED=true`) to turn
-them on; changing either restarts that plugin, and until it is set the page shows no such button.
-`plugins.kubernetes.actions.denyNamespaces` lists the namespaces where `restart` answers 403
-(audited). `dash config validate` rejects `plugins.<id>.actions.*` on a plugin without them, and
-the Flux reconcile action stays on the SPA's internal route until the flux plugin moves. Every action
+`plugins.<id>.actions.enabled` is true. Three plugins have them so far: the alertmanager plugin's
+`silence.create` and `silence.expire`, the kubernetes plugin's `restart` (a rollout restart
+of a Deployment, StatefulSet or DaemonSet) and the flux plugin's `reconcile` (the
+`reconcile.fluxcd.io/requestedAt` annotation of a source, Kustomization or HelmRelease), all for
+admins and all answering 202. Set
+`plugins.alertmanager.actions.enabled` (`DASH_PLUGINS_ALERTMANAGER_ACTIONS_ENABLED=true`),
+`plugins.kubernetes.actions.enabled` (`DASH_PLUGINS_KUBERNETES_ACTIONS_ENABLED=true`) or
+`plugins.flux.actions.enabled` (`DASH_PLUGINS_FLUX_ACTIONS_ENABLED=true`) to turn
+them on; changing any of them restarts that plugin, and until it is set the page shows no such button.
+`plugins.kubernetes.actions.denyNamespaces` and `plugins.flux.actions.denyNamespaces` list the
+namespaces where `restart` and `reconcile` answer 403
+(audited). `dash config validate` rejects `plugins.<id>.actions.*` on a plugin without them. Every action
 request runs one chain: the principal's role, a rate limit of 10 actions a minute per user, the
 body checks (JSON only, unknown fields refused, `required` and `enum` honoured), the namespace
 deny list where the plugin has one, the audit intent, the action, then the audit outcome. A
@@ -433,16 +440,26 @@ rules:
   - apiGroups: [postgresql.cnpg.io]
     resources: [clusters]
     verbs: [get, list, watch]
-  # Flux: read, and the reconcile request (an annotation).
+  # The flux plugin reads the Flux objects when the cluster has them.
   - apiGroups: [kustomize.toolkit.fluxcd.io]
     resources: [kustomizations]
-    verbs: [get, list, watch, patch]
+    verbs: [get, list, watch]
   - apiGroups: [helm.toolkit.fluxcd.io]
     resources: [helmreleases]
-    verbs: [get, list, watch, patch]
+    verbs: [get, list, watch]
   - apiGroups: [source.toolkit.fluxcd.io]
     resources: [gitrepositories, ocirepositories, helmrepositories]
-    verbs: [get, list, watch, patch]
+    verbs: [get, list, watch]
+  # The reconcile action (plugins.flux.actions.enabled): the requestedAt annotation.
+  - apiGroups: [kustomize.toolkit.fluxcd.io]
+    resources: [kustomizations]
+    verbs: [patch]
+  - apiGroups: [helm.toolkit.fluxcd.io]
+    resources: [helmreleases]
+    verbs: [patch]
+  - apiGroups: [source.toolkit.fluxcd.io]
+    resources: [gitrepositories, ocirepositories, helmrepositories]
+    verbs: [patch]
 ```
 
 `plugins.kubernetes.upstreamViaAPIServer` (development) also needs `get` and `create` on
@@ -584,7 +601,7 @@ name wins), with no `_FILE` form because it is another tool's variable.
 | `internal/auth` | who a request acts as: role and principal |
 | `internal/kube` | the kubernetes plugin's client: informers, discovery and the patches |
 | `internal/upstream` | VictoriaMetrics, Alertmanager, VictoriaLogs, Gatus, Proxmox clients |
-| `internal/topics` | the flux shim and the overview's composer: the builders, health and attention rules of what is not a plugin yet (flux) |
+| `internal/topics` | the overview's composer: `core.overview` is built from what the running plugins contribute (attention items, KPIs, topology) |
 | `internal/hub`, `internal/api` | SSE hub, REST, middleware |
 | `internal/obs` | dash's own Prometheus metrics (`server.metrics`), in a private registry |
 | `internal/hygiene` | repository-wide guards that belong to no package (`TestNoHomelabLiterals`: no lab identifier in non-test code) |

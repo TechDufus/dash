@@ -36,9 +36,6 @@ func TestManifest(t *testing.T) {
 	var names []string
 	for _, tp := range m.Topics {
 		names = append(names, tp.Name)
-		if tp.Legacy != "" {
-			t.Errorf("topic %s keeps the legacy name %q", tp.Name, tp.Legacy)
-		}
 	}
 	if !slices.Equal(names, []string{"vms", "node", "storage"}) {
 		t.Errorf("topics = %v, want the wire order vms, node, storage", names)

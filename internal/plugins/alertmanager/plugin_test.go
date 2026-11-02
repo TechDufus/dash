@@ -29,8 +29,8 @@ func TestManifest(t *testing.T) {
 	if len(m.UI.Nav) != 1 || m.UI.Nav[0] != nav {
 		t.Errorf("nav = %+v, want %+v", m.UI.Nav, nav)
 	}
-	if len(m.Topics) != 1 || m.Topics[0].Name != "alerts" || m.Topics[0].Legacy != "" {
-		t.Errorf("topics = %+v: want one topic named alerts (published as alertmanager.alerts), no legacy name", m.Topics)
+	if len(m.Topics) != 1 || m.Topics[0].Name != "alerts" {
+		t.Errorf("topics = %+v: want one topic named alerts (published as alertmanager.alerts)", m.Topics)
 	}
 	if _, ok := m.Topics[0].Type.(model.AlertsData); !ok {
 		t.Errorf("topic type = %T", m.Topics[0].Type)

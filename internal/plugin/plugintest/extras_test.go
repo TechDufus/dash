@@ -152,23 +152,19 @@ func contains(s, sub string) bool {
 	return false
 }
 
-// AllRunning forwards a topic under the name the supervisor gives it: the Legacy name if the
-// manifest declares one, "<plugin>.<name>" otherwise.
+// AllRunning forwards a topic under the name the supervisor gives it: "<plugin>.<name>".
 func TestAllRunningNamesTopicsLikeTheSupervisor(t *testing.T) {
 	rec := &Hub{}
-	man := plugin.Manifest{ID: "aa", Topics: []plugin.TopicSpec{{Name: "rows", Legacy: "old"}, {Name: "plain"}}}
-	hp := AllRunning(rec, man)
+	man := plugin.Manifest{ID: "aa", Topics: []plugin.TopicSpec{{Name: "rows"}, {Name: "plain"}}}
+	hp := AllRunning(rec)
 	for i, spec := range man.Topics {
 		hp.HostFor(man.ID).Publish(spec.Name, i, nil)
 		want := plugin.TopicName(man.ID, spec)
 		if ev, ok := rec.Last(want); !ok || ev.Data != i {
-			t.Errorf("topic %q (published as %q) was not forwarded under %q: %+v", spec.Name, spec.Name, want, rec.Published())
+			t.Errorf("topic %q was not forwarded under %q: %+v", spec.Name, want, rec.Published())
 		}
 	}
-	if _, ok := rec.Last("old"); !ok {
-		t.Error("the legacy name was not used")
-	}
 	if _, ok := rec.Last("aa.plain"); !ok {
-		t.Error("the unnamed topic is not aa.plain")
+		t.Error("the topic is not aa.plain")
 	}
 }

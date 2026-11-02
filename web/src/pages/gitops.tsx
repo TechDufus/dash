@@ -1,8 +1,7 @@
 import { GitBranch, LoaderCircle, RefreshCw, Search, ShieldAlert, ShieldCheck } from "lucide-react";
 import { useMemo, useState } from "react";
-import { reconcileFlux } from "@/api/actions";
 import { useTopic } from "@/api/stream";
-import type { FluxKind, FluxObj } from "@/api/types";
+import type { FluxKind, FluxObj, FluxSourceRef } from "@/api/types";
 import { HeadlampIcon } from "@/components/links";
 import { Page, Reveal } from "@/components/page";
 import { Empty, Panel, PanelHeader, PanelSkeleton } from "@/components/panel";
@@ -22,6 +21,8 @@ import { formatDateTime, formatRelative } from "@/lib/format";
 import { useNow } from "@/lib/hooks";
 import { useQueryParam } from "@/lib/query-param";
 import { cn } from "@/lib/utils";
+import { reconcileFlux } from "@/plugins/modules/flux/actions";
+import { useActionAvailable } from "@/plugins/use-action-available";
 
 const TABS = ["kustomizations", "helmreleases", "sources"] as const;
 type TabKey = (typeof TABS)[number];
@@ -122,17 +123,43 @@ function VerifiedShield({ verified }: { verified: boolean | undefined }) {
   );
 }
 
-function Banner({ obj, now }: { obj: FluxObj | undefined; now: number }) {
-  const verified = obj?.verified === true;
+/** What the header says about one verified source: the sentence and whether it is a good one. */
+function verdict(obj: FluxObj | undefined, source: FluxSourceRef): { text: string; ok: boolean } {
+  if (!obj)
+    return { text: `${source.kind} ${source.namespace}/${source.name} not found`, ok: false };
+  if (obj.verified === true) return { text: "Source verified: signature checked", ok: true };
+  if (obj.verified === false) {
+    return { text: "Source NOT verified: signature check failed", ok: false };
+  }
+  return {
+    text: obj.specVerify
+      ? "Source verification missing: no SourceVerified condition"
+      : "Source is not signed: spec.verify is not set",
+    ok: false,
+  };
+}
+
+function Banner({
+  source,
+  obj,
+  now,
+  canReconcile,
+}: {
+  source: FluxSourceRef;
+  obj: FluxObj | undefined;
+  now: number;
+  canReconcile: boolean;
+}) {
+  const { text, ok } = verdict(obj, source);
   return (
     <Panel className="flex flex-col gap-4 p-4 sm:flex-row sm:items-center">
       <div
         className={cn(
           "flex size-14 shrink-0 items-center justify-center rounded-2xl border",
-          verified ? "border-ok/30 bg-ok/10 text-ok" : "border-crit/30 bg-crit/10 text-crit",
+          ok ? "border-ok/30 bg-ok/10 text-ok" : "border-crit/30 bg-crit/10 text-crit",
         )}
       >
-        {verified ? (
+        {ok ? (
           <ShieldCheck className="size-8" aria-hidden="true" />
         ) : (
           <ShieldAlert className="size-8" aria-hidden="true" />
@@ -141,8 +168,10 @@ function Banner({ obj, now }: { obj: FluxObj | undefined; now: number }) {
       <div className="min-w-0 flex-1 space-y-1">
         <div className="flex flex-wrap items-center gap-2">
           <GitBranch className="size-4 text-accent" aria-hidden="true" />
-          <h2 className="text-sm font-medium text-fg">flux-system</h2>
-          <span className="text-xs text-muted">GitRepository</span>
+          <h2 className="text-sm font-medium text-fg">{source.name}</h2>
+          <span className="text-xs text-muted">
+            {source.kind} · {source.namespace}
+          </span>
           {obj &&
             (obj.suspended ? (
               <span className="rounded-full border border-line px-2 py-0.5 text-xs text-muted">
@@ -155,15 +184,7 @@ function Banner({ obj, now }: { obj: FluxObj | undefined; now: number }) {
               />
             ))}
         </div>
-        <p className={cn("text-sm font-medium", verified ? "text-ok" : "text-crit")}>
-          {!obj
-            ? "flux-system source not found"
-            : obj.verified === undefined
-              ? "Source verification missing: no SourceVerified condition"
-              : verified
-                ? "Source verified: commit signature checked"
-                : "Source NOT verified: commit signature check failed"}
-        </p>
+        <p className={cn("text-sm font-medium", ok ? "text-ok" : "text-crit")}>{text}</p>
         <p className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted">
           <span>
             Revision{" "}
@@ -178,12 +199,14 @@ function Banner({ obj, now }: { obj: FluxObj | undefined; now: number }) {
           )}
         </p>
       </div>
-      <ReconcileButton
-        kind="GitRepository"
-        namespace="flux-system"
-        name="flux-system"
-        label="Reconcile"
-      />
+      {canReconcile && (
+        <ReconcileButton
+          kind={source.kind}
+          namespace={source.namespace}
+          name={source.name}
+          label="Reconcile"
+        />
+      )}
     </Panel>
   );
 }
@@ -191,10 +214,12 @@ function Banner({ obj, now }: { obj: FluxObj | undefined; now: number }) {
 function FluxTable({
   items,
   showVerified,
+  canReconcile,
   now,
 }: {
   items: FluxObj[];
   showVerified: boolean;
+  canReconcile: boolean;
   now: number;
 }) {
   if (items.length === 0) return <Empty>Nothing matches.</Empty>;
@@ -263,7 +288,9 @@ function FluxTable({
             </TableCell>
             <TableCell>
               <div className="flex items-center justify-end gap-0.5">
-                <ReconcileButton kind={o.kind} namespace={o.namespace} name={o.name} />
+                {canReconcile && (
+                  <ReconcileButton kind={o.kind} namespace={o.namespace} name={o.name} />
+                )}
                 <HeadlampIcon links={o.links} />
               </div>
             </TableCell>
@@ -292,7 +319,8 @@ function Counter({
 }
 
 export function GitOpsPage() {
-  const env = useTopic("flux");
+  const env = useTopic("flux.objects");
+  const canReconcile = useActionAvailable("flux", "reconcile");
   const data = env?.data;
   const now = useNow(30_000).getTime();
   const [q, setQ] = useQueryParam("q");
@@ -311,9 +339,7 @@ export function GitOpsPage() {
     } satisfies Record<TabKey, FluxObj[]>;
   }, [data, needle]);
 
-  const flux = data?.sources.find(
-    (s) => s.namespace === "flux-system" && s.name === "flux-system" && s.kind === "GitRepository",
-  );
+  const verifiedSources = data?.verifiedSources ?? [];
   const active = lists?.[tab] ?? [];
   const ready = active.filter((o) => !o.suspended && o.ready).length;
   const suspended = active.filter((o) => o.suspended).length;
@@ -321,9 +347,29 @@ export function GitOpsPage() {
 
   return (
     <Page>
-      <Reveal index={0}>
-        {data ? <Banner obj={flux} now={now} /> : <PanelSkeleton lines={1} />}
-      </Reveal>
+      {!data ? (
+        <Reveal index={0}>
+          <PanelSkeleton lines={1} />
+        </Reveal>
+      ) : (
+        verifiedSources.length > 0 && (
+          <Reveal index={0}>
+            <div className="space-y-3">
+              {verifiedSources.map((s) => (
+                <Banner
+                  key={`${s.kind}/${s.namespace}/${s.name}`}
+                  source={s}
+                  obj={data.sources.find(
+                    (o) => o.kind === s.kind && o.namespace === s.namespace && o.name === s.name,
+                  )}
+                  now={now}
+                  canReconcile={canReconcile}
+                />
+              ))}
+            </div>
+          </Reveal>
+        )
+      )}
       <Reveal index={1}>
         {!data || !lists ? (
           <PanelSkeleton lines={8} />
@@ -372,7 +418,12 @@ export function GitOpsPage() {
               </div>
               {TABS.map((t) => (
                 <TabsContent key={t} value={t}>
-                  <FluxTable items={lists[t]} showVerified={t === "sources"} now={now} />
+                  <FluxTable
+                    items={lists[t]}
+                    showVerified={t === "sources"}
+                    canReconcile={canReconcile}
+                    now={now}
+                  />
                 </TabsContent>
               ))}
             </Tabs>

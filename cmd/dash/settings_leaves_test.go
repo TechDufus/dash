@@ -13,6 +13,7 @@ import (
 	"github.com/TechDufus/dash/internal/plugin"
 	"github.com/TechDufus/dash/internal/plugin/plugintest"
 	"github.com/TechDufus/dash/internal/pluginconf"
+	"github.com/TechDufus/dash/internal/plugins/flux"
 	"github.com/TechDufus/dash/internal/plugins/hardware"
 	"github.com/TechDufus/dash/internal/plugins/kubernetes"
 	"github.com/TechDufus/dash/internal/plugins/proxmox"
@@ -88,6 +89,23 @@ func kubernetesLeaves() []reachLeaf {
 		{"plugins.kubernetes.apps.excludeNamespaces", `["ops","scratch"]`, `["ops"]`},
 		{"plugins.kubernetes.apps.annotationPrefix", "apps.example.com/", "apps.example.org"},
 		{"plugins.kubernetes.apps.ingress", "true", "false"},
+	}
+}
+
+// fluxLeaves is every setting of plugins.flux. The values never reach a cluster: the test starts
+// a fake that records the plugin's configuration. requireWhenSpecVerify defaults to true, so the
+// environment value is the non-default one.
+func fluxLeaves() []reachLeaf {
+	return []reachLeaf{
+		{"plugins.flux.type", "flux", ""},
+		{"plugins.flux.enabled", "true", ""},
+		{"plugins.flux.suspendReasonAnnotation", "example.com/suspended", "example.com/suspended-2"},
+		{"plugins.flux.verify.requireWhenSpecVerify", "false", "true"},
+		{"plugins.flux.verify.sources",
+			`[{"kind":"GitRepository","namespace":"gitops","name":"fleet"},{"kind":"OCIRepository","namespace":"gitops","name":"charts"}]`,
+			`[{"kind":"GitRepository","namespace":"gitops","name":"fleet"}]`},
+		{"plugins.flux.actions.enabled", "true", "false"},
+		{"plugins.flux.actions.denyNamespaces", `["kube-system","secrets"]`, `["kube-system"]`},
 	}
 }
 
@@ -233,6 +251,13 @@ func TestPR3aSettingsReachThePlugin(t *testing.T) {
 	settingsReachThePlugin(t, "kubernetes", kubernetesLeaves(), kubernetes.New())
 }
 
+// Every setting of plugins.flux arrives in the configuration the plugin is started with, and a
+// reload of the file layer restarts the instance with the new value. cnpg and rustfs rows come
+// with their plugins.
+func TestPR3bSettingsReachThePlugin(t *testing.T) {
+	settingsReachThePlugin(t, "flux", fluxLeaves(), flux.New())
+}
+
 // settingsReachThePlugin is the check of one section against its table of leaves: the table
 // covers every environment variable of the section (a new key without a row fails), the leaf under
 // test comes from the file layer while the others come from the environment, and the plugin's
@@ -274,6 +299,16 @@ func settingsReachThePlugin(t *testing.T, id plugin.ID, leaves []reachLeaf, pl p
 		}
 		allSet(t, "plugins.hardware.hosts", reflect.ValueOf(hosts))
 		allSet(t, "plugins.hardware.machines", reflect.ValueOf(machines))
+	case "flux":
+		var pins []pluginconf.VerifySource
+		for _, l := range leaves {
+			if l.path == "plugins.flux.verify.sources" {
+				if err := json.Unmarshal([]byte(l.env), &pins); err != nil {
+					t.Fatalf("%s: %v", l.path, err)
+				}
+			}
+		}
+		allSet(t, "plugins.flux.verify.sources", reflect.ValueOf(pins))
 	case "kubernetes":
 		var jobs []pluginconf.BackupJob
 		var gateways []pluginconf.AppsGateway

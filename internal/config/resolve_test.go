@@ -64,7 +64,6 @@ func TestFileLoadsIntoConfig(t *testing.T) {
 		Listen: "0.0.0.0:9090", HealthListen: "127.0.0.1:9091", PublicURL: "https://dash.example.com",
 		AllowedHosts: []string{"media.example.com", "192.0.2.10"}, ReadyRequires: []string{"kubernetes", "flux"}, ReadyTimeout: 2 * time.Minute,
 		DataDir: "/var/lib/dash", SettingsUI: SettingsReadOnly, Limits: defaultLimits,
-		Conventions: Conventions{SuspendReasonAnnotation: "example.com/suspended"},
 	}
 	if !reflect.DeepEqual(res.Config, want) {
 		t.Errorf("Config =\n%+v\nwant\n%+v", res.Config, want)
@@ -74,6 +73,9 @@ func TestFileLoadsIntoConfig(t *testing.T) {
 		k.Conventions.TenantLabel != "example.com/tenant" || k.Conventions.AppsFluxPrefix != "apps-" ||
 		!reflect.DeepEqual(k.BackupJobs, []pluginconf.BackupJob{{Namespace: "backup", CronJob: "nightly"}}) {
 		t.Errorf("plugins.kubernetes = %+v", k)
+	}
+	if got := res.Tree.Plugins.Flux.SuspendReasonAnnotation; got != "example.com/suspended" {
+		t.Errorf("plugins.flux.suspendReasonAnnotation = %q", got)
 	}
 	if p := res.Tree.Plugins.Proxmox; p.URL != "https://pve.example.com:8006" || p.Node != "pve" || p.TokenID != "dash@pve!dash" || p.TokenSecret.Reveal() != "s3cret" {
 		t.Errorf("plugins.proxmox = %+v", p)

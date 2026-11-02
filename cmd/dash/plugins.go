@@ -4,7 +4,6 @@ import (
 	"context"
 	"maps"
 	"net/http"
-	"slices"
 	"strings"
 
 	"github.com/TechDufus/dash/internal/config"
@@ -12,6 +11,7 @@ import (
 	"github.com/TechDufus/dash/internal/plugin"
 	"github.com/TechDufus/dash/internal/pluginconf"
 	"github.com/TechDufus/dash/internal/plugins/alertmanager"
+	"github.com/TechDufus/dash/internal/plugins/flux"
 	"github.com/TechDufus/dash/internal/plugins/gatus"
 	"github.com/TechDufus/dash/internal/plugins/grafana"
 	"github.com/TechDufus/dash/internal/plugins/hardware"
@@ -23,7 +23,6 @@ import (
 	"github.com/TechDufus/dash/internal/plugins/victorialogs"
 	"github.com/TechDufus/dash/internal/secret"
 	"github.com/TechDufus/dash/internal/settings"
-	"github.com/TechDufus/dash/internal/topics"
 )
 
 // actionsConfigurer is a section value that sets the action policy of its plugin
@@ -65,16 +64,13 @@ func instanceConfig(sec config.PluginSection) plugin.InstanceConfig {
 	return ic
 }
 
-// displayOrder is the order plugins are listed in (design A.1). It is kept here, and not read
-// off the legacy manifests, because a plugin that moves out of the Manager deletes its shim.
+// displayOrder is the order plugins are listed in (design A.1).
 var displayOrder = []plugin.ID{
 	"prometheus", "alertmanager", "gatus", "victorialogs", "proxmox", "hardware", "kubernetes", "flux",
 	"grafana", "headlamp", "launcher",
 }
 
-// realPlugins are the plugins that run as plugins of their own, by id. An integration that has
-// moved out of the Manager adds its factory here and its shim leaves topics.legacyManifests;
-// until then it is absent and the shim stands in. The kubernetes entry reads no k8s: reference
+// realPlugins are the plugins that run, by id. The kubernetes entry reads no k8s: reference
 // (manifests, routes, settings): registry swaps in the one that does.
 var realPlugins = map[plugin.ID]plugin.Factory{
 	"prometheus":   prometheus.New,
@@ -84,13 +80,14 @@ var realPlugins = map[plugin.ID]plugin.Factory{
 	"proxmox":      proxmox.New,
 	"hardware":     hardware.New,
 	"kubernetes":   kubernetes.New,
+	"flux":         flux.New,
 	"grafana":      grafana.New,
 	"headlamp":     headlamp.New,
 	"launcher":     launcher.New,
 }
 
 // hasRealPlugin reports whether id runs as a plugin of its own, so demo mode registers its twin
-// (the plugin's Demo) and not a stand-in shim.
+// (the plugin's Demo).
 func hasRealPlugin(id plugin.ID) bool {
 	_, ok := realPlugins[id]
 	return ok
@@ -98,66 +95,40 @@ func hasRealPlugin(id plugin.ID) bool {
 
 // builtinManifests are the manifests of every plugin dash ships, in display order, without
 // starting any of them.
-func builtinManifests() []plugin.Manifest { return manifestsOf(realPlugins, topics.LegacyManifests()) }
+func builtinManifests() []plugin.Manifest { return manifestsOf(realPlugins) }
 
-// manifestsOf is builtinManifests for a given set of real plugins and legacy manifests.
-func manifestsOf(impl map[plugin.ID]plugin.Factory, legacy []plugin.Manifest) []plugin.Manifest {
-	byID := make(map[plugin.ID]plugin.Manifest, len(legacy))
-	ids := make([]plugin.ID, len(legacy))
-	for i, m := range legacy {
-		byID[m.ID], ids[i] = m, m.ID
-	}
+// manifestsOf is builtinManifests for a given set of plugins.
+func manifestsOf(impl map[plugin.ID]plugin.Factory) []plugin.Manifest {
 	var out []plugin.Manifest
-	for _, id := range inDisplayOrder(impl, ids) {
-		if f, ok := impl[id]; ok {
-			out = append(out, f().Manifest())
-		} else {
-			out = append(out, byID[id])
-		}
+	for _, id := range inDisplayOrder(impl) {
+		out = append(out, impl[id]().Manifest())
 	}
 	return out
 }
 
-// registry is the plugins to Add to the supervisor, in display order: per id the real factory
-// when there is one, else its shim out of shims (topics.Manager.Plugins). refs are the k8s:
+// registry is the plugins to Add to the supervisor, in display order. refs are the k8s:
 // references the kubernetes plugin reads (nil: it reads none).
-func registry(shims []plugin.Factory, refs *secret.K8sRefs) []plugin.Factory {
+func registry(refs *secret.K8sRefs) []plugin.Factory {
 	impl := maps.Clone(realPlugins)
 	impl[kubernetes.ID] = kubernetes.Factory(refs)
-	return registryOf(impl, shims)
+	return registryOf(impl)
 }
 
-// registryOf is registry for a given set of real plugins.
-func registryOf(impl map[plugin.ID]plugin.Factory, shims []plugin.Factory) []plugin.Factory {
-	byID := make(map[plugin.ID]plugin.Factory, len(shims))
-	ids := make([]plugin.ID, len(shims))
-	for i, f := range shims {
-		id := f().Manifest().ID
-		byID[id], ids[i] = f, id
-	}
+// registryOf is registry for a given set of plugins.
+func registryOf(impl map[plugin.ID]plugin.Factory) []plugin.Factory {
 	var out []plugin.Factory
-	for _, id := range inDisplayOrder(impl, ids) {
-		if f, ok := impl[id]; ok {
-			out = append(out, f)
-		} else {
-			out = append(out, byID[id])
-		}
+	for _, id := range inDisplayOrder(impl) {
+		out = append(out, impl[id])
 	}
 	return out
 }
 
-// inDisplayOrder lists each id of real and of legacy once: those in displayOrder first, in that
-// order, then any other as legacy gives them. A real plugin outside displayOrder is a bug a
-// test catches, so it is not placed here.
-func inDisplayOrder(impl map[plugin.ID]plugin.Factory, legacy []plugin.ID) []plugin.ID {
+// inDisplayOrder lists the ids of impl that displayOrder names, in that order. A plugin outside
+// displayOrder is a bug a test catches, so it is not placed here.
+func inDisplayOrder(impl map[plugin.ID]plugin.Factory) []plugin.ID {
 	var out []plugin.ID
 	for _, id := range displayOrder {
-		if _, ok := impl[id]; ok || slices.Contains(legacy, id) {
-			out = append(out, id)
-		}
-	}
-	for _, id := range legacy {
-		if !slices.Contains(displayOrder, id) {
+		if _, ok := impl[id]; ok {
 			out = append(out, id)
 		}
 	}

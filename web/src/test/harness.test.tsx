@@ -143,12 +143,12 @@ describe("renderApp", () => {
 
 describe("builders", () => {
   it("pluginInfo fills the wire shape and takes overrides", () => {
-    expect(pluginInfo({ id: "flux", state: "degraded", topics: ["flux"] })).toMatchObject({
+    expect(pluginInfo({ id: "flux", state: "degraded", topics: ["flux.objects"] })).toMatchObject({
       id: "flux",
       type: "flux",
       name: "flux",
       state: "degraded",
-      topics: ["flux"],
+      topics: ["flux.objects"],
       actions: [],
       nav: [],
     });

@@ -14,7 +14,6 @@ import (
 	"github.com/TechDufus/dash/internal/demo/world"
 	"github.com/TechDufus/dash/internal/model"
 	"github.com/TechDufus/dash/internal/plugin"
-	"github.com/TechDufus/dash/internal/topics"
 )
 
 // tick is how often the fixtures drift, so the UI looks live.
@@ -22,8 +21,9 @@ const tick = 5 * time.Second
 
 // Source serves the fixtures to the hub and the API.
 type Source struct {
-	// HasReal reports whether a plugin has a real factory (and so publishes its own demo data
-	// through its twin). Nil means none does. Set it before Plugins.
+	// HasReal reports whether a plugin has a real factory (and so a demo twin of its own). Nothing
+	// reads it any more: every integration is a plugin, and it goes with cmd/dash's hasRealPlugin
+	// in P3.13.
 	HasReal func(id plugin.ID) bool
 
 	world *world.World
@@ -32,36 +32,19 @@ type Source struct {
 	hosts plugin.HostProvider
 }
 
-// New returns a Source anchored at the current time. Call Plugins before Run.
+// New returns a Source anchored at the current time. Call Attach before Run.
 func New(cfg config.Config) *Source {
 	s := &Source{start: time.Now(), now: time.Now}
 	s.world = world.New(func() time.Time { return s.now() }, s.start, newLinks())
 	return s
 }
 
-// Plugins returns the demo shims of the legacy manifests, all healthy: the demo has nothing to
-// poll. Unlike the production shims they can be switched off and on at runtime. Each topic is
-// published through the Host of its plugin in hosts (the supervisor they are added to), so
-// disabling a plugin in demo mode removes its topics like it does for real. A plugin for which
-// HasReal reports a factory is left out and its topics are not published here: its demo twin
-// builds them from the world, so a twin and a shim never both register.
-func (s *Source) Plugins(hosts plugin.HostProvider) []plugin.Factory {
-	s.hosts = hosts
-	ms := topics.LegacyManifests()
-	out := make([]plugin.Factory, 0, len(ms))
-	for _, m := range ms {
-		if s.real(m.ID) {
-			continue
-		}
-		out = append(out, func() plugin.Plugin { return demoPlugin{m} })
-	}
-	return out
-}
+// Attach records the host provider the overview is published through (the supervisor the
+// plugins are added to). Every integration is a plugin with a demo twin of its own, so the
+// Source registers none.
+func (s *Source) Attach(hosts plugin.HostProvider) { s.hosts = hosts }
 
-// real reports whether the plugin has a real factory, and with it a demo twin.
-func (s *Source) real(id plugin.ID) bool { return s.HasReal != nil && s.HasReal(id) }
-
-// Run publishes every topic now and again on each tick until ctx ends; it does not block. Plugins
+// Run publishes the overview now and again on each tick until ctx ends; it does not block. Attach
 // must have been called.
 func (s *Source) Run(ctx context.Context) {
 	s.publish()
@@ -80,7 +63,7 @@ func (s *Source) Run(ctx context.Context) {
 }
 
 func (s *Source) publish() {
-	w := s.build()
+	w := s.world.Build()
 	at := s.now()
 	src := func(names ...string) []model.SourceStatus {
 		out := make([]model.SourceStatus, len(names))
@@ -89,12 +72,13 @@ func (s *Source) publish() {
 		}
 		return out
 	}
-	// The alertmanager, hardware, kubernetes and proxmox plugins' KPIs are on the overview while
-	// their twins run, and so are the proxmox VMs, the hardware host and the kubernetes groups in
-	// its topology (and the kubernetes attention items). Their source chips are the twin's own,
-	// except hardware's: the fake host's series come from the victoriametrics chip every overview
-	// has. The cluster, storage and apps topics are the kubernetes twin's to publish.
-	ov, ovSrcs := w.overview, src("victoriametrics")
+	// The alertmanager, flux, hardware, kubernetes and proxmox plugins' KPIs are on the overview
+	// while their twins run, and so are the proxmox VMs, the hardware host and the kubernetes groups
+	// in its topology (and the kubernetes and flux attention items). Their source chips are the
+	// twin's own (each name once: flux reads the cluster through the same "kubernetes" chip as the
+	// kubernetes plugin), except hardware's: the fake host's series come from the victoriametrics
+	// chip every overview has. The topics of every plugin are its twin's to publish.
+	ov, ovSrcs := w.Overview, src("victoriametrics")
 	for _, twin := range []struct {
 		id    plugin.ID
 		chips []string
@@ -107,45 +91,31 @@ func (s *Source) publish() {
 			o.Topology.Groups = []model.TopologyGroup{}
 			o.Attention = slices.DeleteFunc(slices.Clone(o.Attention), func(a model.AttentionItem) bool { return a.Plugin == "kubernetes" })
 		}},
+		{"flux", []string{"kubernetes"}, func(o *model.OverviewData) {
+			o.Attention = slices.DeleteFunc(slices.Clone(o.Attention), func(a model.AttentionItem) bool { return a.Plugin == "flux" })
+		}},
 	} {
 		if s.hosts.Running(twin.id) {
-			ovSrcs = append(ovSrcs, src(twin.chips...)...)
+			for _, c := range src(twin.chips...) {
+				if !slices.ContainsFunc(ovSrcs, func(have model.SourceStatus) bool { return have.Name == c.Name }) {
+					ovSrcs = append(ovSrcs, c)
+				}
+			}
 			continue
 		}
 		ov.KPIList = slices.DeleteFunc(slices.Clone(ov.KPIList), func(k model.KPI) bool { return k.Plugin == string(twin.id) })
 		twin.drop(&ov)
 	}
-	for _, p := range []struct {
-		topic model.Topic
-		data  any
-		srcs  []model.SourceStatus
-	}{
-		{model.TopicOverview, ov, ovSrcs},
-		{model.TopicFlux, w.flux, src("kubernetes")},
-	} {
-		if id, local, ok := topics.Owner(p.topic); ok {
-			if s.hosts.Running(id) && !s.real(id) { // a disabled plugin publishes nothing; a twin publishes for itself
-				s.hosts.HostFor(id).Publish(local, p.data, p.srcs)
-			}
-		} else {
-			s.hosts.HostFor(plugin.Core).Publish(strings.TrimPrefix(string(p.topic), string(plugin.Core)+"."), p.data, p.srcs)
-		}
-	}
+	s.hosts.HostFor(plugin.Core).Publish(strings.TrimPrefix(string(model.TopicOverview), string(plugin.Core)+"."), ov, ovSrcs)
 }
 
-// Wrap signs every request in as the user "demo" and answers the legacy flux reconcile route with
-// 202 without doing anything, since demo mode has no cluster to patch. The restart action is the
-// kubernetes twin's (a framework action), and the retired /api/actions/restart is not answered here.
+// Wrap signs every request in as the user "demo". Everything else is the API's own: the actions
+// are the plugins' (their twins fake them), and the retired /api/actions/* routes answer 404 here
+// as they do in production.
 func Wrap(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("X-Forwarded-User") == "" {
 			r.Header.Set("X-Forwarded-User", "demo")
-		}
-		if r.Method == http.MethodPost && r.URL.Path == "/api/actions/reconcile" {
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusAccepted)
-			_, _ = w.Write([]byte(`{"status":"accepted"}` + "\n"))
-			return
 		}
 		next.ServeHTTP(w, r)
 	})

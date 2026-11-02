@@ -11,11 +11,12 @@ import (
 )
 
 // The environment of the homelab deployment, one file per release, relative to this package: the
-// lists TestDeploymentEnvV08 and TestDeploymentEnvV09 load and cmd/dash's
+// lists TestDeploymentEnvV08, TestDeploymentEnvV09 and TestDeploymentEnvV010 load and cmd/dash's
 // TestDeploymentEnvReachesThePlugins reads too.
 const (
-	deploymentEnvFileV08 = "testdata/deployment-v0.8.0.env"
-	deploymentEnvFileV09 = "testdata/deployment-v0.9.0.env"
+	deploymentEnvFileV08  = "testdata/deployment-v0.8.0.env"
+	deploymentEnvFileV09  = "testdata/deployment-v0.9.0.env"
+	deploymentEnvFileV010 = "testdata/deployment-v0.10.0.env"
 )
 
 // deploymentEnv reads NAME=value lines (blank lines and # comments skipped, the value verbatim).
@@ -57,6 +58,42 @@ func TestDeploymentEnvV09(t *testing.T) {
 	if err != nil {
 		t.Fatalf("the v0.9.0 environment does not load: %v", err)
 	}
+	assertHomelabEnvV09(t, res)
+}
+
+// TestDeploymentEnvV010 is the v0.9.0 environment plus what v0.10.0 adds (contract 10.4): the
+// Flux Reconcile action and the one source that must be signed. Everything v0.9.0 resolved to still
+// holds, the flux section is otherwise at its defaults (spec.verify is enforced, no namespace is
+// denied), and each new variable has its pinned value.
+func TestDeploymentEnvV010(t *testing.T) {
+	res, err := Resolve(Sources{Environ: deploymentEnv(t, deploymentEnvFileV010)})
+	if err != nil {
+		t.Fatalf("the v0.10.0 environment does not load: %v", err)
+	}
+	assertHomelabEnvV09(t, res)
+
+	f := res.Tree.Plugins.Flux
+	for _, row := range []struct {
+		path      string
+		got, want any
+	}{
+		{"plugins.flux.actions.enabled", f.Actions.Enabled, true},
+		{"plugins.flux.verify.sources", f.Verify.Sources, []pluginconf.VerifySource{{Kind: "GitRepository", Namespace: "flux-system", Name: "flux-system"}}},
+		// The v0.9.0 variable keeps its value, and what the deployment leaves alone stays at the default.
+		{"plugins.flux.suspendReasonAnnotation", f.SuspendReasonAnnotation, "example.com/suspended"},
+		{"plugins.flux.verify.requireWhenSpecVerify", f.Verify.RequireWhenSpecVerify, true},
+		{"plugins.flux.actions.denyNamespaces", len(f.Actions.DenyNamespaces), 0},
+	} {
+		if !reflect.DeepEqual(row.got, row.want) {
+			t.Errorf("%s = %#v, want %#v", row.path, row.got, row.want)
+		}
+	}
+}
+
+// assertHomelabEnvV09 asserts what the v0.9.0 environment resolves to; the v0.10.0 environment
+// keeps all of it.
+func assertHomelabEnvV09(t *testing.T, res *Resolved) {
+	t.Helper()
 	assertHomelabEnvV08(t, res)
 
 	k := res.Tree.Plugins.Kubernetes
@@ -140,7 +177,7 @@ func assertHomelabEnvV08(t *testing.T, res *Resolved) {
 	// kubernetes conventions and backup CronJob moved onto the plugin's keys.
 	k := p.Kubernetes
 	if k.Conventions.ProtectedLabel != "example.com/protected" || k.Conventions.TenantLabel != "example.com/tenant" ||
-		k.Conventions.AppsFluxPrefix != "apps-" || res.Config.Conventions.SuspendReasonAnnotation != "example.com/suspended" ||
+		k.Conventions.AppsFluxPrefix != "apps-" || p.Flux.SuspendReasonAnnotation != "example.com/suspended" ||
 		len(k.BackupJobs) != 1 || k.BackupJobs[0].Namespace != "backup" || k.BackupJobs[0].CronJob != "nightly" {
 		t.Errorf("conventions = %+v, backup jobs = %+v", k.Conventions, k.BackupJobs)
 	}

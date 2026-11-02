@@ -12,9 +12,6 @@ import (
 	"testing"
 	"time"
 
-	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
-	"k8s.io/apimachinery/pkg/runtime/schema"
-
 	"github.com/TechDufus/dash/internal/api"
 	"github.com/TechDufus/dash/internal/config"
 	"github.com/TechDufus/dash/internal/demo"
@@ -25,11 +22,10 @@ import (
 	"github.com/TechDufus/dash/internal/pluginconf"
 	"github.com/TechDufus/dash/internal/plugins/launcher"
 	"github.com/TechDufus/dash/internal/secret"
-	"github.com/TechDufus/dash/internal/svc"
 	"github.com/TechDufus/dash/internal/topics"
 )
 
-// Every plugins.* section of the tree is an instance, of the type its shim's Config returns.
+// Every plugins.* section of the tree is an instance, of the type its plugin's Config returns.
 func TestTreeSettingsListsEverySectionOnce(t *testing.T) {
 	off := false
 	tree := config.DefaultTree()
@@ -72,31 +68,6 @@ func TestBuiltinManifestsAreTheElevenInDisplayOrder(t *testing.T) {
 	}
 }
 
-// emptyCluster is a svc.Cluster with nothing in it, every resource listed at once.
-type emptyCluster struct{}
-
-func (*emptyCluster) Synced() bool                                       { return true }
-func (*emptyCluster) Has(schema.GroupVersionResource) bool               { return true }
-func (*emptyCluster) Listed(schema.GroupVersionResource) bool            { return true }
-func (*emptyCluster) FailedGroups() []schema.GroupVersion                { return nil }
-func (*emptyCluster) Refused(schema.GroupVersionResource) (string, bool) { return "", false }
-func (*emptyCluster) Watch(...schema.GroupVersionResource)               {}
-func (*emptyCluster) GVRRevision(...schema.GroupVersionResource) uint64  { return 1 }
-func (*emptyCluster) List(schema.GroupVersionResource) []*unstructured.Unstructured {
-	return nil
-}
-func (*emptyCluster) Patch(context.Context, schema.GroupVersionResource, string, string, []byte) error {
-	return nil
-}
-
-var _ svc.Cluster = (*emptyCluster)(nil)
-
-// testCluster is the accessor of an empty cluster that is always there.
-func testCluster() func() (svc.Cluster, bool) {
-	c := &emptyCluster{}
-	return func() (svc.Cluster, bool) { return c, true }
-}
-
 // loadFramework loads the configuration of the environment the way run does and builds the
 // framework around it. The reloader polls every millisecond.
 func loadFramework(t *testing.T) (*framework, *config.Resolved) {
@@ -110,23 +81,21 @@ func loadFramework(t *testing.T) (*framework, *config.Resolved) {
 }
 
 // The framework as run starts it: Supervisor.Run returns before Manager.Run starts, so the
-// Manager's first publishes find every Host running and none is dropped. Everything the Manager
-// publishes arrives, and the shims are live, and restart-only.
+// Manager's first publishes find every Host running and none is dropped. The overview the Manager
+// composes from what a running plugin contributes arrives, and the plugin follows its section live.
 func TestFrameworkStartOrderPublishesFirstPoll(t *testing.T) {
 	startEnv(t, t.TempDir())
-	fw, res := loadFramework(t)
-	cfg := res.Config
-	mgr := topics.New(topics.Deps{
-		Cfg: cfg, Cluster: testCluster(), Hosts: fw.sup, Contributors: fw.sup.Contributors,
-	})
+	fw, _ := loadFramework(t)
+	mgr := topics.New(topics.Deps{Hosts: fw.sup, Contributors: fw.sup.Contributors})
+	fluxFake := plugintest.New("flux", plugintest.Config(func() any { return &pluginconf.Flux{} }))
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	if err := fw.start(ctx, mgr.Plugins(), func() { mgr.Run(ctx) }); err != nil {
+	if err := fw.start(ctx, []plugin.Factory{fluxFake.Factory()}, func() { mgr.Run(ctx) }); err != nil {
 		t.Fatal(err)
 	}
 	defer fw.sup.Shutdown(context.Background())
 
-	want := []string{"core.plugins", "core.overview", "flux"}
+	want := []string{"core.plugins", "core.overview"}
 	deadline := time.Now().Add(5 * time.Second)
 	for {
 		snap, _, cancelSub := fw.hub.Subscribe("", nil)
@@ -144,8 +113,8 @@ func TestFrameworkStartOrderPublishesFirstPoll(t *testing.T) {
 		time.Sleep(10 * time.Millisecond)
 	}
 
-	if fw.sup.Live("plugins.flux") {
-		t.Error("the flux shim's section applies live, but only a restart can change the Manager")
+	if !fw.sup.Live("plugins.flux") {
+		t.Error("the flux section does not apply live, but flux is a plugin that follows it")
 	}
 	for _, in := range fw.sup.Infos() {
 		if in.State == model.PluginDisabled || in.State == model.PluginError || in.State == model.PluginBlocked {
@@ -156,37 +125,40 @@ func TestFrameworkStartOrderPublishesFirstPoll(t *testing.T) {
 
 // The reloader and the supervisor as run joins them: a changed plugins.<id> section of a plugin
 // that can be reconfigured reaches it in-process (Subscribe -> Reload) and is not reported as
-// needing a restart (the Live hook), while a section nothing applies live still is.
+// needing a restart (the Live hook), while a setting that is only read at startup (server.*) still
+// is. flux is one of the plugins that follow their section.
 func TestFrameworkAppliesLiveSectionsAndReportsTheRest(t *testing.T) {
 	dir := t.TempDir()
 	cfgPath := filepath.Join(dir, "config.yaml")
-	files := func(headlamp, flux string) string {
-		return "plugins:\n  headlamp:\n    url: " + headlamp + "\n  flux:\n    suspendReasonAnnotation: " + flux + "\n"
+	files := func(headlamp, flux, streams string) string {
+		return "plugins:\n  headlamp:\n    url: " + headlamp + "\n  flux:\n    suspendReasonAnnotation: " + flux + "\nserver:\n  limits:\n    streams: " + streams + "\n"
 	}
-	writeTestFile(t, cfgPath, files("https://hl-a.example.com", "example.com/a"))
+	writeTestFile(t, cfgPath, files("https://hl-a.example.com", "example.com/a", "100"))
 	startEnv(t, dir, "DASH_CONFIG="+cfgPath)
 	fw, _ := loadFramework(t)
 
-	// headlamp is a plugin that follows its section; flux has no plugin in this framework (it is
-	// the Manager's, which only a restart changes).
 	headlamp := plugintest.New("headlamp", plugintest.Config(func() any { return &pluginconf.Headlamp{} }))
+	fluxFake := plugintest.New("flux", plugintest.Config(func() any { return &pluginconf.Flux{} }))
 	ctx, cancel := context.WithCancel(context.Background())
-	if err := fw.start(ctx, []plugin.Factory{headlamp.Factory()}, func() {}); err != nil {
+	if err := fw.start(ctx, []plugin.Factory{headlamp.Factory(), fluxFake.Factory()}, func() {}); err != nil {
 		t.Fatal(err)
 	}
 	done := make(chan struct{})
 	go func() { defer close(done); fw.reloader.Run(ctx) }()
 	defer func() { cancel(); <-done; fw.sup.Shutdown(context.Background()) }()
-	waitFor(t, func() bool { return headlamp.Starts() == 1 })
+	waitFor(t, func() bool { return headlamp.Starts() == 1 && fluxFake.Starts() == 1 })
 
-	writeTestFile(t, cfgPath, files("https://hl-b.example.com", "example.com/b"))
-	waitFor(t, func() bool { return headlamp.Starts() == 2 })
+	writeTestFile(t, cfgPath, files("https://hl-b.example.com", "example.com/b", "200"))
+	waitFor(t, func() bool { return headlamp.Starts() == 2 && fluxFake.Starts() == 2 })
 	if got := headlamp.Config().(*pluginconf.Headlamp).URL; got != "https://hl-b.example.com" {
 		t.Errorf("the plugin restarted with %q, want the new section", got)
 	}
+	if got := fluxFake.Config().(*pluginconf.Flux).SuspendReasonAnnotation; got != "example.com/b" {
+		t.Errorf("flux restarted with suspendReasonAnnotation %q, want the new section", got)
+	}
 	waitFor(t, func() bool { return len(fw.reloader.RestartRequired()) > 0 })
-	if got := fw.reloader.RestartRequired(); !slices.Equal(got, []string{"plugins.flux.suspendReasonAnnotation"}) {
-		t.Errorf("restart required = %v, want only the section no plugin applies", got)
+	if got := fw.reloader.RestartRequired(); !slices.Equal(got, []string{"server.limits.streams"}) {
+		t.Errorf("restart required = %v, want only the startup setting", got)
 	}
 }
 
@@ -208,7 +180,8 @@ func TestDemoSeriesComeFromThePrometheusTwin(t *testing.T) {
 	src.HasReal = hasRealPlugin
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	if err := fw.start(ctx, registry(src.Plugins(fw.sup), nil), func() { src.Run(ctx) }); err != nil {
+	src.Attach(fw.sup)
+	if err := fw.start(ctx, registry(nil), func() { src.Run(ctx) }); err != nil {
 		t.Fatal(err)
 	}
 	defer fw.sup.Shutdown(context.Background())
@@ -227,8 +200,7 @@ func TestDemoSeriesComeFromThePrometheusTwin(t *testing.T) {
 }
 
 // Demo mode publishes the launcher's links through the launcher plugin's demo twin, after every
-// other topic (the launcher comes last in the display order), and the shim of the Manager
-// registers nothing under that name.
+// other topic (the launcher comes last in the display order); the flux twin's topic is flux.objects.
 func TestDemoPublishesTheLauncherLinksLast(t *testing.T) {
 	startEnv(t, t.TempDir(), "DASH_DEMO=true")
 	res, store, err := loadConfig(secret.NewRegistry(), nil)
@@ -243,12 +215,13 @@ func TestDemoPublishesTheLauncherLinksLast(t *testing.T) {
 	src.HasReal = hasRealPlugin
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	if err := fw.start(ctx, registry(src.Plugins(fw.sup), nil), func() { src.Run(ctx) }); err != nil {
+	src.Attach(fw.sup)
+	if err := fw.start(ctx, registry(nil), func() { src.Run(ctx) }); err != nil {
 		t.Fatal(err)
 	}
 	defer fw.sup.Shutdown(context.Background())
 
-	want := []string{"core.plugins", "core.overview", "alertmanager.alerts", "gatus.status", "proxmox.vms", "proxmox.node", "proxmox.storage", "hardware.hosts", "hardware.machines", "kubernetes.cluster", "kubernetes.storage", "kubernetes.apps", "flux", "launcher.links"}
+	want := []string{"core.plugins", "core.overview", "alertmanager.alerts", "gatus.status", "proxmox.vms", "proxmox.node", "proxmox.storage", "hardware.hosts", "hardware.machines", "kubernetes.cluster", "kubernetes.storage", "kubernetes.apps", "flux.objects", "launcher.links"}
 	deadline := time.Now().Add(5 * time.Second)
 	for {
 		snap, _, cancelSub := fw.hub.Subscribe("", nil)
@@ -334,8 +307,8 @@ func TestUnreadableLauncherFileMakesTheRowErrorAndNotTheStartup(t *testing.T) {
 	}
 }
 
-// Every plugin that runs on its own says which setting turns it on, so its "not configured" row
-// reads "not configured: set plugins.<id>.…" as the shims' rows did.
+// Every plugin says which setting turns it on, so its "not configured" row
+// reads "not configured: set plugins.<id>.…".
 func TestEveryRealPluginSaysWhatToSet(t *testing.T) {
 	for id, f := range realPlugins {
 		h, ok := f().(plugin.ConfigHinter)

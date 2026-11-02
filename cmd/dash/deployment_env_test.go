@@ -17,6 +17,7 @@ import (
 	"github.com/TechDufus/dash/internal/plugin"
 	"github.com/TechDufus/dash/internal/plugin/plugintest"
 	"github.com/TechDufus/dash/internal/pluginconf"
+	"github.com/TechDufus/dash/internal/plugins/flux"
 	"github.com/TechDufus/dash/internal/plugins/hardware"
 	hwmodel "github.com/TechDufus/dash/internal/plugins/hardware/model"
 	"github.com/TechDufus/dash/internal/plugins/kubernetes"
@@ -25,10 +26,11 @@ import (
 )
 
 // The environment of the homelab deployment, one file per release: the lists that internal/config's
-// TestDeploymentEnvV08 and TestDeploymentEnvV09 and this test read.
+// TestDeploymentEnvV08, TestDeploymentEnvV09 and TestDeploymentEnvV010 and this test read.
 var (
-	deploymentEnvV08 = filepath.Join("..", "..", "internal", "config", "testdata", "deployment-v0.8.0.env")
-	deploymentEnvV09 = filepath.Join("..", "..", "internal", "config", "testdata", "deployment-v0.9.0.env")
+	deploymentEnvV08  = filepath.Join("..", "..", "internal", "config", "testdata", "deployment-v0.8.0.env")
+	deploymentEnvV09  = filepath.Join("..", "..", "internal", "config", "testdata", "deployment-v0.9.0.env")
+	deploymentEnvV010 = filepath.Join("..", "..", "internal", "config", "testdata", "deployment-v0.10.0.env")
 )
 
 func deploymentEnv(t *testing.T, file string) []string {
@@ -49,19 +51,20 @@ func deploymentEnv(t *testing.T, file string) []string {
 	return out
 }
 
-// The deployment environments (contract 10.2 and 10.3) reach the plugins as the deploy needs it:
-// the configuration each is started with carries the settings that changed and the ones that
+// The deployment environments (contract 10.2, 10.3 and 10.4) reach the plugins as the deploy needs
+// it: the configuration each is started with carries the settings that changed and the ones that
 // stayed, the running hardware plugin publishes the host with its layout and the two machines,
-// and the kubernetes plugin gets its conventions and backup CronJob, and the Restart action only
-// from v0.9.0 on.
+// the kubernetes plugin gets its conventions and backup CronJob, and the Restart action only from
+// v0.9.0 on, and the flux plugin gets its pinned source and the Reconcile action only from v0.10.0 on.
 func TestDeploymentEnvReachesThePlugins(t *testing.T) {
-	t.Run("v0.8.0", func(t *testing.T) { deploymentEnvReachesThePlugins(t, deploymentEnvV08, false) })
-	t.Run("v0.9.0", func(t *testing.T) { deploymentEnvReachesThePlugins(t, deploymentEnvV09, true) })
+	t.Run("v0.8.0", func(t *testing.T) { deploymentEnvReachesThePlugins(t, deploymentEnvV08, false, false) })
+	t.Run("v0.9.0", func(t *testing.T) { deploymentEnvReachesThePlugins(t, deploymentEnvV09, true, false) })
+	t.Run("v0.10.0", func(t *testing.T) { deploymentEnvReachesThePlugins(t, deploymentEnvV010, true, true) })
 }
 
-func deploymentEnvReachesThePlugins(t *testing.T, file string, wantRestart bool) {
+func deploymentEnvReachesThePlugins(t *testing.T, file string, wantRestart, wantFlux bool) {
 	// What the environment must resolve to, pinned here and not read back from the file it
-	// checks (internal/config's TestDeploymentEnvV08 and V09 pin the same values).
+	// checks (internal/config's TestDeploymentEnvV08, V09 and V010 pin the same values).
 	wantMachines := []pluginconf.HardwareMachine{
 		{Name: "mac-mini", NodeExporterNodename: "mac-mini"},
 		{Name: "rpi-control", GatusEndpoint: "rpi-control SSH"},
@@ -86,7 +89,7 @@ func deploymentEnvReachesThePlugins(t *testing.T, file string, wantRestart bool)
 		fw, res := loadFramework(t)
 		seen := map[plugin.ID]*plugintest.Fake{}
 		var facts []plugin.Factory
-		for _, real := range []plugin.Plugin{proxmox.New(), hardware.New(), kubernetes.New()} {
+		for _, real := range []plugin.Plugin{proxmox.New(), hardware.New(), kubernetes.New(), flux.New()} {
 			m := real.Manifest()
 			f := plugintest.New(m.ID, plugintest.Config(m.Config))
 			seen[m.ID] = f
@@ -98,7 +101,9 @@ func deploymentEnvReachesThePlugins(t *testing.T, file string, wantRestart bool)
 			t.Fatal(err)
 		}
 		defer fw.sup.Shutdown(context.Background())
-		waitFor(t, func() bool { return seen["proxmox"].Starts() == 1 && seen["hardware"].Starts() == 1 && seen["kubernetes"].Starts() == 1 })
+		waitFor(t, func() bool {
+			return seen["proxmox"].Starts() == 1 && seen["hardware"].Starts() == 1 && seen["kubernetes"].Starts() == 1 && seen["flux"].Starts() == 1
+		})
 		px, ok := seen["proxmox"].Config().(*pluginconf.Proxmox)
 		if !ok {
 			t.Fatalf("proxmox is started with %T", seen["proxmox"].Config())
@@ -138,6 +143,21 @@ func deploymentEnvReachesThePlugins(t *testing.T, file string, wantRestart bool)
 		}
 		if !reflect.DeepEqual(k8s.Apps, wantApps) {
 			t.Errorf("kubernetes start config: apps %+v, want %+v", k8s.Apps, wantApps)
+		}
+		// The flux section: the suspend reason is v0.7.0's, the pinned source and the Reconcile
+		// action are v0.10.0's, and what the deployment leaves alone is at its default.
+		fl, ok := seen["flux"].Config().(*pluginconf.Flux)
+		if !ok {
+			t.Fatalf("flux is started with %T", seen["flux"].Config())
+		}
+		var wantSources []pluginconf.VerifySource
+		if wantFlux {
+			wantSources = []pluginconf.VerifySource{{Kind: "GitRepository", Namespace: "flux-system", Name: "flux-system"}}
+		}
+		if fl.SuspendReasonAnnotation != "example.com/suspended" || !fl.Verify.RequireWhenSpecVerify || !slices.Equal(fl.Verify.Sources, wantSources) ||
+			fl.Actions.Enabled != wantFlux || len(fl.Actions.DenyNamespaces) != 0 {
+			t.Errorf("flux start config: suspend reason %q, verify %+v, actions %+v; want sources %v and actions enabled=%v",
+				fl.SuspendReasonAnnotation, fl.Verify, fl.Actions, wantSources, wantFlux)
 		}
 	})
 

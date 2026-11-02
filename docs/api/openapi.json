@@ -595,9 +595,9 @@
         ],
         "type": "object"
       },
-      "Envelope.flux": {
+      "Envelope.flux.objects": {
         "additionalProperties": false,
-        "description": "The envelope of the flux topic.",
+        "description": "The envelope of the flux.objects topic.",
         "properties": {
           "data": {
             "$ref": "#/components/schemas/FluxData"
@@ -609,7 +609,7 @@
             "type": "array"
           },
           "topic": {
-            "const": "flux"
+            "const": "flux.objects"
           },
           "updatedAt": {
             "format": "date-time",
@@ -1282,24 +1282,6 @@
         },
         "type": "object"
       },
-      "Kpis": {
-        "additionalProperties": false,
-        "properties": {
-          "fluxReady": {
-            "type": "integer"
-          },
-          "fluxSuspended": {
-            "type": "integer"
-          },
-          "fluxTotal": {
-            "type": "integer"
-          },
-          "sourceVerified": {
-            "type": "boolean"
-          }
-        },
-        "type": "object"
-      },
       "LauncherData": {
         "additionalProperties": false,
         "properties": {
@@ -1603,9 +1585,6 @@
               "$ref": "#/components/schemas/KPI"
             },
             "type": "array"
-          },
-          "kpis": {
-            "$ref": "#/components/schemas/Kpis"
           },
           "status": {
             "type": "string"
@@ -2440,6 +2419,21 @@
         },
         "type": "object"
       },
+      "reconcileInput": {
+        "additionalProperties": false,
+        "properties": {
+          "kind": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "namespace": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
       "restartInput": {
         "additionalProperties": false,
         "properties": {
@@ -2709,6 +2703,71 @@
         "x-dash-idempotent": true,
         "x-dash-min-role": "admin",
         "x-dash-scope": "actions:alertmanager"
+      }
+    },
+    "/api/v1/plugins/flux/actions/reconcile": {
+      "post": {
+        "description": "Runs only while the instance is running with actions.enabled set; otherwise 404. A call that passes the role, rate-limit, input and namespace checks is recorded in the audit log before it runs and again with its outcome. A refusal for role, rate limit or denied namespace is recorded as a denial (at most one per peer and reason a minute); a request with an invalid body (400) or for an unknown or unavailable action (404) is not recorded. Every call by a principal with the required role counts against the principal's action rate limit.",
+        "operationId": "flux_reconcile",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/reconcileInput"
+              }
+            }
+          },
+          "description": "The action's input.",
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "The action's result.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/XRequestId"
+              }
+            }
+          },
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "status": {
+                      "const": "accepted"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The action was accepted and has no result.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/XRequestId"
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "summary": "Reconcile",
+        "tags": [
+          "flux"
+        ],
+        "x-dash-confirm": "none",
+        "x-dash-destructive": false,
+        "x-dash-idempotent": true,
+        "x-dash-min-role": "admin",
+        "x-dash-scope": "actions:flux"
       }
     },
     "/api/v1/plugins/kubernetes/actions/restart": {
@@ -3180,7 +3239,7 @@
                       "$ref": "#/components/schemas/Envelope.core.plugins"
                     },
                     {
-                      "$ref": "#/components/schemas/Envelope.flux"
+                      "$ref": "#/components/schemas/Envelope.flux.objects"
                     },
                     {
                       "$ref": "#/components/schemas/Envelope.gatus.status"
@@ -3281,6 +3340,10 @@
     {
       "description": "Alertmanager: Alerts and silences.",
       "name": "alertmanager"
+    },
+    {
+      "description": "Flux: Flux sources, kustomizations and Helm releases.",
+      "name": "flux"
     },
     {
       "description": "Kubernetes: How dash reaches and reads the cluster.",

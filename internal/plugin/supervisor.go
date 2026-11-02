@@ -63,15 +63,14 @@ const (
 // holds the read lock for the whole call to the Publisher: marking an instance not live (the
 // write lock) therefore waits for a Publish in flight, and nothing is published after it.
 type instance struct {
-	id          ID
-	index       int
-	factory     Factory
-	man         Manifest
-	deps        []ID // Requires ∪ Uses, in declaration order, without duplicates
-	cfgType     reflect.Type
-	restartOnly bool
-	hasTwin     bool       // the plugin implements Demo
-	cfgZero     func() any // Manifest.Config, nil when the plugin has no configuration
+	id      ID
+	index   int
+	factory Factory
+	man     Manifest
+	deps    []ID // Requires ∪ Uses, in declaration order, without duplicates
+	cfgType reflect.Type
+	hasTwin bool       // the plugin implements Demo
+	cfgZero func() any // Manifest.Config, nil when the plugin has no configuration
 	// seen is the first-sighting tracker of the instance's attention items. It outlives every
 	// start of the plugin (a reload or a restart keeps the clocks) and is reset only when the
 	// instance is disabled or unconfigured or its Start fails, never when it is blocked: a
@@ -92,7 +91,6 @@ type instance struct {
 	msg         string
 	panicMsg    string // "panic in <name>" after a recovered panic of the running plugin, until the next start
 	failedStart bool   // Start failed with cfg; it is tried again only when cfg or a dependency changes
-	evaluated   bool   // a reconcile has decided this instance once
 	routes      *http.ServeMux
 	loggedState string
 	// loggedPending is what the log last said about the Kubernetes Secrets the instance waits
@@ -183,13 +181,8 @@ func (s *Supervisor) Add(f ...Factory) error {
 	for id, in := range s.byID {
 		byID[id] = in
 	}
-	legacy, series := map[string]ID{}, map[string]ID{}
+	series := map[string]ID{}
 	for _, in := range next {
-		for _, t := range in.man.Topics {
-			if t.Legacy != "" {
-				legacy[t.Legacy] = in.id
-			}
-		}
 		for _, sp := range in.man.Series {
 			series[sp.Name] = in.id
 		}
@@ -208,15 +201,6 @@ func (s *Supervisor) Add(f ...Factory) error {
 		}
 		if prev, dup := byID[in.id]; dup {
 			return fmt.Errorf("plugin: second instance of type %q: factory %d (%q) and factory %d (%q); dash runs one instance per plugin type", in.id, prev.index+1, prev.man.Name, in.index+1, in.man.Name)
-		}
-		for _, t := range in.man.Topics {
-			if t.Legacy == "" {
-				continue
-			}
-			if other, dup := legacy[t.Legacy]; dup {
-				return fmt.Errorf("plugin %s: legacy topic name %q is already used by %s", in.id, t.Legacy, other)
-			}
-			legacy[t.Legacy] = in.id
 		}
 		for _, sp := range in.man.Series {
 			if other, dup := series[sp.Name]; dup {
@@ -244,9 +228,6 @@ func newInstance(f Factory, p Plugin, index int) (*instance, error) {
 		return nil, fmt.Errorf("plugin: invalid id %q: want [a-z][a-z0-9]{1,31}", m.ID)
 	}
 	in := &instance{id: m.ID, index: index, factory: f, probe: p, state: StateStarting}
-	if _, ok := p.(RestartOnly); ok {
-		in.restartOnly = true
-	}
 	if _, ok := p.(Demo); ok {
 		in.hasTwin = true
 	}
@@ -266,20 +247,8 @@ func newInstance(f Factory, p Plugin, index int) (*instance, error) {
 			return nil, fmt.Errorf("plugin %s: duplicate topic %q", m.ID, t.Name)
 		}
 		topics[t.Name] = true
-		if t.Legacy != "" && !topicRE.MatchString(t.Legacy) {
-			return nil, fmt.Errorf("plugin %s: invalid legacy topic name %q: want [a-z][a-z0-9_]{0,31}", m.ID, t.Legacy)
-		}
 	}
 	m.Topics = slices.Clone(m.Topics)
-	legacy := map[string]bool{}
-	for _, t := range m.Topics {
-		if t.Legacy != "" {
-			if legacy[t.Legacy] {
-				return nil, fmt.Errorf("plugin %s: duplicate legacy topic name %q", m.ID, t.Legacy)
-			}
-			legacy[t.Legacy] = true
-		}
-	}
 	actions := map[string]bool{}
 	m.Actions = slices.Clone(m.Actions)
 	for i := range m.Actions {
@@ -776,7 +745,9 @@ func collectPending(path string, v reflect.Value, out *[]pendingSecret) {
 		return
 	case reflect.Map:
 		keys := v.MapKeys()
-		slices.SortFunc(keys, func(a, b reflect.Value) int { return strings.Compare(fmt.Sprint(a.Interface()), fmt.Sprint(b.Interface())) })
+		slices.SortFunc(keys, func(a, b reflect.Value) int {
+			return strings.Compare(fmt.Sprint(a.Interface()), fmt.Sprint(b.Interface()))
+		})
 		for _, k := range keys {
 			collectPending(fmt.Sprintf("%s.%v", path, k.Interface()), v.MapIndex(k), out)
 		}
@@ -862,8 +833,7 @@ func (s *Supervisor) blocker(in *instance) string {
 // It first stops, dependents before dependencies, every running instance whose configuration
 // changed, that is no longer runnable (disabled, unconfigured, blocked), or that depends on
 // an instance being stopped. Then it starts, dependencies first, every instance that is
-// runnable and whose requirements are met. A RestartOnly instance is decided once, at Run, and
-// never touched again.
+// runnable and whose requirements are met.
 func (s *Supervisor) reconcile() {
 	if s.down {
 		return
@@ -886,7 +856,7 @@ func (s *Supervisor) reconcile() {
 
 	stopping := map[*instance]string{}
 	for _, in := range order {
-		if !in.isRunning() || in.restartOnly {
+		if !in.isRunning() {
 			continue
 		}
 		pl := plans[in]
@@ -923,13 +893,9 @@ func (s *Supervisor) reconcile() {
 	started := map[*instance]bool{}
 	for _, in := range order {
 		in.mu.RLock()
-		running, frozen, failed, applied := in.running, in.restartOnly && in.evaluated, in.failedStart, in.cfg
+		running, failed, applied := in.running, in.failedStart, in.cfg
 		in.mu.RUnlock()
-		if frozen {
-			continue
-		}
 		if running {
-			in.setEvaluated()
 			continue
 		}
 		pl := plans[in]
@@ -948,7 +914,6 @@ func (s *Supervisor) reconcile() {
 				retry = retry || (byID[d] != nil && started[byID[d]])
 			}
 			if !retry {
-				in.setEvaluated()
 				continue
 			}
 		}
@@ -958,16 +923,10 @@ func (s *Supervisor) reconcile() {
 	}
 }
 
-func (in *instance) setEvaluated() {
-	in.mu.Lock()
-	in.evaluated = true
-	in.mu.Unlock()
-}
-
 // setNotRunning records the state of an instance that is not (and does not become) running.
 func (s *Supervisor) setNotRunning(in *instance, ic InstanceConfig, st State, msg string) {
 	in.mu.Lock()
-	in.state, in.msg, in.cfg, in.evaluated, in.failedStart = st, msg, ic, true, false
+	in.state, in.msg, in.cfg, in.failedStart = st, msg, ic, false
 	if st == StateDisabled || st == StateUnconfigured {
 		in.seen.Reset()
 	}
@@ -992,7 +951,7 @@ func (s *Supervisor) start(in *instance, ic InstanceConfig) bool {
 	gen := in.gen
 	ctx, cancel := context.WithCancel(s.baseCtx)
 	in.p, in.cancel = p, cancel
-	in.cfg, in.evaluated = ic, true
+	in.cfg = ic
 	in.state, in.msg, in.panicMsg, in.failedStart = StateStarting, "", "", false
 	in.live = true // a plugin publishes from Start or from the goroutines it launches there
 	in.mu.Unlock()
@@ -1141,11 +1100,8 @@ func (s *Supervisor) removeTopics(in *instance) {
 }
 
 // TopicName is the wire name of a topic: the name it is published, listed and removed under,
-// which is its Legacy name if it has one and "<plugin>.<name>" otherwise.
+// "<plugin>.<name>".
 func TopicName(id ID, t TopicSpec) model.Topic {
-	if t.Legacy != "" {
-		return model.Topic(t.Legacy)
-	}
 	return model.Topic(string(id) + "." + t.Name)
 }
 
@@ -1170,8 +1126,7 @@ func (s *Supervisor) Shutdown(ctx context.Context) {
 	}
 }
 
-// Live reports whether a change to "plugins.<id>" is applied in-process (an instance exists
-// and is not RestartOnly). It is config.ReloadOptions.Live.
+// Live reports whether a change to "plugins.<id>" is applied in-process (an instance exists).
 func (s *Supervisor) Live(section string) bool {
 	const prefix = "plugins."
 	if len(section) <= len(prefix) || section[:len(prefix)] != prefix {
@@ -1180,7 +1135,7 @@ func (s *Supervisor) Live(section string) bool {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	in := s.byID[ID(section[len(prefix):])]
-	return in != nil && !in.restartOnly
+	return in != nil
 }
 
 // publishInfos publishes core.plugins when any PluginInfo changed (or force), then re-publishes

@@ -394,16 +394,17 @@ func TestActionLabels(t *testing.T) {
 	m.Action("aa", "drop table", ActionOK)      // not an action of aa
 	m.Action("bb", "restart", ActionDenied)     // bb has no actions
 	m.Action("alice", "restart", ActionOK)      // not a plugin
-	m.Action("kubernetes", "restart", ActionOK) // no longer a legacy action: without a plugin row it is "other"
+	m.Action("kubernetes", "restart", ActionOK) // no plugin row: "other"
+	m.Action("flux", "reconcile", ActionOK)     // no plugin row (not a legacy action any more): "other"
 	m.Action("alertmanager", "silence.expire", ActionInvalid)
 
 	ss := scrape(t, m)
 	for want, n := range map[[3]string]float64{
-		{"aa", "restart", ActionOK}:                       1,
-		{"aa", "restart", ActionError}:                    1,
-		{"other", "other", ActionOK}:                      3,
-		{"other", "other", ActionDenied}:                  1,
-		{"alertmanager", "silence.expire", ActionInvalid}: 1,
+		{"aa", "restart", ActionOK}:       1,
+		{"aa", "restart", ActionError}:    1,
+		{"other", "other", ActionOK}:      4,
+		{"other", "other", ActionDenied}:  1,
+		{"other", "other", ActionInvalid}: 1,
 	} {
 		if got := value(t, ss, "dash_actions_total", map[string]string{"plugin": want[0], "action": want[1], "outcome": want[2]}); got != n {
 			t.Errorf("%v = %v, want %v", want, got, n)
@@ -422,6 +423,9 @@ func TestTrackActionOutcomeFromStatus(t *testing.T) {
 		}
 	}
 	rec := httptest.NewRecorder()
+	m = New("dev", nil, func() []model.PluginInfo {
+		return []model.PluginInfo{{ID: "alertmanager", Actions: []model.ActionInfo{{Name: "silence.create"}, {Name: "silence.expire"}}}}
+	})
 	w, done := m.TrackAction(rec, "alertmanager", "silence.expire")
 	w.WriteHeader(http.StatusTooManyRequests)
 	done()

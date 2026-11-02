@@ -377,9 +377,6 @@ func TestManifestKeepsTheShimsNavAndTopics(t *testing.T) {
 	var topics []string
 	for _, tp := range m.Topics {
 		topics = append(topics, tp.Name)
-		if tp.Legacy != "" {
-			t.Errorf("topic %s keeps the legacy name %q", tp.Name, tp.Legacy)
-		}
 	}
 	if !slices.Equal(topics, []string{"cluster", "storage", "apps"}) {
 		t.Errorf("topics = %v: the wire order is cluster, storage, apps", topics)

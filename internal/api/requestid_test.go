@@ -84,7 +84,7 @@ func TestRequestIDRoundTrip(t *testing.T) {
 	pl.act = func(string, any) (any, error) {
 		return nil, errors.New(`Post "http://alertmanager.internal:9093/api/v2/silences": connection refused`)
 	}
-	s, _ := serverWithFakes(func(d *Deps) { pl.attach(d); d.Audit = openAudit(t, dir, clk.now) })
+	s := newServer(func(d *Deps) { pl.attach(d); d.Audit = openAudit(t, dir, clk.now) })
 	h := s.Handler()
 
 	// An upstream failure: header, body and the WARN line name the same id, and only the log

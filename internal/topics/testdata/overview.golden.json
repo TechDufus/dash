@@ -172,12 +172,12 @@
       "ref": "alertmanager:Alert/f1"
     },
     {
-      "id": "flux:source-unverified",
+      "id": "flux:source-unverified/GitRepository/flux-system/flux-system",
       "severity": "crit",
       "source": "flux",
       "plugin": "flux",
-      "title": "flux-system source signature not verified",
-      "detail": "GitRepository flux-system/flux-system SourceVerified is not True",
+      "title": "GitRepository flux-system/flux-system signature not verified",
+      "detail": "SourceVerified is not True",
       "since": "2026-10-30T11:00:00Z",
       "route": "/gitops",
       "links": [
@@ -186,7 +186,26 @@
           "href": "https://headlamp.example.com/c/demo/customresources/gitrepositories.source.toolkit.fluxcd.io/flux-system/flux-system",
           "kind": "headlamp"
         }
-      ]
+      ],
+      "ref": "flux:GitRepository/flux-system/flux-system"
+    },
+    {
+      "id": "flux:suspended/Kustomization/flux-system/paused",
+      "severity": "warn",
+      "source": "flux",
+      "plugin": "flux",
+      "title": "Kustomization flux-system/paused suspended",
+      "detail": "suspended",
+      "since": "2026-10-30T12:00:00Z",
+      "route": "/gitops",
+      "links": [
+        {
+          "label": "Open in Headlamp",
+          "href": "https://headlamp.example.com/c/demo/customresources/kustomizations.kustomize.toolkit.fluxcd.io/flux-system/paused",
+          "kind": "headlamp"
+        }
+      ],
+      "ref": "flux:Kustomization/flux-system/paused"
     },
     {
       "id": "pvc:monitoring/tsdb",
@@ -251,7 +270,8 @@
           "href": "https://headlamp.example.com/c/demo/customresources/kustomizations.kustomize.toolkit.fluxcd.io/flux-system/apps",
           "kind": "headlamp"
         }
-      ]
+      ],
+      "ref": "flux:Kustomization/flux-system/apps"
     },
     {
       "id": "alert:f2",
@@ -295,13 +315,39 @@
       "ref": "hardware:Pool/pve-demo/fast"
     }
   ],
-  "kpis": {
-    "fluxReady": 2,
-    "fluxTotal": 4,
-    "fluxSuspended": 1,
-    "sourceVerified": false
-  },
   "kpiList": [
+    {
+      "key": "ready",
+      "plugin": "flux",
+      "label": "Flux ready",
+      "unit": "",
+      "value": 2,
+      "health": "warn"
+    },
+    {
+      "key": "suspended",
+      "plugin": "flux",
+      "label": "Flux suspended",
+      "unit": "",
+      "value": 1,
+      "health": "ok"
+    },
+    {
+      "key": "total",
+      "plugin": "flux",
+      "label": "Flux objects",
+      "unit": "",
+      "value": 4,
+      "health": "ok"
+    },
+    {
+      "key": "verified",
+      "plugin": "flux",
+      "label": "Source verified",
+      "unit": "",
+      "value": 0,
+      "health": "crit"
+    },
     {
       "key": "cpuTemp",
       "plugin": "hardware",

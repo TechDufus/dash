@@ -94,7 +94,7 @@ func TestAuditVerifyReportsDanglingIntent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := l.Intent(audit.Record{Action: "reconcile", Target: audit.Target{Kind: "Kustomization", Namespace: "flux-system", Name: "app"}}); err != nil {
+	if _, err := l.Intent(audit.Record{Action: "reconcile", Plugin: "flux", Target: audit.Target{Kind: "Kustomization", Namespace: "gitops", Name: "app"}}); err != nil {
 		t.Fatal(err)
 	}
 	l.Close()
@@ -104,7 +104,7 @@ func TestAuditVerifyReportsDanglingIntent(t *testing.T) {
 		t.Fatalf("err = %v, want errAuditFailed", err)
 	}
 	if !strings.Contains(out.String(), "chain intact") || !strings.Contains(out.String(), "dangling intent") ||
-		!strings.Contains(out.String(), "reconcile Kustomization flux-system/app") {
+		!strings.Contains(out.String(), "reconcile Kustomization gitops/app") {
 		t.Errorf("report:\n%s", &out)
 	}
 }

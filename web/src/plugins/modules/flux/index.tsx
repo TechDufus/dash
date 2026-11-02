@@ -1,8 +1,8 @@
 import { GitMerge, Zap } from "lucide-react";
 import { lazy } from "react";
-import { reconcileFlux } from "@/api/actions";
 import type { FluxData } from "@/api/types";
 import { definePlugin, type PaletteGroup, topic } from "../../types";
+import { reconcileFlux } from "./actions";
 
 const GitOpsPage = lazy(() =>
   import("@/pages/gitops").then((m) => ({ default: () => <m.GitOpsPage /> })),
@@ -11,27 +11,31 @@ const GitOpsPage = lazy(() =>
 export default definePlugin({
   id: "flux",
   order: 30,
-  topics: { flux: topic<FluxData>() },
+  topics: { "flux.objects": topic<FluxData>() },
   routes: [{ path: "/gitops", page: GitOpsPage }],
   palette: (ctx): readonly PaletteGroup[] => {
-    const flux = ctx.topic("flux");
+    const flux = ctx.topic("flux.objects");
+    // Reconcile is a framework action: it is offered while the plugin lists it (actions.enabled)
+    // and the role meets its minRole, so the group is empty (and hidden) otherwise. One item per
+    // source the plugin verifies (the pins and every source with spec.verify); the kind is in the
+    // id because a GitRepository and a Kustomization may share namespace and name.
+    const canReconcile = ctx.actionAvailable("flux", "reconcile");
     return [
       {
         id: "actions",
         heading: "Actions",
-        items: [
-          {
-            id: "reconcile:flux-system",
-            value: "action reconcile flux-system",
-            label: "Reconcile flux-system",
-            icon: Zap,
-            rank: -1, // first in Actions, ahead of the Restart items of the earlier modules
-            onSelect: () => {
-              ctx.close();
-              void reconcileFlux("GitRepository", "flux-system", "flux-system");
-            },
+        items: (canReconcile ? (flux?.verifiedSources ?? []) : []).map((s) => ({
+          id: `reconcile:${s.kind}/${s.namespace}/${s.name}`,
+          value: `action reconcile ${s.kind} ${s.namespace}/${s.name}`,
+          label: `Reconcile ${s.namespace}/${s.name}`,
+          hint: s.kind,
+          icon: Zap,
+          rank: -1, // first in Actions, ahead of the Restart items of the earlier modules
+          onSelect: () => {
+            ctx.close();
+            void reconcileFlux(s.kind, s.namespace, s.name);
           },
-        ],
+        })),
       },
       {
         id: "flux",

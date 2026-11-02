@@ -98,13 +98,6 @@ var (
 		model.PluginDisabled, model.PluginUnavailable, model.PluginUnconfigured, model.PluginBlocked,
 		model.PluginStarting, model.PluginHealthy, model.PluginDegraded, model.PluginError,
 	}
-
-	// legacyActions are the actions of the integration routes that are not plugin actions yet
-	// (plugin, action); they leave the set when their plugin takes them over (G3).
-	legacyActions = [][2]string{
-		{"flux", "reconcile"},
-		{"alertmanager", "silence.create"}, {"alertmanager", "silence.expire"},
-	}
 )
 
 // Metrics is the set of dash's own series.
@@ -325,9 +318,6 @@ func (m *Metrics) Action(plugin, action, outcome string) {
 }
 
 func (m *Metrics) knownAction(plugin, action string) bool {
-	if slices.Contains(legacyActions, [2]string{plugin, action}) {
-		return true
-	}
 	if m.plugins == nil {
 		return false
 	}

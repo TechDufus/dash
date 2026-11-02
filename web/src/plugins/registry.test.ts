@@ -22,7 +22,7 @@ describe("module registry", () => {
     }
     expect([...seen.keys()].sort()).toEqual([
       "alertmanager.alerts",
-      "flux",
+      "flux.objects",
       "gatus.status",
       "hardware.hosts",
       "hardware.machines",

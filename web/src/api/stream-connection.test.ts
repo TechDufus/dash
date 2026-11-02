@@ -14,7 +14,7 @@ async function freshStream() {
   return import("./stream");
 }
 
-const overview = (n: number) => envelope("core.overview", { kpis: [], attention: [], n });
+const overview = (n: number) => envelope("core.overview", { kpiList: [], attention: [], n });
 
 describe("stream.ts connection handling", () => {
   let ES: typeof FakeEventSource;

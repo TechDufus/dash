@@ -13,14 +13,6 @@ import (
 	"github.com/TechDufus/dash/internal/obs"
 )
 
-// legacyRoutes is the unversioned integration routes the SPA still calls, as ServeMux patterns.
-// It is pinned here on purpose: adding a route outside /api/v1 fails the test until it is added
-// to this list (a decision), and each plugin migration deletes its entries together with the
-// route. P3.13 deletes the Legacy flag and this list.
-var legacyRoutes = []string{
-	"POST /api/actions/reconcile",
-}
-
 // samplePath is a request path that matches the ServeMux path: every wildcard filled with "x".
 func samplePath(path string) string {
 	out, rest := "", path
@@ -87,7 +79,7 @@ func TestEveryRouteMatchesItsSpecEntryAndNothingElse(t *testing.T) {
 	want := map[string]bool{}
 	ids := map[string]bool{}
 	for _, r := range newServer(nil).routeTable() {
-		if r.Legacy || r.Plugin || r.Infra {
+		if r.Plugin || r.Infra {
 			continue
 		}
 		want[r.Method+" "+r.Path] = true
@@ -111,41 +103,6 @@ func keys(m map[string]bool) []string {
 	}
 	slices.Sort(out)
 	return out
-}
-
-func TestLegacyRoutesAreAllowlistedAndExcludedFromSpec(t *testing.T) {
-	var registered []string
-	for _, r := range newServer(nil).routeTable() {
-		v1 := strings.HasPrefix(r.Path, "/api/v1/")
-		switch {
-		case r.Infra:
-			if r.Legacy || v1 {
-				t.Errorf("%s is infrastructure and cannot also be legacy or versioned", r.pattern())
-			}
-		case r.Legacy:
-			if v1 {
-				t.Errorf("%s is under /api/v1 but flagged legacy", r.pattern())
-			}
-			registered = append(registered, r.pattern())
-		case !v1:
-			t.Errorf("%s is outside /api/v1 and not flagged Legacy: the contract lives under /api/v1", r.pattern())
-		}
-	}
-	slices.Sort(registered)
-	want := slices.Sorted(slices.Values(legacyRoutes))
-	if !slices.Equal(registered, want) {
-		t.Errorf("legacy routes registered:\n%v\nallowlist:\n%v", registered, want)
-	}
-
-	doc, err := OpenAPI(nil, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	for op := range specOperations(t, doc) {
-		if _, path, _ := strings.Cut(op, " "); !strings.HasPrefix(path, "/api/v1/") {
-			t.Errorf("the document lists %s: legacy routes stay out of it", op)
-		}
-	}
 }
 
 // Every route of the table is registered with the route label and the panic recovery around it:
@@ -183,29 +140,6 @@ func TestEveryTableRouteRunsInsideTheRouteLabelAndRecovery(t *testing.T) {
 	}
 }
 
-// The legacy routes keep their paths and middleware; they get the error envelope and a request
-// id like everything else under /api.
-func TestLegacyRoutesKeepTheirPathsAndGetTheEnvelope(t *testing.T) {
-	s := newServer(nil)
-	h := s.Handler()
-	for _, pattern := range legacyRoutes {
-		method, path, _ := strings.Cut(pattern, " ")
-		// Without a user the chain refuses every one of them.
-		w := req{method: method, path: samplePath(path), header: map[string]string{"X-Forwarded-Preferred-Username": ""}}.do(h)
-		e := wantError(t, w, http.StatusUnauthorized, model.ErrCodeUnauthenticated)
-		if id := w.Header().Get("X-Request-Id"); id == "" || e.RequestID != id {
-			t.Errorf("%s: requestId %q, header %q", pattern, e.RequestID, id)
-		}
-	}
-
-	// A failing one carries a code and its request id.
-	w := req{method: "POST", path: "/api/actions/reconcile", body: model.ReconcileRequest{Kind: "Pod", Namespace: "flux-system", Name: "app"}}.do(h)
-	e := wantError(t, w, http.StatusBadRequest, model.ErrCodeInvalidInput)
-	if e.RequestID == "" || e.RequestID != w.Header().Get("X-Request-Id") {
-		t.Errorf("requestId %q, header %q", e.RequestID, w.Header().Get("X-Request-Id"))
-	}
-}
-
 // The core paths that moved to /api/v1 or into a plugin are gone, with no alias. The silence
 // routes moved into the alertmanager plugin's actions (P3.3), the logs into the victorialogs
 // plugin's routes (P3.5), the VM detail into the proxmox plugin's (P3.6).
@@ -216,9 +150,10 @@ func TestMovedCorePathsAre404WithCode(t *testing.T) {
 		{"GET", "/api/topics/cluster"}, {"GET", "/api/plugins"}, {"GET", "/api/config"},
 		{"GET", "/api/logs?ns=media&pod=web"}, {"GET", "/api/logs/tail?ns=media&pod=web"},
 		{"POST", "/api/silences"}, {"DELETE", "/api/silences/00000000-0000-4000-8000-000000000001"},
-		{"GET", "/api/vms/100"},           // the proxmox plugin's route (P3.6): /api/v1/plugins/proxmox/vms/{vmid}
-		{"GET", "/api/pods/media/plex-0"}, // the kubernetes plugin's route (P3.8): /api/v1/plugins/kubernetes/pods/{ns}/{name}
-		{"POST", "/api/actions/restart"},  // the kubernetes plugin's action (P3.8): /api/v1/plugins/kubernetes/actions/restart
+		{"GET", "/api/vms/100"},            // the proxmox plugin's route (P3.6): /api/v1/plugins/proxmox/vms/{vmid}
+		{"GET", "/api/pods/media/plex-0"},  // the kubernetes plugin's route (P3.8): /api/v1/plugins/kubernetes/pods/{ns}/{name}
+		{"POST", "/api/actions/restart"},   // the kubernetes plugin's action (P3.8): /api/v1/plugins/kubernetes/actions/restart
+		{"POST", "/api/actions/reconcile"}, // the flux plugin's action (P3.11): /api/v1/plugins/flux/actions/reconcile
 	} {
 		path := c.path
 		w := req{method: c.method, path: path}.do(h)

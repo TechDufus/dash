@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"maps"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -17,7 +16,6 @@ import (
 	"github.com/TechDufus/dash/internal/plugin/plugintest"
 	"github.com/TechDufus/dash/internal/pluginconf"
 	"github.com/TechDufus/dash/internal/secret"
-	"github.com/TechDufus/dash/internal/topics"
 )
 
 // alertmanagerFake stands in for the alertmanager plugin: its section is
@@ -75,6 +73,38 @@ func TestActionsEnvMountsTheAction(t *testing.T) {
 			}
 			if ok && (ref.Spec.MinRole != auth.RoleAdmin || len(ref.DenyNamespaces) != 0) {
 				t.Errorf("ref = %+v, want an admin action with no deny list (a silence has no namespace)", ref)
+			}
+		})
+	}
+}
+
+// plugins.flux.actions, set in the environment, is what mounts flux/reconcile and hands its deny
+// list to the action ref: env -> config tree -> treeSettings -> supervisor. Without it the plugin
+// runs and the action is not offered.
+func TestFluxActionsEnvMountsReconcile(t *testing.T) {
+	for name, tc := range map[string]struct {
+		env  []string
+		want bool
+	}{
+		"enabled":     {[]string{"DASH_PLUGINS_FLUX_ACTIONS_ENABLED=true", `DASH_PLUGINS_FLUX_ACTIONS_DENY_NAMESPACES=["kube-system","secrets"]`}, true},
+		"not enabled": {nil, false},
+		"disabled":    {[]string{"DASH_PLUGINS_FLUX_ACTIONS_ENABLED=false"}, false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			startEnv(t, t.TempDir(), tc.env...)
+			fw, _ := loadFramework(t)
+			f := plugintest.New("flux", plugintest.Config(func() any { return &pluginconf.Flux{} }))
+			f.M.Actions = []plugin.ActionSpec{{Name: "reconcile", Title: "Reconcile", MinRole: auth.RoleAdmin}}
+			f.ActionFn = func(context.Context, string, auth.Principal, any) (any, error) { return nil, nil }
+			startFake(t, fw, f)
+			waitFor(t, func() bool { return fw.sup.Running("flux") })
+
+			ref, ok := fw.sup.Action("flux", "reconcile")
+			if ok != tc.want {
+				t.Fatalf("reconcile mounted = %v, want %v", ok, tc.want)
+			}
+			if want := []string{"kube-system", "secrets"}; ok && (ref.Spec.MinRole != auth.RoleAdmin || !slices.Equal(ref.DenyNamespaces, want)) {
+				t.Errorf("ref = %+v, want an admin action refusing %v", ref, want)
 			}
 		})
 	}
@@ -218,10 +248,9 @@ func TestInstanceConfigPolicyFollowsTheSection(t *testing.T) {
 	}
 }
 
-// The registry lists one plugin per id in display order: the shim, unless a real factory is
-// registered for that id, and then exactly that one is replaced.
-func TestRegistryOrderAndReplacement(t *testing.T) {
-	shims := (&topics.Manager{}).Plugins()
+// The registry lists one plugin per id in display order, every plugin dash ships is in that order,
+// and a subset keeps it.
+func TestRegistryOrder(t *testing.T) {
 	ids := func(fs []plugin.Factory) (out []plugin.ID) {
 		for _, f := range fs {
 			out = append(out, f().Manifest().ID)
@@ -229,22 +258,8 @@ func TestRegistryOrderAndReplacement(t *testing.T) {
 		return out
 	}
 
-	if got := ids(registry(shims, nil)); !slices.Equal(got, displayOrder) {
+	if got := ids(registry(nil)); !slices.Equal(got, displayOrder) {
 		t.Fatalf("registry = %v, want %v", got, displayOrder)
-	}
-	var legacy []plugin.ID
-	for _, m := range topics.LegacyManifests() {
-		legacy = append(legacy, m.ID)
-	}
-	// What the shims still cover keeps its place relative to the display order.
-	var covered []plugin.ID
-	for _, id := range displayOrder {
-		if slices.Contains(legacy, id) {
-			covered = append(covered, id)
-		}
-	}
-	if !slices.Equal(legacy, covered) {
-		t.Errorf("legacy manifests %v are not in display order %v", legacy, displayOrder)
 	}
 	for id := range realPlugins {
 		if !slices.Contains(displayOrder, id) {
@@ -252,45 +267,21 @@ func TestRegistryOrderAndReplacement(t *testing.T) {
 		}
 	}
 
-	// A plugin that is still a shim, replaced by a real one.
-	var shimmed plugin.ID
-	for _, id := range displayOrder {
-		if !hasRealPlugin(id) {
-			shimmed = id
-			break
-		}
+	// A subset, given in any order, comes out in display order.
+	subset := map[plugin.ID]plugin.Factory{
+		"launcher": realPlugins["launcher"], "flux": realPlugins["flux"], "gatus": realPlugins["gatus"],
 	}
-	if shimmed == "" {
-		t.Fatal("every plugin is real: the replacement needs a shim to replace")
+	want := []plugin.ID{"gatus", "flux", "launcher"}
+	if got := ids(registryOf(subset)); !slices.Equal(got, want) {
+		t.Errorf("registry of a subset = %v, want %v", got, want)
 	}
-	real := plugintest.New(shimmed, plugintest.Status(plugin.StateHealthy, ""))
-	impl := map[plugin.ID]plugin.Factory{shimmed: real.Factory()}
-	maps.Copy(impl, realPlugins)
-	got := registryOf(impl, shims)
-	if !slices.Equal(ids(got), displayOrder) {
-		t.Fatalf("registry with a real %s = %v, want the same order", shimmed, ids(got))
-	}
-	for _, f := range got {
-		p := f()
-		_, isShim := p.(*topics.Legacy)
-		switch id := p.Manifest().ID; {
-		case id == shimmed && (isShim || p != plugin.Plugin(real)):
-			t.Errorf("%s is %T, want the real plugin", shimmed, p)
-		case id != shimmed && !isShim && !hasRealPlugin(id):
-			t.Errorf("%s is %T, want its shim", id, p)
-		}
-	}
-
-	ms := manifestsOf(impl, topics.LegacyManifests())
-	if len(ms) != len(displayOrder) {
-		t.Fatalf("%d manifests, want %d", len(ms), len(displayOrder))
+	ms := manifestsOf(subset)
+	if len(ms) != len(want) {
+		t.Fatalf("%d manifests, want %d", len(ms), len(want))
 	}
 	for i, m := range ms {
-		if m.ID != displayOrder[i] {
-			t.Errorf("manifest %d is %s, want %s", i, m.ID, displayOrder[i])
-		}
-		if m.ID == shimmed && len(m.Topics) != 0 {
-			t.Errorf("%s manifest %+v is the shim's, want the real plugin's", shimmed, m)
+		if m.ID != want[i] {
+			t.Errorf("manifest %d is %s, want %s", i, m.ID, want[i])
 		}
 	}
 }

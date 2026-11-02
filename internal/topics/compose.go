@@ -9,19 +9,14 @@ import (
 	"github.com/TechDufus/dash/internal/plugin"
 )
 
-// contribution is what one source adds to the overview. A contribution with no plugin is the
-// legacy one: the Manager's own rules, whose items are already stamped with the plugin they
-// belong to.
+// contribution is what one source adds to the overview. Items and KPIs of a contribution with a
+// plugin carry that plugin's ID; one without leaves them as they are.
 type contribution struct {
 	plugin    plugin.ID
 	attention []model.AttentionItem
 	kpis      []model.KPI
 	topology  *model.Topology
 }
-
-// legacyOverview is what the integrations still in the Manager add beyond the contribution
-// types: the fixed row of headline numbers, until each moves into a KPISource.
-type legacyOverview struct{ kpis model.Kpis }
 
 // compose merges contributions into the overview.
 //
@@ -31,7 +26,7 @@ type legacyOverview struct{ kpis model.Kpis }
 //   - KPIList is every contributed KPI, ordered by plugin and key.
 //   - The topology takes the host of the first contribution that names one, appends the VMs, and
 //     merges groups by name.
-func compose(cs []contribution, legacy legacyOverview) model.OverviewData {
+func compose(cs []contribution) model.OverviewData {
 	items := []model.AttentionItem{}
 	kpiList := []model.KPI{}
 	var topologies []model.Topology
@@ -65,15 +60,13 @@ func compose(cs []contribution, legacy legacyOverview) model.OverviewData {
 	return model.OverviewData{
 		Status:    OverallStatus(items),
 		Attention: items,
-		Kpis:      legacy.kpis,
 		KPIList:   kpiList,
 		Topology:  mergeTopology(topologies),
 	}
 }
 
 // mergeSources appends extra to base without repeating a name: for a name in both, the failing
-// entry wins, as it does within the Manager's own sources. Base order is kept, and new names
-// follow in extra's order.
+// entry wins. Base order is kept, and new names follow in extra's order.
 func mergeSources(base, extra []model.SourceStatus) []model.SourceStatus {
 	out := slices.Clone(base)
 	if out == nil {

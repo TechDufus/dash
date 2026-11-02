@@ -72,9 +72,6 @@ func TestEveryErrorPathHasACodeThatMatchesItsStatus(t *testing.T) {
 		{name: "invalid stream filter", req: req{path: "/api/v1/stream?topics=BAD!"}, status: 400, code: "invalid_input"},
 		{name: "stream cap per user", req: req{path: "/api/v1/stream"}, srv: capped, status: 429, code: "too_many_streams"},
 		{name: "stream cap overall", req: req{path: "/api/v1/stream"}, srv: full, status: 503, code: "too_many_streams"},
-		{name: "reconcile without the kubernetes service", req: req{method: "POST", path: "/api/actions/reconcile", body: model.ReconcileRequest{Kind: "Kustomization", Namespace: "flux-system", Name: "app"}},
-			mod: func(d *Deps) { d.Cluster = nil }, status: 503, code: "upstream_unavailable"},
-		{name: "reconcile kind", req: req{method: "POST", path: "/api/actions/reconcile", body: model.ReconcileRequest{Kind: "Pod", Namespace: "flux-system", Name: "app"}}, status: 400, code: "invalid_input"},
 		{name: "plugin action input", req: req{method: "POST", path: "/api/v1/plugins/aa/actions/restart", body: map[string]string{"namespace": "apps"}}, plug: noHook, status: 400, code: "invalid_input"},
 		{name: "plugin action refusal", req: req{method: "POST", path: "/api/v1/plugins/aa/actions/silence.expire", body: expireIn{ID: "bad"}}, plug: func(h *harness) {
 			h.act = func(string, any) (any, error) {
@@ -99,7 +96,7 @@ func TestEveryErrorPathHasACodeThatMatchesItsStatus(t *testing.T) {
 				tc.plug(h)
 				s = h.Server
 			} else {
-				s, _ = serverWithFakes(tc.mod)
+				s = newServer(tc.mod)
 			}
 			if tc.srv != nil {
 				tc.srv(s)
@@ -116,21 +113,5 @@ func TestEveryErrorPathHasACodeThatMatchesItsStatus(t *testing.T) {
 				t.Errorf("code %q is not one of %v for status %d", e.Code, statusCodes[w.Code], w.Code)
 			}
 		})
-	}
-}
-
-func TestKubeStatusCodes(t *testing.T) {
-	for status, want := range map[int]string{
-		http.StatusForbidden:           model.ErrCodeForbidden,
-		http.StatusNotFound:            model.ErrCodeNotFound,
-		http.StatusConflict:            model.ErrCodeConflict,
-		http.StatusUnprocessableEntity: model.ErrCodeInvalidInput,
-	} {
-		if got := kubeErrCode(status); got != want {
-			t.Errorf("kubeErrCode(%d) = %q, want %q", status, got, want)
-		}
-		if !slices.Contains(statusCodes[status], want) {
-			t.Errorf("%d: %q is not in the status table", status, want)
-		}
 	}
 }

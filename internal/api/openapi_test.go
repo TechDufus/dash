@@ -199,12 +199,11 @@ func TestOpenAPIDocumentsPluginActionsAndRoutes(t *testing.T) {
 	}
 }
 
+// A plugin's topic that is also a core-typed topic (the model's table) with another payload type
+// has two types for one name: no document.
 func TestOpenAPIRejectsConflictingTopicTypes(t *testing.T) {
-	a := plugintest.New("aa", plugintest.Typed("items", itemsData{}))
-	b := plugintest.New("bb", plugintest.Typed("items", itemsData{}))
-	b.M.Topics[0].Legacy, a.M.Topics[0].Legacy = "same", "same"
-	b.M.Topics[0].Type = model.Series{}
-	if _, err := OpenAPI([]plugin.Manifest{a.M, b.M}, nil); err == nil {
+	a := plugintest.New("alertmanager", plugintest.Typed("alerts", itemsData{}))
+	if _, err := OpenAPI([]plugin.Manifest{a.M}, nil); err == nil {
 		t.Fatal("two payload types for one topic produced a document")
 	}
 }

@@ -245,7 +245,7 @@ func TestManifest(t *testing.T) {
 	if m.ID != "gatus" || m.Name != "Gatus" || len(m.Requires) != 0 || len(m.Uses) != 0 || len(m.Actions) != 0 {
 		t.Errorf("manifest: %+v", m)
 	}
-	if len(m.Topics) != 1 || m.Topics[0].Name != "status" || m.Topics[0].Legacy != "" {
+	if len(m.Topics) != 1 || m.Topics[0].Name != "status" {
 		t.Fatalf("topics: %+v", m.Topics)
 	}
 	if _, ok := m.Topics[0].Type.(model.StatusData); !ok {

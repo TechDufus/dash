@@ -17,7 +17,7 @@ import (
 // no kubeconfig and outside a cluster (rest.ErrNotInCluster), the real proxmox plugin on a fake
 // Proxmox API and the real kubernetes plugin. The process serves and is ready, kubernetes is
 // unavailable and proxmox healthy, proxmox publishes its VMs although the node index is absent
-// (an unavailable plugin exports no service), flux is unavailable and publishes nothing, and a
+// (an unavailable plugin exports no service), flux is blocked by it and publishes nothing, and a
 // viewer can ask who they are. SIGTERM ends run() cleanly.
 func TestStartsWithoutACluster(t *testing.T) {
 	pve := newFakePVE(t)
@@ -87,8 +87,8 @@ func TestStartsWithoutACluster(t *testing.T) {
 		return r["proxmox"].State == model.PluginHealthy && r["kubernetes"].State == model.PluginUnavailable
 	})
 	r := rows()
-	if got := r["flux"].State; got != model.PluginUnavailable {
-		t.Errorf("flux is %q, want unavailable: it needs the cluster", got)
+	if got := r["flux"].State; got != model.PluginBlocked {
+		t.Errorf("flux is %q, want blocked: it requires the kubernetes plugin, which has no cluster", got)
 	}
 	if k := r["kubernetes"]; k.Message == "" {
 		t.Errorf("the kubernetes row says nothing about why it is unavailable: %+v", k)
@@ -104,8 +104,8 @@ func TestStartsWithoutACluster(t *testing.T) {
 	if vms.VMs[0].K8sNode != nil {
 		t.Errorf("a VM is a Kubernetes node without a cluster: %+v", vms.VMs[0].K8sNode)
 	}
-	// The cluster's topics are not published, and the flux shim's is hidden with its plugin.
-	for _, topic := range []string{"kubernetes.cluster", "kubernetes.storage", "kubernetes.apps", "flux"} {
+	// The cluster's topics are not published, and flux's is hidden with its plugin.
+	for _, topic := range []string{"kubernetes.cluster", "kubernetes.storage", "kubernetes.apps", "flux.objects"} {
 		if code, _ := fetch(apiAddr, "/api/v1/topics/"+topic, true); code != http.StatusNotFound {
 			t.Errorf("topic %s answers %d, want 404", topic, code)
 		}

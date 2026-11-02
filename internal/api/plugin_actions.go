@@ -108,6 +108,11 @@ func (s *Server) runAction(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// accepted answers an action that returns nothing: 202 {"status":"accepted"}.
+func accepted(w http.ResponseWriter) {
+	writeJSON(w, http.StatusAccepted, map[string]string{"status": "accepted"})
+}
+
 // unwrapOutcome splits a plugin.Outcome (or a pointer to one) into its body and its audit target;
 // any other result is its own body with no target.
 func unwrapOutcome(out any) (any, *plugin.ActionTarget) {

@@ -63,7 +63,6 @@ const (
 	KindWorkloads    Kind = "workloads" // deployments, statefulsets, daemonsets, replicasets, jobs, cronjobs
 	KindPVCs         Kind = "pvcs"
 	KindEvents       Kind = "events"
-	KindFlux         Kind = "flux"
 	KindCNPG         Kind = "cnpg"
 	KindCertificates Kind = "certificates"
 	KindExtSecrets   Kind = "externalsecrets"
@@ -77,8 +76,6 @@ const (
 
 // defaultKinds is the kind of a GVR that Watch registers without one.
 var defaultKinds = map[schema.GroupVersionResource]Kind{
-	GVRKustomizations: KindFlux, GVRHelmReleases: KindFlux, GVRGitRepositories: KindFlux,
-	GVROCIRepositories: KindFlux, GVRHelmRepositories: KindFlux,
 	GVRCNPGClusters: KindCNPG, GVRCertificates: KindCertificates,
 	GVRExternalSecrets: KindExtSecrets, GVRHTTPRoutes: KindHTTPRoutes, GVRIngresses: KindIngresses,
 }

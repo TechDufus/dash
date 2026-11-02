@@ -126,7 +126,8 @@ func run(reg *secret.Registry) error {
 	if cfg.Demo {
 		src := demo.New(cfg)
 		src.HasReal = hasRealPlugin
-		if err := fw.start(ctx, registry(src.Plugins(sup), refs), func() { src.Run(ctx) }); err != nil {
+		src.Attach(sup)
+		if err := fw.start(ctx, registry(refs), func() { src.Run(ctx) }); err != nil {
 			return err
 		}
 		srv = api.New(api.Deps{
@@ -135,16 +136,14 @@ func run(reg *secret.Registry) error {
 		handler = demo.Wrap(srv.Handler())
 		slog.Info("demo mode: serving fake data, no cluster or upstreams are contacted")
 	} else {
-		mgr := topics.New(topics.Deps{
-			Cfg: cfg, Cluster: kubernetesCluster(sup), Hosts: sup, Contributors: sup.Contributors, LinkProviders: sup.Links,
-		})
+		mgr := topics.New(topics.Deps{Hosts: sup, Contributors: sup.Contributors})
 		// The supervisor starts before the Manager so that no first publish is dropped.
-		if err := fw.start(ctx, registry(mgr.Plugins(), refs), func() { mgr.Run(ctx) }); err != nil {
+		if err := fw.start(ctx, registry(refs), func() { mgr.Run(ctx) }); err != nil {
 			return err
 		}
 
 		srv = api.New(api.Deps{
-			Cfg: cfg, Version: version, Hub: h, Plugins: sup, Cluster: kubernetesCluster(sup),
+			Cfg: cfg, Version: version, Hub: h, Plugins: sup,
 			Health: sup, Metrics: metrics, Secrets: reg, Audit: alog,
 		})
 		handler = srv.Handler()

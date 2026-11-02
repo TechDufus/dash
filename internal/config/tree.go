@@ -111,6 +111,7 @@ func defaults(dev, demo bool) Tree {
 			Hardware:     pluginconf.DefaultHardware(),
 			Headlamp:     pluginconf.DefaultHeadlamp(),
 			Kubernetes:   pluginconf.DefaultKubernetes(),
+			Flux:         pluginconf.DefaultFlux(),
 		},
 	}
 	if dev || demo {
@@ -141,7 +142,6 @@ func (t *Tree) normalize() {
 
 // config maps the tree onto the flat view the rest of dash reads.
 func (t Tree) config(dev, demo bool) Config {
-	p := t.Plugins
 	c := Config{
 		Dev:           dev,
 		Demo:          demo,
@@ -163,7 +163,6 @@ func (t Tree) config(dev, demo bool) Config {
 		DataDir:     t.DataDir,
 		SettingsUI:  t.Settings.UI,
 		IconBaseURL: t.UI.IconBaseURL,
-		Conventions: Conventions{SuspendReasonAnnotation: p.Flux.SuspendReasonAnnotation},
 	}
 	return c
 }

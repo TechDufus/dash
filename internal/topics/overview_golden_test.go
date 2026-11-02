@@ -7,7 +7,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/TechDufus/dash/internal/config"
 	"github.com/TechDufus/dash/internal/model"
 	"github.com/TechDufus/dash/internal/plugin"
 )
@@ -16,22 +15,35 @@ var update = flag.Bool("update", false, "rewrite testdata/overview.golden.json")
 
 const overviewGolden = "testdata/overview.golden.json"
 
-// goldenSnapshots is a lab with something to say in every source: it exercises each attention
-// rule, every KPI and each part of the topology.
-func goldenSnapshots() built {
-	ago := func(d time.Duration) time.Time { return testNow.Add(-d) }
-	agoP := func(d time.Duration) *time.Time { return new(ago(d)) }
-	return built{
-		flux: &model.FluxData{
-			Sources: []model.FluxObj{{Kind: model.FluxKindGitRepository, Namespace: "flux-system", Name: "flux-system", Ready: true, Verified: new(false), LastTransition: agoP(time.Hour)},
-				{Kind: model.FluxKindOCIRepository, Namespace: "flux-system", Name: "charts", Ready: true, Verified: new(true)}},
-			Kustomizations: []model.FluxObj{
-				{Kind: model.FluxKindKustomization, Namespace: "flux-system", Name: "apps", Ready: false, Message: "build failed\nsecond line", LastTransition: agoP(30 * time.Minute)},
-				{Kind: model.FluxKindKustomization, Namespace: "flux-system", Name: "paused", Ready: false, Suspended: true},
-				{Kind: model.FluxKindKustomization, Namespace: "flux-system", Name: "infra", Ready: true},
-			},
-			HelmReleases: []model.FluxObj{{Kind: model.FluxKindHelmRelease, Namespace: "monitoring", Name: "prom", Ready: true}},
-		},
+// goldenFlux stands in for the running flux plugin: the attention items and KPIs it derives from
+// the lab's Flux objects (the rules are the plugin's, tested there): a signed GitRepository whose
+// SourceVerified is not True, a Kustomization that is not ready and one that is suspended, one
+// Kustomization and one Helm release that are ready. Each item has the ref the plugin gives it and
+// the links the lab's providers resolve for its kind.
+type goldenFlux struct{ lab plugin.LinkResolver }
+
+func (g goldenFlux) Attention(time.Time) []model.AttentionItem {
+	item := func(id string, sev model.Severity, kind model.FluxKind, ns, name, title, detail string, since time.Time) model.AttentionItem {
+		return model.AttentionItem{ID: id, Severity: sev, Source: "flux", Plugin: "flux", Title: title, Detail: detail, Since: since,
+			Route: "/gitops", Links: g.lab.Resolve(plugin.LinkRequest{Kind: string(kind), Namespace: ns, Name: name}),
+			Ref: "flux:" + string(kind) + "/" + ns + "/" + name}
+	}
+	return []model.AttentionItem{
+		item("flux:source-unverified/GitRepository/flux-system/flux-system", model.SeverityCrit, model.FluxKindGitRepository, "flux-system", "flux-system",
+			"GitRepository flux-system/flux-system signature not verified", "SourceVerified is not True", testNow.Add(-time.Hour)),
+		item("flux:Kustomization/flux-system/apps", model.SeverityWarn, model.FluxKindKustomization, "flux-system", "apps",
+			"Kustomization flux-system/apps not ready", "build failed", testNow.Add(-30*time.Minute)),
+		item("flux:suspended/Kustomization/flux-system/paused", model.SeverityWarn, model.FluxKindKustomization, "flux-system", "paused",
+			"Kustomization flux-system/paused suspended", "suspended", testNow),
+	}
+}
+
+func (goldenFlux) KPIs() []model.KPI {
+	return []model.KPI{
+		{Key: "ready", Plugin: "flux", Label: "Flux ready", Value: 2, Health: model.HealthWarn},
+		{Key: "total", Plugin: "flux", Label: "Flux objects", Value: 4, Health: model.HealthOK},
+		{Key: "suspended", Plugin: "flux", Label: "Flux suspended", Value: 1, Health: model.HealthOK},
+		{Key: "verified", Plugin: "flux", Label: "Source verified", Value: 0, Health: model.HealthCrit},
 	}
 }
 
@@ -50,10 +62,8 @@ func (goldenProxmoxLinks) Links(req plugin.LinkRequest) []model.Link {
 }
 
 // goldenManager is a Manager that has only what the overview needs.
-func goldenManager(t *testing.T) *Manager {
-	cfg := config.Defaults()
-	lab := append(labLinks(t).(providers), goldenProxmoxLinks{})
-	m := New(Deps{Cfg: cfg, LinkProviders: func() plugin.LinkResolver { return lab }})
+func goldenManager() *Manager {
+	m := New(Deps{})
 	m.now = func() time.Time { return testNow }
 	return m
 }
@@ -214,22 +224,26 @@ func (goldenKubernetes) Topology() model.Topology {
 // was written by the code that built it from the topics directly, and regenerated as each
 // integration moved into a plugin of its own. The host's items and KPIs come from the hardware
 // contribution (P3.7), and the cluster's items, its three KPIs (nodes.ready, nodes.total,
-// pvc.worst, now in kpiList and no longer in kpis) and its topology groups from the kubernetes
-// one (P3.8): each item gained its ref, and nothing else changed against v0.8.1. The alerts
-// arrive from the alertmanager contribution, and Kpis.alertsFiring is gone (its tile is the
-// plugin's KPI). The whole document is compared, kpiList and the order of the items included.
+// pvc.worst, now in kpiList) and its topology groups from the kubernetes one (P3.8): each item
+// gained its ref, and nothing else changed against v0.8.1. The alerts arrive from the
+// alertmanager contribution, and Kpis.alertsFiring is gone (its tile is the plugin's KPI). The
+// last Manager rule left with flux (P3.11): its items carry the plugin's ids and its KPIs are
+// the plugin's four in kpiList, and the fixed `kpis` object is gone. The whole document is
+// compared, kpiList and the order of the items included.
 func TestOverviewOutputIsUnchanged(t *testing.T) {
 	gp := goldenProxmox{vms: goldenVMs()}
 	gh := goldenHardware{links: goldenProxmoxLinks{}.Links(plugin.LinkRequest{Kind: "ProxmoxUI"})}
 	gh.links = append(gh.links, goldenProxmoxLinks{}.Links(plugin.LinkRequest{Kind: "HostShell"})...)
+	lab := labLinks(t)
 	cs := []plugin.Contributor{
-		{ID: "alertmanager", Attention: goldenAlerts{lab: labLinks(t)}},
+		{ID: "flux", Attention: goldenFlux{lab: lab}, KPIs: goldenFlux{lab: lab}},
+		{ID: "alertmanager", Attention: goldenAlerts{lab: lab}},
 		{ID: "gatus", Attention: goldenGatus{}},
 		{ID: "proxmox", Attention: gp, KPIs: gp, Topology: gp},
 		{ID: "hardware", Attention: gh, KPIs: gh, Topology: gh},
 		{ID: "kubernetes", Attention: goldenKubernetes{}, KPIs: goldenKubernetes{}, Topology: goldenKubernetes{}},
 	}
-	got, err := json.MarshalIndent(goldenManager(t).buildOverview(goldenSnapshots(), cs, testNow), "", "  ")
+	got, err := json.MarshalIndent(goldenManager().buildOverview(cs, testNow), "", "  ")
 	if err != nil {
 		t.Fatal(err)
 	}

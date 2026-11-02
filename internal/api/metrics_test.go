@@ -186,15 +186,14 @@ func TestMetricsOnHasEverySeries(t *testing.T) {
 	}
 }
 
-// The legacy Flux action is counted under the plugin and action it will have, a
-// plugin action under its own, and a plugin stream has the tail gauge: with metrics on each
-// shows up under the name and outcome of what happened.
-func TestLegacyActionsAndTailAreCountedWithMetricsOn(t *testing.T) {
+// A plugin action is counted under its own plugin and action, and a plugin stream has the tail
+// gauge: with metrics on each shows up under the name and outcome of what happened.
+func TestActionsAndTailAreCountedWithMetricsOn(t *testing.T) {
 	var fail error
 	pl := newHarness(t)
 	m := obs.New("test", RoutePatterns(), pl.sup.Infos)
 	pl.act = func(string, any) (any, error) { return nil, fail }
-	s, _ := serverWithFakes(func(d *Deps) { pl.attach(d); d.Audit, d.Metrics = openAudit(t, "", nil), m })
+	s := newServer(func(d *Deps) { pl.attach(d); d.Audit, d.Metrics = openAudit(t, "", nil), m })
 	h := s.Handler()
 	type call struct {
 		plugin, action string
@@ -203,7 +202,6 @@ func TestLegacyActionsAndTailAreCountedWithMetricsOn(t *testing.T) {
 	}
 	var want []struct{ plugin, action, outcome string }
 	for _, c := range []call{
-		{"flux", "reconcile", req{method: "POST", path: "/api/actions/reconcile", body: model.ReconcileRequest{Kind: "Kustomization", Namespace: "flux-system", Name: "ghost"}}, false},
 		{"aa", "silence.create", req{method: "POST", path: "/api/v1/plugins/aa/actions/silence.create", body: silenceIn{Alertname: "HighTemp"}}, false},
 		{"aa", "silence.expire", req{method: "POST", path: "/api/v1/plugins/aa/actions/silence.expire", body: expireIn{ID: "abc"}}, true},
 		{"aa", "silence.expire", req{method: "POST", path: "/api/v1/plugins/aa/actions/silence.expire", body: expireIn{ID: "abc"}}, false},
@@ -247,12 +245,6 @@ type fakeRT int
 
 func (f fakeRT) RoundTrip(*http.Request) (*http.Response, error) {
 	return &http.Response{StatusCode: int(f), Body: http.NoBody}, nil
-}
-
-// legacyActionPairs are the (plugin, action) pairs of the integration routes that are not plugin
-// actions yet. It is written out here on purpose: the test checks obs against the contract.
-var legacyActionPairs = [][2]string{
-	{"flux", "reconcile"}, {"alertmanager", "silence.create"}, {"alertmanager", "silence.expire"},
 }
 
 func TestMetricLabelValuesComeFromFixedSets(t *testing.T) {
@@ -305,8 +297,7 @@ func TestMetricLabelValuesComeFromFixedSets(t *testing.T) {
 	for _, s := range obs.PluginStates {
 		states = append(states, string(s))
 	}
-	actionPairs := slices.Clone(legacyActionPairs)
-	actionPairs = append(actionPairs, [2]string{"other", "other"})
+	actionPairs := [][2]string{{"other", "other"}}
 	for _, p := range infos {
 		pluginIDs = append(pluginIDs, p.ID)
 		for _, a := range p.Actions {

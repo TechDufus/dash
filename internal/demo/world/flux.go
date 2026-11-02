@@ -6,7 +6,17 @@ import (
 	"github.com/TechDufus/dash/internal/model"
 )
 
+// FluxNamespace is the namespace of the fake lab's GitOps controllers and of the Flux objects
+// that belong to them. cluster.go lists the same namespace.
+const FluxNamespace = "gitops-system"
+
+// FluxPinned is the GitRepository the demo's flux twin is configured to require a verified
+// signature of: the one source of the fake lab with spec.verify.
+var FluxPinned = model.FluxSourceRef{Kind: model.FluxKindGitRepository, Namespace: FluxNamespace, Name: FluxNamespace}
+
 // Flux is the GitOps payload: sources, kustomizations and helm releases, one of them suspended.
+// It carries what the Flux objects themselves say; the plugin adds the object references and the
+// list of verified sources.
 func (w *World) Flux() model.FluxData { return w.flux(w.clock()) }
 
 func (w *World) flux(now time.Time) model.FluxData {
@@ -14,15 +24,15 @@ func (w *World) flux(now time.Time) model.FluxData {
 	verified := true
 	rev := "main@sha1:4f2a9c1e"
 	d.Sources = []model.FluxObj{
-		{Kind: model.FluxKindGitRepository, Namespace: "flux-system", Name: "flux-system", Ready: true, Revision: rev, Message: "stored artifact for revision '" + rev + "'", LastTransition: agoP(now, 11*time.Minute), Verified: &verified},
-		{Kind: model.FluxKindOCIRepository, Namespace: "flux-system", Name: "cilium", Ready: true, Revision: "1.18.2@sha256:9b1d", Message: "stored artifact", LastTransition: agoP(now, 4*24*time.Hour)},
-		{Kind: model.FluxKindHelmRepository, Namespace: "flux-system", Name: "grafana", Ready: true, Revision: "sha256:1c7e", Message: "stored artifact", LastTransition: agoP(now, 2*time.Hour)},
-		{Kind: model.FluxKindHelmRepository, Namespace: "flux-system", Name: "jetstack", Ready: true, Revision: "sha256:aa30", Message: "stored artifact", LastTransition: agoP(now, 2*time.Hour)},
+		{Kind: model.FluxKindGitRepository, Namespace: FluxNamespace, Name: FluxNamespace, Ready: true, Revision: rev, Message: "stored artifact for revision '" + rev + "'", LastTransition: agoP(now, 11*time.Minute), Verified: &verified, SpecVerify: true},
+		{Kind: model.FluxKindOCIRepository, Namespace: FluxNamespace, Name: "cilium", Ready: true, Revision: "1.18.2@sha256:9b1d", Message: "stored artifact", LastTransition: agoP(now, 4*24*time.Hour)},
+		{Kind: model.FluxKindHelmRepository, Namespace: FluxNamespace, Name: "grafana", Ready: true, Revision: "sha256:1c7e", Message: "stored artifact", LastTransition: agoP(now, 2*time.Hour)},
+		{Kind: model.FluxKindHelmRepository, Namespace: FluxNamespace, Name: "jetstack", Ready: true, Revision: "sha256:aa30", Message: "stored artifact", LastTransition: agoP(now, 2*time.Hour)},
 	}
 	for i, k := range []string{"platform-crds", "platform", "monitoring", "apps", "tenants", "guardrails"} {
-		ks := model.FluxObj{Kind: model.FluxKindKustomization, Namespace: "flux-system", Name: k, Ready: true, Revision: rev,
+		ks := model.FluxObj{Kind: model.FluxKindKustomization, Namespace: FluxNamespace, Name: k, Ready: true, Revision: rev,
 			Message: "Applied revision: " + rev, LastTransition: agoP(now, time.Duration(11+i)*time.Minute),
-			Links: w.links.Headlamp("Kustomization", "flux-system", k)}
+			Links: w.links.Headlamp("Kustomization", FluxNamespace, k)}
 		d.Kustomizations = append(d.Kustomizations, ks)
 	}
 	for _, hr := range []struct{ ns, name, ver string }{

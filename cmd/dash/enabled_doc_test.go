@@ -31,24 +31,16 @@ func squash(s string) string {
 }
 
 // The `enabled` doc sentence says exactly which plugins apply a change live and what restarts
-// with them, as the manifests say it: the plugins that run on their own are the ones that behave
-// like that, the others are named as not moved yet, and each plugin that uses or requires another
-// is listed as restarting with it. A shim never restarts, so it is neither a dependent nor a
-// dependency here. The sentence is in the pluginconf doc tag, in `dash config env` (and the
-// generated page) and in the README row.
+// with them, as the manifests say it: every plugin dash ships behaves like that, and each plugin
+// that uses or requires another is listed as restarting with it. The sentence is in the
+// pluginconf doc tag, in `dash config env` (and the generated page) and in the README row.
 func TestEnabledDocNamesTheUsers(t *testing.T) {
-	var live, shims []string
+	var live []string
 	dependents := map[plugin.ID][]string{}
 	for _, m := range builtinManifests() {
-		if !hasRealPlugin(m.ID) {
-			shims = append(shims, string(m.ID))
-			continue
-		}
 		live = append(live, string(m.ID))
 		for _, dep := range append(slices.Clone(m.Uses), m.Requires...) {
-			if hasRealPlugin(dep) {
-				dependents[dep] = append(dependents[dep], string(m.ID))
-			}
+			dependents[dep] = append(dependents[dep], string(m.ID))
 		}
 	}
 	var pairs []string
@@ -57,16 +49,13 @@ func TestEnabledDocNamesTheUsers(t *testing.T) {
 			pairs = append(pairs, "a "+string(m.ID)+" change restarts "+joinWith(users, "and"))
 		}
 	}
-	if len(pairs) == 0 || len(shims) == 0 {
-		t.Fatalf("setup: pairs %v, shims %v", pairs, shims)
+	if len(pairs) == 0 {
+		t.Fatalf("setup: no plugin uses or requires another")
+	}
+	if !slices.Contains(dependents["kubernetes"], "flux") {
+		t.Fatalf("setup: flux does not require kubernetes: %v", dependents)
 	}
 	restarts := "(" + strings.Join(pairs, "; ") + ")"
-	// The sentence about the shims follows the restart list directly, so that a plugin that has
-	// moved cannot hide in front of the others ("kubernetes and flux have not moved").
-	shimSentence := restarts + ". " + joinWith(shims, "and") + " has not moved to a plugin of its own yet"
-	if len(shims) > 1 {
-		shimSentence = restarts + ". " + joinWith(shims, "and") + " have not moved to plugins of their own yet"
-	}
 
 	field, _ := reflect.TypeFor[pluginconf.PluginBase]().FieldByName("Enabled")
 	var table, page bytes.Buffer
@@ -81,7 +70,7 @@ func TestEnabledDocNamesTheUsers(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	tagWants := []string{"This is how " + joinWith(live, "and") + " behave", shimSentence}
+	tagWants := []string{"This is how " + joinWith(live, "and") + " behave", restarts + "."}
 	missing := func(text string, wants []string) []string {
 		var out []string
 		text = squash(text)
@@ -98,12 +87,12 @@ func TestEnabledDocNamesTheUsers(t *testing.T) {
 	}{
 		{"the enabled doc tag", field.Tag.Get("doc"), tagWants},
 		{"dash config env", table.String(), []string{
-			"applies live for " + joinWith(live, "and") + ",", restarts + ". A change to " + joinWith(shims, "or") + ",",
+			"applies live for " + joinWith(live, "and") + ",", restarts + ". A change to any section that is not a plugin's needs a restart.",
 		}},
 		{"the generated page", page.String(), []string{
-			"applies live for " + joinWith(live, "and") + ",", restarts + ". A change to " + joinWith(shims, "or") + ",",
+			"applies live for " + joinWith(live, "and") + ",", restarts + ". A change to any section that is not a plugin's needs a restart.",
 		}},
-		{"the README row", string(readme), []string{"That is how " + joinWith(live, "and") + " behave", shimSentence}},
+		{"the README row", string(readme), []string{"That is how " + joinWith(live, "and") + " behave", restarts + "."}},
 	} {
 		for _, want := range missing(doc.text, doc.wants) {
 			t.Errorf("%s lacks %q", doc.name, want)
@@ -113,9 +102,9 @@ func TestEnabledDocNamesTheUsers(t *testing.T) {
 	// The check itself: each stale form of the sentence is caught.
 	tag := squash(field.Tag.Get("doc"))
 	for name, stale := range map[string]string{
-		"a restart pair is missing":                    strings.Replace(tag, " a gatus change restarts hardware and kubernetes;", "", 1),
-		"a moved plugin is listed as one that has not": strings.Replace(tag, ". flux has not moved to a plugin", ". kubernetes and flux have not moved to plugins", 1),
-		"a live plugin is missing":                     strings.Replace(tag, "proxmox, hardware, kubernetes, grafana", "proxmox, hardware, grafana", 1),
+		"a restart pair is missing":     strings.Replace(tag, " a gatus change restarts hardware and kubernetes;", "", 1),
+		"flux is missing from the pair": strings.Replace(tag, "restarts proxmox and flux", "restarts proxmox", 1),
+		"a live plugin is missing":      strings.Replace(tag, "hardware, kubernetes, flux, grafana", "hardware, kubernetes, grafana", 1),
 	} {
 		if stale == tag {
 			t.Fatalf("%s: the doc has no text to damage", name)

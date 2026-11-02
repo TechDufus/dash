@@ -12,8 +12,8 @@ import (
 )
 
 // denylist is the epic's list of literals that name one lab and so must not be in code that ships.
-// A term scans only while active; flux-system is listed so that PR-3b flips its flag and nothing
-// else: until then nothing scans for it (the Flux code that uses it moves in PR-3b).
+// A term scans only while active; the leaf that removes a literal switches its flag on, so it
+// cannot come back.
 var denylist = []struct {
 	term   string
 	active bool
@@ -22,7 +22,7 @@ var denylist = []struct {
 	{"mac-mini", true, "P3.7"},
 	{"rpi-control", true, "P3.7"},
 	{"2020 && vmid", true, "P3.7"}, // the old "critical VM" rule: vmid >= 2020 && vmid <= 2022
-	{"flux-system", false, "PR-3"},
+	{"flux-system", true, "P3.11"},
 	{"gateway/home", true, "P3.9"},
 }
 
@@ -121,8 +121,7 @@ func TestNoHomelabLiterals(t *testing.T) {
 	}
 }
 
-// The scan itself: it finds an active term wherever shipped code is, skips what is not shipped,
-// and does not look for a term that is not active yet.
+// The scan itself: it finds an active term wherever shipped code is and skips what is not shipped.
 func TestHomelabScanCatchesALeakAndSkipsWhatDoesNotShip(t *testing.T) {
 	root := t.TempDir()
 	write := func(rel, body string) {
@@ -141,7 +140,7 @@ func TestHomelabScanCatchesALeakAndSkipsWhatDoesNotShip(t *testing.T) {
 	write("cmd/dash/z.go", "package main\n\nfunc f(vmid int) bool { return vmid >= 2020 && vmid <= 2022 }\n")
 	write("web/src/pages/p.tsx", "const n = 'mac-mini';\n")
 	write("web/src/api/a.ts", "export const x = 1;\n")
-	// Code that does not ship, or a term that does not count yet.
+	// Code that does not ship.
 	write("internal/x/x_test.go", "package x\n\nconst c = \"mac-mini\"\n")
 	write("internal/x/testdata/data.go", "package data\n\nconst c = \"mac-mini\"\n")
 	write("web/src/pages/p.test.tsx", "const n = 'mac-mini';\n")
@@ -163,6 +162,7 @@ func TestHomelabScanCatchesALeakAndSkipsWhatDoesNotShip(t *testing.T) {
 	want := []string{
 		`cmd/dash/z.go:3: "2020 && vmid"`,
 		`internal/demo/fixtures.go:3: "rpi-control"`,
+		`internal/flux/f.go:3: "flux-system"`,
 		`internal/flux/f.go:4: "gateway/home"`,
 		`internal/x/x.go:4: "mac-mini"`,
 		`web/src/pages/p.tsx:1: "mac-mini"`,

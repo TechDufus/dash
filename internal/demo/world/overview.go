@@ -1,9 +1,12 @@
 package world
 
 import (
+	"fmt"
+	"slices"
 	"time"
 
 	"github.com/TechDufus/dash/internal/model"
+	"github.com/TechDufus/dash/internal/plugin"
 )
 
 // Overview is the summary payload. It builds the topics it summarises (cluster, host, VMs, flux,
@@ -89,7 +92,6 @@ func (w *World) overviewOf(now time.Time, s Snapshot) model.OverviewData {
 			}
 		}
 	}
-	fluxTotal := len(s.Flux.Sources) + len(s.Flux.Kustomizations) + len(s.Flux.HelmReleases)
 	o.Status = model.HealthCrit
 	// The alertmanager plugin's one KPI, as its KPIs() computes it for the default severityMap, the
 	// proxmox plugin's two, as its kpisOf computes them, and the hardware plugin's two (ordered by
@@ -122,6 +124,8 @@ func (w *World) overviewOf(now time.Time, s Snapshot) model.OverviewData {
 	} else if r >= 0.80 {
 		pvcHealth = model.HealthWarn
 	}
+	fluxKPIs, fluxItems := fluxOverview(s.Flux)
+	o.Attention = append(o.Attention, fluxItems...)
 	o.KPIList = []model.KPI{
 		{Key: "firing", Plugin: "alertmanager", Label: "Alerts firing", Value: float64(firing), Health: alertHealth},
 		{Key: "power", Plugin: "hardware", Label: "Power", Unit: "W", Value: s.Host.PowerWatts, Health: model.HealthOK},
@@ -132,6 +136,62 @@ func (w *World) overviewOf(now time.Time, s Snapshot) model.OverviewData {
 		{Key: "vms.running", Plugin: "proxmox", Label: "VMs running", Value: float64(running), Health: vmHealth},
 		{Key: "vms.total", Plugin: "proxmox", Label: "VMs", Value: float64(total), Health: model.HealthOK},
 	}
-	o.Kpis = model.Kpis{FluxReady: fluxTotal, FluxTotal: fluxTotal, FluxSuspended: 1, SourceVerified: true}
+	o.KPIList = slices.Insert(o.KPIList, 1, fluxKPIs...) // after alertmanager, before hardware: by plugin, as compose does
 	return o
+}
+
+// fluxOverview is the flux plugin's contribution to the overview, as its KPIs() and Attention()
+// compute it for the fake lab (whose GitOps repository is pinned, FluxPinned): the Kustomizations and
+// Helm releases ready, suspended and in all, whether the signed sources are verified, and one
+// warning per suspended object.
+func fluxOverview(d model.FluxData) ([]model.KPI, []model.AttentionItem) {
+	ready, total, suspended := 0, 0, 0
+	for _, list := range [][]model.FluxObj{d.Kustomizations, d.HelmReleases} {
+		for _, o := range list {
+			total++
+			if o.Ready {
+				ready++
+			}
+			if o.Suspended {
+				suspended++
+			}
+		}
+	}
+	items := []model.AttentionItem{}
+	for _, list := range [][]model.FluxObj{d.Sources, d.Kustomizations, d.HelmReleases} {
+		for _, o := range list {
+			if !o.Suspended {
+				continue
+			}
+			detail := o.SuspendReason
+			if detail == "" {
+				detail = "suspended"
+			}
+			var since time.Time
+			if o.LastTransition != nil {
+				since = *o.LastTransition
+			}
+			items = append(items, model.AttentionItem{
+				ID:       fmt.Sprintf("flux:suspended/%s/%s/%s", o.Kind, o.Namespace, o.Name),
+				Severity: model.SeverityWarn, Source: "flux", Plugin: "flux", Detail: detail, Since: since, Route: "/gitops", Links: o.Links,
+				Title: fmt.Sprintf("%s %s/%s suspended", o.Kind, o.Namespace, o.Name), Ref: plugin.Ref("flux", string(o.Kind), o.Namespace, o.Name),
+			})
+		}
+	}
+	readyHealth := model.HealthOK
+	if ready < total {
+		readyHealth = model.HealthWarn
+	}
+	verified, verifiedHealth := 1, model.HealthOK
+	for _, s := range d.Sources {
+		if s.SpecVerify && (s.Verified == nil || !*s.Verified) {
+			verified, verifiedHealth = 0, model.HealthCrit
+		}
+	}
+	return []model.KPI{
+		{Key: "ready", Plugin: "flux", Label: "Flux ready", Value: float64(ready), Health: readyHealth},
+		{Key: "suspended", Plugin: "flux", Label: "Flux suspended", Value: float64(suspended), Health: model.HealthOK},
+		{Key: "total", Plugin: "flux", Label: "Flux objects", Value: float64(total), Health: model.HealthOK},
+		{Key: "verified", Plugin: "flux", Label: "Source verified", Value: float64(verified), Health: verifiedHealth},
+	}, items
 }
