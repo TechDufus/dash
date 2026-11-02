@@ -136,6 +136,9 @@ func (p *Plugin) publish(rt *runtime, cl svc.Cluster, s sig) {
 	data := model.CNPGClustersData{Clusters: []model.CNPGCluster{}}
 	switch {
 	case s.failed:
+		// A group whose discovery failed keeps its last answer in the cluster, so its cached
+		// clusters are still listed; the row says why the list may be stale.
+		data.Clusters = clustersOf(cl.List(gvr), ages, rt.h.Links())
 		note = &model.SourceStatus{Name: sourceCNPG, Error: upstream.CategoryUnreachable, CheckedAt: now.UTC()}
 		state, msg = plugin.StateDegraded, "discovery failed for: "+sourceCNPG
 		rt.warn("discovery:" + upstream.CategoryUnreachable)

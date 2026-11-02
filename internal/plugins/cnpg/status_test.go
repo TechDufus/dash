@@ -310,6 +310,30 @@ func TestCNPGFailedGroupDegrades(t *testing.T) {
 	waitTopic(t, r.hub, "cnpg.clusters", func(d model.CNPGClustersData) bool { return len(d.Clusters) == 1 })
 }
 
+// A group whose discovery failed after its clusters were listed keeps its cached answer in the
+// real cluster (Has stays true, List still returns them), so the topic keeps the clusters while
+// the row is degraded and carries the note.
+func TestCNPGFailedGroupKeepsTheCachedClusters(t *testing.T) {
+	r := newRig(t, rigOpts{prefill: one})
+	r.waitState(model.PluginHealthy)
+	waitTopic(t, r.hub, "cnpg.clusters", func(d model.CNPGClustersData) bool { return len(d.Clusters) == 1 })
+
+	r.kc.SetFailedGroups(gvr.GroupVersion()) // still served: only discovery of the group failed
+	pi := r.waitState(model.PluginDegraded)
+	if pi.Message != "discovery failed for: cnpg" {
+		t.Errorf("message = %q", pi.Message)
+	}
+	d, srcs := waitTopic(t, r.hub, "cnpg.clusters", func(d model.CNPGClustersData) bool {
+		return len(d.Clusters) == 1
+	})
+	if d.Clusters[0].Name != "pg-main" || !hasSource(srcs, "cnpg", false, "unreachable") {
+		t.Errorf("clusters %+v sources %+v", d.Clusters, srcs)
+	}
+
+	r.kc.SetFailedGroups()
+	r.waitState(model.PluginHealthy)
+}
+
 // Only the Prometheus query failing degrades the row: the clusters are still published without
 // an age, the source says why, and the last good age survives a later failure.
 func TestCNPGDegradedWhenOnlyTheAgeQueryFails(t *testing.T) {
