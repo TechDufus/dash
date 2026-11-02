@@ -229,14 +229,20 @@ func (r *runtime) refused(gvr schema.GroupVersionResource) (category string, ok 
 
 // stuck reports a served resource whose informer has not listed within the sync timeout of
 // API-server up-time (upSince), counted from the start of the plugin, or from the moment the
-// resource appeared when that was later. The clock pauses while the probe fails.
+// resource appeared when that was later. The clock pauses while the probe fails. A resource the
+// cluster serves but discover has not recorded yet (the cluster marks it served before discover
+// notes when it appeared) has no clock to read: it is not stuck.
 func (r *runtime) stuck(gvr schema.GroupVersionResource) bool {
 	if !r.cl.Has(gvr) || r.cl.Listed(gvr) {
 		return false
 	}
 	r.mu.RLock()
 	m, ok := r.appeared[gvr]
+	had := r.had[gvr]
 	r.mu.RUnlock()
+	if !had {
+		return false
+	}
 	if !ok || m.at.Before(r.started) {
 		m = clockMark{at: r.started}
 	}

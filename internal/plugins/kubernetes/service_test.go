@@ -403,7 +403,7 @@ func TestRefusedCategoryIsUnreachableWithoutAWatchError(t *testing.T) {
 	}
 
 	t0 := time.Date(2026, 11, 1, 12, 0, 0, 0, time.UTC)
-	r := &runtime{cl: c, started: t0, t: timing{typedSyncTimeout: 60 * time.Second}}
+	r := &runtime{cl: c, started: t0, t: timing{typedSyncTimeout: 60 * time.Second}, had: map[schema.GroupVersionResource]bool{gvr: true}}
 	r.h = dtHost{now: t0.Add(59 * time.Second)}
 	if cat, ok := r.refused(gvr); ok {
 		t.Fatalf("refused after 59 s: %q", cat)
@@ -414,5 +414,31 @@ func TestRefusedCategoryIsUnreachableWithoutAWatchError(t *testing.T) {
 	}
 	if _, ok := (&service{r: r}).Refused(kube.GVRCertificates); ok {
 		t.Error("a resource nobody registered is refused")
+	}
+}
+
+// The cluster marks a resource served before discover records it (r.had) and when it appeared
+// (r.appeared). In that window the resource has no clock yet, so it is not refused, however long
+// the plugin has run.
+func TestRefusedNeedsTheDiscoveryRecordOfTheResource(t *testing.T) {
+	gvr := kube.GVRExternalSecrets
+	kc := kubefake.NewClientset()
+	kc.Discovery().(*fakediscovery.FakeDiscovery).Resources = served(gvr)
+	dc := dynfake.NewSimpleDynamicClientWithCustomListKinds(k8sruntime.NewScheme(), map[schema.GroupVersionResource]string{gvr: "externalsecretsList"})
+	c := kube.NewFromClients(kc, dc)
+	if err := c.Discover(map[schema.GroupVersionResource]kube.Kind{gvr: kube.KindExtSecrets}); err != nil {
+		t.Fatal(err)
+	}
+	t0 := time.Date(2026, 11, 1, 12, 0, 0, 0, time.UTC)
+	r := &runtime{cl: c, started: t0, t: timing{typedSyncTimeout: 60 * time.Second}, had: map[schema.GroupVersionResource]bool{}, h: dtHost{now: t0.Add(time.Hour)}}
+	if r.stuck(gvr) {
+		t.Error("stuck before discover recorded the resource")
+	}
+	if cat, ok := r.refused(gvr); ok {
+		t.Errorf("refused before discover recorded the resource: %q", cat)
+	}
+	r.had[gvr] = true
+	if !r.stuck(gvr) {
+		t.Error("not stuck once recorded, an hour after the start")
 	}
 }
