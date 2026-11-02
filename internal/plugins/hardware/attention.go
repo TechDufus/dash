@@ -43,13 +43,14 @@ func (p *Plugin) current() (model.HostData, *runtime, bool) {
 
 // Attention raises an item for a ZFS pool that is not online or whose last scrub found errors, a
 // disk that fails SMART and a CPU package at or above the warning temperature. Items without a
-// time of their own are stamped with the moment they were first seen.
+// time of their own are stamped by the supervisor with the moment they were first seen. It has
+// no opinion (nil) before the first poll.
 func (p *Plugin) Attention(now time.Time) []model.AttentionItem {
 	d, rt, ok := p.current()
 	if !ok {
 		return nil
 	}
-	return p.firstSeen.Stamp(now, attentionOf(d, shellLinks(rt.h)))
+	return attentionOf(d, shellLinks(rt.h))
 }
 
 // attentionOf is the rule table over a host payload, in the order pools, disks, CPU. links is

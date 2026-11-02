@@ -348,8 +348,6 @@ type runtime struct {
 	seenStuck     string
 
 	wrap func(http.RoundTripper) http.RoundTripper // upstream.DevWrap of the REST config, built on first use
-
-	fs plugin.FirstSeen
 	// twin, when set, replaces the live builders (the demo twin).
 	twin *twinSource
 }

@@ -1,6 +1,10 @@
 package plugin
 
-import "github.com/TechDufus/dash/internal/model"
+import (
+	"time"
+
+	"github.com/TechDufus/dash/internal/model"
+)
 
 // Contributor is a running instance and the overview sources it implements; each is nil when the
 // plugin does not implement it.
@@ -30,7 +34,7 @@ func (s *Supervisor) Contributors() []Contributor {
 			continue
 		}
 		c := Contributor{ID: in.id}
-		c.Attention, _ = p.(AttentionSource)
+		c.Attention = stampedOf(p, &in.seen)
 		c.KPIs, _ = p.(KPISource)
 		c.Topology, _ = p.(TopologySource)
 		if c.Attention != nil || c.KPIs != nil || c.Topology != nil {
@@ -39,6 +43,33 @@ func (s *Supervisor) Contributors() []Contributor {
 		}
 	}
 	return out
+}
+
+// stamped is an AttentionSource that gives the items of src that have no Since the time they
+// were first seen, by the instance's tracker.
+type stamped struct {
+	src  AttentionSource
+	seen *FirstSeen
+}
+
+// stampedOf wraps p when it is an AttentionSource, and is nil otherwise.
+func stampedOf(p Plugin, seen *FirstSeen) AttentionSource {
+	src, ok := p.(AttentionSource)
+	if !ok {
+		return nil
+	}
+	return stamped{src: src, seen: seen}
+}
+
+// Attention returns nil, and leaves the tracker alone, while the plugin has no opinion yet (a nil
+// list); any other list, an empty one included, is stamped, which prunes the sightings of items
+// that are gone.
+func (s stamped) Attention(now time.Time) []model.AttentionItem {
+	items := s.src.Attention(now)
+	if items == nil {
+		return nil
+	}
+	return s.seen.Stamp(now, items)
 }
 
 // sourcesOf is the Sources function of a plugin: a copy of its Status().Sources, none when Status

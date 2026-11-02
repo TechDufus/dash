@@ -5,7 +5,10 @@ import (
 	"testing"
 	"time"
 
+	k8sruntime "k8s.io/apimachinery/pkg/runtime"
+
 	"github.com/TechDufus/dash/internal/model"
+	"github.com/TechDufus/dash/internal/plugin"
 )
 
 // ovPlugin is a running plugin whose last published payloads are cl and st (either may be nil).
@@ -36,62 +39,77 @@ func TestAttentionIsNilWhileThePluginDoesNotRun(t *testing.T) {
 	}
 }
 
-func TestAttentionBeforeTheFirstPublishIsEmpty(t *testing.T) {
-	items := ovPlugin(nil, nil).Attention(clNow)
-	if len(items) != 0 {
-		t.Errorf("items = %+v", items)
+// No opinion (nil, which leaves the supervisor's sightings alone) until both payloads exist: a
+// half-built list would prune the sightings of the other half.
+func TestAttentionIsNilUntilBothPayloadsExist(t *testing.T) {
+	cl, st := &model.ClusterData{Nodes: []model.Node{{Name: "cp-1"}}}, &model.StorageData{}
+	for name, p := range map[string]*Plugin{
+		"neither":      ovPlugin(nil, nil),
+		"cluster only": ovPlugin(cl, nil),
+		"storage only": ovPlugin(nil, st),
+	} {
+		if items := p.Attention(clNow); items != nil {
+			t.Errorf("%s: items = %+v, want nil", name, items)
+		}
+	}
+	if items := ovPlugin(cl, st).Attention(clNow); len(items) != 1 || items[0].Since != (time.Time{}) {
+		t.Errorf("both payloads: items = %+v, want the node, unstamped (the supervisor stamps)", items)
+	}
+	if items := ovPlugin(&model.ClusterData{}, st).Attention(clNow); items == nil || len(items) != 0 {
+		t.Errorf("nothing to raise: items = %#v, want a non-nil empty list", items)
 	}
 }
 
-func TestAttentionStampsFirstSeenOnItemsWithoutATime(t *testing.T) {
-	created := clNow.Add(-time.Hour)
-	cl := &model.ClusterData{
-		Nodes: []model.Node{{Name: "cp-1", Ready: false}},
-		Pods:  []model.Pod{{Namespace: "a", Name: "p", Health: model.HealthCrit, CreatedAt: created}},
-	}
-	ratio := 0.85
-	st := &model.StorageData{PVCs: []model.PVC{{Namespace: "a", Name: "v", UsedRatio: &ratio}}}
-	p := ovPlugin(cl, st)
-	r := p.rt.Load()
-
-	first := p.Attention(clNow)
-	if len(first) != 3 {
-		t.Fatalf("items = %+v", first)
-	}
-	since := func(items []model.AttentionItem, id string) time.Time {
-		it, ok := atItem(items, id)
-		if !ok {
-			t.Fatalf("no item %s in %+v", id, items)
+// An item without a time of its own gets the time the supervisor first saw it, and keeps it
+// when the plugin restarts (N5).
+func TestAttentionIsStampedBySupervisorAndSurvivesARestart(t *testing.T) {
+	e := newEnv(t, envOpts{objs: []k8sruntime.Object{node("cp-1", "192.0.2.10", false)}})
+	e.healthy()
+	at := func(now time.Time) []model.AttentionItem {
+		for _, c := range e.sup.Contributors() {
+			if c.ID == ID && c.Attention != nil {
+				return c.Attention.Attention(now)
+			}
 		}
-		return it.Since
+		t.Fatal("kubernetes is not an attention contributor")
+		return nil
 	}
-	if got := since(first, "node:cp-1"); !got.Equal(clNow) {
-		t.Errorf("node since = %v, want the first sighting %v", got, clNow)
+	since := func(now time.Time) time.Time {
+		items := at(now)
+		if len(items) != 1 || items[0].ID != "node:cp-1" {
+			t.Fatalf("items = %+v, want the node", items)
+		}
+		return items[0].Since
 	}
-	if got := since(first, "pod:a/p"); !got.Equal(created) {
-		t.Errorf("pod since = %v, want its creation %v", got, created)
+	if got := since(clNow); !got.Equal(clNow) {
+		t.Fatalf("node since = %v, want the first sighting %v", got, clNow)
 	}
-
-	later := clNow.Add(10 * time.Minute)
-	second := p.Attention(later)
-	if got := since(second, "node:cp-1"); !got.Equal(clNow) {
+	if got := since(clNow.Add(10 * time.Minute)); !got.Equal(clNow) {
 		t.Errorf("node since after another call = %v, want it to stay %v", got, clNow)
 	}
-	if got := since(second, "pvc:a/v"); !got.Equal(clNow) {
-		t.Errorf("pvc since = %v, want %v", got, clNow)
-	}
 
-	// The node recovers and fails again: it starts over at the time it is seen again.
-	r.mu.Lock()
-	r.cluster = &model.ClusterData{}
-	r.mu.Unlock()
-	p.Attention(later.Add(time.Minute))
-	r.mu.Lock()
-	r.cluster = cl
-	r.mu.Unlock()
-	again := later.Add(2 * time.Minute)
-	if got := since(p.Attention(again), "node:cp-1"); !got.Equal(again) {
-		t.Errorf("node since after recovering = %v, want %v", got, again)
+	// A restart: a changed setting stops the plugin and starts it again.
+	cfg := *e.cfg
+	cfg.Actions.DenyNamespaces = []string{"kube-system"}
+	e.set.Set(plugin.InstanceConfig{Name: ID, Type: ID, Config: &cfg, DenyNamespaces: cfg.Actions.DenyNamespaces})
+	e.sup.Reload()
+	waitFor(t, "the plugin to restart", func() bool {
+		e.mu.Lock()
+		defer e.mu.Unlock()
+		return e.connections == 2
+	})
+	// Until the new runtime has built both payloads it has no opinion, and nothing is pruned.
+	var got time.Time
+	later := clNow.Add(time.Hour)
+	waitFor(t, "the restarted plugin's attention", func() bool {
+		items := at(later)
+		if len(items) == 1 {
+			got = items[0].Since
+		}
+		return len(items) == 1
+	})
+	if !got.Equal(clNow) {
+		t.Errorf("node since after the restart = %v, want %v", got, clNow)
 	}
 }
 

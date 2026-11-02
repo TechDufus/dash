@@ -27,7 +27,8 @@ func (r *runtime) current() *model.VMsData {
 }
 
 // Attention raises an item for every guest that is not running and is not a template: critical
-// for a critical VM, a warning for any other. Since is when the plugin first saw the VM stopped.
+// for a critical VM, a warning for any other. Since is when the supervisor first saw the VM
+// stopped. It has no opinion (nil) before the first poll.
 func (p *Plugin) Attention(now time.Time) []model.AttentionItem {
 	r := p.rt.Load()
 	if r == nil {
@@ -37,7 +38,7 @@ func (p *Plugin) Attention(now time.Time) []model.AttentionItem {
 	if d == nil {
 		return nil
 	}
-	return r.fs.Stamp(now, attentionOf(d.VMs))
+	return attentionOf(d.VMs)
 }
 
 // attentionOf is the items of a list of VMs, without Since.

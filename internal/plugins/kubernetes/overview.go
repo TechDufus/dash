@@ -17,22 +17,19 @@ const (
 )
 
 // Attention implements plugin.AttentionSource: the rule table over the payloads the plugin
-// published last. An item without a time of its own gets the time it was first seen.
+// published last. It has no opinion (nil) until both the cluster and the storage payload exist,
+// so a restarted plugin does not prune the supervisor's first sightings with a half-built list;
+// an item without a time of its own gets the time it was first seen, from the supervisor.
 func (p *Plugin) Attention(now time.Time) []model.AttentionItem {
 	r := p.rt.Load()
 	if r == nil {
 		return nil
 	}
 	cl, st := r.builtPayloads()
-	var c model.ClusterData
-	var s model.StorageData
-	if cl != nil {
-		c = *cl
+	if cl == nil || st == nil {
+		return nil
 	}
-	if st != nil {
-		s = *st
-	}
-	return r.fs.Stamp(now, attentionOf(c, s, now))
+	return attentionOf(*cl, *st, now)
 }
 
 // KPIs implements plugin.KPISource: the nodes that are ready and the nodes there are, once the

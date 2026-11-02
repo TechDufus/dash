@@ -41,8 +41,6 @@ type twin struct {
 	w      *world.World
 	cancel context.CancelFunc
 	done   chan struct{}
-
-	firstSeen plugin.FirstSeen
 }
 
 func (t *twin) Manifest() plugin.Manifest {
@@ -156,7 +154,7 @@ func (t *twin) Attention(now time.Time) []model.AttentionItem {
 	if !ok {
 		return nil
 	}
-	return t.firstSeen.Stamp(now, attentionOf(d, shellLinks(h)))
+	return attentionOf(d, shellLinks(h))
 }
 
 func (t *twin) KPIs() []model.KPI {

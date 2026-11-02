@@ -72,6 +72,12 @@ type instance struct {
 	restartOnly bool
 	hasTwin     bool       // the plugin implements Demo
 	cfgZero     func() any // Manifest.Config, nil when the plugin has no configuration
+	// seen is the first-sighting tracker of the instance's attention items. It outlives every
+	// start of the plugin (a reload or a restart keeps the clocks) and is reset only when the
+	// instance is disabled or unconfigured or its Start fails, never when it is blocked: a
+	// dependency that is only unavailable for a while must not restart the clocks. It has its own
+	// lock.
+	seen FirstSeen
 
 	mu          sync.RWMutex
 	probe       Plugin // the plugin Add built: it answers Configured and Validate, and is the first one started
@@ -942,6 +948,9 @@ func (in *instance) setEvaluated() {
 func (s *Supervisor) setNotRunning(in *instance, ic InstanceConfig, st State, msg string) {
 	in.mu.Lock()
 	in.state, in.msg, in.cfg, in.evaluated, in.failedStart = st, msg, ic, true, false
+	if st == StateDisabled || st == StateUnconfigured {
+		in.seen.Reset()
+	}
 	changed := in.loggedState != string(st)+"/"+msg
 	in.loggedState = string(st) + "/" + msg
 	in.mu.Unlock()
@@ -1003,6 +1012,7 @@ func (s *Supervisor) start(in *instance, ic InstanceConfig) bool {
 	in.mu.Lock()
 	in.live, in.running = false, false
 	in.state, in.msg, in.failedStart = StateError, msgStartFailed, true
+	in.seen.Reset()
 	in.loggedState = string(StateError) + "/" + msgStartFailed
 	in.mu.Unlock()
 	s.removeTopics(in)

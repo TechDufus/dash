@@ -282,6 +282,12 @@ type Demo interface{ Demo() Plugin }
 
 // Contributors to core.overview (P2.5).
 type (
+	// AttentionSource lists what needs the operator's attention. A nil list means "no opinion yet"
+	// (the plugin is hidden or has not built its data), and the supervisor leaves the first
+	// sightings of its items alone; a non-nil empty list means "nothing to raise" and prunes
+	// them. A plugin that has polled therefore returns a non-nil empty list when it has nothing
+	// to raise. Items without a Since of their own need no help: the supervisor stamps them
+	// with the time they were first seen, and that clock survives restarts of the plugin.
 	AttentionSource interface {
 		Attention(now time.Time) []model.AttentionItem
 	}

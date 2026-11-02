@@ -68,8 +68,6 @@ type runtime struct {
 	promNames          map[string]string
 	logged             map[string]string // source -> the category last logged for it
 
-	fs plugin.FirstSeen
-
 	// detail answers the VM detail; setNode points it at the node client unless a run (the demo
 	// twin) brought its own.
 	detail detailSource

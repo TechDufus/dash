@@ -8,9 +8,10 @@ import (
 )
 
 // FirstSeen gives attention items that have no time of their own a stable Since: the moment the
-// item was first seen with that ID, kept for as long as it keeps appearing. A plugin whose items
-// come from a state without a timestamp (a stopped VM, a failing disk, a hot CPU) stamps its
-// list with one on every call to Attention. The zero value is ready to use.
+// item was first seen with that ID, kept for as long as it keeps appearing. The supervisor owns
+// one per plugin instance and stamps the lists of its AttentionSource with it (Contributors), so
+// the clocks outlive a restart of the plugin and no plugin has to opt in. The zero value is ready
+// to use.
 type FirstSeen struct {
 	mu   sync.Mutex
 	seen map[string]time.Time
@@ -18,6 +19,13 @@ type FirstSeen struct {
 
 // NewFirstSeen returns an empty FirstSeen.
 func NewFirstSeen() *FirstSeen { return &FirstSeen{} }
+
+// Reset forgets every sighting: the next call starts every clock over.
+func (f *FirstSeen) Reset() {
+	f.mu.Lock()
+	f.seen = nil
+	f.mu.Unlock()
+}
 
 // Stamp returns items with Since filled in for every item whose Since is zero: the time of the
 // first call (with that ID) that has been followed by no call without it. An item that already

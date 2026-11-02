@@ -105,8 +105,6 @@ type Plugin struct {
 	// ran is set when the plugin has published anything. From then on the row is never
 	// "unavailable": it holds data, and a row that holds data is visible (design A.9).
 	ran bool
-
-	firstSeen plugin.FirstSeen
 }
 
 // runtime is what one Start knows: the host, the normalized settings and the queries they shape.

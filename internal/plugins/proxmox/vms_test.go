@@ -79,15 +79,27 @@ func TestVMHealthTable(t *testing.T) {
 	}
 }
 
+// attentionAt is the plugin's attention as the overview sees it: read through the supervisor,
+// which stamps the items that have no time of their own.
+func (e *env) attentionAt(t *testing.T, now time.Time) []model.AttentionItem {
+	t.Helper()
+	for _, c := range e.sup.Contributors() {
+		if c.ID == ID && c.Attention != nil {
+			return c.Attention.Attention(now)
+		}
+	}
+	t.Fatal("proxmox is not among the overview contributors")
+	return nil
+}
+
 // The attention items: a stopped, non-template VM, critical or warning, with the id, source,
-// route and ref of the design; Since is when the plugin first saw it and does not move.
+// route and ref of the design; Since is when the supervisor first saw it and does not move.
 func TestAttentionItemsAndSinceIsStable(t *testing.T) {
 	e := newEnv(t, envOpts{cfg: func(c *pluginconf.Proxmox) { c.CriticalVMs.IDs = []int{103} }})
 	e.vms(t, "the guests", func(d model.VMsData) bool { return len(d.VMs) == 4 })
-	p := e.current()
 
 	t0 := time.Date(2026, 11, 1, 12, 0, 0, 0, time.UTC)
-	items := p.Attention(t0)
+	items := e.attentionAt(t, t0)
 	got := map[string]model.AttentionItem{}
 	for _, it := range items {
 		got[it.ID] = it
@@ -109,7 +121,7 @@ func TestAttentionItemsAndSinceIsStable(t *testing.T) {
 	if !it.Since.Equal(t0) {
 		t.Errorf("Since = %v, want the first sighting %v", it.Since, t0)
 	}
-	again := p.Attention(t0.Add(time.Hour))
+	again := e.attentionAt(t, t0.Add(time.Hour))
 	for _, x := range again {
 		if !x.Since.Equal(t0) {
 			t.Errorf("%s: Since moved to %v", x.ID, x.Since)
@@ -121,21 +133,21 @@ func TestAttentionStartsOverWhenTheVMRecovers(t *testing.T) {
 	pve := newFakePVE(t, false)
 	e := newEnv(t, envOpts{pve: pve})
 	e.vms(t, "the guests", func(d model.VMsData) bool { return len(d.VMs) == 4 })
-	p := e.current()
+
 	t0 := time.Date(2026, 11, 1, 12, 0, 0, 0, time.UTC)
-	p.Attention(t0)
+	e.attentionAt(t, t0)
 
 	// 103 starts.
 	pve.set("/cluster/resources", `{"data":[{"vmid":103,"name":"scratch","status":"running","maxcpu":1,"maxmem":1,"tags":"lab"}]}`)
 	e.vms(t, "103 running", func(d model.VMsData) bool { return len(d.VMs) == 1 && d.VMs[0].Status == "running" })
-	if items := p.Attention(t0.Add(time.Minute)); len(items) != 0 {
+	if items := e.attentionAt(t, t0.Add(time.Minute)); len(items) != 0 {
 		t.Fatalf("items = %+v, want none", items)
 	}
 	// It stops again: a new item with its own Since.
 	pve.set("/cluster/resources", pveVMs)
 	e.vms(t, "103 stopped", func(d model.VMsData) bool { return len(d.VMs) == 4 })
 	t1 := t0.Add(2 * time.Minute)
-	for _, it := range p.Attention(t1) {
+	for _, it := range e.attentionAt(t, t1) {
 		if it.ID == "vm:103" && !it.Since.Equal(t1) {
 			t.Errorf("Since = %v, want %v", it.Since, t1)
 		}
