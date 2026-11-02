@@ -226,10 +226,10 @@ func TestPVCWithoutMetricsHasNoUsage(t *testing.T) {
 
 func TestEmptyStoragePayloadHasNoNilSlices(t *testing.T) {
 	got := buildStorage(storageInput{c: testCluster(t, nil)})
-	if got.PVCs == nil || got.Buckets == nil || got.CNPG == nil || got.BackupJobs == nil {
+	if got.PVCs == nil || got.BackupJobs == nil {
 		t.Errorf("a nil slice in %+v", got)
 	}
-	if len(got.PVCs)+len(got.Buckets)+len(got.CNPG)+len(got.BackupJobs) != 0 {
+	if len(got.PVCs)+len(got.BackupJobs) != 0 {
 		t.Errorf("rows from nothing: %+v", got)
 	}
 }
@@ -287,12 +287,12 @@ func TestFailedQueryKeepsPrevValues(t *testing.T) {
 }
 
 func TestAnsweredQueryWithNoSamplesClearsItsValues(t *testing.T) {
-	prev := storageSnap{pvcUsed: map[string]float64{"n/p": 50}, etcdDB: 1e9, rustfsUsed: 5}
+	prev := storageSnap{pvcUsed: map[string]float64{"n/p": 50}, etcdDB: 1e9}
 	snap, err := queryStorage(context.Background(), &fakeProm{}, pluginconf.Kubernetes{}, prev)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(snap.pvcUsed) != 0 || snap.etcdDB != 0 || snap.rustfsUsed != 0 {
+	if len(snap.pvcUsed) != 0 || snap.etcdDB != 0 {
 		t.Errorf("an empty answer must replace the old values: %+v", snap)
 	}
 }

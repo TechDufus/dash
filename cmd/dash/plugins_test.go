@@ -57,12 +57,12 @@ func TestTreeSettingsListsEverySectionOnce(t *testing.T) {
 	}
 }
 
-func TestBuiltinManifestsAreTheElevenInDisplayOrder(t *testing.T) {
+func TestBuiltinManifestsAreTheThirteenInDisplayOrder(t *testing.T) {
 	var ids []string
 	for _, m := range builtinManifests() {
 		ids = append(ids, string(m.ID))
 	}
-	want := []string{"prometheus", "alertmanager", "gatus", "victorialogs", "proxmox", "hardware", "kubernetes", "flux", "grafana", "headlamp", "launcher"}
+	want := []string{"prometheus", "alertmanager", "gatus", "victorialogs", "proxmox", "hardware", "kubernetes", "flux", "cnpg", "rustfs", "grafana", "headlamp", "launcher"}
 	if !slices.Equal(ids, want) {
 		t.Fatalf("manifests = %v, want %v", ids, want)
 	}
@@ -200,7 +200,7 @@ func TestDemoSeriesComeFromThePrometheusTwin(t *testing.T) {
 }
 
 // Demo mode publishes the launcher's links through the launcher plugin's demo twin, after every
-// other topic (the launcher comes last in the display order); the flux twin's topic is flux.objects.
+// other topic (the launcher comes last in the display order); the flux, cnpg and rustfs twins' topics are flux.objects, cnpg.clusters and rustfs.usage.
 func TestDemoPublishesTheLauncherLinksLast(t *testing.T) {
 	startEnv(t, t.TempDir(), "DASH_DEMO=true")
 	res, store, err := loadConfig(secret.NewRegistry(), nil)
@@ -221,7 +221,7 @@ func TestDemoPublishesTheLauncherLinksLast(t *testing.T) {
 	}
 	defer fw.sup.Shutdown(context.Background())
 
-	want := []string{"core.plugins", "core.overview", "alertmanager.alerts", "gatus.status", "proxmox.vms", "proxmox.node", "proxmox.storage", "hardware.hosts", "hardware.machines", "kubernetes.cluster", "kubernetes.storage", "kubernetes.apps", "flux.objects", "launcher.links"}
+	want := []string{"core.plugins", "core.overview", "alertmanager.alerts", "gatus.status", "proxmox.vms", "proxmox.node", "proxmox.storage", "hardware.hosts", "hardware.machines", "kubernetes.cluster", "kubernetes.storage", "kubernetes.apps", "flux.objects", "cnpg.clusters", "rustfs.usage", "launcher.links"}
 	deadline := time.Now().Add(5 * time.Second)
 	for {
 		snap, _, cancelSub := fw.hub.Subscribe("", nil)

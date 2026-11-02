@@ -23,23 +23,18 @@ type crd struct {
 	name string
 	// optional silences the note and the degraded row for an absent CRD (plugins.kubernetes.optional.*).
 	optional bool
-	// wantedWhenAbsent says that an absent CRD makes the row degraded and adds the note. The CNPG
-	// group of the transitional storage extras is wanted only when its discovery is broken: an
-	// absent one is not a note.
-	wantedWhenAbsent bool
-	topic            uint32 // the topic that carries its data (dirtyCluster, dirtyStorage, dirtyApps)
+	topic    uint32 // the topic that carries its data (dirtyCluster, dirtyApps)
 }
 
 // crds are the resources the plugin watches, from the settings.
 func (r *runtime) crds() []crd {
 	out := []crd{
-		{gvr: kube.GVRCertificates, kind: kube.KindCertificates, name: "cert-manager", optional: r.cfg.Optional.Certificates, wantedWhenAbsent: true, topic: dirtyCluster},
-		{gvr: kube.GVRExternalSecrets, kind: kube.KindExtSecrets, name: "external-secrets", optional: r.cfg.Optional.ExternalSecrets, wantedWhenAbsent: true, topic: dirtyCluster},
-		{gvr: kube.GVRHTTPRoutes, kind: kube.KindHTTPRoutes, name: "gateway-api", optional: r.cfg.Optional.HTTPRoutes, wantedWhenAbsent: true, topic: dirtyApps},
-		{gvr: kube.GVRCNPGClusters, kind: kube.KindCNPG, name: "cnpg", optional: true, topic: dirtyStorage},
+		{gvr: kube.GVRCertificates, kind: kube.KindCertificates, name: "cert-manager", optional: r.cfg.Optional.Certificates, topic: dirtyCluster},
+		{gvr: kube.GVRExternalSecrets, kind: kube.KindExtSecrets, name: "external-secrets", optional: r.cfg.Optional.ExternalSecrets, topic: dirtyCluster},
+		{gvr: kube.GVRHTTPRoutes, kind: kube.KindHTTPRoutes, name: "gateway-api", optional: r.cfg.Optional.HTTPRoutes, topic: dirtyApps},
 	}
 	if r.cfg.Apps.Ingress {
-		out = append(out, crd{gvr: kube.GVRIngresses, kind: kube.KindIngresses, name: "ingress", wantedWhenAbsent: true, topic: dirtyApps})
+		out = append(out, crd{gvr: kube.GVRIngresses, kind: kube.KindIngresses, name: "ingress", topic: dirtyApps})
 	}
 	return out
 }
@@ -269,7 +264,7 @@ func (r *runtime) stuckSignature() string {
 
 // silenced is a failure the settings say to ignore: plugins.kubernetes.optional.* marks the
 // resource as one the cluster may lack.
-func (c crd) silenced() bool { return c.optional && c.wantedWhenAbsent }
+func (c crd) silenced() bool { return c.optional }
 
 // notes are the source notes of the topic(s) in mask: one per CRD the topic carries data of that
 // is not there ("not_configured") or whose data is missing (the category of the failure).
@@ -283,7 +278,7 @@ func (r *runtime) notes(mask uint32, now time.Time) []model.SourceStatus {
 		switch {
 		case fail.any():
 			out = append(out, model.SourceStatus{Name: c.name, Error: fail.category(), CheckedAt: now.UTC()})
-		case absent && c.wantedWhenAbsent && !c.optional:
+		case absent && !c.optional:
 			out = append(out, model.SourceStatus{Name: c.name, Error: upstream.CategoryNotConfigured, CheckedAt: now.UTC()})
 		}
 	}
@@ -301,7 +296,7 @@ func (r *runtime) degraded() string {
 			failed = append(failed, c.name)
 		case fail.list != "" && !c.silenced():
 			unlisted = append(unlisted, fmt.Sprintf("%s (%s)", c.name, fail.list))
-		case absent && c.wantedWhenAbsent && !c.optional:
+		case absent && !c.optional:
 			missing = append(missing, c.name)
 		}
 	}

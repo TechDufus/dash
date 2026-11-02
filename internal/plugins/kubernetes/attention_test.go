@@ -141,7 +141,7 @@ func TestAttentionCertificateItem(t *testing.T) {
 	}
 }
 
-func TestAttentionPVCsAndBuckets(t *testing.T) {
+func TestAttentionPVCs(t *testing.T) {
 	ratio := func(r float64) *float64 { return &r }
 	links := []model.Link{{Label: "Grafana", Href: "https://gf.example.com/pvc"}}
 	items := attentionOf(model.ClusterData{}, model.StorageData{
@@ -151,13 +151,8 @@ func TestAttentionPVCsAndBuckets(t *testing.T) {
 			{Namespace: "a", Name: "crit", UsedRatio: ratio(0.90)},
 			{Namespace: "a", Name: "unmeasured"},
 		},
-		Buckets: []model.Bucket{
-			{Name: "noquota", UsedBytes: 999},
-			{Name: "fine", UsedBytes: 50, QuotaBytes: 100},
-			{Name: "full", UsedBytes: 95, QuotaBytes: 100},
-		},
 	}, clNow)
-	if len(items) != 3 {
+	if len(items) != 2 {
 		t.Fatalf("items = %+v", items)
 	}
 	warn, _ := atItem(items, "pvc:a/warn")
@@ -167,11 +162,6 @@ func TestAttentionPVCsAndBuckets(t *testing.T) {
 	}
 	if sev := atSeverity(items, "pvc:a/crit"); sev != model.SeverityCrit {
 		t.Errorf("crit severity = %q", sev)
-	}
-	full, _ := atItem(items, "bucket:full")
-	if full.Severity != model.SeverityCrit || full.Title != "Bucket full is 95% of its quota" || full.Source != "storage" || full.Route != "/storage" ||
-		full.Ref != "" || full.Links == nil || len(full.Links) != 0 {
-		t.Errorf("bucket = %+v: a bucket carries no ref and an empty links list", full)
 	}
 }
 
@@ -191,8 +181,7 @@ func TestAttentionRuleOrderAndRefs(t *testing.T) {
 		Certificates: []model.Cert{{Namespace: "a", Name: "c", NotAfter: new(clNow.Add(-time.Hour))}},
 	}
 	st := model.StorageData{
-		PVCs:    []model.PVC{{Namespace: "a", Name: "v", UsedRatio: &ratio}},
-		Buckets: []model.Bucket{{Name: "b", UsedBytes: 99, QuotaBytes: 100}},
+		PVCs: []model.PVC{{Namespace: "a", Name: "v", UsedRatio: &ratio}},
 	}
 	items := attentionOf(cl, st, clNow)
 	var ids []string
@@ -202,18 +191,15 @@ func TestAttentionRuleOrderAndRefs(t *testing.T) {
 			t.Errorf("item %s = %+v, want the plugin id and a non-nil links list", it.ID, it)
 		}
 	}
-	want := []string{"node:cp-1", "pod:a/p", "workload:Deployment/a/w", "cert:a/c", "pvc:a/v", "bucket:b"}
+	want := []string{"node:cp-1", "pod:a/p", "workload:Deployment/a/w", "cert:a/c", "pvc:a/v"}
 	if fmt.Sprint(ids) != fmt.Sprint(want) {
 		t.Errorf("ids = %v, want %v", ids, want)
 	}
 	for _, it := range items {
-		if it.ID == "bucket:b" {
-			continue
-		}
 		p, _, _, ok := plugin.ParseRef(it.Ref)
 		if !ok || p != ID {
 			t.Errorf("item %s ref = %q, want one of the plugin", it.ID, it.Ref)
 		}
 	}
-	plugintest.AssertRefs(t, nil, ID, items[:5]) // distinct, well-formed refs
+	plugintest.AssertRefs(t, nil, ID, items) // distinct, well-formed refs
 }

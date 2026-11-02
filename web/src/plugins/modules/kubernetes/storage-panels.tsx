@@ -1,11 +1,12 @@
-import { Archive, Boxes, Database, HardDrive, Search, Waypoints } from "lucide-react";
+import { Archive, HardDrive, Search, Waypoints } from "lucide-react";
 import { useMemo } from "react";
 import { useTopic } from "@/api/stream";
-import type { BackupJob, CNPGCluster, Health, PVC, StorageData } from "@/api/types";
+import type { BackupJob, Health, PVC } from "@/api/types";
+import { BackupAge } from "@/components/backup-age";
 import { BytesBar } from "@/components/bytes-bar";
 import { HeadlampIcon } from "@/components/links";
 import { Empty, Panel, PanelHeader, PanelSkeleton } from "@/components/panel";
-import { HealthBadge, StatusDot } from "@/components/status";
+import { HealthBadge } from "@/components/status";
 import { Input } from "@/components/ui/input";
 import {
   Select,
@@ -22,12 +23,11 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { formatBytes, formatDuration, formatNumber } from "@/lib/format";
+import { formatBytes, formatNumber } from "@/lib/format";
 import { HEALTH_TEXT } from "@/lib/health";
 import { useQueryParam } from "@/lib/query-param";
 import { cn } from "@/lib/utils";
 
-const HOUR = 3600;
 const SORTS = ["worst", "fullest", "days", "name"] as const;
 type Sort = (typeof SORTS)[number];
 const SORT_LABEL: Record<Sort, string> = {
@@ -50,14 +50,6 @@ function daysHealth(days: number | undefined): Health {
   if (days === undefined) return "unknown";
   if (days < 3) return "crit";
   if (days < 14) return "warn";
-  return "ok";
-}
-
-/** Backup freshness: warn after 36 h, crit after 72 h. */
-function backupHealth(ageSeconds: number | undefined): Health {
-  if (ageSeconds === undefined) return "unknown";
-  if (ageSeconds > 72 * HOUR) return "crit";
-  if (ageSeconds > 36 * HOUR) return "warn";
   return "ok";
 }
 
@@ -225,89 +217,12 @@ function PvcRow({ pvc: p }: { pvc: PVC }) {
   );
 }
 
-function BackupAge({ seconds }: { seconds: number | undefined }) {
-  const h = backupHealth(seconds);
-  return h === "unknown" ? (
-    <span className="text-xs text-muted">No success recorded</span>
-  ) : (
-    <span className="inline-flex items-center gap-2">
-      <span className={cn("num text-sm font-medium", HEALTH_TEXT[h])}>
-        {formatDuration(seconds)} ago
-      </span>
-      <HealthBadge
-        health={h}
-        label={h === "ok" ? "Fresh" : h === "warn" ? "Stale >36 h" : "Stale >72 h"}
-      />
-    </span>
-  );
-}
-
-function instancesHealth(c: CNPGCluster): Health {
-  if (c.instances > 0 && c.readyInstances >= c.instances) return "ok";
-  return c.readyInstances > 0 ? "warn" : "crit";
-}
-
-function CnpgRow({ c }: { c: CNPGCluster }) {
-  const ih = instancesHealth(c);
-  return (
-    <div className="flex flex-wrap items-center gap-x-4 gap-y-2 py-3">
-      <div className="min-w-0 flex-1">
-        <div className="truncate text-sm text-fg">
-          <span className="text-muted">{c.namespace}/</span>
-          {c.name}
-        </div>
-        <div className="text-xs text-muted">{c.phase || "–"}</div>
-      </div>
-      <span className="inline-flex items-center gap-1.5">
-        <StatusDot health={ih} />
-        <span className={cn("num text-sm font-medium", HEALTH_TEXT[ih])}>
-          {c.readyInstances}/{c.instances}
-        </span>
-        <span className="text-xs text-muted">ready</span>
-      </span>
-      <div className="flex min-w-[150px] flex-col">
-        <span className="text-[11px] text-muted">Last backup</span>
-        <BackupAge seconds={c.lastBackupAgeSeconds} />
-      </div>
-      <HeadlampIcon links={c.links} />
-    </div>
-  );
-}
-
 function BackupRow({ b }: { b: BackupJob }) {
   return (
     <div className="flex flex-wrap items-center justify-between gap-2 py-3">
       <span className="truncate text-sm text-fg">{b.name}</span>
       <BackupAge seconds={b.lastSuccessAgeSeconds} />
     </div>
-  );
-}
-
-function Buckets({ data }: { data: StorageData }) {
-  return (
-    <>
-      <div className="space-y-4">
-        {data.buckets.length === 0 && <Empty className="py-4">No buckets.</Empty>}
-        {data.buckets.map((b) => (
-          <div key={b.name} className="flex items-start gap-2">
-            <StatusDot health={b.health} className="mt-1" />
-            <BytesBar
-              used={b.usedBytes}
-              total={b.quotaBytes}
-              label={b.name}
-              noTotalLabel="no quota"
-            />
-          </div>
-        ))}
-      </div>
-      <div className="mt-5 border-t border-line pt-4">
-        <BytesBar
-          used={data.rustfs.usedBytes}
-          total={data.rustfs.usableBytes}
-          label="RustFS drive (usable)"
-        />
-      </div>
-    </>
   );
 }
 
@@ -322,35 +237,6 @@ export function PvcPanel() {
     <Panel>
       <PanelHeader title="Persistent volumes" icon={<HardDrive />} sources={env.sources} />
       <PvcTable pvcs={env.data.pvcs} />
-    </Panel>
-  );
-}
-
-export function ObjectStoragePanel() {
-  const env = useTopic("kubernetes.storage");
-  if (!env) return <PanelSkeleton lines={3} />;
-  return (
-    <Panel className="h-full">
-      <PanelHeader title="Object storage" icon={<Boxes />} />
-      <div className="px-4 pb-4">
-        <Buckets data={env.data} />
-      </div>
-    </Panel>
-  );
-}
-
-export function CnpgPanel() {
-  const env = useTopic("kubernetes.storage");
-  if (!env) return <PanelSkeleton lines={3} />;
-  return (
-    <Panel className="h-full">
-      <PanelHeader title="Postgres clusters (CNPG)" icon={<Database />} />
-      <div className="divide-y divide-line px-4 pb-2">
-        {env.data.cnpg.length === 0 && <Empty className="py-4">No CNPG clusters.</Empty>}
-        {env.data.cnpg.map((c) => (
-          <CnpgRow key={`${c.namespace}/${c.name}`} c={c} />
-        ))}
-      </div>
     </Panel>
   );
 }

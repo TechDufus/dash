@@ -17,12 +17,14 @@ import (
 	"github.com/TechDufus/dash/internal/plugin"
 	"github.com/TechDufus/dash/internal/plugin/plugintest"
 	"github.com/TechDufus/dash/internal/pluginconf"
+	"github.com/TechDufus/dash/internal/plugins/cnpg"
 	"github.com/TechDufus/dash/internal/plugins/flux"
 	"github.com/TechDufus/dash/internal/plugins/hardware"
 	hwmodel "github.com/TechDufus/dash/internal/plugins/hardware/model"
 	"github.com/TechDufus/dash/internal/plugins/kubernetes"
 	"github.com/TechDufus/dash/internal/plugins/prometheus"
 	"github.com/TechDufus/dash/internal/plugins/proxmox"
+	"github.com/TechDufus/dash/internal/plugins/rustfs"
 )
 
 // The environment of the homelab deployment, one file per release: the lists that internal/config's
@@ -55,14 +57,15 @@ func deploymentEnv(t *testing.T, file string) []string {
 // it: the configuration each is started with carries the settings that changed and the ones that
 // stayed, the running hardware plugin publishes the host with its layout and the two machines,
 // the kubernetes plugin gets its conventions and backup CronJob, and the Restart action only from
-// v0.9.0 on, and the flux plugin gets its pinned source and the Reconcile action only from v0.10.0 on.
+// v0.9.0 on, the flux plugin gets its pinned source and the Reconcile action, and rustfs its
+// enabled: true, only from v0.10.0 on.
 func TestDeploymentEnvReachesThePlugins(t *testing.T) {
-	t.Run("v0.8.0", func(t *testing.T) { deploymentEnvReachesThePlugins(t, deploymentEnvV08, false, false) })
-	t.Run("v0.9.0", func(t *testing.T) { deploymentEnvReachesThePlugins(t, deploymentEnvV09, true, false) })
-	t.Run("v0.10.0", func(t *testing.T) { deploymentEnvReachesThePlugins(t, deploymentEnvV010, true, true) })
+	t.Run("v0.8.0", func(t *testing.T) { deploymentEnvReachesThePlugins(t, deploymentEnvV08, false, false, false) })
+	t.Run("v0.9.0", func(t *testing.T) { deploymentEnvReachesThePlugins(t, deploymentEnvV09, true, false, false) })
+	t.Run("v0.10.0", func(t *testing.T) { deploymentEnvReachesThePlugins(t, deploymentEnvV010, true, true, true) })
 }
 
-func deploymentEnvReachesThePlugins(t *testing.T, file string, wantRestart, wantFlux bool) {
+func deploymentEnvReachesThePlugins(t *testing.T, file string, wantRestart, wantFlux, wantRustFS bool) {
 	// What the environment must resolve to, pinned here and not read back from the file it
 	// checks (internal/config's TestDeploymentEnvV08, V09 and V010 pin the same values).
 	wantMachines := []pluginconf.HardwareMachine{
@@ -89,7 +92,7 @@ func deploymentEnvReachesThePlugins(t *testing.T, file string, wantRestart, want
 		fw, res := loadFramework(t)
 		seen := map[plugin.ID]*plugintest.Fake{}
 		var facts []plugin.Factory
-		for _, real := range []plugin.Plugin{proxmox.New(), hardware.New(), kubernetes.New(), flux.New()} {
+		for _, real := range []plugin.Plugin{proxmox.New(), hardware.New(), kubernetes.New(), flux.New(), cnpg.New(), rustfs.New()} {
 			m := real.Manifest()
 			f := plugintest.New(m.ID, plugintest.Config(m.Config))
 			seen[m.ID] = f
@@ -102,7 +105,8 @@ func deploymentEnvReachesThePlugins(t *testing.T, file string, wantRestart, want
 		}
 		defer fw.sup.Shutdown(context.Background())
 		waitFor(t, func() bool {
-			return seen["proxmox"].Starts() == 1 && seen["hardware"].Starts() == 1 && seen["kubernetes"].Starts() == 1 && seen["flux"].Starts() == 1
+			return seen["proxmox"].Starts() == 1 && seen["hardware"].Starts() == 1 && seen["kubernetes"].Starts() == 1 && seen["flux"].Starts() == 1 &&
+				seen["cnpg"].Starts() == 1 && seen["rustfs"].Starts() == 1
 		})
 		px, ok := seen["proxmox"].Config().(*pluginconf.Proxmox)
 		if !ok {
@@ -158,6 +162,24 @@ func deploymentEnvReachesThePlugins(t *testing.T, file string, wantRestart, want
 			fl.Actions.Enabled != wantFlux || len(fl.Actions.DenyNamespaces) != 0 {
 			t.Errorf("flux start config: suspend reason %q, verify %+v, actions %+v; want sources %v and actions enabled=%v",
 				fl.SuspendReasonAnnotation, fl.Verify, fl.Actions, wantSources, wantFlux)
+		}
+		// The rustfs section: unset before v0.10.0 (the plugin is off), true from it; the series are
+		// RustFS's own. cnpg is automatic: its enabled is unset and its series is the Barman one.
+		rf, ok := seen["rustfs"].Config().(*pluginconf.RustFS)
+		if !ok {
+			t.Fatalf("rustfs is started with %T", seen["rustfs"].Config())
+		}
+		if (rf.Enabled != nil && *rf.Enabled) != wantRustFS || (rf.Enabled != nil) != wantRustFS ||
+			rf.Metrics != (pluginconf.RustFSMetrics{BucketUsed: "rustfs_bucket_usage_usage_bytes", BucketQuota: "rustfs_bucket_usage_quota_bytes",
+				CapacityUsed: "rustfs_cluster_capacity_used_bytes", CapacityUsable: "rustfs_cluster_capacity_usable_total_bytes"}) {
+			t.Errorf("rustfs start config: enabled %v, metrics %+v; want enabled=%v and the default series", rf.Enabled, rf.Metrics, wantRustFS)
+		}
+		cn, ok := seen["cnpg"].Config().(*pluginconf.CNPG)
+		if !ok {
+			t.Fatalf("cnpg is started with %T", seen["cnpg"].Config())
+		}
+		if cn.Enabled != nil || cn.BackupMetric != "barman_cloud_cloudnative_pg_io_last_available_backup_timestamp" {
+			t.Errorf("cnpg start config: enabled %v, backup metric %q; want it unset with the default series", cn.Enabled, cn.BackupMetric)
 		}
 	})
 

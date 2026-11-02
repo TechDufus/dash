@@ -6,8 +6,8 @@ import (
 	"github.com/TechDufus/dash/internal/model"
 )
 
-// Storage is the storage payload: PVCs, object-store buckets, Proxmox pools, a Postgres cluster,
-// the NAS backup age and etcd.
+// Storage is the kubernetes.storage payload: PVCs, the NAS backup age and etcd. The buckets and the
+// RustFS capacity are in cnpg.go and rustfs.go.
 func (w *World) Storage() model.StorageData { return w.storage(w.clock()) }
 
 func (w *World) storage(now time.Time) model.StorageData {
@@ -39,15 +39,6 @@ func (w *World) storage(now time.Time) model.StorageData {
 			Health: h, Links: w.links.Headlamp("PersistentVolumeClaim", p.ns, p.name),
 		})
 	}
-	d.Buckets = []model.Bucket{
-		{Name: "cnpg-backups", UsedBytes: gib(38), QuotaBytes: gib(200), Health: model.HealthOK},
-		{Name: "velero", UsedBytes: gib(112), QuotaBytes: gib(500), Health: model.HealthOK},
-		{Name: "media-cache", UsedBytes: gib(9), Health: model.HealthOK},
-	}
-	d.RustFS = model.UsedSize{UsedBytes: gib(159), UsableBytes: gib(1800)}
-	d.CNPG = []model.CNPGCluster{{Namespace: "acme", Name: "acme-db", Instances: 2, ReadyInstances: 2,
-		Phase: "Cluster in healthy state", LastBackupAgeSeconds: new(Around("cnpgbk", now, 5.2*3600, 1800)),
-		Links: w.links.Headlamp("Cluster", "acme", "acme-db")}}
 	d.BackupJobs = []model.BackupJob{{Name: "nas-backup", LastSuccessAgeSeconds: new(7.5 * 3600)}}
 	d.Etcd = model.Etcd{DBBytes: 92 << 20, QuotaBytes: 2 << 30}
 	return d

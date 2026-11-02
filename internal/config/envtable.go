@@ -103,12 +103,13 @@ is also honoured for plugins.kubernetes.kubeconfig; it has no _FILE form and the
 wins over it.
 
 A change to a plugins.<id> section applies live for prometheus, alertmanager, gatus,
-victorialogs, proxmox, hardware, kubernetes, flux, grafana, headlamp and launcher, except for a setting
+victorialogs, proxmox, hardware, kubernetes, flux, cnpg, rustfs, grafana, headlamp and launcher, except for a setting
 marked in the RESTART column: that plugin restarts, and so do the plugins that use or require it
-(a prometheus change restarts proxmox, hardware and kubernetes; a gatus change restarts hardware
-and kubernetes; a proxmox change restarts hardware; a kubernetes change restarts proxmox and flux;
+(a prometheus change restarts proxmox, hardware, kubernetes, cnpg and rustfs; a gatus change restarts hardware
+and kubernetes; a proxmox change restarts hardware; a kubernetes change restarts proxmox, flux and cnpg;
 a grafana change restarts alertmanager). A change to any section that is not a plugin's needs a
-restart. A rotated secret (a changed file: reference) applies live.
+restart. A rotated secret (a changed file: reference) applies live. A plugin whose enabled is unset
+turns on when it has the settings it needs, except that rustfs is off unless enabled: true.
 `)
 	return err
 }
@@ -155,12 +156,12 @@ Every setting has a variable: ` + "`DASH_`" + ` plus its path in UPPER_SNAKE cas
 
 A secret takes a literal, ` + "`env:NAME`" + `, ` + "`file:/path`" + ` or ` + "`k8s:<namespace>/<name>#<key>`" + ` (the value of that key of a Kubernetes Secret,
 read through the kubernetes plugin: it must run and be allowed to read that Secret; see the README). A change to a ` + "`plugins.<id>`" + ` section applies live
-for prometheus, alertmanager, gatus, victorialogs, proxmox, hardware, kubernetes, flux, grafana, headlamp and launcher,
+for prometheus, alertmanager, gatus, victorialogs, proxmox, hardware, kubernetes, flux, cnpg, rustfs, grafana, headlamp and launcher,
 except for a setting marked "restart-only": that plugin restarts, and so do the plugins that use or require it
-(a prometheus change restarts proxmox, hardware and kubernetes; a gatus change restarts hardware and
-kubernetes; a proxmox change restarts hardware; a kubernetes change restarts proxmox and flux; a grafana change
+(a prometheus change restarts proxmox, hardware, kubernetes, cnpg and rustfs; a gatus change restarts hardware and
+kubernetes; a proxmox change restarts hardware; a kubernetes change restarts proxmox, flux and cnpg; a grafana change
 restarts alertmanager). A change to any section that is not a plugin's needs a restart. A rotated
-secret file applies live.
+secret file applies live. A plugin whose ` + "`enabled`" + ` is unset turns on when it has the settings it needs, except that rustfs is off unless ` + "`enabled: true`" + `.
 `)
 	docs := sectionDocs()
 	// A section that holds both fields and sub-sections (plugins.kubernetes and its conventions)

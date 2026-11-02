@@ -3,7 +3,7 @@ import { Kpi } from "@/components/kpi";
 import { AppsSection } from "@/components/launcher";
 import { KPI_TILE, KpiLink } from "../../kpi-link";
 import type { ModulePanels, SlotProps } from "../../types";
-import { BackupEtcdPanel, CnpgPanel, ObjectStoragePanel, PvcPanel } from "./storage-panels";
+import { BackupEtcdPanel, PvcPanel } from "./storage-panels";
 
 /**
  * The plugin's one tile. It owns the presentation of every KPI the plugin publishes (the overview
@@ -32,13 +32,6 @@ export const panels: ModulePanels = {
   "overview.kpis": [{ id: "nodes", order: 30, reads: ["core.overview"], component: NodesTile }],
   storage: [
     { id: "pvcs", order: 10, span: "full", reads: ["kubernetes.storage"], component: PvcPanel },
-    {
-      id: "object-storage",
-      order: 20,
-      reads: ["kubernetes.storage"],
-      component: ObjectStoragePanel,
-    },
-    { id: "cnpg", order: 40, reads: ["kubernetes.storage"], component: CnpgPanel },
     { id: "backups-etcd", order: 50, reads: ["kubernetes.storage"], component: BackupEtcdPanel },
   ],
   "apps.sources": [{ id: "apps", order: 10, reads: ["kubernetes.apps"], component: AppsSection }],

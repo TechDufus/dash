@@ -13,10 +13,12 @@ import (
 	"github.com/TechDufus/dash/internal/plugin"
 	"github.com/TechDufus/dash/internal/plugin/plugintest"
 	"github.com/TechDufus/dash/internal/pluginconf"
+	"github.com/TechDufus/dash/internal/plugins/cnpg"
 	"github.com/TechDufus/dash/internal/plugins/flux"
 	"github.com/TechDufus/dash/internal/plugins/hardware"
 	"github.com/TechDufus/dash/internal/plugins/kubernetes"
 	"github.com/TechDufus/dash/internal/plugins/proxmox"
+	"github.com/TechDufus/dash/internal/plugins/rustfs"
 )
 
 // reachLeaf is one setting of a plugin's section: its schema path, a non-default value for the
@@ -106,6 +108,28 @@ func fluxLeaves() []reachLeaf {
 			`[{"kind":"GitRepository","namespace":"gitops","name":"fleet"}]`},
 		{"plugins.flux.actions.enabled", "true", "false"},
 		{"plugins.flux.actions.denyNamespaces", `["kube-system","secrets"]`, `["kube-system"]`},
+	}
+}
+
+// cnpgLeaves is every setting of plugins.cnpg. The values never reach a cluster or a Prometheus:
+// the test starts a fake that records the plugin's configuration.
+func cnpgLeaves() []reachLeaf {
+	return []reachLeaf{
+		{"plugins.cnpg.type", "cnpg", ""},
+		{"plugins.cnpg.enabled", "true", ""},
+		{"plugins.cnpg.backupMetric", "cnpg_backup_timestamp_seconds", "cnpg_backup_timestamp_seconds_2"},
+	}
+}
+
+// rustfsLeaves is every setting of plugins.rustfs.
+func rustfsLeaves() []reachLeaf {
+	return []reachLeaf{
+		{"plugins.rustfs.type", "rustfs", ""},
+		{"plugins.rustfs.enabled", "true", ""},
+		{"plugins.rustfs.metrics.bucketUsed", "store_bucket_used_bytes", "store_bucket_used_bytes_2"},
+		{"plugins.rustfs.metrics.bucketQuota", "store_bucket_quota_bytes", "store_bucket_quota_bytes_2"},
+		{"plugins.rustfs.metrics.capacityUsed", "store_capacity_used_bytes", "store_capacity_used_bytes_2"},
+		{"plugins.rustfs.metrics.capacityUsable", "store_capacity_usable_bytes", "store_capacity_usable_bytes_2"},
 	}
 }
 
@@ -251,11 +275,16 @@ func TestPR3aSettingsReachThePlugin(t *testing.T) {
 	settingsReachThePlugin(t, "kubernetes", kubernetesLeaves(), kubernetes.New())
 }
 
-// Every setting of plugins.flux arrives in the configuration the plugin is started with, and a
-// reload of the file layer restarts the instance with the new value. cnpg and rustfs rows come
-// with their plugins.
+// Every setting of plugins.flux, plugins.cnpg and plugins.rustfs arrives in the configuration the
+// plugin is started with, and a reload of the file layer restarts the instance with the new value.
+// The effect of each setting on what the plugin does is a test of the plugin: flux's in
+// internal/plugins/flux, TestBackupMetricIsInTheQuery and TestBackupMetricIsValidatedAgainstInjection
+// for cnpg, TestRustFSIsOptIn, TestRustFSMetricNamesAreInTheQueries and
+// TestRustFSMetricNamesAreValidated for rustfs.
 func TestPR3bSettingsReachThePlugin(t *testing.T) {
 	settingsReachThePlugin(t, "flux", fluxLeaves(), flux.New())
+	settingsReachThePlugin(t, "cnpg", cnpgLeaves(), cnpg.New())
+	settingsReachThePlugin(t, "rustfs", rustfsLeaves(), rustfs.New())
 }
 
 // settingsReachThePlugin is the check of one section against its table of leaves: the table

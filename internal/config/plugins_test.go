@@ -47,7 +47,7 @@ func TestPluginSectionsOrderTypeAndCopy(t *testing.T) {
 			t.Errorf("%s: Type = %q, want the section name when unset", s.Name, s.Type)
 		}
 	}
-	want := []string{"prometheus", "alertmanager", "victorialogs", "gatus", "proxmox", "hardware", "headlamp", "grafana", "launcher", "kubernetes", "flux"}
+	want := []string{"prometheus", "alertmanager", "victorialogs", "gatus", "proxmox", "hardware", "headlamp", "grafana", "launcher", "kubernetes", "flux", "cnpg", "rustfs"}
 	if !reflect.DeepEqual(names, want) {
 		t.Fatalf("sections = %v, want declaration order %v", names, want)
 	}

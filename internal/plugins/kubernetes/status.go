@@ -125,7 +125,7 @@ func (r *runtime) storageReady() bool {
 	r.mu.RLock()
 	polled := r.storageOut.polled
 	r.mu.RUnlock()
-	return r.cl.HasSynced() && r.listedOrStuck(kube.GVRCNPGClusters) && polled
+	return r.cl.HasSynced() && polled
 }
 
 func (r *runtime) appsReady() bool {
@@ -166,7 +166,7 @@ func (r *runtime) publishStorage() bool {
 	r.mu.Lock()
 	r.storageD = &data
 	r.mu.Unlock()
-	srcs := append([]model.SourceStatus{r.kubeSource(now), r.promSourceOf(false, now)}, r.notes(dirtyStorage, now)...)
+	srcs := []model.SourceStatus{r.kubeSource(now), r.promSourceOf(false, now)}
 	r.h.Publish(topicStorage, data, srcs)
 	return true
 }

@@ -26,13 +26,13 @@ import (
 
 // The custom resources the plugin reads.
 var allCRDs = []schema.GroupVersionResource{
-	kube.GVRCertificates, kube.GVRExternalSecrets, kube.GVRHTTPRoutes, kube.GVRCNPGClusters, kube.GVRIngresses,
+	kube.GVRCertificates, kube.GVRExternalSecrets, kube.GVRHTTPRoutes, kube.GVRIngresses,
 }
 
 // crdKinds is the kind each GVR's objects carry.
 var crdKinds = map[schema.GroupVersionResource]string{
 	kube.GVRCertificates: "Certificate", kube.GVRExternalSecrets: "ExternalSecret", kube.GVRHTTPRoutes: "HTTPRoute",
-	kube.GVRCNPGClusters: "Cluster", kube.GVRIngresses: "Ingress",
+	kube.GVRIngresses:      "Ingress",
 	kube.GVRKustomizations: "Kustomization", kube.GVRHelmReleases: "HelmRelease",
 	kube.GVRGitRepositories: "GitRepository", kube.GVROCIRepositories: "OCIRepository", kube.GVRHelmRepositories: "HelmRepository",
 }
@@ -66,7 +66,7 @@ func served(gvrs ...schema.GroupVersionResource) []*metav1.APIResourceList {
 func testCluster(t *testing.T, crds []schema.GroupVersionResource, objs ...k8sruntime.Object) *kube.Cluster {
 	t.Helper()
 	if crds == nil {
-		crds = []schema.GroupVersionResource{kube.GVRCertificates, kube.GVRExternalSecrets, kube.GVRHTTPRoutes, kube.GVRCNPGClusters}
+		crds = []schema.GroupVersionResource{kube.GVRCertificates, kube.GVRExternalSecrets, kube.GVRHTTPRoutes}
 	}
 	var typed, custom []k8sruntime.Object
 	for _, o := range objs {

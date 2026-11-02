@@ -60,6 +60,8 @@ export function shimRows(): PluginInfo[] {
       nav: nav("/gitops", "GitOps", "GitOps (Flux)", "GitBranch"),
       actions: [action("reconcile", "admin")],
     }),
+    pluginInfo({ id: "cnpg", name: "CloudNativePG", topics: ["cnpg.clusters"] }),
+    pluginInfo({ id: "rustfs", name: "RustFS", topics: ["rustfs.usage"] }),
     pluginInfo({ id: "grafana", name: "Grafana" }),
     pluginInfo({ id: "headlamp", name: "Headlamp" }),
     pluginInfo({ id: "launcher", name: "Launcher", topics: ["launcher.links"] }),

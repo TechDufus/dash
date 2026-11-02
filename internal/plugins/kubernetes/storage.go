@@ -31,9 +31,6 @@ const (
 // while the next poll builds its successor.
 type storageSnap struct {
 	pvcUsed, pvcCap, pvcGrowth map[string]float64 // "<ns>/<pvc>"
-	bucketUsed, bucketQuota    map[string]float64 // by bucket
-	rustfsUsed, rustfsUsable   float64
-	cnpgAge                    map[string]float64 // "<ns>/<cluster>"
 	etcdDB, etcdQuota          float64
 	// backups are the rows of each configured backup job, by backupKey.
 	backups map[string][]backupRow
@@ -46,9 +43,6 @@ func queryStorage(ctx context.Context, q svc.Querier, cfg pluginconf.Kubernetes,
 	etcdJob := strconv.Quote(cfg.EtcdJob())
 	qs := map[string]string{
 		"pvcUsed": queryPVCUsed, "pvcCap": queryPVCCapacity, "pvcGrowth": queryPVCGrowth,
-		"bucketUsed": queryBucketUsed, "bucketQuota": queryBucketQuota,
-		"rustfsUsed": queryRustFSUsed, "rustfsUsable": queryRustFSUsable,
-		"cnpg":   queryCNPGBackupAge,
 		"etcdDB": fmt.Sprintf(queryEtcdDBFmt, etcdJob), "etcdQuota": fmt.Sprintf(queryEtcdQuotaFmt, etcdJob),
 	}
 	for i, j := range cfg.BackupJobs {
@@ -66,21 +60,6 @@ func queryStorage(ctx context.Context, q svc.Querier, cfg pluginconf.Kubernetes,
 	}
 	if ok("pvcGrowth") {
 		snap.pvcGrowth = byLabels(res["pvcGrowth"].samples, "namespace", "persistentvolumeclaim")
-	}
-	if ok("bucketUsed") {
-		snap.bucketUsed = byLabel(res["bucketUsed"].samples, "bucket")
-	}
-	if ok("bucketQuota") {
-		snap.bucketQuota = byLabel(res["bucketQuota"].samples, "bucket")
-	}
-	if ok("rustfsUsed") {
-		snap.rustfsUsed, _ = first(res["rustfsUsed"].samples)
-	}
-	if ok("rustfsUsable") {
-		snap.rustfsUsable, _ = first(res["rustfsUsable"].samples)
-	}
-	if ok("cnpg") {
-		snap.cnpgAge = byLabels(res["cnpg"].samples, "namespace", "cluster")
 	}
 	if ok("etcdDB") {
 		snap.etcdDB, _ = first(res["etcdDB"].samples)
@@ -110,15 +89,12 @@ type storageInput struct {
 }
 
 // buildStorage is the kubernetes.storage payload: the volumes of the cluster with their usage,
-// etcd, the backup jobs, and the object-store and database figures of the transitional rows.
+// etcd and the backup jobs.
 func buildStorage(in storageInput) model.StorageData {
 	s := in.snap
 	out := model.StorageData{
 		PVCs:       []model.PVC{},
-		Buckets:    bucketsOf(s),
-		CNPG:       cnpgOf(in.c, s, in.links),
 		BackupJobs: backupJobsOf(in.cfg, s),
-		RustFS:     model.UsedSize{UsedBytes: int64(s.rustfsUsed), UsableBytes: int64(s.rustfsUsable)},
 		Etcd:       model.Etcd{DBBytes: int64(s.etcdDB), QuotaBytes: int64(s.etcdQuota)},
 	}
 	for _, p := range in.c.ListPVCs() {

@@ -90,6 +90,12 @@ func TestStartsWithoutACluster(t *testing.T) {
 	if got := r["flux"].State; got != model.PluginBlocked {
 		t.Errorf("flux is %q, want blocked: it requires the kubernetes plugin, which has no cluster", got)
 	}
+	if got := r["cnpg"].State; got != model.PluginBlocked {
+		t.Errorf("cnpg is %q, want blocked: it requires the kubernetes plugin, which has no cluster", got)
+	}
+	if got := r["rustfs"].State; got != model.PluginDisabled {
+		t.Errorf("rustfs is %q, want disabled: it is off unless plugins.rustfs.enabled is true", got)
+	}
 	if k := r["kubernetes"]; k.Message == "" {
 		t.Errorf("the kubernetes row says nothing about why it is unavailable: %+v", k)
 	}
@@ -104,8 +110,9 @@ func TestStartsWithoutACluster(t *testing.T) {
 	if vms.VMs[0].K8sNode != nil {
 		t.Errorf("a VM is a Kubernetes node without a cluster: %+v", vms.VMs[0].K8sNode)
 	}
-	// The cluster's topics are not published, and flux's is hidden with its plugin.
-	for _, topic := range []string{"kubernetes.cluster", "kubernetes.storage", "kubernetes.apps", "flux.objects"} {
+	// The cluster's topics are not published, and flux's and cnpg's are hidden with their plugins
+	// (blocked); rustfs is off (opt-in), so its topic is not there either.
+	for _, topic := range []string{"kubernetes.cluster", "kubernetes.storage", "kubernetes.apps", "flux.objects", "cnpg.clusters", "rustfs.usage"} {
 		if code, _ := fetch(apiAddr, "/api/v1/topics/"+topic, true); code != http.StatusNotFound {
 			t.Errorf("topic %s answers %d, want 404", topic, code)
 		}

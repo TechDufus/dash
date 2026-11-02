@@ -59,12 +59,16 @@ func TestDeploymentEnvV09(t *testing.T) {
 		t.Fatalf("the v0.9.0 environment does not load: %v", err)
 	}
 	assertHomelabEnvV09(t, res)
+	if r := res.Tree.Plugins.RustFS; r.Enabled != nil {
+		t.Errorf("plugins.rustfs.enabled = %v before v0.10.0, want unset (the plugin is off)", *r.Enabled)
+	}
 }
 
 // TestDeploymentEnvV010 is the v0.9.0 environment plus what v0.10.0 adds (contract 10.4): the
-// Flux Reconcile action and the one source that must be signed. Everything v0.9.0 resolved to still
-// holds, the flux section is otherwise at its defaults (spec.verify is enforced, no namespace is
-// denied), and each new variable has its pinned value.
+// Flux Reconcile action, the one source that must be signed and the RustFS plugin's opt-in.
+// Everything v0.9.0 resolved to still holds, the flux, cnpg and rustfs sections are otherwise at
+// their defaults (spec.verify is enforced, no namespace is denied, the series are the plugins' own),
+// and each new variable has its pinned value.
 func TestDeploymentEnvV010(t *testing.T) {
 	res, err := Resolve(Sources{Environ: deploymentEnv(t, deploymentEnvFileV010)})
 	if err != nil {
@@ -72,7 +76,7 @@ func TestDeploymentEnvV010(t *testing.T) {
 	}
 	assertHomelabEnvV09(t, res)
 
-	f := res.Tree.Plugins.Flux
+	f, c, r := res.Tree.Plugins.Flux, res.Tree.Plugins.CNPG, res.Tree.Plugins.RustFS
 	for _, row := range []struct {
 		path      string
 		got, want any
@@ -83,6 +87,15 @@ func TestDeploymentEnvV010(t *testing.T) {
 		{"plugins.flux.suspendReasonAnnotation", f.SuspendReasonAnnotation, "example.com/suspended"},
 		{"plugins.flux.verify.requireWhenSpecVerify", f.Verify.RequireWhenSpecVerify, true},
 		{"plugins.flux.actions.denyNamespaces", len(f.Actions.DenyNamespaces), 0},
+		// RustFS is the one plugin that is off unless the deployment says so.
+		{"plugins.rustfs.enabled", r.Enabled != nil && *r.Enabled, true},
+		{"plugins.rustfs.metrics.bucketUsed", r.Metrics.BucketUsed, "rustfs_bucket_usage_usage_bytes"},
+		{"plugins.rustfs.metrics.bucketQuota", r.Metrics.BucketQuota, "rustfs_bucket_usage_quota_bytes"},
+		{"plugins.rustfs.metrics.capacityUsed", r.Metrics.CapacityUsed, "rustfs_cluster_capacity_used_bytes"},
+		{"plugins.rustfs.metrics.capacityUsable", r.Metrics.CapacityUsable, "rustfs_cluster_capacity_usable_total_bytes"},
+		// cnpg is automatic: the deployment sets nothing, and the backup series is the default.
+		{"plugins.cnpg.enabled", c.Enabled, (*bool)(nil)},
+		{"plugins.cnpg.backupMetric", c.BackupMetric, "barman_cloud_cloudnative_pg_io_last_available_backup_timestamp"},
 	} {
 		if !reflect.DeepEqual(row.got, row.want) {
 			t.Errorf("%s = %#v, want %#v", row.path, row.got, row.want)

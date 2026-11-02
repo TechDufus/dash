@@ -105,7 +105,7 @@ type env struct {
 type envOpts struct {
 	cfg       func(*pluginconf.Kubernetes)
 	objs      []k8sruntime.Object
-	crds      []schema.GroupVersionResource // served; nil is certificates, external secrets, routes and CNPG
+	crds      []schema.GroupVersionResource // served; nil is certificates, external secrets and routes
 	noCRDs    bool                          // serve none
 	noProm    bool
 	lateProm  bool // prometheus runs, but exports its service only after env.promReleased is set
@@ -168,7 +168,7 @@ func newEnv(t *testing.T, o envOpts) *env {
 	e.disc = e.kc.Discovery().(*fakediscovery.FakeDiscovery)
 	crds := o.crds
 	if crds == nil && !o.noCRDs {
-		crds = []schema.GroupVersionResource{kube.GVRCertificates, kube.GVRExternalSecrets, kube.GVRHTTPRoutes, kube.GVRCNPGClusters}
+		crds = []schema.GroupVersionResource{kube.GVRCertificates, kube.GVRExternalSecrets, kube.GVRHTTPRoutes}
 	}
 	e.disc.Resources = served(crds...)
 	e.connErr = o.connErr

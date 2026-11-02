@@ -1,5 +1,6 @@
 import { Database, LayoutDashboard, LayoutGrid, type LucideIcon } from "lucide-react";
 import alertmanager from "./modules/alertmanager";
+import cnpg from "./modules/cnpg";
 import flux from "./modules/flux";
 import gatus from "./modules/gatus";
 import grafana from "./modules/grafana";
@@ -8,6 +9,7 @@ import headlamp from "./modules/headlamp";
 import kubernetes from "./modules/kubernetes";
 import launcher from "./modules/launcher";
 import proxmox from "./modules/proxmox";
+import rustfs from "./modules/rustfs";
 import type { PluginModule } from "./types";
 
 /**
@@ -21,6 +23,8 @@ export const MODULES = [
   hardware,
   kubernetes,
   flux,
+  cnpg,
+  rustfs,
   launcher,
   grafana,
   headlamp,

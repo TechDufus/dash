@@ -11,6 +11,7 @@ import (
 	"github.com/TechDufus/dash/internal/plugin"
 	"github.com/TechDufus/dash/internal/pluginconf"
 	"github.com/TechDufus/dash/internal/plugins/alertmanager"
+	"github.com/TechDufus/dash/internal/plugins/cnpg"
 	"github.com/TechDufus/dash/internal/plugins/flux"
 	"github.com/TechDufus/dash/internal/plugins/gatus"
 	"github.com/TechDufus/dash/internal/plugins/grafana"
@@ -20,6 +21,7 @@ import (
 	"github.com/TechDufus/dash/internal/plugins/launcher"
 	"github.com/TechDufus/dash/internal/plugins/prometheus"
 	"github.com/TechDufus/dash/internal/plugins/proxmox"
+	"github.com/TechDufus/dash/internal/plugins/rustfs"
 	"github.com/TechDufus/dash/internal/plugins/victorialogs"
 	"github.com/TechDufus/dash/internal/secret"
 	"github.com/TechDufus/dash/internal/settings"
@@ -67,7 +69,7 @@ func instanceConfig(sec config.PluginSection) plugin.InstanceConfig {
 // displayOrder is the order plugins are listed in (design A.1).
 var displayOrder = []plugin.ID{
 	"prometheus", "alertmanager", "gatus", "victorialogs", "proxmox", "hardware", "kubernetes", "flux",
-	"grafana", "headlamp", "launcher",
+	"cnpg", "rustfs", "grafana", "headlamp", "launcher",
 }
 
 // realPlugins are the plugins that run, by id. The kubernetes entry reads no k8s: reference
@@ -81,6 +83,8 @@ var realPlugins = map[plugin.ID]plugin.Factory{
 	"hardware":     hardware.New,
 	"kubernetes":   kubernetes.New,
 	"flux":         flux.New,
+	"cnpg":         cnpg.New,
+	"rustfs":       rustfs.New,
 	"grafana":      grafana.New,
 	"headlamp":     headlamp.New,
 	"launcher":     launcher.New,

@@ -22,6 +22,8 @@ func TopicTypes() map[Topic]reflect.Type {
 		TopicCluster:          reflect.TypeFor[ClusterData](),
 		TopicFlux:             reflect.TypeFor[FluxData](),
 		TopicStorage:          reflect.TypeFor[StorageData](),
+		TopicCNPGClusters:     reflect.TypeFor[CNPGClustersData](),
+		TopicRustFSUsage:      reflect.TypeFor[RustFSUsageData](),
 		TopicAlerts:           reflect.TypeFor[AlertsData](),
 		TopicStatus:           reflect.TypeFor[StatusData](),
 		TopicApps:             reflect.TypeFor[AppsData](),

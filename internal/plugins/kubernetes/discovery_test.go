@@ -18,7 +18,7 @@ import (
 	"github.com/TechDufus/dash/internal/pluginconf"
 )
 
-var withIngresses = []schema.GroupVersionResource{kube.GVRCertificates, kube.GVRExternalSecrets, kube.GVRHTTPRoutes, kube.GVRCNPGClusters, kube.GVRIngresses}
+var withIngresses = []schema.GroupVersionResource{kube.GVRCertificates, kube.GVRExternalSecrets, kube.GVRHTTPRoutes, kube.GVRIngresses}
 
 // The Ingress informer exists only when apps.ingress is on: the plugin asks discovery for the
 // resource only then.
@@ -105,7 +105,6 @@ func TestServedResourceThatNeverListsPublishesAfterTheSyncTimeout(t *testing.T) 
 		{"certificates", "kubernetes.cluster", "cert-manager", []string{"kubernetes.storage", "kubernetes.apps"}},
 		{"externalsecrets", "kubernetes.cluster", "external-secrets", []string{"kubernetes.storage", "kubernetes.apps"}},
 		{"httproutes", "kubernetes.apps", "gateway-api", []string{"kubernetes.cluster", "kubernetes.storage"}},
-		{"clusters", "kubernetes.storage", "cnpg", []string{"kubernetes.cluster", "kubernetes.apps"}},
 	} {
 		t.Run(tc.resource, func(t *testing.T) {
 			e := newEnv(t, envOpts{
@@ -172,16 +171,17 @@ func TestOptionalResourceThatNeverListsDoesNotDegrade(t *testing.T) {
 	}
 }
 
-// The wanted set follows the settings, and the CNPG group of the transitional storage rows is in it.
+// The wanted set follows the settings: the three optional groups, and no CNPG group (the cnpg
+// plugin reads that one).
 func TestWantedResourcesFollowTheSettings(t *testing.T) {
 	r := &runtime{cfg: pluginconf.DefaultKubernetes()}
 	got := r.wanted()
-	for _, g := range []schema.GroupVersionResource{kube.GVRCertificates, kube.GVRExternalSecrets, kube.GVRHTTPRoutes, kube.GVRCNPGClusters} {
+	for _, g := range []schema.GroupVersionResource{kube.GVRCertificates, kube.GVRExternalSecrets, kube.GVRHTTPRoutes} {
 		if _, ok := got[g]; !ok {
 			t.Errorf("%v is not wanted", g)
 		}
 	}
-	if len(got) != 4 {
+	if _, ok := got[kube.GVRCNPGClusters]; ok || len(got) != 3 {
 		t.Errorf("wanted = %v", got)
 	}
 }

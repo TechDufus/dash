@@ -11,7 +11,7 @@ import (
 )
 
 // attentionOf is the attention items of the cluster and storage payloads, in rule order: nodes,
-// pods, workloads, certificates, PVCs, buckets. Only warnings and critical items are listed. An
+// pods, workloads, certificates, PVCs. Only warnings and critical items are listed. An
 // item has a Since of its own only where the cluster gives one (a pod's creation); the others
 // are left zero for the caller to stamp with the time they were first seen.
 func attentionOf(cl model.ClusterData, st model.StorageData, now time.Time) []model.AttentionItem {
@@ -67,14 +67,6 @@ func attentionOf(cl model.ClusterData, st model.StorageData, now time.Time) []mo
 		}
 		add("pvc:"+p.Namespace+"/"+p.Name, plugin.Ref(ID, "PVC", p.Namespace, p.Name), health.RatioHealth(*p.UsedRatio), "storage",
 			fmt.Sprintf("PVC %s/%s is %.0f%% full", p.Namespace, p.Name, *p.UsedRatio*100), "", time.Time{}, "/storage", p.Links)
-	}
-	for _, b := range st.Buckets {
-		if b.QuotaBytes <= 0 {
-			continue
-		}
-		r := float64(b.UsedBytes) / float64(b.QuotaBytes)
-		add("bucket:"+b.Name, "", health.RatioHealth(r), "storage", fmt.Sprintf("Bucket %s is %.0f%% of its quota", b.Name, r*100),
-			"", time.Time{}, "/storage", nil)
 	}
 	return items
 }

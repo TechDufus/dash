@@ -103,14 +103,81 @@ func TestEnabledDocNamesTheUsers(t *testing.T) {
 	tag := squash(field.Tag.Get("doc"))
 	for name, stale := range map[string]string{
 		"a restart pair is missing":     strings.Replace(tag, " a gatus change restarts hardware and kubernetes;", "", 1),
-		"flux is missing from the pair": strings.Replace(tag, "restarts proxmox and flux", "restarts proxmox", 1),
-		"a live plugin is missing":      strings.Replace(tag, "hardware, kubernetes, flux, grafana", "hardware, kubernetes, grafana", 1),
+		"flux is missing from the pair": strings.Replace(tag, "restarts proxmox, flux and cnpg", "restarts proxmox and cnpg", 1),
+		"cnpg is missing from the pair": strings.Replace(tag, "hardware, kubernetes, cnpg and rustfs", "hardware, kubernetes and rustfs", 1),
+		"a live plugin is missing":      strings.Replace(tag, "kubernetes, flux, cnpg, rustfs, grafana", "kubernetes, flux, cnpg, grafana", 1),
 	} {
 		if stale == tag {
 			t.Fatalf("%s: the doc has no text to damage", name)
 		}
 		if len(missing(stale, tagWants)) == 0 {
 			t.Errorf("%s: the check still passes", name)
+		}
+	}
+}
+
+// rustfs is the one plugin that is off until plugins.rustfs.enabled is true, so the shared
+// `enabled` sentence ("Unset turns it on when it has the settings it needs") carries that
+// exception in each of its copies, and the plugin behaves as the sentence says.
+func TestEnabledDocStatesTheRustFSException(t *testing.T) {
+	const want = "rustfs is off unless enabled: true"
+
+	field, _ := reflect.TypeFor[pluginconf.PluginBase]().FieldByName("Enabled")
+	var table, page bytes.Buffer
+	if err := config.WriteEnvTable(&table); err != nil {
+		t.Fatal(err)
+	}
+	if err := config.WriteEnvMarkdown(&page); err != nil {
+		t.Fatal(err)
+	}
+	readme, err := os.ReadFile("../../README.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	schema, err := os.ReadFile("../../internal/config/testdata/config.schema.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	generated, err := os.ReadFile("../../docs/configuration.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, doc := range []struct{ name, text string }{
+		{"the enabled doc tag", field.Tag.Get("doc")},
+		{"dash config env", table.String()},
+		{"the generated page", page.String()},
+		{"the README row", string(readme)},
+		{"docs/configuration.md", string(generated)},
+		{"the schema golden", string(schema)},
+	} {
+		if !strings.Contains(squash(doc.text), want) {
+			t.Errorf("%s lacks %q", doc.name, want)
+		}
+	}
+
+	// The sentence is true: rustfs is configured with enabled: true and only then.
+	var rustfsManifest *plugin.Manifest
+	for _, m := range builtinManifests() {
+		if m.ID == "rustfs" {
+			rustfsManifest = &m
+		}
+	}
+	if rustfsManifest == nil {
+		t.Fatal("rustfs is not a builtin plugin")
+	}
+	p, ok := realPlugins["rustfs"]().(plugin.Configured)
+	if !ok {
+		t.Fatal("the rustfs plugin does not say whether it is configured")
+	}
+	for _, tc := range []struct {
+		name    string
+		enabled *bool
+		want    bool
+	}{{"unset", nil, false}, {"false", new(false), false}, {"true", new(true), true}} {
+		cfg := rustfsManifest.Config().(*pluginconf.RustFS)
+		cfg.Enabled = tc.enabled
+		if got := p.Configured(cfg); got != tc.want {
+			t.Errorf("rustfs with enabled %s is configured = %v, want %v", tc.name, got, tc.want)
 		}
 	}
 }

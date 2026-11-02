@@ -323,6 +323,18 @@
         },
         "type": "object"
       },
+      "CNPGClustersData": {
+        "additionalProperties": false,
+        "properties": {
+          "clusters": {
+            "items": {
+              "$ref": "#/components/schemas/CNPGCluster"
+            },
+            "type": "array"
+          }
+        },
+        "type": "object"
+      },
       "Cert": {
         "additionalProperties": false,
         "properties": {
@@ -523,6 +535,35 @@
           },
           "topic": {
             "const": "alertmanager.alerts"
+          },
+          "updatedAt": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "data",
+          "sources",
+          "topic",
+          "updatedAt"
+        ],
+        "type": "object"
+      },
+      "Envelope.cnpg.clusters": {
+        "additionalProperties": false,
+        "description": "The envelope of the cnpg.clusters topic.",
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/CNPGClustersData"
+          },
+          "sources": {
+            "items": {
+              "$ref": "#/components/schemas/SourceStatus"
+            },
+            "type": "array"
+          },
+          "topic": {
+            "const": "cnpg.clusters"
           },
           "updatedAt": {
             "format": "date-time",
@@ -900,6 +941,35 @@
           },
           "topic": {
             "const": "proxmox.vms"
+          },
+          "updatedAt": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "data",
+          "sources",
+          "topic",
+          "updatedAt"
+        ],
+        "type": "object"
+      },
+      "Envelope.rustfs.usage": {
+        "additionalProperties": false,
+        "description": "The envelope of the rustfs.usage topic.",
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/RustFSUsageData"
+          },
+          "sources": {
+            "items": {
+              "$ref": "#/components/schemas/SourceStatus"
+            },
+            "type": "array"
+          },
+          "topic": {
+            "const": "rustfs.usage"
           },
           "updatedAt": {
             "format": "date-time",
@@ -1902,6 +1972,21 @@
         },
         "type": "object"
       },
+      "RustFSUsageData": {
+        "additionalProperties": false,
+        "properties": {
+          "buckets": {
+            "items": {
+              "$ref": "#/components/schemas/Bucket"
+            },
+            "type": "array"
+          },
+          "capacity": {
+            "$ref": "#/components/schemas/UsedSize"
+          }
+        },
+        "type": "object"
+      },
       "Sensor": {
         "additionalProperties": false,
         "properties": {
@@ -2080,18 +2165,6 @@
             },
             "type": "array"
           },
-          "buckets": {
-            "items": {
-              "$ref": "#/components/schemas/Bucket"
-            },
-            "type": "array"
-          },
-          "cnpg": {
-            "items": {
-              "$ref": "#/components/schemas/CNPGCluster"
-            },
-            "type": "array"
-          },
           "etcd": {
             "$ref": "#/components/schemas/Etcd"
           },
@@ -2100,9 +2173,6 @@
               "$ref": "#/components/schemas/PVC"
             },
             "type": "array"
-          },
-          "rustfs": {
-            "$ref": "#/components/schemas/UsedSize"
           }
         },
         "type": "object"
@@ -3233,6 +3303,9 @@
                       "$ref": "#/components/schemas/Envelope.alertmanager.alerts"
                     },
                     {
+                      "$ref": "#/components/schemas/Envelope.cnpg.clusters"
+                    },
+                    {
                       "$ref": "#/components/schemas/Envelope.core.overview"
                     },
                     {
@@ -3270,6 +3343,9 @@
                     },
                     {
                       "$ref": "#/components/schemas/Envelope.proxmox.vms"
+                    },
+                    {
+                      "$ref": "#/components/schemas/Envelope.rustfs.usage"
                     }
                   ]
                 }

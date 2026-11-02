@@ -446,7 +446,7 @@ func (r *runtime) onChange(k kube.Kind) {
 		r.mark(dirtyCluster | dirtyApps)
 	case kube.KindPods, kube.KindWorkloads, kube.KindEvents, kube.KindCertificates, kube.KindExtSecrets:
 		r.mark(dirtyCluster)
-	case kube.KindPVCs, kube.KindCNPG:
+	case kube.KindPVCs:
 		r.mark(dirtyStorage)
 	case kube.KindHTTPRoutes, kube.KindIngresses:
 		r.mark(dirtyApps)

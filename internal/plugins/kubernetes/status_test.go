@@ -373,7 +373,7 @@ func (a *atomicBool) set(v bool) { a.mu.Lock(); a.v = v; a.mu.Unlock() }
 func (a *atomicBool) get() bool  { a.mu.Lock(); defer a.mu.Unlock(); return a.v }
 
 // A cluster with none of the CRDs is degraded, not stuck starting, and says which groups are
-// missing; the CNPG group of the transitional storage rows is not one of them.
+// missing; the CNPG group is the cnpg plugin's, not one of them.
 func TestClusterWithoutAnyCRDIsDegradedNotStarting(t *testing.T) {
 	e := newEnv(t, envOpts{noCRDs: true})
 	pi := e.state(plugin.StateDegraded)
@@ -540,7 +540,7 @@ func groupFailure(gvs ...schema.GroupVersion) error {
 	return &discovery.ErrGroupDiscoveryFailed{Groups: m}
 }
 
-var allServed = []schema.GroupVersionResource{kube.GVRCertificates, kube.GVRExternalSecrets, kube.GVRHTTPRoutes, kube.GVRCNPGClusters}
+var allServed = []schema.GroupVersionResource{kube.GVRCertificates, kube.GVRExternalSecrets, kube.GVRHTTPRoutes}
 
 // An aggregated API that is down (a metrics-server APIService) is not a group dash reads: it is
 // logged at INFO and the row stays healthy.
@@ -557,7 +557,7 @@ func TestUnwantedGroupDiscoveryFailureDoesNotDegrade(t *testing.T) {
 
 func TestWantedGroupDiscoveryFailureDegrades(t *testing.T) {
 	d := &stubDisc{}
-	d.set(groupFailure(kube.GVRCertificates.GroupVersion()), served(kube.GVRExternalSecrets, kube.GVRHTTPRoutes, kube.GVRCNPGClusters)...)
+	d.set(groupFailure(kube.GVRCertificates.GroupVersion()), served(kube.GVRExternalSecrets, kube.GVRHTTPRoutes)...)
 	e := newEnv(t, envOpts{prefill: func(e *env) { e.discovery = d }})
 	pi := e.state(plugin.StateDegraded)
 	if !strings.Contains(pi.Message, "discovery failed for: cert-manager") {
@@ -569,10 +569,10 @@ func TestWantedGroupDiscoveryFailureDegrades(t *testing.T) {
 }
 
 // A group an optional.* setting names is the user's to ignore: its discovery failing does not
-// degrade the row. CNPG is not an optional.* setting, and its broken group still does.
+// degrade the row.
 func TestOptionalGroupDiscoveryFailureDoesNotDegrade(t *testing.T) {
 	d := &stubDisc{}
-	d.set(groupFailure(kube.GVRCertificates.GroupVersion()), served(kube.GVRExternalSecrets, kube.GVRHTTPRoutes, kube.GVRCNPGClusters)...)
+	d.set(groupFailure(kube.GVRCertificates.GroupVersion()), served(kube.GVRExternalSecrets, kube.GVRHTTPRoutes)...)
 	e := newEnv(t, envOpts{
 		cfg:     func(c *pluginconf.Kubernetes) { c.Optional.Certificates = true },
 		prefill: func(e *env) { e.discovery = d },
@@ -580,13 +580,6 @@ func TestOptionalGroupDiscoveryFailureDoesNotDegrade(t *testing.T) {
 	e.healthy()
 	if got := e.info(); got.State != plugin.StateHealthy || got.Message != "" {
 		t.Errorf("row = %+v: an optional group must not degrade it", got)
-	}
-
-	d.set(groupFailure(kube.GVRCNPGClusters.GroupVersion()), served(kube.GVRCertificates, kube.GVRExternalSecrets, kube.GVRHTTPRoutes)...)
-	// The next discovery is the periodic one of fastTiming (50ms).
-	pi := e.state(plugin.StateDegraded)
-	if !strings.Contains(pi.Message, "discovery failed for: cnpg") {
-		t.Errorf("message = %q", pi.Message)
 	}
 }
 
@@ -660,7 +653,7 @@ func TestProbeRecoveryRepeatsAFailedDiscovery(t *testing.T) {
 }
 
 // A dynamic informer never gates Synced, so a topic waits for its own resources: the cluster
-// topic for certificates and external secrets, apps for routes, storage for CNPG. The list is
+// topic for certificates and external secrets, apps for routes. The list is
 // held (the fake dynamic client can hold no request without holding them all, so the other
 // topics wait too) until the typed informers have synced and the publisher has made several
 // more rounds, counted by the gatus fake it asks on each; the topic must be absent then, and
@@ -670,7 +663,6 @@ func TestKubernetesClusterTopicWaitsForItsGVRs(t *testing.T) {
 		{"certificates", "kubernetes.cluster"},
 		{"externalsecrets", "kubernetes.cluster"},
 		{"httproutes", "kubernetes.apps"},
-		{"clusters", "kubernetes.storage"},
 	} {
 		t.Run(tc.resource, func(t *testing.T) {
 			release, entered := make(chan struct{}), make(chan struct{})

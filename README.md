@@ -34,7 +34,7 @@ https://dash.home.techdufus.com.
 - **One screen for the whole lab.** The overview rolls alerts, GitOps, nodes, VMs, power and CPU
   temperature into a KPI row, draws the topology from the Proxmox host through its VMs to every
   namespace, and lists what needs attention, worst first.
-- **Live, not polled from the browser.** Informers and upstream pollers rebuild the topics: the flux plugin publishes `flux.objects`, the kubernetes plugin publishes `kubernetes.cluster`, `kubernetes.storage` and `kubernetes.apps`, the hardware plugin publishes `hardware.hosts` and `hardware.machines`, the proxmox plugin publishes `proxmox.vms`, `proxmox.node` and `proxmox.storage`, the alertmanager and gatus plugins `alertmanager.alerts` and `gatus.status`, the core composes
+- **Live, not polled from the browser.** Informers and upstream pollers rebuild the topics: the flux plugin publishes `flux.objects`, the cnpg plugin `cnpg.clusters`, the rustfs plugin `rustfs.usage`, the kubernetes plugin publishes `kubernetes.cluster`, `kubernetes.storage` and `kubernetes.apps`, the hardware plugin publishes `hardware.hosts` and `hardware.machines`, the proxmox plugin publishes `proxmox.vms`, `proxmox.node` and `proxmox.storage`, the alertmanager and gatus plugins `alertmanager.alerts` and `gatus.status`, the core composes
   `core.overview` from what the integrations contribute, and only what changed goes out over a
   single SSE stream. `core.plugins` says which integrations run and whether each is healthy; the
   launcher plugin publishes its links as `launcher.links`.
@@ -43,9 +43,11 @@ https://dash.home.techdufus.com.
 - **Kubernetes and GitOps.** Nodes, workloads, pods with logs and metrics, events, namespaces,
   certificates and External Secrets; every Flux source, Kustomization and HelmRelease with its
   revision and signature verification.
-- **Storage and alerts.** PVC fill and growth with days-to-full, object storage buckets, Proxmox
-  storage, CNPG clusters and their backups, the age of the last backup CronJob runs you name, etcd
-  size; firing Alertmanager alerts and their silences.
+- **Storage and alerts.** PVC fill and growth with days-to-full, Proxmox storage, the age of the last
+  backup CronJob runs you name, etcd size, CNPG clusters and their backups (the cnpg plugin) and
+  object storage buckets (the rustfs plugin, off until `plugins.rustfs.enabled` is true). The
+  Storage page shows the panels of the plugins that run and says so when none of them does;
+  firing Alertmanager alerts and their silences.
 - **Deep links everywhere.** Headlamp, Proxmox consoles and Grafana are one click from the object
   you are looking at, and a command palette (`Ctrl K`) jumps to any page, VM, node,
   workload or pod.
@@ -228,11 +230,17 @@ restart with `DASH_PLUGINS_PROXMOX_TOKEN_SECRET_FILE`.
 | `plugins.flux.verify.sources` | `[]` | `[{kind, namespace, name}]` (a JSON list in the environment), kind `GitRepository` or `OCIRepository`: sources that must be signed and verified. Each is critical when it lacks `spec.verify` or `SourceVerified=True`, or does not exist, and each is listed on the GitOps page. `DASH_PLUGINS_FLUX_VERIFY_SOURCES='[{"kind":"GitRepository","namespace":"gitops","name":"fleet"}]'`; an entry with an unknown field, another kind or no namespace or name is refused when the configuration loads |
 | `plugins.flux.actions.enabled` | `false` | mounts the `reconcile` action (a `reconcile.fluxcd.io/requestedAt` annotation on a source, Kustomization or HelmRelease, admin only); until it is set the GitOps page shows no Reconcile button. `DASH_PLUGINS_FLUX_ACTIONS_ENABLED=true`; a change restarts the plugin |
 | `plugins.flux.actions.denyNamespaces` | `[]` | namespaces where `reconcile` answers 403 and the refusal is audited (a JSON list in the environment) |
+| `plugins.cnpg.backupMetric` | `barman_cloud_cloudnative_pg_io_last_available_backup_timestamp` | the Prometheus series (through the prometheus plugin) that holds the Unix time of a CloudNativePG cluster's last available backup, labelled `namespace` and `cluster`; the cnpg plugin reads its newest sample per cluster with `role="primary"` for the age shown on the Storage page. Must be a valid metric name. Without the prometheus plugin the clusters are listed with a `prometheus: not_configured` note and no age. `DASH_PLUGINS_CNPG_BACKUP_METRIC`; a change restarts the plugin |
+| `plugins.rustfs.enabled` | unset (the plugin is off) | the rustfs plugin shows the buckets and the capacity of a RustFS object store on the Storage page and raises an overview item for a bucket at 80% (warning) or 90% (critical) of its quota. It is the one plugin that is off unless `true`: nothing in its settings says an object store exists. It needs the prometheus plugin. `DASH_PLUGINS_RUSTFS_ENABLED=true` |
+| `plugins.rustfs.metrics.bucketUsed` | `rustfs_bucket_usage_usage_bytes` | the series of a bucket's used bytes, labelled `bucket`; a valid metric name. `DASH_PLUGINS_RUSTFS_METRICS_BUCKET_USED`; a change restarts the plugin |
+| `plugins.rustfs.metrics.bucketQuota` | `rustfs_bucket_usage_quota_bytes` | the series of a bucket's quota in bytes, labelled `bucket`; a bucket without one has no quota and raises nothing; a valid metric name. `DASH_PLUGINS_RUSTFS_METRICS_BUCKET_QUOTA` |
+| `plugins.rustfs.metrics.capacityUsed` | `rustfs_cluster_capacity_used_bytes` | the series of the store's used bytes; a valid metric name. `DASH_PLUGINS_RUSTFS_METRICS_CAPACITY_USED` |
+| `plugins.rustfs.metrics.capacityUsable` | `rustfs_cluster_capacity_usable_total_bytes` | the series of the store's usable bytes; a valid metric name. `DASH_PLUGINS_RUSTFS_METRICS_CAPACITY_USABLE` |
 | `plugins.kubernetes.apps.gateways` | `[]` (every route) | `[{namespace, name}]` (a JSON list in the environment): only HTTPRoutes whose `spec.parentRefs` name one of these gateways are apps; a parent reference without a namespace means the route's own namespace. Empty accepts every HTTPRoute. `DASH_PLUGINS_KUBERNETES_APPS_GATEWAYS='[{"namespace":"gateways","name":"main"}]'` |
 | `plugins.kubernetes.apps.excludeNamespaces` | `[]` (none) | namespaces whose routes and ingresses are never apps, typically dash's own (a JSON list in the environment) |
 | `plugins.kubernetes.apps.annotationPrefix` | `gethomepage.dev` | the annotation keys read for an app: `<prefix>/name`, `/group`, `/description` and `/icon`; a trailing `/` is ignored. `/icon` is a [dashboard-icons](https://github.com/homarr-labs/dashboard-icons) name, a same-origin path or a URL under `ui.iconBaseURL`; homepage-style `mdi-`, `si-` and `sh-` names show no icon |
 | `plugins.kubernetes.apps.ingress` | `false` | also reads `networking.k8s.io/v1` Ingresses, one app per rule host (`https://<host>`), with the same annotations and exclusions; needs the `ingresses` permission under [Kubernetes permissions](#kubernetes-permissions-rbac) |
-| `plugins.<id>.enabled` | unset (on when configured) | `false` turns that plugin off: its topics are removed, and the web UI drops its rail entry, palette entries, overview tiles and panels and shows a "switched off" page at its address. Unset turns it on when it has the settings it needs: a plugin without them is `disabled` ("not configured: set plugins.<id>.url", naming the setting to make; the launcher names `links` or `file`; the hardware plugin names `hosts` or `machines`) and the web UI hides its pages; `true` with settings missing or invalid makes it `unconfigured`. That is how `prometheus`, `alertmanager`, `gatus`, `victorialogs`, `proxmox`, `hardware`, `kubernetes`, `flux`, `grafana`, `headlamp` and `launcher` behave, and a change to any of their settings applies live: that plugin restarts, and so do the plugins that use or require it (a `prometheus` change restarts `proxmox`, `hardware` and `kubernetes`; a `gatus` change restarts `hardware` and `kubernetes`; a `proxmox` change restarts `hardware`; a `kubernetes` change restarts `proxmox` and `flux`; a `grafana` change restarts `alertmanager`). |
+| `plugins.<id>.enabled` | unset (on when configured; `rustfs` is off) | `false` turns that plugin off: its topics are removed, and the web UI drops its rail entry, palette entries, overview tiles and panels and shows a "switched off" page at its address. Unset turns it on when it has the settings it needs (`rustfs` is off unless `enabled: true`, because nothing in its settings says an object store exists): a plugin without them is `disabled` ("not configured: set plugins.<id>.url", naming the setting to make; the launcher names `links` or `file`; the hardware plugin names `hosts` or `machines`) and the web UI hides its pages; `true` with settings missing or invalid makes it `unconfigured`. That is how `prometheus`, `alertmanager`, `gatus`, `victorialogs`, `proxmox`, `hardware`, `kubernetes`, `flux`, `cnpg`, `rustfs`, `grafana`, `headlamp` and `launcher` behave, and a change to any of their settings applies live: that plugin restarts, and so do the plugins that use or require it (a `prometheus` change restarts `proxmox`, `hardware`, `kubernetes`, `cnpg` and `rustfs`; a `gatus` change restarts `hardware` and `kubernetes`; a `proxmox` change restarts `hardware`; a `kubernetes` change restarts `proxmox`, `flux` and `cnpg`; a `grafana` change restarts `alertmanager`). |
 | `plugins.<id>.type` | the section name | the plugin type; dash runs one instance per type, so leave it unset or equal to the section name |
 
 `/healthz` answers `ok` while dash runs. `/readyz` answers `ok` once both listeners are bound and
@@ -437,6 +445,8 @@ rules:
   - apiGroups: [gateway.networking.k8s.io]
     resources: [httproutes]
     verbs: [get, list, watch]
+  # The cnpg plugin reads the CloudNativePG clusters with the same ServiceAccount; a refusal shows
+  # on the cnpg row, not on the kubernetes one.
   - apiGroups: [postgresql.cnpg.io]
     resources: [clusters]
     verbs: [get, list, watch]
@@ -467,10 +477,10 @@ rules:
 `plugins.kubernetes.apps.ingress: true` also needs `get`, `list` and `watch` on `ingresses` in
 `networking.k8s.io`; that rule is not part of the ones above, so grant it only where you turn the
 key on. A resource the API server serves but the ServiceAccount may not list (Ingresses here, or
-the certificates, ExternalSecrets, HTTPRoutes or CNPG clusters when their permission is missing)
+the certificates, ExternalSecrets or HTTPRoutes when their permission is missing)
 is published without its objects after 60 seconds, and the row is `degraded` with
 `cannot list: <name> (<category>)`, where `<name>` is `ingress`, `cert-manager`,
-`external-secrets`, `gateway-api` or `cnpg`, for example `cannot list: ingress (auth)`; the
+`external-secrets` or `gateway-api`, for example `cannot list: ingress (auth)`; the
 topic's source note carries the same category.
 A cluster that lacks a CRD group is fine: mark the kinds in `plugins.kubernetes.optional.*` to
 keep the plugin out of `degraded` for it. The mark also keeps the row healthy when the discovery of
@@ -558,6 +568,7 @@ upstream URL turns that source off: dash makes no request to it and its panels s
 | only routes of the gateway `gateway/home` were apps | `plugins.kubernetes.apps.gateways` (`[{namespace: gateway, name: home}]`); empty now accepts every HTTPRoute |
 | the `dash` namespace was never an app | `plugins.kubernetes.apps.excludeNamespaces` (`[dash]`); empty now skips nothing |
 | app icons from a CDN | `ui.iconBaseURL` (`https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/png`); empty now shows letter tiles |
+| the RustFS buckets and capacity were always read | `plugins.rustfs.enabled` (`true`; the plugin is now off unless set, and its series names are `plugins.rustfs.metrics.*`) |
 
 ### Removed variable names
 

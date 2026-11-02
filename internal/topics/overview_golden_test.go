@@ -193,7 +193,6 @@ func (goldenKubernetes) Attention(time.Time) []model.AttentionItem {
 		item("cert:media/tls", model.SeverityCrit, "cert-manager", "Certificate media/tls expires soon", "expires 2026-11-04 (5 days)", testNow, "/cluster", "kubernetes:Certificate/media/tls"),
 		item("pvc:media/data", model.SeverityCrit, "storage", "PVC media/data is 93% full", "", testNow, "/storage", "kubernetes:PVC/media/data"),
 		item("pvc:monitoring/tsdb", model.SeverityWarn, "storage", "PVC monitoring/tsdb is 82% full", "", testNow, "/storage", "kubernetes:PVC/monitoring/tsdb"),
-		item("bucket:backups", model.SeverityCrit, "storage", "Bucket backups is 95% of its quota", "", testNow, "/storage", ""),
 	}
 }
 
@@ -220,6 +219,18 @@ func (goldenKubernetes) Topology() model.Topology {
 	}}
 }
 
+// goldenRustFS stands in for the running rustfs plugin: the bucket that is at its quota, as its
+// AttentionSource raises it (the rule is the plugin's, tested there), with the ref the plugin gives
+// a bucket. Until P3.12 this item was the kubernetes plugin's.
+type goldenRustFS struct{}
+
+func (goldenRustFS) Attention(time.Time) []model.AttentionItem {
+	return []model.AttentionItem{
+		{ID: "bucket:backups", Severity: model.SeverityCrit, Source: "storage", Plugin: "rustfs", Title: "Bucket backups is 95% of its quota",
+			Since: testNow, Route: "/storage", Links: []model.Link{}, Ref: "rustfs:Bucket/backups"},
+	}
+}
+
 // The overview a lab gets is unchanged by composing it from plugin contributions: the golden file
 // was written by the code that built it from the topics directly, and regenerated as each
 // integration moved into a plugin of its own. The host's items and KPIs come from the hardware
@@ -228,8 +239,9 @@ func (goldenKubernetes) Topology() model.Topology {
 // gained its ref, and nothing else changed against v0.8.1. The alerts arrive from the
 // alertmanager contribution, and Kpis.alertsFiring is gone (its tile is the plugin's KPI). The
 // last Manager rule left with flux (P3.11): its items carry the plugin's ids and its KPIs are
-// the plugin's four in kpiList, and the fixed `kpis` object is gone. The whole document is
-// compared, kpiList and the order of the items included.
+// the plugin's four in kpiList, and the fixed `kpis` object is gone. The bucket item moved to the
+// rustfs plugin (P3.12): its plugin is rustfs and it has the ref rustfs:Bucket/backups. The whole
+// document is compared, kpiList and the order of the items included.
 func TestOverviewOutputIsUnchanged(t *testing.T) {
 	gp := goldenProxmox{vms: goldenVMs()}
 	gh := goldenHardware{links: goldenProxmoxLinks{}.Links(plugin.LinkRequest{Kind: "ProxmoxUI"})}
@@ -242,6 +254,7 @@ func TestOverviewOutputIsUnchanged(t *testing.T) {
 		{ID: "proxmox", Attention: gp, KPIs: gp, Topology: gp},
 		{ID: "hardware", Attention: gh, KPIs: gh, Topology: gh},
 		{ID: "kubernetes", Attention: goldenKubernetes{}, KPIs: goldenKubernetes{}, Topology: goldenKubernetes{}},
+		{ID: "rustfs", Attention: goldenRustFS{}},
 	}
 	got, err := json.MarshalIndent(goldenManager().buildOverview(cs, testNow), "", "  ")
 	if err != nil {

@@ -2,9 +2,9 @@ import { describe, expect, it } from "vitest";
 import { CORE_PAGES, MODULES, moduleById, moduleOrder } from "./registry";
 
 describe("module registry", () => {
-  it("lists nine modules with unique ids", () => {
+  it("lists eleven modules with unique ids", () => {
     const ids = MODULES.map((m) => m.id);
-    expect(ids).toHaveLength(9);
+    expect(ids).toHaveLength(11);
     expect(new Set(ids).size).toBe(ids.length);
     expect(moduleById.size).toBe(ids.length);
   });
@@ -22,6 +22,7 @@ describe("module registry", () => {
     }
     expect([...seen.keys()].sort()).toEqual([
       "alertmanager.alerts",
+      "cnpg.clusters",
       "flux.objects",
       "gatus.status",
       "hardware.hosts",
@@ -33,6 +34,7 @@ describe("module registry", () => {
       "proxmox.node",
       "proxmox.storage",
       "proxmox.vms",
+      "rustfs.usage",
     ]);
   });
 

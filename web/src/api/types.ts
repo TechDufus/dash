@@ -95,6 +95,14 @@ export const TopicHardwareMachines = "hardware.machines";
  */
 export const TopicCluster = "kubernetes.cluster";
 export const TopicStorage = "kubernetes.storage";
+/**
+ * TopicCNPGClusters is the CloudNativePG clusters (CNPGClustersData), published by the cnpg plugin.
+ */
+export const TopicCNPGClusters = "cnpg.clusters";
+/**
+ * TopicRustFSUsage is the RustFS buckets and capacity (RustFSUsageData), published by the rustfs plugin.
+ */
+export const TopicRustFSUsage = "rustfs.usage";
 export const TopicApps = "kubernetes.apps";
 /**
  * TopicFlux is the Flux objects (FluxData), published by the flux plugin.
@@ -115,7 +123,7 @@ export const TopicLauncherLinks = "launcher.links";
  * plugin supervisor. The core.* names belong to dash itself, not to a plugin.
  */
 export const TopicPlugins = "core.plugins";
-export type Topic = typeof TopicOverview | typeof TopicHost | typeof TopicVMs | typeof TopicProxmoxNode | typeof TopicProxmoxStorage | typeof TopicHardwareMachines | typeof TopicCluster | typeof TopicStorage | typeof TopicApps | typeof TopicFlux | typeof TopicAlerts | typeof TopicStatus | typeof TopicLauncherLinks | typeof TopicPlugins;
+export type Topic = typeof TopicOverview | typeof TopicHost | typeof TopicVMs | typeof TopicProxmoxNode | typeof TopicProxmoxStorage | typeof TopicHardwareMachines | typeof TopicCluster | typeof TopicStorage | typeof TopicCNPGClusters | typeof TopicRustFSUsage | typeof TopicApps | typeof TopicFlux | typeof TopicAlerts | typeof TopicStatus | typeof TopicLauncherLinks | typeof TopicPlugins;
 export interface Link {
   label: string;
   href: string;
@@ -650,9 +658,6 @@ export interface Etcd {
 }
 export interface StorageData {
   pvcs: PVC[];
-  buckets: Bucket[];
-  rustfs: UsedSize;
-  cnpg: CNPGCluster[];
   backupJobs: BackupJob[];
   etcd: Etcd;
 }

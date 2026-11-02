@@ -53,7 +53,11 @@ const (
 	// StorageData, AppsData).
 	TopicCluster Topic = "kubernetes.cluster"
 	TopicStorage Topic = "kubernetes.storage"
-	TopicApps    Topic = "kubernetes.apps"
+	// TopicCNPGClusters is the CloudNativePG clusters (CNPGClustersData), published by the cnpg plugin.
+	TopicCNPGClusters Topic = "cnpg.clusters"
+	// TopicRustFSUsage is the RustFS buckets and capacity (RustFSUsageData), published by the rustfs plugin.
+	TopicRustFSUsage Topic = "rustfs.usage"
+	TopicApps        Topic = "kubernetes.apps"
 	// TopicFlux is the Flux objects (FluxData), published by the flux plugin.
 	TopicFlux Topic = "flux.objects"
 	// TopicAlerts is the alerts and silences (AlertsData), published by the alertmanager plugin.
@@ -583,12 +587,9 @@ type Etcd struct {
 }
 
 type StorageData struct {
-	PVCs       []PVC         `json:"pvcs"`
-	Buckets    []Bucket      `json:"buckets"`
-	RustFS     UsedSize      `json:"rustfs"`
-	CNPG       []CNPGCluster `json:"cnpg"`
-	BackupJobs []BackupJob   `json:"backupJobs"`
-	Etcd       Etcd          `json:"etcd"`
+	PVCs       []PVC       `json:"pvcs"`
+	BackupJobs []BackupJob `json:"backupJobs"`
+	Etcd       Etcd        `json:"etcd"`
 }
 
 // CNPGClustersData is the payload of the cnpg plugin's topic.

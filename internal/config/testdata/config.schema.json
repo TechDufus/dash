@@ -39,7 +39,7 @@
           "description": "How dash authenticates to Alertmanager. Neither basic nor bearerToken sends no credentials."
         },
         "enabled": {
-          "description": "false turns the plugin off: its topics are removed, and the web UI drops its rail entry, palette entries, overview tiles and panels and shows a switched-off page at its address. Unset turns it on when it has the settings it needs; a plugin without them is disabled (\"not configured: set plugins.<id>.url\", naming the setting to make) and the web UI hides its pages. true with settings missing or invalid makes it unconfigured, which hides its pages too. This is how prometheus, alertmanager, gatus, victorialogs, proxmox, hardware, kubernetes, flux, grafana, headlamp and launcher behave, and a change to any of their settings applies live: that plugin restarts, and so do the plugins that use or require it (a prometheus change restarts proxmox, hardware and kubernetes; a gatus change restarts hardware and kubernetes; a proxmox change restarts hardware; a kubernetes change restarts proxmox and flux; a grafana change restarts alertmanager).",
+          "description": "false turns the plugin off: its topics are removed, and the web UI drops its rail entry, palette entries, overview tiles and panels and shows a switched-off page at its address. Unset turns it on when it has the settings it needs (rustfs is off unless enabled: true, because nothing in its settings says an object store exists); a plugin without them is disabled (\"not configured: set plugins.<id>.url\", naming the setting to make) and the web UI hides its pages. true with settings missing or invalid makes it unconfigured, which hides its pages too. This is how prometheus, alertmanager, gatus, victorialogs, proxmox, hardware, kubernetes, flux, cnpg, rustfs, grafana, headlamp and launcher behave, and a change to any of their settings applies live: that plugin restarts, and so do the plugins that use or require it (a prometheus change restarts proxmox, hardware, kubernetes, cnpg and rustfs; a gatus change restarts hardware and kubernetes; a proxmox change restarts hardware; a kubernetes change restarts proxmox, flux and cnpg; a grafana change restarts alertmanager).",
           "type": "boolean"
         },
         "ignoreAlerts": {
@@ -167,6 +167,25 @@
       },
       "type": "object"
     },
+    "CNPG": {
+      "additionalProperties": false,
+      "properties": {
+        "backupMetric": {
+          "default": "barman_cloud_cloudnative_pg_io_last_available_backup_timestamp",
+          "description": "Name of the Prometheus series that holds the Unix time of a cluster's last available backup, labelled namespace and cluster (role=\"primary\" selects the primary's). The default is the Barman Cloud plugin's barman_cloud_cloudnative_pg_io_last_available_backup_timestamp. Must be a valid metric name.",
+          "type": "string"
+        },
+        "enabled": {
+          "description": "false turns the plugin off: its topics are removed, and the web UI drops its rail entry, palette entries, overview tiles and panels and shows a switched-off page at its address. Unset turns it on when it has the settings it needs (rustfs is off unless enabled: true, because nothing in its settings says an object store exists); a plugin without them is disabled (\"not configured: set plugins.<id>.url\", naming the setting to make) and the web UI hides its pages. true with settings missing or invalid makes it unconfigured, which hides its pages too. This is how prometheus, alertmanager, gatus, victorialogs, proxmox, hardware, kubernetes, flux, cnpg, rustfs, grafana, headlamp and launcher behave, and a change to any of their settings applies live: that plugin restarts, and so do the plugins that use or require it (a prometheus change restarts proxmox, hardware, kubernetes, cnpg and rustfs; a gatus change restarts hardware and kubernetes; a proxmox change restarts hardware; a kubernetes change restarts proxmox, flux and cnpg; a grafana change restarts alertmanager).",
+          "type": "boolean"
+        },
+        "type": {
+          "description": "The plugin type. dash runs one instance per type, so this is empty or the section name.",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
     "CriticalVMs": {
       "additionalProperties": false,
       "properties": {
@@ -195,7 +214,7 @@
           "description": "The reconcile action."
         },
         "enabled": {
-          "description": "false turns the plugin off: its topics are removed, and the web UI drops its rail entry, palette entries, overview tiles and panels and shows a switched-off page at its address. Unset turns it on when it has the settings it needs; a plugin without them is disabled (\"not configured: set plugins.<id>.url\", naming the setting to make) and the web UI hides its pages. true with settings missing or invalid makes it unconfigured, which hides its pages too. This is how prometheus, alertmanager, gatus, victorialogs, proxmox, hardware, kubernetes, flux, grafana, headlamp and launcher behave, and a change to any of their settings applies live: that plugin restarts, and so do the plugins that use or require it (a prometheus change restarts proxmox, hardware and kubernetes; a gatus change restarts hardware and kubernetes; a proxmox change restarts hardware; a kubernetes change restarts proxmox and flux; a grafana change restarts alertmanager).",
+          "description": "false turns the plugin off: its topics are removed, and the web UI drops its rail entry, palette entries, overview tiles and panels and shows a switched-off page at its address. Unset turns it on when it has the settings it needs (rustfs is off unless enabled: true, because nothing in its settings says an object store exists); a plugin without them is disabled (\"not configured: set plugins.<id>.url\", naming the setting to make) and the web UI hides its pages. true with settings missing or invalid makes it unconfigured, which hides its pages too. This is how prometheus, alertmanager, gatus, victorialogs, proxmox, hardware, kubernetes, flux, cnpg, rustfs, grafana, headlamp and launcher behave, and a change to any of their settings applies live: that plugin restarts, and so do the plugins that use or require it (a prometheus change restarts proxmox, hardware, kubernetes, cnpg and rustfs; a gatus change restarts hardware and kubernetes; a proxmox change restarts hardware; a kubernetes change restarts proxmox, flux and cnpg; a grafana change restarts alertmanager).",
           "type": "boolean"
         },
         "suspendReasonAnnotation": {
@@ -246,7 +265,7 @@
           "type": "array"
         },
         "enabled": {
-          "description": "false turns the plugin off: its topics are removed, and the web UI drops its rail entry, palette entries, overview tiles and panels and shows a switched-off page at its address. Unset turns it on when it has the settings it needs; a plugin without them is disabled (\"not configured: set plugins.<id>.url\", naming the setting to make) and the web UI hides its pages. true with settings missing or invalid makes it unconfigured, which hides its pages too. This is how prometheus, alertmanager, gatus, victorialogs, proxmox, hardware, kubernetes, flux, grafana, headlamp and launcher behave, and a change to any of their settings applies live: that plugin restarts, and so do the plugins that use or require it (a prometheus change restarts proxmox, hardware and kubernetes; a gatus change restarts hardware and kubernetes; a proxmox change restarts hardware; a kubernetes change restarts proxmox and flux; a grafana change restarts alertmanager).",
+          "description": "false turns the plugin off: its topics are removed, and the web UI drops its rail entry, palette entries, overview tiles and panels and shows a switched-off page at its address. Unset turns it on when it has the settings it needs (rustfs is off unless enabled: true, because nothing in its settings says an object store exists); a plugin without them is disabled (\"not configured: set plugins.<id>.url\", naming the setting to make) and the web UI hides its pages. true with settings missing or invalid makes it unconfigured, which hides its pages too. This is how prometheus, alertmanager, gatus, victorialogs, proxmox, hardware, kubernetes, flux, cnpg, rustfs, grafana, headlamp and launcher behave, and a change to any of their settings applies live: that plugin restarts, and so do the plugins that use or require it (a prometheus change restarts proxmox, hardware, kubernetes, cnpg and rustfs; a gatus change restarts hardware and kubernetes; a proxmox change restarts hardware; a kubernetes change restarts proxmox, flux and cnpg; a grafana change restarts alertmanager).",
           "type": "boolean"
         },
         "pageSize": {
@@ -274,7 +293,7 @@
       "additionalProperties": false,
       "properties": {
         "enabled": {
-          "description": "false turns the plugin off: its topics are removed, and the web UI drops its rail entry, palette entries, overview tiles and panels and shows a switched-off page at its address. Unset turns it on when it has the settings it needs; a plugin without them is disabled (\"not configured: set plugins.<id>.url\", naming the setting to make) and the web UI hides its pages. true with settings missing or invalid makes it unconfigured, which hides its pages too. This is how prometheus, alertmanager, gatus, victorialogs, proxmox, hardware, kubernetes, flux, grafana, headlamp and launcher behave, and a change to any of their settings applies live: that plugin restarts, and so do the plugins that use or require it (a prometheus change restarts proxmox, hardware and kubernetes; a gatus change restarts hardware and kubernetes; a proxmox change restarts hardware; a kubernetes change restarts proxmox and flux; a grafana change restarts alertmanager).",
+          "description": "false turns the plugin off: its topics are removed, and the web UI drops its rail entry, palette entries, overview tiles and panels and shows a switched-off page at its address. Unset turns it on when it has the settings it needs (rustfs is off unless enabled: true, because nothing in its settings says an object store exists); a plugin without them is disabled (\"not configured: set plugins.<id>.url\", naming the setting to make) and the web UI hides its pages. true with settings missing or invalid makes it unconfigured, which hides its pages too. This is how prometheus, alertmanager, gatus, victorialogs, proxmox, hardware, kubernetes, flux, cnpg, rustfs, grafana, headlamp and launcher behave, and a change to any of their settings applies live: that plugin restarts, and so do the plugins that use or require it (a prometheus change restarts proxmox, hardware, kubernetes, cnpg and rustfs; a gatus change restarts hardware and kubernetes; a proxmox change restarts hardware; a kubernetes change restarts proxmox, flux and cnpg; a grafana change restarts alertmanager).",
           "type": "boolean"
         },
         "type": {
@@ -293,7 +312,7 @@
       "additionalProperties": false,
       "properties": {
         "enabled": {
-          "description": "false turns the plugin off: its topics are removed, and the web UI drops its rail entry, palette entries, overview tiles and panels and shows a switched-off page at its address. Unset turns it on when it has the settings it needs; a plugin without them is disabled (\"not configured: set plugins.<id>.url\", naming the setting to make) and the web UI hides its pages. true with settings missing or invalid makes it unconfigured, which hides its pages too. This is how prometheus, alertmanager, gatus, victorialogs, proxmox, hardware, kubernetes, flux, grafana, headlamp and launcher behave, and a change to any of their settings applies live: that plugin restarts, and so do the plugins that use or require it (a prometheus change restarts proxmox, hardware and kubernetes; a gatus change restarts hardware and kubernetes; a proxmox change restarts hardware; a kubernetes change restarts proxmox and flux; a grafana change restarts alertmanager).",
+          "description": "false turns the plugin off: its topics are removed, and the web UI drops its rail entry, palette entries, overview tiles and panels and shows a switched-off page at its address. Unset turns it on when it has the settings it needs (rustfs is off unless enabled: true, because nothing in its settings says an object store exists); a plugin without them is disabled (\"not configured: set plugins.<id>.url\", naming the setting to make) and the web UI hides its pages. true with settings missing or invalid makes it unconfigured, which hides its pages too. This is how prometheus, alertmanager, gatus, victorialogs, proxmox, hardware, kubernetes, flux, cnpg, rustfs, grafana, headlamp and launcher behave, and a change to any of their settings applies live: that plugin restarts, and so do the plugins that use or require it (a prometheus change restarts proxmox, hardware, kubernetes, cnpg and rustfs; a gatus change restarts hardware and kubernetes; a proxmox change restarts hardware; a kubernetes change restarts proxmox, flux and cnpg; a grafana change restarts alertmanager).",
           "type": "boolean"
         },
         "hosts": {
@@ -416,7 +435,7 @@
           "type": "string"
         },
         "enabled": {
-          "description": "false turns the plugin off: its topics are removed, and the web UI drops its rail entry, palette entries, overview tiles and panels and shows a switched-off page at its address. Unset turns it on when it has the settings it needs; a plugin without them is disabled (\"not configured: set plugins.<id>.url\", naming the setting to make) and the web UI hides its pages. true with settings missing or invalid makes it unconfigured, which hides its pages too. This is how prometheus, alertmanager, gatus, victorialogs, proxmox, hardware, kubernetes, flux, grafana, headlamp and launcher behave, and a change to any of their settings applies live: that plugin restarts, and so do the plugins that use or require it (a prometheus change restarts proxmox, hardware and kubernetes; a gatus change restarts hardware and kubernetes; a proxmox change restarts hardware; a kubernetes change restarts proxmox and flux; a grafana change restarts alertmanager).",
+          "description": "false turns the plugin off: its topics are removed, and the web UI drops its rail entry, palette entries, overview tiles and panels and shows a switched-off page at its address. Unset turns it on when it has the settings it needs (rustfs is off unless enabled: true, because nothing in its settings says an object store exists); a plugin without them is disabled (\"not configured: set plugins.<id>.url\", naming the setting to make) and the web UI hides its pages. true with settings missing or invalid makes it unconfigured, which hides its pages too. This is how prometheus, alertmanager, gatus, victorialogs, proxmox, hardware, kubernetes, flux, cnpg, rustfs, grafana, headlamp and launcher behave, and a change to any of their settings applies live: that plugin restarts, and so do the plugins that use or require it (a prometheus change restarts proxmox, hardware, kubernetes, cnpg and rustfs; a gatus change restarts hardware and kubernetes; a proxmox change restarts hardware; a kubernetes change restarts proxmox, flux and cnpg; a grafana change restarts alertmanager).",
           "type": "boolean"
         },
         "type": {
@@ -463,7 +482,7 @@
           "description": "Labels dash reads from namespaces. None has a default: while one is empty the feature that depends on it is off."
         },
         "enabled": {
-          "description": "false turns the plugin off: its topics are removed, and the web UI drops its rail entry, palette entries, overview tiles and panels and shows a switched-off page at its address. Unset turns it on when it has the settings it needs; a plugin without them is disabled (\"not configured: set plugins.<id>.url\", naming the setting to make) and the web UI hides its pages. true with settings missing or invalid makes it unconfigured, which hides its pages too. This is how prometheus, alertmanager, gatus, victorialogs, proxmox, hardware, kubernetes, flux, grafana, headlamp and launcher behave, and a change to any of their settings applies live: that plugin restarts, and so do the plugins that use or require it (a prometheus change restarts proxmox, hardware and kubernetes; a gatus change restarts hardware and kubernetes; a proxmox change restarts hardware; a kubernetes change restarts proxmox and flux; a grafana change restarts alertmanager).",
+          "description": "false turns the plugin off: its topics are removed, and the web UI drops its rail entry, palette entries, overview tiles and panels and shows a switched-off page at its address. Unset turns it on when it has the settings it needs (rustfs is off unless enabled: true, because nothing in its settings says an object store exists); a plugin without them is disabled (\"not configured: set plugins.<id>.url\", naming the setting to make) and the web UI hides its pages. true with settings missing or invalid makes it unconfigured, which hides its pages too. This is how prometheus, alertmanager, gatus, victorialogs, proxmox, hardware, kubernetes, flux, cnpg, rustfs, grafana, headlamp and launcher behave, and a change to any of their settings applies live: that plugin restarts, and so do the plugins that use or require it (a prometheus change restarts proxmox, hardware, kubernetes, cnpg and rustfs; a gatus change restarts hardware and kubernetes; a proxmox change restarts hardware; a kubernetes change restarts proxmox, flux and cnpg; a grafana change restarts alertmanager).",
           "type": "boolean"
         },
         "etcd": {
@@ -584,7 +603,7 @@
       "additionalProperties": false,
       "properties": {
         "enabled": {
-          "description": "false turns the plugin off: its topics are removed, and the web UI drops its rail entry, palette entries, overview tiles and panels and shows a switched-off page at its address. Unset turns it on when it has the settings it needs; a plugin without them is disabled (\"not configured: set plugins.<id>.url\", naming the setting to make) and the web UI hides its pages. true with settings missing or invalid makes it unconfigured, which hides its pages too. This is how prometheus, alertmanager, gatus, victorialogs, proxmox, hardware, kubernetes, flux, grafana, headlamp and launcher behave, and a change to any of their settings applies live: that plugin restarts, and so do the plugins that use or require it (a prometheus change restarts proxmox, hardware and kubernetes; a gatus change restarts hardware and kubernetes; a proxmox change restarts hardware; a kubernetes change restarts proxmox and flux; a grafana change restarts alertmanager).",
+          "description": "false turns the plugin off: its topics are removed, and the web UI drops its rail entry, palette entries, overview tiles and panels and shows a switched-off page at its address. Unset turns it on when it has the settings it needs (rustfs is off unless enabled: true, because nothing in its settings says an object store exists); a plugin without them is disabled (\"not configured: set plugins.<id>.url\", naming the setting to make) and the web UI hides its pages. true with settings missing or invalid makes it unconfigured, which hides its pages too. This is how prometheus, alertmanager, gatus, victorialogs, proxmox, hardware, kubernetes, flux, cnpg, rustfs, grafana, headlamp and launcher behave, and a change to any of their settings applies live: that plugin restarts, and so do the plugins that use or require it (a prometheus change restarts proxmox, hardware, kubernetes, cnpg and rustfs; a gatus change restarts hardware and kubernetes; a proxmox change restarts hardware; a kubernetes change restarts proxmox, flux and cnpg; a grafana change restarts alertmanager).",
           "type": "boolean"
         },
         "file": {
@@ -723,6 +742,10 @@
           "$ref": "#/$defs/Alertmanager",
           "description": "Alertmanager: alerts and silences."
         },
+        "cnpg": {
+          "$ref": "#/$defs/CNPG",
+          "description": "CloudNativePG: how dash reads the PostgreSQL clusters and the age of their last backup."
+        },
         "flux": {
           "$ref": "#/$defs/Flux",
           "description": "Flux: how dash reads Flux objects."
@@ -759,6 +782,10 @@
           "$ref": "#/$defs/Proxmox",
           "description": "Proxmox VE: virtual machines, containers and the hypervisor."
         },
+        "rustfs": {
+          "$ref": "#/$defs/RustFS",
+          "description": "RustFS: the buckets and capacity of the object store, read from Prometheus. Off unless enabled is true."
+        },
         "victorialogs": {
           "$ref": "#/$defs/VictoriaLogs",
           "description": "VictoriaLogs: the pod logs the UI shows."
@@ -774,7 +801,7 @@
           "description": "How dash authenticates to the service. Neither basic nor bearerToken sends no credentials."
         },
         "enabled": {
-          "description": "false turns the plugin off: its topics are removed, and the web UI drops its rail entry, palette entries, overview tiles and panels and shows a switched-off page at its address. Unset turns it on when it has the settings it needs; a plugin without them is disabled (\"not configured: set plugins.<id>.url\", naming the setting to make) and the web UI hides its pages. true with settings missing or invalid makes it unconfigured, which hides its pages too. This is how prometheus, alertmanager, gatus, victorialogs, proxmox, hardware, kubernetes, flux, grafana, headlamp and launcher behave, and a change to any of their settings applies live: that plugin restarts, and so do the plugins that use or require it (a prometheus change restarts proxmox, hardware and kubernetes; a gatus change restarts hardware and kubernetes; a proxmox change restarts hardware; a kubernetes change restarts proxmox and flux; a grafana change restarts alertmanager).",
+          "description": "false turns the plugin off: its topics are removed, and the web UI drops its rail entry, palette entries, overview tiles and panels and shows a switched-off page at its address. Unset turns it on when it has the settings it needs (rustfs is off unless enabled: true, because nothing in its settings says an object store exists); a plugin without them is disabled (\"not configured: set plugins.<id>.url\", naming the setting to make) and the web UI hides its pages. true with settings missing or invalid makes it unconfigured, which hides its pages too. This is how prometheus, alertmanager, gatus, victorialogs, proxmox, hardware, kubernetes, flux, cnpg, rustfs, grafana, headlamp and launcher behave, and a change to any of their settings applies live: that plugin restarts, and so do the plugins that use or require it (a prometheus change restarts proxmox, hardware, kubernetes, cnpg and rustfs; a gatus change restarts hardware and kubernetes; a proxmox change restarts hardware; a kubernetes change restarts proxmox, flux and cnpg; a grafana change restarts alertmanager).",
           "type": "boolean"
         },
         "headers": {
@@ -819,7 +846,7 @@
           "description": "Which VMs are critical. No VM is critical by default."
         },
         "enabled": {
-          "description": "false turns the plugin off: its topics are removed, and the web UI drops its rail entry, palette entries, overview tiles and panels and shows a switched-off page at its address. Unset turns it on when it has the settings it needs; a plugin without them is disabled (\"not configured: set plugins.<id>.url\", naming the setting to make) and the web UI hides its pages. true with settings missing or invalid makes it unconfigured, which hides its pages too. This is how prometheus, alertmanager, gatus, victorialogs, proxmox, hardware, kubernetes, flux, grafana, headlamp and launcher behave, and a change to any of their settings applies live: that plugin restarts, and so do the plugins that use or require it (a prometheus change restarts proxmox, hardware and kubernetes; a gatus change restarts hardware and kubernetes; a proxmox change restarts hardware; a kubernetes change restarts proxmox and flux; a grafana change restarts alertmanager).",
+          "description": "false turns the plugin off: its topics are removed, and the web UI drops its rail entry, palette entries, overview tiles and panels and shows a switched-off page at its address. Unset turns it on when it has the settings it needs (rustfs is off unless enabled: true, because nothing in its settings says an object store exists); a plugin without them is disabled (\"not configured: set plugins.<id>.url\", naming the setting to make) and the web UI hides its pages. true with settings missing or invalid makes it unconfigured, which hides its pages too. This is how prometheus, alertmanager, gatus, victorialogs, proxmox, hardware, kubernetes, flux, cnpg, rustfs, grafana, headlamp and launcher behave, and a change to any of their settings applies live: that plugin restarts, and so do the plugins that use or require it (a prometheus change restarts proxmox, hardware, kubernetes, cnpg and rustfs; a gatus change restarts hardware and kubernetes; a proxmox change restarts hardware; a kubernetes change restarts proxmox, flux and cnpg; a grafana change restarts alertmanager).",
           "type": "boolean"
         },
         "node": {
@@ -881,6 +908,50 @@
             "api",
             "prometheus"
           ],
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "RustFS": {
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "description": "false turns the plugin off: its topics are removed, and the web UI drops its rail entry, palette entries, overview tiles and panels and shows a switched-off page at its address. Unset turns it on when it has the settings it needs (rustfs is off unless enabled: true, because nothing in its settings says an object store exists); a plugin without them is disabled (\"not configured: set plugins.<id>.url\", naming the setting to make) and the web UI hides its pages. true with settings missing or invalid makes it unconfigured, which hides its pages too. This is how prometheus, alertmanager, gatus, victorialogs, proxmox, hardware, kubernetes, flux, cnpg, rustfs, grafana, headlamp and launcher behave, and a change to any of their settings applies live: that plugin restarts, and so do the plugins that use or require it (a prometheus change restarts proxmox, hardware, kubernetes, cnpg and rustfs; a gatus change restarts hardware and kubernetes; a proxmox change restarts hardware; a kubernetes change restarts proxmox, flux and cnpg; a grafana change restarts alertmanager).",
+          "type": "boolean"
+        },
+        "metrics": {
+          "$ref": "#/$defs/RustFSMetrics",
+          "description": "The names of the Prometheus series dash reads. Each must be a valid metric name."
+        },
+        "type": {
+          "description": "The plugin type. dash runs one instance per type, so this is empty or the section name.",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "RustFSMetrics": {
+      "additionalProperties": false,
+      "properties": {
+        "bucketQuota": {
+          "default": "rustfs_bucket_usage_quota_bytes",
+          "description": "Series of a bucket's quota in bytes, labelled bucket. A bucket without one has no quota. The default is rustfs_bucket_usage_quota_bytes.",
+          "type": "string"
+        },
+        "bucketUsed": {
+          "default": "rustfs_bucket_usage_usage_bytes",
+          "description": "Series of a bucket's used bytes, labelled bucket. The default is rustfs_bucket_usage_usage_bytes.",
+          "type": "string"
+        },
+        "capacityUsable": {
+          "default": "rustfs_cluster_capacity_usable_total_bytes",
+          "description": "Series of the cluster's usable bytes. The default is rustfs_cluster_capacity_usable_total_bytes.",
+          "type": "string"
+        },
+        "capacityUsed": {
+          "default": "rustfs_cluster_capacity_used_bytes",
+          "description": "Series of the cluster's used bytes. The default is rustfs_cluster_capacity_used_bytes.",
           "type": "string"
         }
       },
@@ -1038,7 +1109,7 @@
           "type": "array"
         },
         "enabled": {
-          "description": "false turns the plugin off: its topics are removed, and the web UI drops its rail entry, palette entries, overview tiles and panels and shows a switched-off page at its address. Unset turns it on when it has the settings it needs; a plugin without them is disabled (\"not configured: set plugins.<id>.url\", naming the setting to make) and the web UI hides its pages. true with settings missing or invalid makes it unconfigured, which hides its pages too. This is how prometheus, alertmanager, gatus, victorialogs, proxmox, hardware, kubernetes, flux, grafana, headlamp and launcher behave, and a change to any of their settings applies live: that plugin restarts, and so do the plugins that use or require it (a prometheus change restarts proxmox, hardware and kubernetes; a gatus change restarts hardware and kubernetes; a proxmox change restarts hardware; a kubernetes change restarts proxmox and flux; a grafana change restarts alertmanager).",
+          "description": "false turns the plugin off: its topics are removed, and the web UI drops its rail entry, palette entries, overview tiles and panels and shows a switched-off page at its address. Unset turns it on when it has the settings it needs (rustfs is off unless enabled: true, because nothing in its settings says an object store exists); a plugin without them is disabled (\"not configured: set plugins.<id>.url\", naming the setting to make) and the web UI hides its pages. true with settings missing or invalid makes it unconfigured, which hides its pages too. This is how prometheus, alertmanager, gatus, victorialogs, proxmox, hardware, kubernetes, flux, cnpg, rustfs, grafana, headlamp and launcher behave, and a change to any of their settings applies live: that plugin restarts, and so do the plugins that use or require it (a prometheus change restarts proxmox, hardware, kubernetes, cnpg and rustfs; a gatus change restarts hardware and kubernetes; a proxmox change restarts hardware; a kubernetes change restarts proxmox, flux and cnpg; a grafana change restarts alertmanager).",
           "type": "boolean"
         },
         "fields": {

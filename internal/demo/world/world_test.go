@@ -38,6 +38,8 @@ func TestBuildersAreDeterministic(t *testing.T) {
 		"vms":      func(w *World) any { return w.VMs() },
 		"cluster":  func(w *World) any { return w.Cluster() },
 		"storage":  func(w *World) any { return w.Storage() },
+		"cnpg":     func(w *World) any { return w.CNPG() },
+		"rustfs":   func(w *World) any { return w.RustFS() },
 		"apps":     func(w *World) any { return w.Apps() },
 		"flux":     func(w *World) any { return w.Flux() },
 		"overview": func(w *World) any { return w.Overview() },

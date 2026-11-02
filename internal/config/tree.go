@@ -80,6 +80,8 @@ type PluginsConfig struct {
 	Launcher     pluginconf.Launcher     `json:"launcher" doc:"The launcher: links to your infrastructure."`
 	Kubernetes   pluginconf.Kubernetes   `json:"kubernetes" doc:"Kubernetes: how dash reaches and reads the cluster."`
 	Flux         pluginconf.Flux         `json:"flux" doc:"Flux: how dash reads Flux objects."`
+	CNPG         pluginconf.CNPG         `json:"cnpg" doc:"CloudNativePG: how dash reads the PostgreSQL clusters and the age of their last backup."`
+	RustFS       pluginconf.RustFS       `json:"rustfs" doc:"RustFS: the buckets and capacity of the object store, read from Prometheus. Off unless enabled is true."`
 }
 
 // defaults is the built-in layer. Nothing site-specific is in it: an empty upstream URL or
@@ -112,6 +114,8 @@ func defaults(dev, demo bool) Tree {
 			Headlamp:     pluginconf.DefaultHeadlamp(),
 			Kubernetes:   pluginconf.DefaultKubernetes(),
 			Flux:         pluginconf.DefaultFlux(),
+			CNPG:         pluginconf.DefaultCNPG(),
+			RustFS:       pluginconf.DefaultRustFS(),
 		},
 	}
 	if dev || demo {

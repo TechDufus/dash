@@ -2,10 +2,10 @@ import { screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ReactElement } from "react";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import type { BackupJob, CNPGCluster, PVC, StorageData } from "@/api/types";
+import type { BackupJob, PVC, StorageData } from "@/api/types";
 import { connectStream, type TestStream } from "@/plugins/test-util";
 import { pluginInfo, renderApp, stubFetch } from "@/test/harness";
-import { BackupEtcdPanel, CnpgPanel, ObjectStoragePanel, PvcPanel } from "./storage-panels";
+import { BackupEtcdPanel, PvcPanel } from "./storage-panels";
 
 const HOUR = 3600;
 
@@ -27,9 +27,6 @@ const pvc = (name: string, over: Partial<PVC> = {}): PVC =>
 const storage = (over: Partial<StorageData> = {}): StorageData =>
   ({
     pvcs: [],
-    buckets: [],
-    rustfs: { usedBytes: 1, usableBytes: 2 },
-    cnpg: [],
     backupJobs: [],
     etcd: { dbBytes: 1, quotaBytes: 2 },
     ...over,
@@ -67,20 +64,11 @@ describe("the backup jobs", () => {
     return row;
   };
 
-  // [age in seconds, badge]: the thresholds are 36 h and 72 h, both exclusive.
-  const cases: [string, number, string][] = [
-    ["a fresh run", 1 * HOUR, "Fresh"],
-    ["exactly 36 h", 36 * HOUR, "Fresh"],
-    ["one second past 36 h", 36 * HOUR + 1, "Stale >36 h"],
-    ["exactly 72 h", 72 * HOUR, "Stale >36 h"],
-    ["one second past 72 h", 72 * HOUR + 1, "Stale >72 h"],
-  ];
-  for (const [what, age, badge] of cases) {
-    it(`says ${badge} for ${what}`, () => {
-      show(<BackupEtcdPanel />, storage({ backupJobs: [job("nightly", age)] }));
-      expect(within(badgeOf("nightly")).getByText(badge)).toBeInTheDocument();
-    });
-  }
+  // The 36 h and 72 h boundaries are pinned once, in components/backup-age.test.tsx.
+  it("draws each job's age and freshness badge", () => {
+    show(<BackupEtcdPanel />, storage({ backupJobs: [job("nightly", 80 * HOUR)] }));
+    expect(within(badgeOf("nightly")).getByText("Stale >72 h")).toBeInTheDocument();
+  });
 
   it("says no success was recorded for a job without an age", () => {
     show(<BackupEtcdPanel />, storage({ backupJobs: [job("never")] }));
@@ -160,54 +148,5 @@ describe("the persistent volumes", () => {
     };
     expect(within(row("growing")).getByText(/1\.0 d/)).toBeInTheDocument();
     expect(within(row("flat")).getByText("0 B/d")).toBeInTheDocument();
-  });
-});
-
-describe("the object storage and Postgres panels", () => {
-  it("draws each bucket and the RustFS drive", () => {
-    show(
-      <ObjectStoragePanel />,
-      storage({
-        buckets: [
-          {
-            ref: "rustfs:Bucket/media",
-            name: "media",
-            usedBytes: 5,
-            quotaBytes: 10,
-            health: "ok",
-          } as never,
-        ],
-      }),
-    );
-    expect(screen.getByText("media")).toBeInTheDocument();
-    expect(screen.getByText("RustFS drive (usable)")).toBeInTheDocument();
-  });
-
-  it("draws each CNPG cluster with its ready instances", () => {
-    const cluster = {
-      ref: "cnpg:Cluster/db/main",
-      namespace: "db",
-      name: "main",
-      instances: 3,
-      readyInstances: 2,
-      phase: "Cluster in healthy state",
-      lastBackupAgeSeconds: HOUR,
-      links: [],
-    } as CNPGCluster;
-    show(<CnpgPanel />, storage({ cnpg: [cluster] }));
-    expect(screen.getByText("2/3")).toBeInTheDocument();
-    expect(screen.getByText("main")).toBeInTheDocument();
-  });
-
-  it("draw a skeleton each, not an empty list, before the topic arrives", () => {
-    show(
-      <>
-        <ObjectStoragePanel />
-        <CnpgPanel />
-      </>,
-    );
-    expect(document.querySelectorAll("[aria-busy=true]")).toHaveLength(2);
-    expect(screen.queryByText("No buckets.")).toBeNull();
-    expect(screen.queryByText("No CNPG clusters.")).toBeNull();
   });
 });

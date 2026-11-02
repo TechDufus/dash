@@ -5,12 +5,13 @@
       "id": "bucket:backups",
       "severity": "crit",
       "source": "storage",
-      "plugin": "kubernetes",
+      "plugin": "rustfs",
       "title": "Bucket backups is 95% of its quota",
       "detail": "",
       "since": "2026-10-30T12:00:00Z",
       "route": "/storage",
-      "links": []
+      "links": [],
+      "ref": "rustfs:Bucket/backups"
     },
     {
       "id": "cert:media/tls",
