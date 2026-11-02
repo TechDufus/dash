@@ -25,7 +25,6 @@ import (
 	"github.com/TechDufus/dash/internal/plugin/plugintest"
 	"github.com/TechDufus/dash/internal/pluginconf"
 	"github.com/TechDufus/dash/internal/plugins/gatus"
-	hwmodel "github.com/TechDufus/dash/internal/plugins/hardware/model"
 	"github.com/TechDufus/dash/internal/secret"
 	"github.com/TechDufus/dash/internal/svc"
 	"github.com/TechDufus/dash/internal/upstream"
@@ -119,7 +118,7 @@ func routeCluster() *kube.Cluster {
 		dynfake.NewSimpleDynamicClientWithCustomListKinds(runtime.NewScheme(), listKinds, route))
 }
 
-// manualManager is a Manager over routeCluster with its informers synced and its VM poller
+// manualManager is a Manager over routeCluster with its informers synced and its storage poller
 // "done", that the test rebuilds by hand: nothing runs on a ticker, so a round is exactly what
 // the test calls.
 func manualManager(t *testing.T, services func(plugin.ID) (any, bool)) (*Manager, *hub.Hub) {
@@ -135,9 +134,7 @@ func manualManager(t *testing.T, services func(plugin.ID) (any, bool)) (*Manager
 	m.d.Cluster.Start(ctx)
 	eventually(t, "the informers to sync", m.d.Cluster.HasSynced)
 	m.mu.Lock()
-	for _, p := range []string{"host", "vms", "storage"} {
-		m.done[p] = true
-	}
+	m.done["storage"] = true
 	m.mu.Unlock()
 	return m, h
 }
@@ -168,22 +165,6 @@ func appDot(t *testing.T, h *hub.Hub) (dot *bool, srcs []model.SourceStatus, pub
 	return d.Apps[0].Healthy, srcs, true
 }
 
-// rpiUp is the rpi-control machine's state, and whether vms is published at all.
-func rpiUp(t *testing.T, h *hub.Hub) (up bool, srcs []model.SourceStatus, published bool) {
-	t.Helper()
-	d, srcs, ok := decodeTopic[hwmodel.MachinesData](t, h, model.TopicHardwareMachines)
-	if !ok {
-		return false, nil, false
-	}
-	for _, m := range d.Machines {
-		if m.Name == "rpi-control" {
-			return m.Up, srcs, true
-		}
-	}
-	t.Fatalf("machines = %+v, want rpi-control", d.Machines)
-	return false, nil, false
-}
-
 func wantGatusChip(t *testing.T, topic string, srcs []model.SourceStatus, ok bool, errText string) {
 	t.Helper()
 	got, has := hasSource(srcs, "gatus")
@@ -194,16 +175,17 @@ func wantGatusChip(t *testing.T, topic string, srcs []model.SourceStatus, ok boo
 
 func dotIs(dot *bool, want bool) bool { return dot != nil && *dot == want }
 
-// ---- S-2: a gatus poll updates apps and vms with nothing else dirty ----
+// ---- S-2: a gatus poll updates apps with nothing else dirty ----
 
-// The status poller used to mark apps and vms itself. The gatus plugin cannot, so a poll that
-// changes a check, with no cluster change and no contributor to make the round do anything,
-// must still reach the apps' health dot and the rpi-control machine through the Manager's own
-// tick (review S-2, M1c: the Revision check runs before rebuild's early return).
-func TestAGatusPollUpdatesAppsAndVMsThroughTheManager(t *testing.T) {
+// The status poller used to mark apps itself. The gatus plugin cannot, so a poll that changes a
+// check, with no cluster change and no contributor to make the round do anything, must still
+// reach the apps' health dot through the Manager's own tick (review S-2, M1c: the Revision check
+// runs before rebuild's early return). The machines reached by a gatus check are the hardware
+// plugin's, which follows the same service (internal/plugins/hardware).
+func TestAGatusPollUpdatesAppsThroughTheManager(t *testing.T) {
 	var g gatusHolder
 	fe := &fakeEndpoints{}
-	fe.set(1, map[string]model.Health{grafanaHost: model.HealthOK}, map[string]bool{"rpi-control ssh": true}, srcOK)
+	fe.set(1, map[string]model.Health{grafanaHost: model.HealthOK}, nil, srcOK)
 	g.cur.Store(fe)
 	m, h := manualManager(t, g.services)
 	m.markAll()
@@ -214,11 +196,6 @@ func TestAGatusPollUpdatesAppsAndVMsThroughTheManager(t *testing.T) {
 		t.Fatalf("apps = published %v dot %v, want a healthy dot", ok, dot)
 	}
 	wantGatusChip(t, "apps", srcs, true, "")
-	up, vsrcs, ok := rpiUp(t, h)
-	if !ok || !up {
-		t.Fatalf("vms = published %v rpi-control up %v, want up", ok, up)
-	}
-	wantGatusChip(t, "vms", vsrcs, true, "")
 
 	// Nothing is dirty and nothing contributes: this is the round that returns early.
 	m.dmu.Lock()
@@ -229,26 +206,20 @@ func TestAGatusPollUpdatesAppsAndVMsThroughTheManager(t *testing.T) {
 	}
 
 	// A poll finishes: grafana fails (critical groups would say crit, any non-ok is a red dot),
-	// the Pi's check fails, and the source status is unchanged.
-	fe.set(2, map[string]model.Health{grafanaHost: model.HealthWarn}, map[string]bool{"rpi-control ssh": false}, srcOK)
+	// and the source status is unchanged.
+	fe.set(2, map[string]model.Health{grafanaHost: model.HealthWarn}, nil, srcOK)
 	m.rebuild()
 	if dot, _, _ := appDot(t, h); !dotIs(dot, false) {
 		t.Errorf("the apps dot after the poll = %v, want unhealthy", dot)
 	}
-	if up, _, _ := rpiUp(t, h); up {
-		t.Error("rpi-control is still up after its check failed")
-	}
 
 	// A critical group's failure is the same red dot; a recovery turns it green again.
-	fe.set(3, map[string]model.Health{grafanaHost: model.HealthCrit}, map[string]bool{"rpi-control ssh": true}, srcOK)
+	fe.set(3, map[string]model.Health{grafanaHost: model.HealthCrit}, nil, srcOK)
 	m.rebuild()
 	if dot, _, _ := appDot(t, h); !dotIs(dot, false) {
 		t.Errorf("a crit check's dot = %v, want unhealthy", dot)
 	}
-	if up, _, _ := rpiUp(t, h); !up {
-		t.Error("rpi-control is down after its check recovered")
-	}
-	fe.set(4, map[string]model.Health{grafanaHost: model.HealthOK}, map[string]bool{"rpi-control ssh": true}, srcOK)
+	fe.set(4, map[string]model.Health{grafanaHost: model.HealthOK}, nil, srcOK)
 	m.rebuild()
 	if dot, _, _ := appDot(t, h); !dotIs(dot, true) {
 		t.Errorf("the apps dot after recovery = %v, want healthy", dot)
@@ -264,9 +235,8 @@ func TestAGatusPollUpdatesAppsAndVMsThroughTheManager(t *testing.T) {
 	}
 }
 
-// A check that is not in Gatus gives an app no dot at all (it is not "unhealthy"), and a Pi whose
-// check is unknown is down, as before the move.
-func TestAnUnknownHostHasNoDotAndAnUnknownPiIsDown(t *testing.T) {
+// A check that is not in Gatus gives an app no dot at all (it is not "unhealthy").
+func TestAnUnknownHostHasNoDot(t *testing.T) {
 	var g gatusHolder
 	fe := &fakeEndpoints{}
 	fe.set(1, map[string]model.Health{"other.example.com": model.HealthOK}, map[string]bool{}, srcOK)
@@ -277,16 +247,13 @@ func TestAnUnknownHostHasNoDotAndAnUnknownPiIsDown(t *testing.T) {
 	if dot, _, ok := appDot(t, h); !ok || dot != nil {
 		t.Errorf("dot = %v (published %v), want none for a host no check probes", dot, ok)
 	}
-	if up, _, ok := rpiUp(t, h); !ok || up {
-		t.Errorf("rpi-control up=%v published=%v, want published and down", up, ok)
-	}
 }
 
 // ---- M1a: a failed first poll opens the apps gate ----
 
 // Before the first poll has finished the apps wait (the dots would be a lie); a first poll that
 // fails counts as finished, so apps publish with a failing gatus source instead of waiting for
-// a Gatus that is down (the old pollDone("status") opened after one attempt). vms never waited.
+// a Gatus that is down (the old pollDone("status") opened after one attempt).
 func TestAFailedFirstGatusPollOpensTheAppsGate(t *testing.T) {
 	var g gatusHolder
 	fe := &fakeEndpoints{}
@@ -297,11 +264,6 @@ func TestAFailedFirstGatusPollOpensTheAppsGate(t *testing.T) {
 	m.rebuild()
 	if _, _, ok := appDot(t, h); ok {
 		t.Fatal("apps are published before gatus has polled")
-	}
-	if up, srcs, ok := rpiUp(t, h); !ok || up {
-		t.Fatalf("vms published=%v up=%v: they do not wait for gatus, and an unpolled Pi is down", ok, up)
-	} else {
-		wantGatusChip(t, "vms", srcs, false, "not polled yet")
 	}
 
 	fe.set(1, nil, nil, srcDown("unreachable")) // the first poll failed
@@ -322,11 +284,11 @@ func TestAFailedFirstGatusPollOpensTheAppsGate(t *testing.T) {
 // same Revision the Manager rebuilds, because it compares the service as well (the Revision is
 // process-global in the plugin, so equal values do not happen there; the Manager does not
 // rely on it).
-func TestANewGatusServiceWithAnEqualRevisionRebuildsAppsAndVMs(t *testing.T) {
+func TestANewGatusServiceWithAnEqualRevisionRebuildsApps(t *testing.T) {
 	var g gatusHolder
 	before, after := &fakeEndpoints{}, &fakeEndpoints{}
-	before.set(5, map[string]model.Health{grafanaHost: model.HealthOK}, map[string]bool{"rpi-control ssh": true}, srcOK)
-	after.set(5, map[string]model.Health{grafanaHost: model.HealthCrit}, map[string]bool{"rpi-control ssh": false}, srcOK)
+	before.set(5, map[string]model.Health{grafanaHost: model.HealthOK}, nil, srcOK)
+	after.set(5, map[string]model.Health{grafanaHost: model.HealthCrit}, nil, srcOK)
 	g.cur.Store(before)
 	m, h := manualManager(t, g.services)
 	m.markAll()
@@ -339,9 +301,6 @@ func TestANewGatusServiceWithAnEqualRevisionRebuildsAppsAndVMs(t *testing.T) {
 	m.rebuild()
 	if dot, _, _ := appDot(t, h); !dotIs(dot, false) {
 		t.Errorf("dot after the service was replaced = %v, want unhealthy", dot)
-	}
-	if up, _, _ := rpiUp(t, h); up {
-		t.Error("rpi-control is still up after the service was replaced")
 	}
 
 	// The plugin going away is a change too: the dots go, and the chip says not configured.
@@ -356,10 +315,10 @@ func TestANewGatusServiceWithAnEqualRevisionRebuildsAppsAndVMs(t *testing.T) {
 
 // ---- gatus not running ----
 
-// Without a running gatus plugin (disabled, unconfigured, failed to start) apps and vms still
-// publish, with the gatus chip reading "not configured"; when the plugin starts, the dots and
-// the chip follow without anything else changing.
-func TestAppsAndVMsPublishWithGatusNotRunning(t *testing.T) {
+// Without a running gatus plugin (disabled, unconfigured, failed to start) apps still publish,
+// with the gatus chip reading "not configured"; when the plugin starts, the dots and the chip
+// follow without anything else changing.
+func TestAppsPublishWithGatusNotRunning(t *testing.T) {
 	var g gatusHolder
 	m, h := manualManager(t, g.services)
 	m.markAll()
@@ -370,17 +329,12 @@ func TestAppsAndVMsPublishWithGatusNotRunning(t *testing.T) {
 		t.Fatalf("apps published=%v dot=%v, want published with no dot", ok, dot)
 	}
 	wantGatusChip(t, "apps", srcs, false, "not_configured")
-	up, vsrcs, ok := rpiUp(t, h)
-	if !ok || up {
-		t.Fatalf("vms published=%v up=%v, want published with rpi-control down", ok, up)
-	}
-	wantGatusChip(t, "vms", vsrcs, false, "not_configured")
-	if len(srcs) != 2 || len(vsrcs) != 2 {
-		t.Errorf("apps sources %+v, vms sources %+v: one chip each for gatus, none twice", srcs, vsrcs)
+	if len(srcs) != 2 {
+		t.Errorf("apps sources %+v: one chip for gatus, none twice", srcs)
 	}
 
 	fe := &fakeEndpoints{}
-	fe.set(1, map[string]model.Health{grafanaHost: model.HealthOK}, map[string]bool{"rpi-control ssh": true}, srcOK)
+	fe.set(1, map[string]model.Health{grafanaHost: model.HealthOK}, nil, srcOK)
 	g.cur.Store(fe)
 	m.rebuild()
 	dot, srcs, _ = appDot(t, h)
@@ -504,14 +458,14 @@ func (r *gatusRig) overview(t *testing.T) (model.OverviewData, []model.SourceSta
 }
 
 // What the viewer reads of the real gatus plugin: its topic under its own name with a ref on every
-// endpoint, the overview item with the same ref (must-hold b), the apps' dots, the Pi on the
-// VMs page and the gatus chip on both. Then a Reload, which builds a new service: the Manager
-// follows it without any other change, and the Revision never goes back.
-func TestTheGatusPluginDrivesAppsVMsAndTheOverview(t *testing.T) {
+// endpoint, the overview item with the same ref (must-hold b), the apps' dots and the gatus chip
+// on both. Then a Reload, which builds a new service: the Manager follows it without any other
+// change, and the Revision never goes back.
+func TestTheGatusPluginDrivesAppsAndTheOverview(t *testing.T) {
 	up := newGatusUpstream(t,
 		gatusCheck{"apps", "Grafana", grafanaHost, false},
 		gatusCheck{"infrastructure", "UniFi", "unifi.example.com", false},
-		gatusCheck{"apps", "rpi-control SSH", "rpi.example.com", true})
+		gatusCheck{"apps", "Backup SSH", "backup.example.com", true})
 	r := newGatusRig(t, gatusRow(up.URL, "infrastructure"))
 
 	eventually(t, "apps, vms and the overview from the gatus data", func() bool {
@@ -529,11 +483,6 @@ func TestTheGatusPluginDrivesAppsVMsAndTheOverview(t *testing.T) {
 		t.Errorf("the dot of the failing grafana check = %v, want unhealthy", dot)
 	}
 	wantGatusChip(t, "apps", srcs, true, "")
-	if pi, vsrcs, ok := rpiUp(t, r.h); !ok || !pi {
-		t.Errorf("rpi-control published=%v up=%v, want up", ok, pi)
-	} else {
-		wantGatusChip(t, "vms", vsrcs, true, "")
-	}
 
 	// The topic, as a viewer's stream carries it.
 	status, _, ok := decodeTopic[model.StatusData](t, r.h, model.TopicStatus)
@@ -568,19 +517,18 @@ func TestTheGatusPluginDrivesAppsVMsAndTheOverview(t *testing.T) {
 		t.Errorf("overview sources %+v lack the gatus chip", osrcs)
 	}
 
-	// Reload: a new instance, a new service. Gatus now says grafana is fine and the Pi is down;
-	// the old service would not poll again for 30 s, so only the new one can show it.
+	// Reload: a new instance, a new service. Gatus now says grafana is fine; the old service would
+	// not poll again for 30 s, so only the new one can show it.
 	oldSvc, oldRev := r.endpoints(t), r.endpoints(t).Revision()
 	up.answer(
 		gatusCheck{"apps", "Grafana", grafanaHost, true},
 		gatusCheck{"infrastructure", "UniFi", "unifi.example.com", false},
-		gatusCheck{"apps", "rpi-control SSH", "rpi.example.com", false})
+		gatusCheck{"apps", "Backup SSH", "backup.example.com", true})
 	r.set.Set(gatusRow(up.URL, "apps")) // a changed section restarts the instance
 	r.sup.Reload()
 	eventually(t, "the Manager to follow the new service", func() bool {
 		dot, _, ok := appDotQuiet(r.h)
-		pi, _, vok := rpiUpQuiet(r.h)
-		return ok && vok && dot != nil && *dot && !pi
+		return ok && dot != nil && *dot
 	})
 	if now := r.endpoints(t); now == oldSvc || now.Revision() <= oldRev {
 		t.Errorf("after the reload: same service %v, revision %d after %d", now == oldSvc, now.Revision(), oldRev)
@@ -607,15 +555,9 @@ func TestGatusDownAtStartStillPublishesApps(t *testing.T) {
 	if dot, _, _ := appDot(t, r.h); dot != nil {
 		t.Errorf("dot = %v, want none while gatus is unreachable", *dot)
 	}
-	if _, srcs, ok := rpiUpQuiet(r.h); !ok {
-		t.Error("vms are not published")
-	} else if g, has := hasSource(srcs, "gatus"); !has || g.OK || g.Error != upstream.CategoryUnreachable {
-		t.Errorf("vms gatus chip = %+v", g)
-	}
 }
 
-// appDotQuiet and rpiUpQuiet are appDot and rpiUp for a polling loop: no test failure, just
-// "not yet".
+// appDotQuiet is appDot for a polling loop: no test failure, just "not yet".
 func appDotQuiet(h *hub.Hub) (dot *bool, srcs []model.SourceStatus, ok bool) {
 	env, found := latest(h, model.TopicApps)
 	if !found {
@@ -626,21 +568,4 @@ func appDotQuiet(h *hub.Hub) (dot *bool, srcs []model.SourceStatus, ok bool) {
 		return nil, nil, false
 	}
 	return d.Apps[0].Healthy, env.Sources, true
-}
-
-func rpiUpQuiet(h *hub.Hub) (up bool, srcs []model.SourceStatus, ok bool) {
-	env, found := latest(h, model.TopicHardwareMachines)
-	if !found {
-		return false, nil, false
-	}
-	var d hwmodel.MachinesData
-	if json.Unmarshal(env.Data, &d) != nil {
-		return false, nil, false
-	}
-	for _, m := range d.Machines {
-		if m.Name == "rpi-control" {
-			return m.Up, env.Sources, true
-		}
-	}
-	return false, nil, false
 }

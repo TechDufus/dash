@@ -8,7 +8,6 @@ import {
   Loader,
   Lock,
   MonitorCog,
-  Server,
   TriangleAlert,
 } from "lucide-react";
 import { useMemo } from "react";
@@ -32,7 +31,6 @@ import {
 import { formatBytes, formatDuration, formatNumber, formatRelative } from "@/lib/format";
 import { useNow } from "@/lib/hooks";
 import { cn } from "@/lib/utils";
-import { useTopicAvailable } from "@/plugins/state";
 import { VMSheet } from "./vm-sheet";
 
 const SKELETON_KEYS = ["a", "b", "c", "d", "e", "f"];
@@ -181,42 +179,6 @@ function Templates({ templates }: { templates: VM[] }) {
   );
 }
 
-function Machines() {
-  const env = useTopic("hardware.machines");
-  const machines = env?.data.machines ?? [];
-  const loaded = !!env;
-  return (
-    <Panel>
-      <PanelHeader title="Other machines" icon={<Server />} />
-      {!loaded ? (
-        <div className="grid gap-3 px-4 pb-4 sm:grid-cols-2" aria-busy="true">
-          <Skeleton className="h-14 w-full" />
-          <Skeleton className="h-14 w-full" />
-        </div>
-      ) : machines.length === 0 ? (
-        <Empty className="pt-2">No other machines are tracked.</Empty>
-      ) : (
-        <ul className="grid gap-3 px-4 pb-4 sm:grid-cols-2 xl:grid-cols-4">
-          {machines.map((m) => (
-            <li
-              key={m.name}
-              className="flex items-center justify-between gap-3 rounded-xl border border-line bg-panel px-3 py-2.5"
-            >
-              <div className="min-w-0">
-                <div className="truncate text-sm font-medium text-fg">{m.name}</div>
-                <div className="num truncate text-xs text-muted" title={m.source}>
-                  {m.source}
-                </div>
-              </div>
-              <HealthBadge health={m.up ? "ok" : "crit"} label={m.up ? "Up" : "Down"} />
-            </li>
-          ))}
-        </ul>
-      )}
-    </Panel>
-  );
-}
-
 type TaskState = "running" | "ok" | "warn" | "failed";
 
 function taskState(t: PVETask): TaskState {
@@ -326,7 +288,6 @@ function Activity({ tasks, loaded }: { tasks: PVETask[]; loaded: boolean }) {
 export function VMsPage({ vmid }: { vmid?: string }) {
   const [, navigate] = useLocation();
   const env = useTopic("proxmox.vms");
-  const machinesOn = useTopicAvailable("hardware.machines") !== false;
   const data = env?.data;
   const { vms, templates } = useMemo(() => {
     const sorted = [...(data?.vms ?? [])].sort((a, b) => a.vmid - b.vmid);
@@ -370,12 +331,6 @@ export function VMsPage({ vmid }: { vmid?: string }) {
       )}
 
       {data && <Templates templates={templates} />}
-
-      {machinesOn && (
-        <Reveal index={2}>
-          <Machines />
-        </Reveal>
-      )}
 
       <Reveal index={3}>
         <Activity tasks={data?.tasks ?? []} loaded={!!data} />

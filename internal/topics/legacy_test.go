@@ -84,13 +84,11 @@ func latest(h *hub.Hub, topic model.Topic) (model.Envelope, bool) {
 }
 
 var legacyTopics = []model.Topic{
-	model.TopicHost, model.TopicHardwareMachines, model.TopicCluster, model.TopicFlux, model.TopicStorage,
-	model.TopicApps,
+	model.TopicCluster, model.TopicFlux, model.TopicStorage, model.TopicApps,
 }
 
 // The Manager publishes through the Host of each topic's owner, and the SSE names stay the ones
-// the SPA reads: "host", "cluster", …, and "hardware.machines", which has no legacy name. The
-// payloads are what the Manager builds.
+// the SPA reads: "cluster", …. The payloads are what the Manager builds.
 func TestManagerPublishesLegacyTopicsThroughHosts(t *testing.T) {
 	h := hub.New()
 	m := testManager(config.Defaults(), plugintest.AllRunning(h, LegacyManifests()...))
@@ -113,14 +111,14 @@ func TestManagerPublishesLegacyTopicsThroughHosts(t *testing.T) {
 		got = append(got, ev.Topic)
 	}
 	slices.Sort(got)
-	want := []string{"apps", "cluster", "core.overview", "flux", "hardware.machines", "host", "storage"}
+	want := []string{"apps", "cluster", "core.overview", "flux", "storage"}
 	if !slices.Equal(got, want) {
 		t.Fatalf("published %v, want exactly %v", got, want)
 	}
 
 	builds := map[model.Topic]any{
-		model.TopicHost: m.buildHost(), model.TopicHardwareMachines: m.buildMachines(), model.TopicCluster: m.buildCluster(m.now()),
-		model.TopicFlux: m.buildFlux(), model.TopicStorage: m.buildStorage(m.now()),
+		model.TopicCluster: m.buildCluster(m.now()),
+		model.TopicFlux:    m.buildFlux(), model.TopicStorage: m.buildStorage(m.now()),
 		model.TopicApps: m.buildApps(),
 	}
 	for topic, data := range builds {
@@ -135,84 +133,6 @@ func TestManagerPublishesLegacyTopicsThroughHosts(t *testing.T) {
 		if env.Topic != string(topic) {
 			t.Errorf("%s envelope is named %q", topic, env.Topic)
 		}
-	}
-}
-
-// A plugin that does not run publishes nothing, the overview does not wait for it, and a poller
-// whose every reader is off makes no request. The recording host proves the Manager never even
-// calls the disabled owner's Host (a Host that drops the call would hide a missing skip).
-func TestDisabledOwnerPublishesNothingAndItsPollerIsSkipped(t *testing.T) {
-	rec := &promRecorder{}
-	prom := httptest.NewServer(rec)
-	defer prom.Close()
-	machineUp := queries.MachineUp("mac-mini")
-
-	run := func(off ...plugin.ID) (*hub.Hub, *Manager, *plugintest.Partial) {
-		h := hub.New()
-		hp := plugintest.Without(plugintest.AllRunning(h, LegacyManifests()...), off...)
-		m := New(Deps{
-			Cfg: config.Defaults(), Cluster: fakeCluster(), Hosts: hp, Services: promServices(upstream.NewProm(prom.URL, nil)),
-		})
-		ctx, cancel := context.WithCancel(context.Background())
-		t.Cleanup(cancel)
-		m.Run(ctx)
-		return h, m, hp
-	}
-
-	// Hardware on: its machines poller runs and its topic is published.
-	h, _, hp := run()
-	eventually(t, "the machines topic", func() bool { _, ok := h.Latest("", model.TopicHardwareMachines); return ok })
-	if rec.count(machineUp) == 0 {
-		t.Fatal("hardware is running but its machines were not polled")
-	}
-	if hp.Publishes("hardware") == 0 {
-		t.Fatal("the recording host saw no publish for a running hardware")
-	}
-
-	// Off: not polled, nothing published, and the overview still comes.
-	rec.mu.Lock()
-	rec.n = map[string]int{}
-	rec.mu.Unlock()
-	h, m, hp := run("hardware")
-	eventually(t, "the overview", func() bool { _, ok := h.Latest("", model.TopicOverview); return ok })
-	eventually(t, "the machines and host pollers' first round", func() bool { return m.pollDone("vms", "host") })
-	if n := rec.count(machineUp); n != 0 {
-		t.Errorf("a disabled hardware was polled %d times", n)
-	}
-	if n := hp.Publishes("hardware"); n != 0 {
-		t.Errorf("the Manager called the disabled hardware's Host %d times", n)
-	}
-	if _, ok := h.Latest("", model.TopicHardwareMachines); ok {
-		t.Error("the machines topic is published although hardware does not run")
-	}
-}
-
-// A source whose poller is skipped (nothing that reads it runs) is not waited for: the shim that
-// owns it reaches its real state instead of staying in "starting", and the overview's source list
-// leaves it out.
-func TestSkippedPollersDoNotStickShimsInStarting(t *testing.T) {
-	at := time.Unix(100, 0)
-	okSrc := srcState{ok: true, at: at}
-
-	// Overview: only the polled source is listed; the skipped ones would read "not polled yet".
-	hp := plugintest.Without(plugintest.AllRunning(hub.New(), LegacyManifests()...), "hardware")
-	m := New(Deps{Cfg: config.Defaults(), Cluster: fakeCluster(), Hosts: hp})
-	m.srcs["cluster:victoriametrics"], m.srcs["storage:victoriametrics"] = okSrc, okSrc
-	got := m.sources("host:victoriametrics", "machines:prometheus", "cluster:victoriametrics")
-	if len(got) != 1 || !got[0].OK {
-		t.Errorf("overview sources = %+v, want only the polled cluster source", got)
-	}
-
-	// Nothing that reads the source runs at all: a message instead of a wait that never ends.
-	if st := m.legacyStatus("hardware"); st.State != plugin.StateUnavailable {
-		t.Errorf("hardware with every reader off = %s %q, want unavailable", st.State, st.Message)
-	}
-
-	// A key of a running poller still counts: not polled yet means starting.
-	hp = plugintest.Without(plugintest.AllRunning(hub.New(), LegacyManifests()...))
-	m = New(Deps{Cfg: config.Defaults(), Cluster: fakeCluster(), Hosts: hp})
-	if st := m.legacyStatus("hardware"); st.State != plugin.StateStarting {
-		t.Errorf("hardware before its first poll = %s, want starting", st.State)
 	}
 }
 
@@ -304,7 +224,7 @@ func TestSkippedKubernetesPollersLeaveTheirSourcesOut(t *testing.T) {
 		t.Errorf("sources of a disabled kubernetes = %+v, want only the informers", got)
 	}
 	for _, id := range []plugin.ID{"kubernetes", "flux"} {
-		st := m.legacyStatus(id)
+		st := m.legacyStatus()
 		if st.State != plugin.StateStarting {
 			t.Errorf("%s before the informers sync = %s, want starting", id, st.State)
 		}
@@ -370,7 +290,7 @@ func TestExplicitDisableRemovesShimTopics(t *testing.T) {
 	if states["flux"].State != model.PluginDisabled || !slices.Equal(states["flux"].Topics, []string{"flux"}) {
 		t.Errorf("flux = %+v, want disabled with the topic flux", states["flux"])
 	}
-	if states["kubernetes"].State == model.PluginDisabled || len(pd.Plugins) != 3 {
+	if states["kubernetes"].State == model.PluginDisabled || len(pd.Plugins) != 2 {
 		t.Errorf("kubernetes = %s of %d plugins", states["kubernetes"].State, len(pd.Plugins))
 	}
 }
@@ -441,7 +361,7 @@ func TestLegacyManifestsMatchConfigSections(t *testing.T) {
 	}
 	// The sections of the integrations that moved out of the Manager have no shim: each runs as
 	// the plugin of internal/plugins/<id>.
-	for _, moved := range []string{"prometheus", "alertmanager", "gatus", "victorialogs", "proxmox", "grafana", "headlamp", "launcher"} {
+	for _, moved := range []string{"prometheus", "alertmanager", "gatus", "victorialogs", "proxmox", "hardware", "grafana", "headlamp", "launcher"} {
 		delete(sections, moved)
 	}
 	ms := LegacyManifests()
@@ -476,66 +396,23 @@ func TestLegacyShimsAreRestartOnly(t *testing.T) {
 	}
 }
 
-// Status mapping of design §1.9: all keys not configured -> unavailable, any not polled yet or
-// informers unsynced -> starting, all ok -> healthy, some -> degraded, none -> error.
-func TestLegacyStatusMapping(t *testing.T) {
-	at := time.Unix(100, 0)
-	okSrc := srcState{ok: true, at: at}
-	bad := func(cat string) srcState { return srcState{err: cat, at: at} }
-	off := bad(upstream.CategoryNotConfigured)
-
-	tests := []struct {
-		name  string
-		id    plugin.ID
-		srcs  map[string]srcState
-		state plugin.State
-		msg   string
-	}{
-		{"hardware unset", "hardware", map[string]srcState{"host:victoriametrics": off}, plugin.StateUnavailable,
-			"not configured: set plugins.prometheus.url"},
-		{"hardware not polled", "hardware", map[string]srcState{}, plugin.StateStarting, "waiting for the first poll"},
-		{"hardware ok", "hardware", map[string]srcState{"host:victoriametrics": okSrc}, plugin.StateHealthy, ""},
-		{"hardware tls", "hardware", map[string]srcState{"host:victoriametrics": bad("tls")}, plugin.StateError, "tls"},
-	}
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			m := New(Deps{Cfg: config.Defaults(), Cluster: fakeCluster()})
-			for k, v := range tc.srcs {
-				m.srcs[k] = v
-			}
-			got := m.legacyStatus(tc.id)
-			if got.State != tc.state || got.Message != tc.msg {
-				t.Errorf("status = %s %q, want %s %q", got.State, got.Message, tc.state, tc.msg)
-			}
-		})
-	}
-
-	t.Run("informers", func(t *testing.T) {
-		m := New(Deps{Cfg: config.Defaults(), Cluster: fakeCluster()})
-		for _, id := range []plugin.ID{"kubernetes", "flux"} {
-			if got := m.legacyStatus(id); got.State != plugin.StateStarting {
-				t.Errorf("%s before the informers sync: %s", id, got.State)
-			}
-		}
-		ctx, cancel := context.WithCancel(context.Background())
-		defer cancel()
-		m.d.Cluster.Start(ctx)
-		eventually(t, "the informers to sync", func() bool { return m.d.Cluster.HasSynced() })
-		for _, id := range []plugin.ID{"kubernetes", "flux"} {
-			if got := m.legacyStatus(id); got.State != plugin.StateHealthy {
-				t.Errorf("%s after sync: %s", id, got.State)
-			}
-		}
-	})
-}
-
-// A viewer must never read a URL or host out of a plugin's status: messages name a setting or
-// an error category.
-func TestLegacyStatusNeverNamesAnUpstream(t *testing.T) {
+// The status of a shim follows the informers: starting until they sync, healthy after.
+func TestLegacyStatusFollowsTheInformers(t *testing.T) {
 	m := New(Deps{Cfg: config.Defaults(), Cluster: fakeCluster()})
-	m.setSource("host:victoriametrics", &upstream.StatusError{Code: 500})
-	st := m.legacyStatus("hardware")
-	if st.State != plugin.StateError || strings.Contains(st.Message, "example.com") || st.Message != "http_500" {
-		t.Errorf("status = %s %q", st.State, st.Message)
+	if got := m.legacyStatus(); got.State != plugin.StateStarting || got.Message != "informers syncing" {
+		t.Errorf("before the informers sync: %s %q", got.State, got.Message)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	m.d.Cluster.Start(ctx)
+	eventually(t, "the informers to sync", func() bool { return m.d.Cluster.HasSynced() })
+	if got := m.legacyStatus(); got.State != plugin.StateHealthy {
+		t.Errorf("after sync: %s", got.State)
+	}
+	// A viewer never reads a URL or host out of a plugin's status: the shims name no upstream.
+	for _, s := range m.legacyStatus().Sources {
+		if s.Name != "kubernetes" {
+			t.Errorf("source %q on a shim's status", s.Name)
+		}
 	}
 }

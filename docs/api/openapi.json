@@ -403,6 +403,9 @@
           "lifeRemainingPct": {
             "type": "number"
           },
+          "ref": {
+            "type": "string"
+          },
           "serial": {
             "type": "string"
           },
@@ -645,6 +648,35 @@
         ],
         "type": "object"
       },
+      "Envelope.hardware.hosts": {
+        "additionalProperties": false,
+        "description": "The envelope of the hardware.hosts topic.",
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/HostData"
+          },
+          "sources": {
+            "items": {
+              "$ref": "#/components/schemas/SourceStatus"
+            },
+            "type": "array"
+          },
+          "topic": {
+            "const": "hardware.hosts"
+          },
+          "updatedAt": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "data",
+          "sources",
+          "topic",
+          "updatedAt"
+        ],
+        "type": "object"
+      },
       "Envelope.hardware.machines": {
         "additionalProperties": false,
         "description": "The envelope of the hardware.machines topic.",
@@ -660,35 +692,6 @@
           },
           "topic": {
             "const": "hardware.machines"
-          },
-          "updatedAt": {
-            "format": "date-time",
-            "type": "string"
-          }
-        },
-        "required": [
-          "data",
-          "sources",
-          "topic",
-          "updatedAt"
-        ],
-        "type": "object"
-      },
-      "Envelope.host": {
-        "additionalProperties": false,
-        "description": "The envelope of the host topic.",
-        "properties": {
-          "data": {
-            "$ref": "#/components/schemas/HostData"
-          },
-          "sources": {
-            "items": {
-              "$ref": "#/components/schemas/SourceStatus"
-            },
-            "type": "array"
-          },
-          "topic": {
-            "const": "host"
           },
           "updatedAt": {
             "format": "date-time",
@@ -1036,14 +1039,23 @@
       "HostData": {
         "additionalProperties": false,
         "properties": {
+          "bays": {
+            "type": "integer"
+          },
           "cpuRatio": {
             "type": "number"
+          },
+          "cpuTempHealth": {
+            "type": "string"
           },
           "disks": {
             "items": {
               "$ref": "#/components/schemas/Disk"
             },
             "type": "array"
+          },
+          "fanMaxRpm": {
+            "type": "integer"
           },
           "fans": {
             "items": {
@@ -1090,17 +1102,29 @@
             },
             "type": "array"
           },
+          "ref": {
+            "type": "string"
+          },
           "scrubTracked": {
             "type": "boolean"
           },
           "selFreeBytes": {
             "type": "integer"
           },
+          "sensorAliases": {
+            "$ref": "#/components/schemas/SensorAliases"
+          },
           "sensors": {
             "items": {
               "$ref": "#/components/schemas/Sensor"
             },
             "type": "array"
+          },
+          "tempCritC": {
+            "type": "integer"
+          },
+          "tempWarnC": {
+            "type": "integer"
           }
         },
         "type": "object"
@@ -1168,9 +1192,6 @@
       "Kpis": {
         "additionalProperties": false,
         "properties": {
-          "cpuTempMaxC": {
-            "type": "number"
-          },
           "fluxReady": {
             "type": "integer"
           },
@@ -1185,9 +1206,6 @@
           },
           "nodesTotal": {
             "type": "integer"
-          },
-          "powerWatts": {
-            "type": "number"
           },
           "sourceVerified": {
             "type": "boolean"
@@ -1767,6 +1785,9 @@
           "name": {
             "type": "string"
           },
+          "ref": {
+            "type": "string"
+          },
           "scrubErrors": {
             "type": "integer"
           },
@@ -1787,6 +1808,18 @@
           },
           "valueC": {
             "type": "number"
+          }
+        },
+        "type": "object"
+      },
+      "SensorAliases": {
+        "additionalProperties": false,
+        "properties": {
+          "exhaust": {
+            "type": "string"
+          },
+          "inlet": {
+            "type": "string"
           }
         },
         "type": "object"
@@ -2022,6 +2055,9 @@
         "properties": {
           "cpuTempC": {
             "type": "number"
+          },
+          "cpuTempHealth": {
+            "type": "string"
           },
           "health": {
             "type": "string"
@@ -2911,10 +2947,10 @@
                       "$ref": "#/components/schemas/Envelope.gatus.status"
                     },
                     {
-                      "$ref": "#/components/schemas/Envelope.hardware.machines"
+                      "$ref": "#/components/schemas/Envelope.hardware.hosts"
                     },
                     {
-                      "$ref": "#/components/schemas/Envelope.host"
+                      "$ref": "#/components/schemas/Envelope.hardware.machines"
                     },
                     {
                       "$ref": "#/components/schemas/Envelope.launcher.links"

@@ -15,19 +15,11 @@ import (
 	"github.com/TechDufus/dash/internal/demo/world"
 	"github.com/TechDufus/dash/internal/model"
 	"github.com/TechDufus/dash/internal/plugin"
-	hwmodel "github.com/TechDufus/dash/internal/plugins/hardware/model"
 	"github.com/TechDufus/dash/internal/topics"
 )
 
 // tick is how often the fixtures drift, so the UI looks live.
 const tick = 5 * time.Second
-
-// Config names the fake host. The links into Grafana, Headlamp and the Proxmox UI, and the
-// launcher, are those of the plugins' demo twins (world.GrafanaURL, …).
-func Config(cfg config.Config) config.Config {
-	cfg.HostNodename = world.HostName
-	return cfg
-}
 
 // Source serves the fixtures to the hub and the API.
 type Source struct {
@@ -98,28 +90,33 @@ func (s *Source) publish() {
 		}
 		return out
 	}
-	// The alertmanager and proxmox plugins' KPIs and source chips are on the overview while their
-	// twins run, and the proxmox VMs are in its topology.
+	// The alertmanager, hardware and proxmox plugins' KPIs are on the overview while their twins
+	// run, and so are the proxmox VMs and the hardware host in its topology. Their source chips
+	// are the twin's own, except hardware's: the fake host's series come from the victoriametrics
+	// chip above.
 	ov, ovSrcs := w.overview, src("kubernetes", "victoriametrics")
-	for _, twin := range []plugin.ID{"proxmox", "alertmanager"} {
-		if s.hosts.Running(twin) {
-			ovSrcs = append(ovSrcs, src(string(twin))...)
+	for _, twin := range []struct {
+		id    plugin.ID
+		chips []string
+		drop  func(*model.Topology)
+	}{
+		{"proxmox", []string{"proxmox"}, func(t *model.Topology) { t.VMs = []model.TopologyVM{} }},
+		{"alertmanager", []string{"alertmanager"}, func(*model.Topology) {}},
+		{"hardware", nil, func(t *model.Topology) { t.Host = model.TopologyHost{} }},
+	} {
+		if s.hosts.Running(twin.id) {
+			ovSrcs = append(ovSrcs, src(twin.chips...)...)
 			continue
 		}
-		ov.KPIList = slices.DeleteFunc(slices.Clone(ov.KPIList), func(k model.KPI) bool { return k.Plugin == string(twin) })
-		if twin == "proxmox" {
-			ov.Topology.VMs = []model.TopologyVM{}
-		}
+		ov.KPIList = slices.DeleteFunc(slices.Clone(ov.KPIList), func(k model.KPI) bool { return k.Plugin == string(twin.id) })
+		twin.drop(&ov.Topology)
 	}
-	machines := hwmodel.MachinesData{Machines: s.world.Machines()}
 	for _, p := range []struct {
 		topic model.Topic
 		data  any
 		srcs  []model.SourceStatus
 	}{
 		{model.TopicOverview, ov, ovSrcs},
-		{model.TopicHost, w.host, src("victoriametrics")},
-		{model.TopicHardwareMachines, machines, src("prometheus", "gatus")},
 		{model.TopicCluster, w.cluster, src("kubernetes", "victoriametrics")},
 		{model.TopicFlux, w.flux, src("kubernetes")},
 		{model.TopicStorage, w.storage, src("kubernetes", "victoriametrics")},

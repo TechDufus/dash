@@ -32,7 +32,7 @@ export function shimRows(): PluginInfo[] {
     pluginInfo({
       id: "hardware",
       name: "Hardware",
-      topics: ["host", "hardware.machines"],
+      topics: ["hardware.hosts", "hardware.machines"],
       nav: nav("/hardware", "Hardware", "Hardware", "Cpu"),
     }),
     pluginInfo({

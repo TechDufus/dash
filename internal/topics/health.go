@@ -10,7 +10,6 @@ import (
 const (
 	ratioWarn, ratioCrit = 0.80, 0.90
 	certWarn, certCrit   = 21 * 24 * time.Hour, 7 * 24 * time.Hour
-	tempWarnC, tempCritC = 85.0, 90.0
 	pendingGrace         = 5 * time.Minute
 )
 
@@ -55,17 +54,6 @@ func CertHealth(notAfter, now time.Time) model.Health {
 	case left < certCrit:
 		return model.HealthCrit
 	case left < certWarn:
-		return model.HealthWarn
-	}
-	return model.HealthOK
-}
-
-// TempHealth is the CPU package temperature rule.
-func TempHealth(c float64) model.Health {
-	switch {
-	case c >= tempCritC:
-		return model.HealthCrit
-	case c >= tempWarnC:
 		return model.HealthWarn
 	}
 	return model.HealthOK

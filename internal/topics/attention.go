@@ -18,7 +18,6 @@ type AttentionInput struct {
 	Flux    model.FluxData
 	Cluster model.ClusterData
 	Storage model.StorageData
-	Host    model.HostData
 	// Resolver resolves the links of the rules' objects (Grafana, Headlamp, the Proxmox UI and
 	// shell); nil means none.
 	Resolver plugin.LinkResolver
@@ -51,7 +50,6 @@ var legacyRules = []struct {
 	{"flux", attentionFlux},
 	{"kubernetes", attentionCluster},
 	{"kubernetes", attentionStorage},
-	{"hardware", attentionHost},
 }
 
 // legacyAttention applies the rule table and returns the items in rule order, each stamped with
@@ -213,32 +211,6 @@ func attentionStorage(in AttentionInput, add addFn) {
 		r := float64(b.UsedBytes) / float64(b.QuotaBytes)
 		add("bucket:"+b.Name, RatioHealth(r), "storage", fmt.Sprintf("Bucket %s is %.0f%% of its quota", b.Name, r*100),
 			"", time.Time{}, "/storage", nil)
-	}
-}
-
-func attentionHost(in AttentionInput, add addFn) {
-	hl := append(in.link("ProxmoxUI", "", ""), in.link("HostShell", "", "")...)
-	for _, p := range in.Host.Pools {
-		if !strings.EqualFold(p.State, "online") {
-			add("zfs:pool:"+p.Name, model.HealthCrit, "zfs", fmt.Sprintf("ZFS pool %s is %s", p.Name, p.State), "", time.Time{}, "/hardware", hl)
-		}
-		if p.ScrubErrors > 0 {
-			add("zfs:scrub:"+p.Name, model.HealthWarn, "zfs", fmt.Sprintf("ZFS pool %s last scrub found errors", p.Name),
-				fmt.Sprintf("%d errors", p.ScrubErrors), deref(p.LastScrubEnd), "/hardware", hl)
-		}
-	}
-	for _, d := range in.Host.Disks {
-		if !d.Healthy {
-			add("smart:"+d.Bay, model.HealthCrit, "smart", fmt.Sprintf("Disk in bay %s reports SMART failure", d.Bay),
-				d.Device+" "+d.Serial, time.Time{}, "/hardware", hl)
-		}
-	}
-	if len(in.Host.PackageTempsC) > 0 {
-		max := in.Host.PackageTempsC[0]
-		for _, t := range in.Host.PackageTempsC {
-			max = math.Max(max, t)
-		}
-		add("host:cpu-temp", TempHealth(max), "hardware", fmt.Sprintf("CPU package at %.0f °C", max), "", time.Time{}, "/hardware", hl)
 	}
 }
 

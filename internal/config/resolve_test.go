@@ -62,12 +62,11 @@ func TestFileLoadsIntoConfig(t *testing.T) {
 		Listen: "0.0.0.0:9090", HealthListen: "127.0.0.1:9091", PublicURL: "https://dash.example.com",
 		AllowedHosts: []string{"media.example.com", "192.0.2.10"}, ReadyRequires: []string{"kubernetes", "flux"}, ReadyTimeout: 2 * time.Minute,
 		DataDir: "/var/lib/dash", SettingsUI: SettingsReadOnly, Limits: defaultLimits,
-		HostNodename: "box", HostModel: "Dell R730",
 		Kubeconfig: "/etc/dash/kubeconfig",
 		Conventions: Conventions{
 			ProtectedLabel: "example.com/protected", TenantLabel: "example.com/tenant",
 			SuspendReasonAnnotation: "example.com/suspended", AppsFluxPrefix: "apps-",
-			ZFSScrubMetricPrefix: "example_zfs_scrub", NASBackupNamespace: "backup", NASBackupCronJob: "nightly",
+			NASBackupNamespace: "backup", NASBackupCronJob: "nightly",
 		},
 	}
 	if !reflect.DeepEqual(res.Config, want) {
@@ -79,6 +78,9 @@ func TestFileLoadsIntoConfig(t *testing.T) {
 	// The prometheus plugin reads its own section: the flat view has no field for it.
 	if got := res.Tree.Plugins.Prometheus.URL; got != "http://prometheus.example.com:9090" {
 		t.Errorf("plugins.prometheus.url = %q", got)
+	}
+	if hw := res.Tree.Plugins.Hardware; len(hw.Hosts) != 1 || hw.Hosts[0].Nodename != "box" || hw.Hosts[0].Model != "Dell R730" || hw.ZFSScrubMetricPrefix != "example_zfs_scrub" {
+		t.Errorf("plugins.hardware = %+v", hw)
 	}
 }
 

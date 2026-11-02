@@ -97,7 +97,7 @@ func runSup(fakes ...*plugintest.Fake) PluginsAPI {
 // newServer builds a Server with fakes; mod may adjust the deps before construction.
 func newServer(mod func(*Deps)) *Server {
 	d := Deps{
-		Cfg:     config.Config{PublicURL: testOrigin + "/", HostNodename: "pve-730", Limits: config.Defaults().Limits, Conventions: config.Conventions{ProtectedLabel: protectedLabel}},
+		Cfg:     config.Config{PublicURL: testOrigin + "/", Limits: config.Defaults().Limits, Conventions: config.Conventions{ProtectedLabel: protectedLabel}},
 		Version: "test",
 		Hub:     hub.New(),
 		Data:    fakeData{nodes: map[string]string{"cp1": "10.0.0.5"}},
@@ -243,14 +243,14 @@ func TestSeriesArgs(t *testing.T) {
 		code  int
 		want  string // expected PromQL substring
 	}{
-		// The vm.* series are the proxmox plugin's: without it running they are unknown (400).
+		// The vm.* and host.* series are the proxmox and hardware plugins': without them running they are unknown (400).
 		{"vm series without the plugin", "name=vm.cpu&range=6h&vmid=100", 400, ""},
 		{"unknown name", "name=nope&range=1h", 400, ""},
 		{"unknown range", "name=node.cpu&range=2y&node=cp1", 400, ""},
 		{"unknown node", "name=node.cpu&range=1h&node=ghost", 404, ""},
 		{"missing node", "name=node.cpu&range=1h", 400, ""},
 		{"bad pod args", "name=pod.cpu&range=1h&ns=Bad_NS&pod=x", 400, ""},
-		{"host ok", "name=host.cpu&range=15m", 200, `nodename="pve-730"`},
+		{"host series without the plugin", "name=host.cpu&range=15m", 400, ""},
 		{"node ok", "name=node.cpu&range=1h&node=cp1", 200, `instance="10.0.0.5:9100"`},
 		{"pod ns alias", "name=pod.mem&range=1h&ns=media&pod=plex-0", 200, `namespace="media",pod="plex-0"`},
 		{"pod namespace", "name=pod.mem&range=1h&namespace=media&pod=plex-0", 200, `namespace="media",pod="plex-0"`},

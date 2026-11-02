@@ -63,7 +63,7 @@ func (w *World) overviewOf(now time.Time, s Snapshot) model.OverviewData {
 	temps := s.Host.PackageTempsC
 	cpuTemp := max(temps[0], temps[1])
 	o.Topology.Host = model.TopologyHost{Name: HostName, Health: model.HealthOK, PowerWatts: s.Host.PowerWatts,
-		CPUTempC: cpuTemp, MemUsedRatio: float64(s.Host.MemUsedBytes) / float64(s.Host.MemTotalBytes)}
+		CPUTempC: cpuTemp, CPUTempHealth: model.HealthOK, MemUsedRatio: float64(s.Host.MemUsedBytes) / float64(s.Host.MemTotalBytes)}
 	running, total := 0, 0
 	for _, vm := range s.VMs.VMs {
 		if vm.Template {
@@ -91,21 +91,23 @@ func (w *World) overviewOf(now time.Time, s Snapshot) model.OverviewData {
 	}
 	fluxTotal := len(s.Flux.Sources) + len(s.Flux.Kustomizations) + len(s.Flux.HelmReleases)
 	o.Status = model.HealthCrit
-	// The alertmanager plugin's one KPI, as its KPIs() computes it for the default severityMap, and
-	// the proxmox plugin's two, as its kpisOf computes them (ordered by plugin, as compose does).
+	// The alertmanager plugin's one KPI, as its KPIs() computes it for the default severityMap, the
+	// proxmox plugin's two, as its kpisOf computes them, and the hardware plugin's two (ordered by
+	// plugin, as compose does).
 	vmHealth := model.HealthOK
 	if running < total {
 		vmHealth = model.HealthWarn
 	}
 	o.KPIList = []model.KPI{
 		{Key: "firing", Plugin: "alertmanager", Label: "Alerts firing", Value: float64(firing), Health: alertHealth},
+		{Key: "power", Plugin: "hardware", Label: "Power", Unit: "W", Value: s.Host.PowerWatts, Health: model.HealthOK},
+		{Key: "cpuTemp", Plugin: "hardware", Label: "CPU temp", Unit: "°C", Value: cpuTemp, Health: model.HealthOK},
 		{Key: "vms.running", Plugin: "proxmox", Label: "VMs running", Value: float64(running), Health: vmHealth},
 		{Key: "vms.total", Plugin: "proxmox", Label: "VMs", Value: float64(total), Health: model.HealthOK},
 	}
 	o.Kpis = model.Kpis{
 		FluxReady: fluxTotal, FluxTotal: fluxTotal, FluxSuspended: 1, SourceVerified: true,
 		NodesReady: len(nodeNames), NodesTotal: len(nodeNames),
-		PowerWatts: s.Host.PowerWatts, CPUTempMaxC: cpuTemp,
 		WorstPVC: &model.WorstPVC{Namespace: worst.Namespace, Name: worst.Name, UsedRatio: *worst.UsedRatio},
 	}
 	return o

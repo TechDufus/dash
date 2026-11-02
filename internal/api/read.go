@@ -21,10 +21,9 @@ func (s *Server) series(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	args := queries.Args{
-		HostNodename: s.d.Cfg.HostNodename,
-		VMID:         q.Get("vmid"),
-		Namespace:    firstOf(r, "namespace", "ns"),
-		Pod:          q.Get("pod"),
+		VMID:      q.Get("vmid"),
+		Namespace: firstOf(r, "namespace", "ns"),
+		Pod:       q.Get("pod"),
 	}
 	if node := q.Get("node"); node != "" {
 		if !queries.ValidDNS(node) {

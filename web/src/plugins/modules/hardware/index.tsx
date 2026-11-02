@@ -4,14 +4,14 @@ import { definePlugin, topic } from "../../types";
 import type { MachinesData } from "./model.gen";
 
 const HardwarePage = lazy(() =>
-  import("@/pages/hardware").then((m) => ({ default: () => <m.HardwarePage /> })),
+  import("./hardware-page").then((m) => ({ default: () => <m.HardwarePage /> })),
 );
 
 export default definePlugin({
   id: "hardware",
   order: 40,
   topics: {
-    host: topic<HostData>(),
+    "hardware.hosts": topic<HostData>(),
     "hardware.machines": topic<MachinesData>(),
   },
   routes: [{ path: "/hardware", page: HardwarePage }],

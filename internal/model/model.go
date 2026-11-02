@@ -41,8 +41,9 @@ type Topic string
 
 const (
 	TopicOverview Topic = "core.overview"
-	TopicHost     Topic = "host"
-	TopicVMs      Topic = "proxmox.vms"
+	// TopicHost is the host's facts (HostData), published by the hardware plugin.
+	TopicHost Topic = "hardware.hosts"
+	TopicVMs  Topic = "proxmox.vms"
 	// TopicProxmoxNode is the Proxmox node's facts (proxmox/model.NodeData), TopicProxmoxStorage
 	// its storages (PVEStorageData): both published by the proxmox plugin.
 	TopicProxmoxNode      Topic = "proxmox.node"
@@ -120,17 +121,18 @@ type Kpis struct {
 	SourceVerified bool      `json:"sourceVerified"`
 	NodesReady     int       `json:"nodesReady"`
 	NodesTotal     int       `json:"nodesTotal"`
-	PowerWatts     float64   `json:"powerWatts"`
-	CPUTempMaxC    float64   `json:"cpuTempMaxC"`
 	WorstPVC       *WorstPVC `json:"worstPvc,omitempty"`
 }
 
 type TopologyHost struct {
-	Name         string  `json:"name"`
-	Health       Health  `json:"health"`
-	PowerWatts   float64 `json:"powerWatts"`
-	CPUTempC     float64 `json:"cpuTempC"`
-	MemUsedRatio float64 `json:"memUsedRatio"`
+	Name       string  `json:"name"`
+	Health     Health  `json:"health"`
+	PowerWatts float64 `json:"powerWatts"`
+	CPUTempC   float64 `json:"cpuTempC"`
+	// CPUTempHealth is the health of the hottest CPU package against the host's configured
+	// temperature thresholds.
+	CPUTempHealth Health  `json:"cpuTempHealth"`
+	MemUsedRatio  float64 `json:"memUsedRatio"`
 }
 
 type TopologyVM struct {
@@ -199,7 +201,15 @@ type PSU struct {
 	State Health `json:"state"`
 }
 
+// SensorAliases are the texts the Inlet and Exhaust tiles match a sensor's name by, ignoring case.
+type SensorAliases struct {
+	Inlet   string `json:"inlet"`
+	Exhaust string `json:"exhaust"`
+}
+
 type Pool struct {
+	// Ref is hardware:Pool/<node>/<name> (design L.6).
+	Ref             string     `json:"ref"`
 	Name            string     `json:"name"`
 	State           string     `json:"state"`
 	LastScrubEnd    *time.Time `json:"lastScrubEnd,omitempty"`
@@ -208,6 +218,8 @@ type Pool struct {
 }
 
 type Disk struct {
+	// Ref is hardware:Disk/<node>/<bay> (design L.6).
+	Ref              string   `json:"ref"`
 	Bay              string   `json:"bay"`
 	Serial           string   `json:"serial"`
 	Device           string   `json:"device"`
@@ -217,9 +229,24 @@ type Disk struct {
 }
 
 type HostData struct {
-	// Model is shown next to the host's name, e.g. "Dell R730"; empty shows nothing. The topic
-	// manager fills it from plugins.hardware.hosts[0].model.
-	Model         string    `json:"model"`
+	// Ref is hardware:Host/<node> (design L.6).
+	Ref string `json:"ref"`
+	// Model is shown next to the host's name, e.g. "Dell R730"; empty shows nothing. The hardware
+	// plugin fills it from plugins.hardware.hosts[0].model.
+	Model string `json:"model"`
+	// Bays is plugins.hardware.hosts[0].bays: the drive slots the Disks grid draws, 0 to derive
+	// them from the highest populated slot.
+	Bays int `json:"bays"`
+	// FanMaxRPM is plugins.hardware.hosts[0].fanMaxRPM: the top of the fan gauges, 0 to scale them
+	// to the fastest fan. The wire key is fanMaxRpm (camel case); the config key is fanMaxRPM.
+	FanMaxRPM int `json:"fanMaxRpm"`
+	// SensorAliases name the sensors the Inlet and Exhaust tiles read.
+	SensorAliases SensorAliases `json:"sensorAliases"`
+	// TempWarnC and TempCritC are plugins.hardware.tempThresholds, in whole °C.
+	TempWarnC int `json:"tempWarnC"`
+	TempCritC int `json:"tempCritC"`
+	// CPUTempHealth is the health of the hottest CPU package against those thresholds.
+	CPUTempHealth Health    `json:"cpuTempHealth"`
 	Name          string    `json:"name"`
 	CPURatio      float64   `json:"cpuRatio"`
 	MemUsedBytes  int64     `json:"memUsedBytes"`

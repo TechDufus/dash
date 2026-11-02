@@ -318,7 +318,7 @@ function LinksTab({ vm, hostLinks }: { vm: VM | undefined; hostLinks: Link[] }) 
 function VMSheetBody({ vmid }: { vmid: string }) {
   const [tab, setTab] = useState<SheetTab>("overview");
   const topic = useTopic("proxmox.vms");
-  const host = useTopicData("host");
+  const host = useTopicData("hardware.hosts");
   const detail = useVMDetail(vmid);
   const live = topic?.data.vms.find((v) => String(v.vmid) === vmid);
   const vm = live ?? detail.data?.vm;

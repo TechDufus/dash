@@ -22,11 +22,6 @@ func goldenSnapshots() built {
 	ago := func(d time.Duration) time.Time { return testNow.Add(-d) }
 	agoP := func(d time.Duration) *time.Time { return new(ago(d)) }
 	return built{
-		host: &model.HostData{
-			Name: "pve-demo", PowerWatts: 412, MemUsedBytes: 96 << 30, MemTotalBytes: 256 << 30, PackageTempsC: []float64{71, 91.5},
-			Pools: []model.Pool{{Name: "bulk", State: "degraded"}, {Name: "fast", State: "online", ScrubErrors: 3, LastScrubEnd: agoP(48 * time.Hour)}},
-			Disks: []model.Disk{{Bay: "4", Serial: "S1", Device: "sdd", Healthy: false}, {Bay: "5", Healthy: true}},
-		},
 		cluster: &model.ClusterData{
 			Nodes: []model.Node{{Name: "cp-1", IP: "192.0.2.11", Ready: true}, {Name: "cp-2", IP: "192.0.2.12", Ready: false}},
 			Namespaces: []model.Namespace{
@@ -189,15 +184,55 @@ func (g goldenProxmox) Topology() model.Topology {
 	return t
 }
 
+// goldenHardware stands in for the running hardware plugin: the attention items, KPIs and topology
+// host it derives from the lab's host (the rules and the thresholds are the plugin's, tested
+// there), each item linked to the Proxmox UI and the host shell as the plugin links them.
+type goldenHardware struct{ links []model.Link }
+
+func (g goldenHardware) item(id string, sev model.Severity, source, title, detail string, since time.Time, ref string) model.AttentionItem {
+	return model.AttentionItem{ID: id, Severity: sev, Source: source, Plugin: "hardware", Title: title, Detail: detail,
+		Since: since, Route: "/hardware", Links: g.links, Ref: ref}
+}
+
+func (g goldenHardware) Attention(time.Time) []model.AttentionItem {
+	return []model.AttentionItem{
+		g.item("zfs:pool:bulk", model.SeverityCrit, "zfs", "ZFS pool bulk is degraded", "", testNow, "hardware:Pool/pve-demo/bulk"),
+		g.item("zfs:scrub:fast", model.SeverityWarn, "zfs", "ZFS pool fast last scrub found errors", "3 errors", testNow.Add(-48*time.Hour), "hardware:Pool/pve-demo/fast"),
+		g.item("smart:4", model.SeverityCrit, "smart", "Disk in bay 4 reports SMART failure", "sdd S1", testNow, "hardware:Disk/pve-demo/S1"),
+		g.item("host:cpu-temp", model.SeverityCrit, "hardware", "CPU package at 92 °C", "", testNow, "hardware:Host/pve-demo"),
+	}
+}
+
+func (goldenHardware) KPIs() []model.KPI {
+	return []model.KPI{
+		{Key: "power", Plugin: "hardware", Label: "Power", Unit: "W", Value: 412, Health: model.HealthOK},
+		{Key: "cpuTemp", Plugin: "hardware", Label: "CPU temp", Unit: "°C", Value: 91.5, Health: model.HealthCrit},
+	}
+}
+
+func (goldenHardware) Topology() model.Topology {
+	return model.Topology{
+		Host: model.TopologyHost{Name: "pve-demo", Health: model.HealthCrit, PowerWatts: 412, CPUTempC: 91.5,
+			CPUTempHealth: model.HealthCrit, MemUsedRatio: 96.0 / 256.0},
+		VMs: []model.TopologyVM{}, Groups: []model.TopologyGroup{},
+	}
+}
+
 // The overview a lab gets is unchanged by composing it from plugin contributions: the golden file
-// was written by the code that built it from the topics directly. The alerts now arrive from the
-// alertmanager contribution, and Kpis.alertsFiring is gone (its tile is the plugin's KPI).
+// was written by the code that built it from the topics directly, and regenerated when the host
+// moved into the hardware plugin (P3.7): the host's items, its two KPIs (now in kpiList, no longer
+// in kpis) and the host in the topology come from its contribution; nothing else changed. The
+// alerts arrive from the alertmanager contribution, and Kpis.alertsFiring is gone (its tile is
+// the plugin's KPI).
 func TestOverviewOutputIsUnchanged(t *testing.T) {
 	gp := goldenProxmox{vms: goldenVMs()}
+	gh := goldenHardware{links: goldenProxmoxLinks{}.Links(plugin.LinkRequest{Kind: "ProxmoxUI"})}
+	gh.links = append(gh.links, goldenProxmoxLinks{}.Links(plugin.LinkRequest{Kind: "HostShell"})...)
 	cs := []plugin.Contributor{
 		{ID: "alertmanager", Attention: goldenAlerts{lab: labLinks(t)}},
 		{ID: "gatus", Attention: goldenGatus{}},
 		{ID: "proxmox", Attention: gp, KPIs: gp, Topology: gp},
+		{ID: "hardware", Attention: gh, KPIs: gh, Topology: gh},
 	}
 	got, err := json.MarshalIndent(goldenManager(t).buildOverview(goldenSnapshots(), cs, testNow), "", "  ")
 	if err != nil {

@@ -29,14 +29,6 @@ const HEALTH_HEX: Record<Health, string> = {
 };
 const VISIBLE_NAMESPACES = 5;
 
-/** CPU temperature health: warn from 85 °C, crit from 90 °C. */
-export function tempHealth(c: number | undefined): Health {
-  if (c == null || !Number.isFinite(c)) return "unknown";
-  if (c >= 90) return "crit";
-  if (c >= 85) return "warn";
-  return "ok";
-}
-
 type CardRef = RefObject<HTMLDivElement | null>;
 
 /** Stable ref objects per key, so beams can point at cards before they mount. */
@@ -61,7 +53,6 @@ function gradientOpacityClass(strength: number): string {
 }
 
 function HostCard({ host, className }: { host: TopologyHost; className?: string }) {
-  const temp = tempHealth(host.cpuTempC);
   return (
     <Panel className={cn("relative z-10 space-y-3 p-3", className)}>
       <div className="flex items-center gap-2">
@@ -76,7 +67,9 @@ function HostCard({ host, className }: { host: TopologyHost; className?: string 
         </div>
         <div>
           <dt className="text-muted">CPU temp</dt>
-          <dd className={cn("num", HEALTH_TEXT[temp])}>{formatCelsius(host.cpuTempC)}</dd>
+          <dd className={cn("num", HEALTH_TEXT[host.cpuTempHealth])}>
+            {formatCelsius(host.cpuTempC)}
+          </dd>
         </div>
       </dl>
       <div>
@@ -269,14 +262,15 @@ function CompactTopology({ topology }: { topology: Topology }) {
 }
 
 function HostRow({ host }: { host: TopologyHost }) {
-  const temp = tempHealth(host.cpuTempC);
   return (
     <Panel className="flex flex-wrap items-center gap-x-3 gap-y-1 p-3 text-xs">
       <Server className="size-4 text-accent" aria-hidden="true" />
       <span className="text-sm font-medium text-fg">{host.name}</span>
       <StatusDot health={host.health} />
       <span className="num ml-auto text-fg">{formatWatts(host.powerWatts)}</span>
-      <span className={cn("num", HEALTH_TEXT[temp])}>{formatCelsius(host.cpuTempC)}</span>
+      <span className={cn("num", HEALTH_TEXT[host.cpuTempHealth])}>
+        {formatCelsius(host.cpuTempC)}
+      </span>
       <span className="num text-muted">mem {formatPercent(host.memUsedRatio)}</span>
     </Panel>
   );

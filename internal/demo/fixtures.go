@@ -34,7 +34,6 @@ func (d demoLinks) Headlamp(kind, namespace, name string) []model.Link {
 // read them.
 type built struct {
 	overview model.OverviewData
-	host     model.HostData
 	cluster  model.ClusterData
 	flux     model.FluxData
 	storage  model.StorageData
@@ -45,7 +44,7 @@ type built struct {
 func (s *Source) build() built {
 	w := s.world.Build()
 	return built{
-		overview: w.Overview, host: w.Host, cluster: w.Cluster, flux: w.Flux,
+		overview: w.Overview, cluster: w.Cluster, flux: w.Flux,
 		storage: w.Storage, status: w.Status, apps: w.Apps,
 	}
 }

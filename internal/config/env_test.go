@@ -335,7 +335,8 @@ func TestEnvSetsFieldsWithJSONForLists(t *testing.T) {
 		t.Fatal(err)
 	}
 	c := res.Config
-	if !slices.Equal(c.AllowedHosts, []string{"media.example.com", "192.0.2.10"}) || c.HostNodename != "box" || c.HostModel != "Dell R730" ||
+	hw := res.Tree.Plugins.Hardware
+	if !slices.Equal(c.AllowedHosts, []string{"media.example.com", "192.0.2.10"}) || len(hw.Hosts) != 1 || hw.Hosts[0].Nodename != "box" || hw.Hosts[0].Model != "Dell R730" ||
 		res.Tree.Plugins.Proxmox.Node != "pve" || c.Conventions.NASBackupNamespace != "backup" || c.Conventions.NASBackupCronJob != "nightly" {
 		t.Errorf("config = %+v", c)
 	}
@@ -421,8 +422,8 @@ func TestFileSuffixVariables(t *testing.T) {
 	t.Run("list from a file", func(t *testing.T) {
 		p := write("hosts", `[{"nodename":"box"}]`)
 		res, _, err := resolveEnv(t, "DASH_PLUGINS_HARDWARE_HOSTS_FILE="+p)
-		if err != nil || res.Config.HostNodename != "box" {
-			t.Fatalf("nodename %q, err %v", res.Config.HostNodename, err)
+		if hw := res.Tree.Plugins.Hardware; err != nil || len(hw.Hosts) != 1 || hw.Hosts[0].Nodename != "box" {
+			t.Fatalf("hosts %+v, err %v", hw.Hosts, err)
 		}
 	})
 	t.Run("both set is an error naming both", func(t *testing.T) {
@@ -551,7 +552,7 @@ func TestEnvTable(t *testing.T) {
 	if v := byPath["settings.ui"]; !v.Restart {
 		t.Errorf("settings.ui is read once at startup: %+v", v)
 	}
-	for _, want := range []string{"PATH", "DASH_PLUGINS_PROXMOX_TOKEN_SECRET", "DASH_DATA_DIR", "KUBECONFIG", "_FILE", "applies live for prometheus", "plugins that use or require it", "a grafana change restarts alertmanager", "A change to hardware, kubernetes or"} {
+	for _, want := range []string{"PATH", "DASH_PLUGINS_PROXMOX_TOKEN_SECRET", "DASH_DATA_DIR", "KUBECONFIG", "_FILE", "applies live for prometheus", "plugins that use or require it", "a grafana change restarts alertmanager", "a gatus change restarts hardware", "A change to kubernetes or flux"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("table lacks %q:\n%s", want, out)
 		}

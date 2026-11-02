@@ -23,10 +23,10 @@ func orZero[T any](p *T) T {
 func (m *Manager) buildOverview(b built, cs []plugin.Contributor, now time.Time) model.OverviewData {
 	in := AttentionInput{
 		Flux: orZero(b.flux), Cluster: orZero(b.cluster), Storage: orZero(b.storage),
-		Host: orZero(b.host), Resolver: m.resolver(), Now: now,
+		Resolver: m.resolver(), Now: now,
 	}
 	items := legacyAttention(in, m.tracker)
-	topo := topology(in, items)
+	topo := topology(in)
 	contributions := []contribution{{attention: items, topology: &topo}}
 	for _, c := range cs {
 		contributions = append(contributions, m.contribution(c, now))
@@ -89,7 +89,7 @@ func (m *Manager) contributorSources(cs []plugin.Contributor) []model.SourceStat
 }
 
 func kpis(in AttentionInput) model.Kpis {
-	k := model.Kpis{PowerWatts: in.Host.PowerWatts}
+	k := model.Kpis{}
 	count := func(l []model.FluxObj) {
 		for _, o := range l {
 			k.FluxTotal++
@@ -114,9 +114,6 @@ func kpis(in AttentionInput) model.Kpis {
 			k.NodesReady++
 		}
 	}
-	for _, t := range in.Host.PackageTempsC {
-		k.CPUTempMaxC = max(k.CPUTempMaxC, t)
-	}
 	for _, p := range in.Storage.PVCs {
 		if p.UsedRatio != nil && (k.WorstPVC == nil || *p.UsedRatio > k.WorstPVC.UsedRatio) {
 			k.WorstPVC = &model.WorstPVC{Namespace: p.Namespace, Name: p.Name, UsedRatio: *p.UsedRatio}
@@ -125,26 +122,8 @@ func kpis(in AttentionInput) model.Kpis {
 	return k
 }
 
-func topology(in AttentionInput, items []model.AttentionItem) model.Topology {
-	hostHealth := model.HealthOK
-	for _, it := range items {
-		switch it.Route {
-		case "/hardware":
-			hostHealth = Worst(hostHealth, model.Health(it.Severity))
-		}
-	}
-	memRatio := 0.0
-	if in.Host.MemTotalBytes > 0 {
-		memRatio = float64(in.Host.MemUsedBytes) / float64(in.Host.MemTotalBytes)
-	}
-	cpuTemp := 0.0
-	for _, t := range in.Host.PackageTempsC {
-		cpuTemp = max(cpuTemp, t)
-	}
-	t := model.Topology{
-		Host: model.TopologyHost{Name: in.Host.Name, Health: hostHealth, PowerWatts: in.Host.PowerWatts, CPUTempC: cpuTemp, MemUsedRatio: memRatio},
-		VMs:  []model.TopologyVM{},
-	}
+func topology(in AttentionInput) model.Topology {
+	t := model.Topology{VMs: []model.TopologyVM{}}
 
 	groupOf := map[string]model.Group{}
 	for _, ns := range in.Cluster.Namespaces {

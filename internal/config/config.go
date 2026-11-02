@@ -55,13 +55,6 @@ type Config struct {
 	DataDir    string
 	SettingsUI string
 
-	// HostNodename is the nodename label of the Proxmox host's node-exporter and IPMI series: the
-	// first hardware host's nodename, else plugins.proxmox.node. Empty when neither is set (the
-	// Manager then uses the node the proxmox plugin discovers). The hardware plugin replaces it.
-	HostNodename string
-	// HostModel is shown next to the host's name, e.g. "Dell R730"; empty shows nothing.
-	HostModel string
-
 	// IconBaseURL is ui.iconBaseURL: the origin launcher link icon names resolve against and the
 	// only origin an absolute launcher icon URL may come from; empty means letter tiles and no
 	// third-party icon request from the launcher (apps are not affected). The SPA reads it with /me.
@@ -93,9 +86,6 @@ type Conventions struct {
 	SuspendReasonAnnotation string
 	// AppsFluxPrefix puts namespaces applied by a Flux Kustomization with this name prefix in Apps.
 	AppsFluxPrefix string
-	// ZFSScrubMetricPrefix names the scrub series: <prefix>_last_end_timestamp_seconds,
-	// <prefix>_last_errors and <prefix>_in_progress.
-	ZFSScrubMetricPrefix string
 	// NASBackupNamespace and NASBackupCronJob locate the NAS backup CronJob(s) (name or name-*).
 	NASBackupNamespace string
 	NASBackupCronJob   string

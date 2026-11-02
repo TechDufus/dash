@@ -62,7 +62,7 @@ func TestStreamEndpointNeverCarriesUpstreamDetail(t *testing.T) {
 	cluster := kube.NewFromClients(fake.NewClientset(), dynfake.NewSimpleDynamicClientWithCustomListKinds(runtime.NewScheme(), listKinds))
 
 	cfg := config.Defaults()
-	cfg.PublicURL, cfg.HostNodename = testOrigin+"/", "pve"
+	cfg.PublicURL = testOrigin + "/"
 	promClient := upstream.NewProm(prom.URL, nil)
 	gatus := &authGatus{}
 	pveCfg := pluginconf.DefaultProxmox()

@@ -190,15 +190,13 @@ func TestKubernetesShimExportsTheNodeIndex(t *testing.T) {
 
 // owners is keyed by the wire name of each topic: today's legacy names stay exactly as they
 // were (nothing observable moves), and a topic without one is "<plugin>.<name>", so a shim topic
-// that has no legacy name, like hardware.machines in P3.6, still has an owner.
+// that has no legacy name still has an owner.
 func TestOwnersAreKeyedByWireName(t *testing.T) {
 	want := map[model.Topic]owner{
-		"host":              {"hardware", "hosts"},
-		"hardware.machines": {"hardware", "machines"},
-		"cluster":           {"kubernetes", "cluster"},
-		"storage":           {"kubernetes", "storage"},
-		"apps":              {"kubernetes", "apps"},
-		"flux":              {"flux", "objects"},
+		"cluster": {"kubernetes", "cluster"},
+		"storage": {"kubernetes", "storage"},
+		"apps":    {"kubernetes", "apps"},
+		"flux":    {"flux", "objects"},
 	}
 	if len(owners) != len(want) {
 		t.Errorf("owners has %d entries, want %d: %v", len(owners), len(want), owners)
@@ -214,19 +212,24 @@ func TestOwnersAreKeyedByWireName(t *testing.T) {
 	if _, _, ok := Owner(model.TopicOverview); ok {
 		t.Error("the overview has an owner")
 	}
+	for _, gone := range []model.Topic{"host", model.TopicHost, model.TopicHardwareMachines} {
+		if _, _, ok := Owner(gone); ok {
+			t.Errorf("%s has an owner in the Manager: the hardware plugin publishes it", gone)
+		}
+	}
 
-	got := ownersOf([]plugin.Manifest{{ID: "hardware", Topics: []plugin.TopicSpec{
-		{Name: "hosts", Legacy: "host"}, {Name: "machines"},
+	got := ownersOf([]plugin.Manifest{{ID: "aa", Topics: []plugin.TopicSpec{
+		{Name: "rows", Legacy: "old"}, {Name: "plain"},
 	}}})
 	keys := make([]string, 0, len(got))
 	for k := range got {
 		keys = append(keys, string(k))
 	}
 	slices.Sort(keys)
-	if !slices.Equal(keys, []string{"hardware.machines", "host"}) {
+	if !slices.Equal(keys, []string{"aa.plain", "old"}) {
 		t.Fatalf("keys = %v", keys)
 	}
-	if got["hardware.machines"] != (owner{"hardware", "machines"}) {
-		t.Errorf("hardware.machines owner = %+v", got["hardware.machines"])
+	if got["aa.plain"] != (owner{"aa", "plain"}) {
+		t.Errorf("aa.plain owner = %+v", got["aa.plain"])
 	}
 }

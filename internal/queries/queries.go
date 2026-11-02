@@ -50,79 +50,15 @@ func NASBackupAge(ns, cronjob string) string {
 		quote(ns), quote(regexp.QuoteMeta(cronjob)+"(-.+)?"))
 }
 
-// MachineUp is the up series of a non-Kubernetes machine's node-exporter.
-func MachineUp(nodename string) string {
-	return fmt.Sprintf(`up{job="node-exporter",nodename=%s}`, quote(nodename))
-}
-
-// Host expressions; n is DASH_HOST_NODENAME.
-
-func HostCPU(n string) string {
-	return fmt.Sprintf(`1 - avg(rate(node_cpu_seconds_total{nodename=%s,mode="idle"}[2m]))`, quote(n))
-}
-func HostMemTotal(n string) string {
-	return fmt.Sprintf(`node_memory_MemTotal_bytes{nodename=%s}`, quote(n))
-}
-func HostMemAvailable(n string) string {
-	return fmt.Sprintf(`node_memory_MemAvailable_bytes{nodename=%s}`, quote(n))
-}
-func HostMem(n string) string {
-	return fmt.Sprintf(`1 - node_memory_MemAvailable_bytes{nodename=%[1]s} / node_memory_MemTotal_bytes{nodename=%[1]s}`, quote(n))
-}
-func HostPackageTemps(n string) string {
-	return fmt.Sprintf(`node_hwmon_temp_celsius{nodename=%s,chip=~"platform_coretemp_.*",sensor="temp1"}`, quote(n))
-}
-func HostCPUTempMax(n string) string { return "max(" + HostPackageTemps(n) + ")" }
-func HostSensors(n string) string {
-	return fmt.Sprintf(`ipmi_temperature_celsius{nodename=%s}`, quote(n))
-}
-func HostFans(n string) string { return fmt.Sprintf(`ipmi_fan_speed_rpm{nodename=%s}`, quote(n)) }
-func HostPower(n string) string {
-	return fmt.Sprintf(`ipmi_power_watts{nodename=%s}`, quote(n))
-}
-func HostPSUs(n string) string {
-	return fmt.Sprintf(`ipmi_sensor_state{nodename=%s,type=~"Power Supply|Power Unit"}`, quote(n))
-}
-func HostSELFree(n string) string {
-	return fmt.Sprintf(`ipmi_sel_free_space_bytes{nodename=%s}`, quote(n))
-}
-func HostPools(n string) string {
-	return fmt.Sprintf(`node_zfs_zpool_state{nodename=%s} == 1`, quote(n))
-}
-
-// The ZFS scrub series come from a textfile collector; prefix is a validated metric name prefix.
-func HostScrubEnd(prefix, n string) string {
-	return fmt.Sprintf(`%s_last_end_timestamp_seconds{nodename=%s}`, prefix, quote(n))
-}
-func HostScrubErrors(prefix, n string) string {
-	return fmt.Sprintf(`%s_last_errors{nodename=%s}`, prefix, quote(n))
-}
-func HostScrubRunning(prefix, n string) string {
-	return fmt.Sprintf(`%s_in_progress{nodename=%s}`, prefix, quote(n))
-}
-func HostSMARTHealthy(n string) string {
-	return fmt.Sprintf(`smartmon_device_smart_healthy{nodename=%s}`, quote(n))
-}
-func HostSMARTTemp(n string) string {
-	return fmt.Sprintf(`smartmon_temperature_celsius_raw_value{nodename=%s}`, quote(n))
-}
-func HostSMARTLifeRemain(n string) string {
-	return fmt.Sprintf(`smartmon_percent_lifetime_remain_value{nodename=%s}`, quote(n))
-}
-func HostSMARTWearout(n string) string {
-	return fmt.Sprintf(`smartmon_media_wearout_indicator_value{nodename=%s}`, quote(n))
-}
-
 // quote renders a PromQL string literal.
 func quote(s string) string { return strconv.Quote(s) }
 
 // Args are the validated parameters of a /api/v1/series request.
 type Args struct {
-	HostNodename string // DASH_HOST_NODENAME
-	VMID         string // digits only
-	Instance     string // "<node InternalIP>:9100"
-	Namespace    string // DNS-1123
-	Pod          string // DNS-1123
+	VMID      string // digits only
+	Instance  string // "<node InternalIP>:9100"
+	Namespace string // DNS-1123
+	Pod       string // DNS-1123
 }
 
 // ErrBadSeries is returned for an unknown series name or a missing argument.
@@ -142,18 +78,6 @@ func ValidDNS(s string) bool { return dnsRE.MatchString(s) }
 // Series returns the PromQL expression of a named /api/v1/series.
 func Series(name string, a Args) (string, error) {
 	switch name {
-	case "host.power":
-		return HostPower(a.HostNodename), nil
-	case "host.cpuTemp":
-		return HostCPUTempMax(a.HostNodename), nil
-	case "host.cpu":
-		return HostCPU(a.HostNodename), nil
-	case "host.mem":
-		return HostMem(a.HostNodename), nil
-	case "host.temps":
-		return HostSensors(a.HostNodename), nil
-	case "host.fans":
-		return HostFans(a.HostNodename), nil
 	case "node.cpu":
 		if a.Instance == "" {
 			return "", fmt.Errorf("%w: node required", ErrBadSeries)

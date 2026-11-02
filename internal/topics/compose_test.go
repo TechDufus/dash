@@ -111,27 +111,23 @@ func TestOverviewNeedsADirtyTopicOrAContributor(t *testing.T) {
 	if _, ok := h.Latest("", model.TopicOverview); ok {
 		t.Fatal("an overview from nothing")
 	}
-	m.mark(model.TopicHost)
-	m.done["host"] = true
+	m.mark(model.TopicFlux)
 	m.rebuild()
 	if _, ok := h.Latest("", model.TopicOverview); !ok {
 		t.Fatal("no overview after a topic changed")
 	}
 }
 
-// The overview comes with the first topic that is ready; the others fill in later (it used to
-// wait for all eight).
+// The overview comes at once, with nothing built: it waits for no topic (it used to wait for all
+// eight), and a topic whose prerequisites are not ready (the informers have not synced) is not
+// published yet.
 func TestOverviewDoesNotWaitForAllTopics(t *testing.T) {
 	h := hub.New()
 	m := testManager(config.Defaults(), plugintest.AllRunning(h, LegacyManifests()...))
-	m.done["host"] = true
 	m.markAll()
 	m.rebuild()
 
-	if _, ok := h.Latest("", model.TopicHost); !ok {
-		t.Fatal("the host topic is not published")
-	}
-	for _, topic := range []model.Topic{model.TopicHardwareMachines, model.TopicCluster, model.TopicStorage} {
+	for _, topic := range legacyTopics {
 		if _, ok := h.Latest("", topic); ok {
 			t.Fatalf("%s is published before its prerequisites", topic)
 		}
@@ -146,8 +142,7 @@ func TestOverviewDoesNotWaitForAllTopics(t *testing.T) {
 func TestCoreOverviewPublishesThroughCoreHost(t *testing.T) {
 	rec := &plugintest.Hub{}
 	m := testManager(config.Defaults(), plugintest.AllRunning(rec, LegacyManifests()...))
-	m.mark(model.TopicHost)
-	m.done["host"] = true
+	m.mark(model.TopicFlux)
 	m.rebuild()
 
 	var names []string
@@ -236,7 +231,6 @@ func TestAttentionItemsCarryPlugin(t *testing.T) {
 		"flux:source-unverified": "flux", "flux:Kustomization/flux-system/apps": "flux",
 		"node:cp-2": "kubernetes", "pod:media/app-0": "kubernetes", "workload:Deployment/media/app": "kubernetes",
 		"cert:media/tls": "kubernetes", "pvc:media/data": "kubernetes", "bucket:backups": "kubernetes",
-		"zfs:pool:bulk": "hardware", "smart:4": "hardware", "host:cpu-temp": "hardware",
 	}
 	got := map[string]string{}
 	for _, it := range items {

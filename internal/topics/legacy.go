@@ -6,10 +6,7 @@ import (
 	"github.com/TechDufus/dash/internal/config"
 	"github.com/TechDufus/dash/internal/model"
 	"github.com/TechDufus/dash/internal/plugin"
-	"github.com/TechDufus/dash/internal/pluginconf"
-	hwmodel "github.com/TechDufus/dash/internal/plugins/hardware/model"
 	"github.com/TechDufus/dash/internal/svc"
-	"github.com/TechDufus/dash/internal/upstream"
 )
 
 // Legacy is the plugin identity of an integration that still runs inside Manager until its G3
@@ -77,8 +74,6 @@ func Owner(topic model.Topic) (id plugin.ID, local string, ok bool) {
 // pollUsers lists the plugins that read each poller's source. A poller runs while at least one of
 // them does, so a disabled integration costs no upstream request.
 var pollUsers = map[string][]plugin.ID{
-	"host":    {"hardware"},
-	"vms":     {"hardware"},
 	"usage":   {"kubernetes"},
 	"storage": {"kubernetes"},
 }
@@ -91,16 +86,6 @@ func legacyManifests() []plugin.Manifest {
 		return plugin.UISpec{Nav: []model.NavItem{{Path: path, Label: label, Title: title, Icon: icon}}}
 	}
 	return []plugin.Manifest{
-		{ID: "hardware", Name: "Hardware", Description: "The physical host behind the cluster.", Version: "1.0.0",
-			Uses:   []plugin.ID{"prometheus", "proxmox"},
-			Config: func() any { return &pluginconf.Hardware{} },
-			Topics: []plugin.TopicSpec{
-				{Name: "hosts", Legacy: "host", Type: model.HostData{}, Doc: "The host's sensors, power, disks and pools."},
-				// No Legacy name: its wire name is hardware.machines (see owners). The Manager
-				// publishes it until the hardware plugin does.
-				{Name: "machines", Type: hwmodel.MachinesData{}, Doc: "The machines dash watches that are neither VMs nor cluster nodes."},
-			},
-			UI: nav("/hardware", "Hardware", "Hardware", "Cpu")},
 		{ID: "kubernetes", Name: "Kubernetes", Description: "How dash reaches and reads the cluster.", Version: "1.0.0",
 			Uses:   []plugin.ID{"prometheus", "gatus"},
 			Config: func() any { return &config.KubernetesConfig{} },
@@ -129,7 +114,7 @@ func (m *Manager) Plugins() []plugin.Factory {
 	out := make([]plugin.Factory, len(ms))
 	for i, man := range ms {
 		out[i] = func() plugin.Plugin {
-			l := NewLegacy(man, func() plugin.Status { return m.legacyStatus(man.ID) })
+			l := NewLegacy(man, m.legacyStatus)
 			if man.ID == "kubernetes" {
 				// Until the kubernetes plugin exists the Manager is its node index (D14): the
 				// proxmox plugin reads it through Host.Service and needs no change then.
@@ -141,67 +126,12 @@ func (m *Manager) Plugins() []plugin.Factory {
 	return out
 }
 
-// pollKeys are the source keys (m.srcs) that decide a poller-backed shim's state.
-var pollKeys = map[plugin.ID][]string{
-	"hardware": {"host:victoriametrics"},
-}
-
-// setting names what to configure for a shim whose source is off, for its status message.
-var setting = map[plugin.ID]string{
-	"hardware": "plugins.prometheus.url",
-}
-
-// legacyStatus is the state of shim id (design: how the Manager reports for its plugins). The
-// message is viewer-visible, so it names a setting or an error category and nothing else.
-func (m *Manager) legacyStatus(id plugin.ID) plugin.Status {
-	switch id {
-	case "kubernetes", "flux":
-		if m.d.Cluster.HasSynced() {
-			return plugin.Status{State: plugin.StateHealthy, Sources: m.sources("kubernetes")}
-		}
-		return plugin.Status{State: plugin.StateStarting, Message: "informers syncing", Sources: m.sources("kubernetes")}
+// legacyStatus is the state of the kubernetes and flux shims (design: how the Manager reports for
+// its plugins): both follow the informers. The message is viewer-visible, so it names nothing but
+// the state.
+func (m *Manager) legacyStatus() plugin.Status {
+	if m.d.Cluster.HasSynced() {
+		return plugin.Status{State: plugin.StateHealthy, Sources: m.sources("kubernetes")}
 	}
-	all := pollKeys[id]
-	// A key whose poller is skipped (nothing that reads it runs) would stay "not polled yet".
-	keys := m.polledKeys(all)
-	if len(keys) == 0 {
-		return plugin.Status{State: plugin.StateUnavailable, Message: "no enabled plugin reads this source"}
-	}
-
-	m.mu.RLock()
-	var ok, notConfigured, pending, failing int
-	failure := ""
-	for _, k := range keys {
-		st := m.srcs[k]
-		switch {
-		case st.at.IsZero():
-			pending++
-		case st.ok:
-			ok++
-		case st.err == upstream.CategoryNotConfigured:
-			notConfigured++
-		default:
-			failing++
-			if failure == "" {
-				failure = st.err
-			}
-		}
-	}
-	m.mu.RUnlock()
-
-	status := func(s plugin.State, msg string) plugin.Status {
-		return plugin.Status{State: s, Message: msg, Sources: m.sources(keys...)}
-	}
-	switch {
-	case notConfigured == len(keys):
-		return status(plugin.StateUnavailable, "not configured: set "+setting[id])
-	case pending > 0:
-		return status(plugin.StateStarting, "waiting for the first poll")
-	case failing == 0:
-		return status(plugin.StateHealthy, "")
-	case ok > 0:
-		return status(plugin.StateDegraded, failure)
-	default:
-		return status(plugin.StateError, failure)
-	}
+	return plugin.Status{State: plugin.StateStarting, Message: "informers syncing", Sources: m.sources("kubernetes")}
 }

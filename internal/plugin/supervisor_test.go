@@ -746,27 +746,27 @@ func TestPublishNamespacesDropsUndeclaredWrongTypeAndAfterStop(t *testing.T) {
 func TestPublishUsesLegacyNameWhenSet(t *testing.T) {
 	var h plugin.Host
 	f := plugintest.New("hw", func(f *plugintest.Fake) {
-		f.M.Topics = []plugin.TopicSpec{{Name: "hosts", Legacy: "host", Type: item{}}, {Name: "disks"}}
+		f.M.Topics = []plugin.TopicSpec{{Name: "rows", Legacy: "old", Type: item{}}, {Name: "disks"}}
 	})
 	f.StartFn = func(_ context.Context, host plugin.Host, _ any) error { h = host; return nil }
 	e := start(t, f.Factory())
-	h.Publish("hosts", item{1}, nil)
+	h.Publish("rows", item{1}, nil)
 	h.Publish("disks", item{1}, nil)
-	if _, ok := e.hub.Last("host"); !ok {
+	if _, ok := e.hub.Last("old"); !ok {
 		t.Fatal("nothing published as the legacy name")
 	}
-	if _, ok := e.hub.Last("hw.hosts"); ok {
+	if _, ok := e.hub.Last("hw.rows"); ok {
 		t.Fatal("published under the namespaced name too")
 	}
 	if _, ok := e.hub.Last("hw.disks"); !ok {
 		t.Fatal("a topic without a legacy name is namespaced")
 	}
-	if got := e.info(t, "hw").Topics; !slices.Equal(got, []string{"host", "hw.disks"}) {
+	if got := e.info(t, "hw").Topics; !slices.Equal(got, []string{"old", "hw.disks"}) {
 		t.Fatalf("Topics = %v", got)
 	}
 	e.set.Set(plugin.InstanceConfig{Name: "hw", Enabled: new(false)})
 	e.reloadUntil(t, "removal", func() bool { return len(e.hub.Removed()) == 2 })
-	if got := e.hub.Removed(); !slices.Equal(got, []model.Topic{"host", "hw.disks"}) {
+	if got := e.hub.Removed(); !slices.Equal(got, []model.Topic{"old", "hw.disks"}) {
 		t.Fatalf("removed = %v", got)
 	}
 }
@@ -937,9 +937,9 @@ func TestInfosOrderAndFields(t *testing.T) {
 
 func TestTopicOrder(t *testing.T) {
 	a := plugintest.New("aa", plugintest.Topics("one", "two"))
-	b := plugintest.New("bb", func(f *plugintest.Fake) { f.M.Topics = []plugin.TopicSpec{{Name: "hosts", Legacy: "host"}} })
+	b := plugintest.New("bb", func(f *plugintest.Fake) { f.M.Topics = []plugin.TopicSpec{{Name: "rows", Legacy: "old"}} })
 	e := newEnv(t, nil, a.Factory(), b.Factory())
-	want := []model.Topic{model.TopicPlugins, model.TopicOverview, "aa.one", "aa.two", "host"}
+	want := []model.Topic{model.TopicPlugins, model.TopicOverview, "aa.one", "aa.two", "old"}
 	if got := e.sup.TopicOrder(); !slices.Equal(got, want) {
 		t.Fatalf("order = %v, want %v", got, want)
 	}

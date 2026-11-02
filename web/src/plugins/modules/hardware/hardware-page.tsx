@@ -39,22 +39,17 @@ import { HEALTH_TEXT, worstHealth } from "@/lib/health";
 import { useNow } from "@/lib/hooks";
 import { cn } from "@/lib/utils";
 import { Slot } from "@/plugins/slots";
+import { MachinesPanel } from "./machines-panel";
 
 const fmtTemp = (v: number) => `${v.toFixed(0)}°C`;
 const fmtRpm = (v: number) => `${Math.round(v)} rpm`;
-const FAN_SCALE_MIN = 18000;
-const BAY_COUNT = 16;
 const SCRUB_STALE_DAYS = 35;
 
-function sensorValue(host: HostData, needle: string): number | undefined {
+/** The reading of the first sensor whose name contains the alias (the configured needle). */
+function sensorValue(host: HostData, alias: string): number | undefined {
+  const needle = alias.trim().toLowerCase();
+  if (needle === "") return undefined;
   return host.sensors.find((s) => s.name.toLowerCase().includes(needle))?.valueC;
-}
-
-function cpuHealth(c: number | undefined): Health {
-  if (c == null) return "unknown";
-  if (c >= 90) return "crit";
-  if (c >= 85) return "warn";
-  return "ok";
 }
 
 function Label({ children }: { children: ReactNode }) {
@@ -144,10 +139,14 @@ function TempTile({
 }
 
 function Temps({ host }: { host: HostData }) {
-  const inlet = sensorValue(host, "inlet");
-  const exhaust = sensorValue(host, "exhaust");
+  const inlet = sensorValue(host, host.sensorAliases.inlet);
+  const exhaust = sensorValue(host, host.sensorAliases.exhaust);
   const pkgs = host.packageTempsC;
   const maxPkg = pkgs.length > 0 ? Math.max(...pkgs) : undefined;
+  const limits =
+    host.tempWarnC > 0 && host.tempCritC > 0
+      ? `warn ${fmtTemp(host.tempWarnC)} · crit ${fmtTemp(host.tempCritC)}`
+      : undefined;
   return (
     <div className="grid gap-4 sm:grid-cols-3">
       <TempTile label="Inlet" value={inlet} detail="Ambient air entering the chassis" />
@@ -155,11 +154,16 @@ function Temps({ host }: { host: HostData }) {
       <TempTile
         label="CPU package"
         value={maxPkg}
-        health={cpuHealth(maxPkg)}
+        health={maxPkg === undefined ? "unknown" : host.cpuTempHealth}
         detail={
-          pkgs.length > 0
-            ? pkgs.map((t, i) => `CPU${i + 1} ${formatCelsius(t)}`).join(" · ")
-            : "No package sensors"
+          pkgs.length > 0 ? (
+            <>
+              {pkgs.map((t, i) => `CPU${i + 1} ${formatCelsius(t)}`).join(" · ")}
+              {limits && <span className="block">{limits}</span>}
+            </>
+          ) : (
+            "No package sensors"
+          )
         }
         spark={<SparkSeries name="host.cpuTemp" range="6h" format={fmtTemp} />}
       />
@@ -188,8 +192,19 @@ function System({ host }: { host: HostData }) {
   );
 }
 
+/**
+ * The top of the gauges: the configured maximum, raised to the highest observed speed when a fan
+ * runs faster; 0 (not configured) means the highest observed speed alone.
+ */
+export function fanScale(fanMaxRpm: number, rpms: number[]): number {
+  return Math.max(fanMaxRpm, ...rpms);
+}
+
 function Fans({ host }: { host: HostData }) {
-  const scale = Math.max(FAN_SCALE_MIN, ...host.fans.map((f) => f.rpm));
+  const scale = fanScale(
+    host.fanMaxRpm,
+    host.fans.map((f) => f.rpm),
+  );
   return (
     <Panel>
       <PanelHeader title="Fans" icon={<FanIcon />} />
@@ -200,7 +215,7 @@ function Fans({ host }: { host: HostData }) {
           {host.fans.map((f) => (
             <div key={f.name} className="flex flex-col items-center gap-1">
               <Gauge
-                value={f.rpm / scale}
+                value={scale > 0 ? f.rpm / scale : 0}
                 size={92}
                 display={formatNumber(f.rpm)}
                 caption="RPM"
@@ -233,17 +248,25 @@ interface BaySlot {
   disk?: Disk;
 }
 
-/** Slots 0..15 by bay number; unparsable or colliding labels fall back to sorted order. */
-function placeDisks(disks: Disk[]): BaySlot[] {
+/**
+ * The bay grid. `bays` is the configured slot count; 0 means "derive it": the grid then ends at
+ * the highest populated slot. Disks go to their bay number (numbered from 0, or from 1 when no
+ * disk sits in slot 0); unparsable or colliding labels fall back to sorted order.
+ */
+function placeDisks(disks: Disk[], bays: number): BaySlot[] {
   const parsed = disks.map((d) => ({ d, n: parseBay(d.bay) }));
   const nums = parsed.map((p) => p.n);
   const allParsed = nums.every((n): n is number => n !== undefined);
+  if (disks.length === 0) {
+    return Array.from({ length: bays }, (_, i) => ({ label: String(i + 1) }));
+  }
   if (allParsed && new Set(nums).size === nums.length) {
     const min = Math.min(...nums);
     const max = Math.max(...nums);
-    const offset = min >= 1 && max <= BAY_COUNT ? 1 : 0;
-    if (max - offset < BAY_COUNT) {
-      const slots: BaySlot[] = Array.from({ length: BAY_COUNT }, (_, i) => ({
+    const offset = min >= 1 && (bays === 0 || max <= bays) ? 1 : 0;
+    const count = bays > 0 ? bays : max - offset + 1;
+    if (max - offset < count) {
+      const slots: BaySlot[] = Array.from({ length: count }, (_, i) => ({
         label: String(i + offset),
       }));
       for (const p of parsed) {
@@ -259,7 +282,7 @@ function placeDisks(disks: Disk[]): BaySlot[] {
       (a.n ?? Number.MAX_SAFE_INTEGER) - (b.n ?? Number.MAX_SAFE_INTEGER) ||
       a.d.bay.localeCompare(b.d.bay, undefined, { numeric: true }),
   );
-  const total = Math.max(BAY_COUNT, sorted.length);
+  const total = Math.max(bays, sorted.length);
   return Array.from({ length: total }, (_, i) => {
     const p = sorted[i];
     return p ? { label: p.d.bay, disk: p.d } : { label: String(i + 1) };
@@ -338,7 +361,7 @@ function Bay({ slot }: { slot: BaySlot }) {
 }
 
 function Bays({ host }: { host: HostData }) {
-  const slots = placeDisks(host.disks);
+  const slots = placeDisks(host.disks, host.bays);
   const failing = host.disks.filter((d) => !d.healthy).length;
   return (
     <Panel className="lg:col-span-2">
@@ -348,13 +371,17 @@ function Bays({ host }: { host: HostData }) {
           {failing > 0 && <span className="ml-2 font-medium text-crit">{failing} failing</span>}
         </span>
       </PanelHeader>
-      <div className="grid grid-cols-4 gap-2 px-4 pb-4 sm:grid-cols-8">
-        {slots.map((s, i) => (
-          // Slot position is the identity of a bay; the label alone can repeat in the fallback order.
-          // biome-ignore lint/suspicious/noArrayIndexKey: fixed grid positions
-          <Bay key={i} slot={s} />
-        ))}
-      </div>
+      {slots.length === 0 ? (
+        <Empty className="py-4">No disks reported.</Empty>
+      ) : (
+        <div className="grid grid-cols-4 gap-2 px-4 pb-4 sm:grid-cols-8">
+          {slots.map((s, i) => (
+            // Slot position is the identity of a bay; the label alone can repeat in the fallback order.
+            // biome-ignore lint/suspicious/noArrayIndexKey: fixed grid positions
+            <Bay key={i} slot={s} />
+          ))}
+        </div>
+      )}
     </Panel>
   );
 }
@@ -444,10 +471,10 @@ function SidePanels({ host, now }: { host: HostData; now: number }) {
         </div>
       </Panel>
       <Panel>
-        <PanelHeader title="iDRAC log" icon={<Activity />} />
+        <PanelHeader title="System Event Log" icon={<Activity />} />
         <div className="space-y-1 px-4 pb-4">
           <div className="num text-2xl font-semibold text-fg">{formatBytes(host.selFreeBytes)}</div>
-          <p className="text-xs text-muted">free in the iDRAC System Event Log</p>
+          <p className="text-xs text-muted">free in the system event log</p>
         </div>
       </Panel>
     </div>
@@ -477,31 +504,48 @@ function Trends() {
   );
 }
 
+function PageSkeleton() {
+  return (
+    <Page>
+      <PanelSkeleton lines={4} className="min-h-[260px]" />
+      <div className="grid gap-4 sm:grid-cols-3">
+        <PanelSkeleton lines={2} />
+        <PanelSkeleton lines={2} />
+        <PanelSkeleton lines={2} />
+      </div>
+      <div className="grid gap-4 lg:grid-cols-2">
+        <PanelSkeleton lines={4} />
+        <PanelSkeleton lines={4} />
+      </div>
+      <div className="grid gap-4 lg:grid-cols-3">
+        <PanelSkeleton lines={6} className="lg:col-span-2" />
+        <PanelSkeleton lines={6} />
+      </div>
+    </Page>
+  );
+}
+
 export function HardwarePage() {
-  const env = useTopic("host");
+  const env = useTopic("hardware.hosts");
+  const machinesEnv = useTopic("hardware.machines");
   const host = env?.data;
   const now = useNow(30_000).getTime();
+  const hasMachines = (machinesEnv?.data.machines.length ?? 0) > 0;
 
-  if (!host) {
+  // A plugin with only machines configured never publishes hardware.hosts, so waiting for it
+  // would show the skeleton forever: once the machines have arrived and there are some, they are
+  // the page.
+  if (!host && hasMachines) {
     return (
       <Page>
-        <PanelSkeleton lines={4} className="min-h-[260px]" />
-        <div className="grid gap-4 sm:grid-cols-3">
-          <PanelSkeleton lines={2} />
-          <PanelSkeleton lines={2} />
-          <PanelSkeleton lines={2} />
-        </div>
-        <div className="grid gap-4 lg:grid-cols-2">
-          <PanelSkeleton lines={4} />
-          <PanelSkeleton lines={4} />
-        </div>
-        <div className="grid gap-4 lg:grid-cols-3">
-          <PanelSkeleton lines={6} className="lg:col-span-2" />
-          <PanelSkeleton lines={6} />
-        </div>
+        <Reveal index={0}>
+          <MachinesPanel title="Machines" />
+        </Reveal>
       </Page>
     );
   }
+
+  if (!host) return <PageSkeleton />;
 
   return (
     <Page>
@@ -519,7 +563,12 @@ export function HardwarePage() {
         <Bays host={host} />
         <SidePanels host={host} now={now} />
       </Reveal>
-      <Reveal index={4}>
+      {hasMachines && (
+        <Reveal index={4}>
+          <MachinesPanel />
+        </Reveal>
+      )}
+      <Reveal index={hasMachines ? 5 : 4}>
         <Trends />
       </Reveal>
     </Page>

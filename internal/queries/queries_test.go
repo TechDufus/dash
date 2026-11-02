@@ -7,18 +7,12 @@ import (
 )
 
 func TestSeries(t *testing.T) {
-	a := Args{HostNodename: "pve-730", VMID: "2020", Instance: "10.0.20.20:9100", Namespace: "homepage", Pod: "homepage-abc"}
+	a := Args{VMID: "2020", Instance: "10.0.20.20:9100", Namespace: "homepage", Pod: "homepage-abc"}
 	tests := []struct {
 		name string
 		args Args
 		want string
 	}{
-		{"host.power", a, `ipmi_power_watts{nodename="pve-730"}`},
-		{"host.cpuTemp", a, `max(node_hwmon_temp_celsius{nodename="pve-730",chip=~"platform_coretemp_.*",sensor="temp1"})`},
-		{"host.cpu", a, `1 - avg(rate(node_cpu_seconds_total{nodename="pve-730",mode="idle"}[2m]))`},
-		{"host.mem", a, `1 - node_memory_MemAvailable_bytes{nodename="pve-730"} / node_memory_MemTotal_bytes{nodename="pve-730"}`},
-		{"host.temps", a, `ipmi_temperature_celsius{nodename="pve-730"}`},
-		{"host.fans", a, `ipmi_fan_speed_rpm{nodename="pve-730"}`},
 		{"node.cpu", a, `1 - avg by (instance)(rate(node_cpu_seconds_total{job="node-exporter",instance="10.0.20.20:9100",mode="idle"}[2m]))`},
 		{"node.mem", a, `1 - node_memory_MemAvailable_bytes{job="node-exporter",instance="10.0.20.20:9100"} / node_memory_MemTotal_bytes{job="node-exporter",instance="10.0.20.20:9100"}`},
 		{"pod.cpu", a, `sum(rate(container_cpu_usage_seconds_total{metrics_path="/metrics/cadvisor",container!="",container!="POD",namespace="homepage",pod="homepage-abc"}[2m]))`},
@@ -42,6 +36,8 @@ func TestSeriesRejectsBadInput(t *testing.T) {
 		{"pod.cpu", Args{Namespace: "ok"}},
 		{"pod.mem", Args{Namespace: "Bad", Pod: "p"}},
 		{"pod.mem", Args{Namespace: "ns", Pod: `p"}`}},
+		{"host.power", Args{}}, // the host series belong to the hardware plugin
+		{"host.cpu", Args{}},
 	}
 	for _, tc := range tests {
 		if _, err := Series(tc.name, tc.args); !errors.Is(err, ErrBadSeries) {

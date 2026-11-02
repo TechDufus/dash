@@ -69,16 +69,15 @@ func TestViewerStreamNeverCarriesUpstreamDetail(t *testing.T) {
 	t.Cleanup(prom.Close)
 
 	cfg := config.Defaults()
-	cfg.HostNodename = "pve"
 	m := New(Deps{
 		Cfg:      cfg,
 		Services: promServices(upstream.NewProm(prom.URL, bearer{token})),
 		Secrets:  reg,
 	})
 	ctx := context.Background()
-	m.pollHost(ctx)
+	m.pollUsage(ctx)
 
-	keys := []string{"host:victoriametrics"}
+	keys := []string{"cluster:victoriametrics"}
 	want := map[string]string{"victoriametrics": "http_500"}
 	sources := m.sources(keys...)
 	for _, s := range sources {
@@ -99,7 +98,7 @@ func TestViewerStreamNeverCarriesUpstreamDetail(t *testing.T) {
 		t.Errorf("want the scrubbed detail and the category in the log:\n%s", out)
 	}
 	before := strings.Count(out, "upstream source failed")
-	m.pollHost(ctx)
+	m.pollUsage(ctx)
 	if after := strings.Count(logged.String(), "upstream source failed"); after != before {
 		t.Errorf("a repeated failure with the same category logged again (%d -> %d)", before, after)
 	}

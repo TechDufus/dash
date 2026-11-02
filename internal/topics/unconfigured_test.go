@@ -34,11 +34,11 @@ func TestUnconfiguredUpstreamsMakeNoRequests(t *testing.T) {
 	m := New(Deps{Cfg: cfg})
 
 	ctx := context.Background()
-	for _, poll := range []func(context.Context){m.pollHost, m.pollVMs, m.pollUsage, m.pollStorage} {
+	for _, poll := range []func(context.Context){m.pollUsage, m.pollStorage} {
 		poll(ctx)
 	}
 	for _, key := range []string{
-		"host:victoriametrics", "cluster:victoriametrics", "storage:victoriametrics", "machines:prometheus",
+		"cluster:victoriametrics", "storage:victoriametrics",
 	} {
 		s := m.sources(key)[0]
 		if s.OK || s.Error != "not_configured" {
@@ -51,9 +51,10 @@ func TestUnconfiguredUpstreamsMakeNoRequests(t *testing.T) {
 	}
 }
 
-// The scrub and NAS-backup queries need their conventions. With Prometheus configured but the
-// conventions empty none of those series is requested; with them set, each is (P1.3).
-func TestScrubAndNASQueriesNeedTheirConventions(t *testing.T) {
+// The NAS-backup query needs its convention. With Prometheus configured but the convention empty
+// that series is not requested; with it set, it is (P1.3). The ZFS scrub series are the hardware
+// plugin's, which has the same rule (internal/plugins/hardware TestEmptyScrubPrefixQueriesNoScrubData).
+func TestNASQueryNeedsItsConvention(t *testing.T) {
 	run := func(c config.Conventions) string {
 		var mu sync.Mutex
 		var queries strings.Builder
@@ -66,11 +67,10 @@ func TestScrubAndNASQueriesNeedTheirConventions(t *testing.T) {
 		}))
 		defer prom.Close()
 		cfg := config.Defaults()
-		cfg.HostNodename, cfg.Conventions = "pve-a", c
+		cfg.Conventions = c
 		m := New(Deps{
 			Cfg: cfg, Services: promServices(upstream.NewProm(prom.URL, nil)),
 		})
-		m.pollHost(context.Background())
 		m.pollStorage(context.Background())
 		mu.Lock()
 		defer mu.Unlock()
@@ -78,39 +78,15 @@ func TestScrubAndNASQueriesNeedTheirConventions(t *testing.T) {
 	}
 
 	got := run(config.Conventions{})
-	if !strings.Contains(got, `nodename="pve-a"`) {
+	if !strings.Contains(got, "kubelet_volume_stats") {
 		t.Fatalf("Prometheus was not queried at all:\n%s", got)
 	}
-	for _, banned := range []string{"scrub", "kube_cronjob_status_last_successful_time"} {
-		if strings.Contains(got, banned) {
-			t.Errorf("no convention set, yet %q was queried:\n%s", banned, got)
-		}
+	if strings.Contains(got, "kube_cronjob_status_last_successful_time") {
+		t.Errorf("no convention set, yet the NAS backup was queried:\n%s", got)
 	}
 
-	got = run(config.Conventions{ZFSScrubMetricPrefix: "example_zfs_scrub", NASBackupNamespace: "backup", NASBackupCronJob: "nas-backup"})
-	for _, want := range []string{
-		"example_zfs_scrub_last_end_timestamp_seconds", "example_zfs_scrub_last_errors", "example_zfs_scrub_in_progress",
-		`kube_cronjob_status_last_successful_time{namespace="backup",cronjob=~"nas-backup(-.+)?"}`,
-	} {
-		if !strings.Contains(got, want) {
-			t.Errorf("conventions set, yet %q was not queried:\n%s", want, got)
-		}
-	}
-}
-
-// The host data says whether scrub data is tracked at all, so the SPA hides the scrub rows
-// instead of showing every pool as "never scrubbed" while no prefix is configured.
-func TestHostDataSaysWhetherScrubIsTracked(t *testing.T) {
-	for prefix, want := range map[string]bool{"": false, "example_zfs_scrub": true} {
-		cfg := config.Defaults()
-		cfg.HostNodename, cfg.Conventions.ZFSScrubMetricPrefix = "pve-a", prefix
-		rt := &failingTransport{} // the queries fail; the flag does not depend on their answer
-		m := New(Deps{
-			Cfg: cfg, Services: promServices(upstream.NewProm("http://prom.example.com", rt)),
-		})
-		m.pollHost(context.Background())
-		if got := m.buildHost().ScrubTracked; got != want {
-			t.Errorf("prefix %q: ScrubTracked = %v, want %v", prefix, got, want)
-		}
+	got = run(config.Conventions{NASBackupNamespace: "backup", NASBackupCronJob: "nas-backup"})
+	if want := `kube_cronjob_status_last_successful_time{namespace="backup",cronjob=~"nas-backup(-.+)?"}`; !strings.Contains(got, want) {
+		t.Errorf("convention set, yet %q was not queried:\n%s", want, got)
 	}
 }

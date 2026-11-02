@@ -3,7 +3,6 @@ package topics
 import (
 	"context"
 	"sort"
-	"strconv"
 	"sync"
 	"time"
 
@@ -85,14 +84,6 @@ func first(s []upstream.Sample) (float64, bool) {
 	return s[0].Value, true
 }
 
-func sumValues(s []upstream.Sample) float64 {
-	var t float64
-	for _, x := range s {
-		t += x.Value
-	}
-	return t
-}
-
 // byLabel indexes sample values by one label (later samples of the same label win).
 func byLabel(s []upstream.Sample, label string) map[string]float64 {
 	out := make(map[string]float64, len(s))
@@ -109,9 +100,4 @@ func byLabels(s []upstream.Sample, a, b string) map[string]float64 {
 		out[x.Labels[a]+"/"+x.Labels[b]] = x.Value
 	}
 	return out
-}
-
-func atoi(s string) int {
-	n, _ := strconv.Atoi(s)
-	return n
 }

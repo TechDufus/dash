@@ -1,9 +1,8 @@
-import { screen, waitFor, within } from "@testing-library/react";
+import { screen, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { PluginInfo, PVETask, VM, VMDetail, VMsData } from "@/api/types";
 import { connectStream, type TestStream } from "@/plugins/test-util";
 import { pluginInfo, renderApp, stubFetch } from "@/test/harness";
-import type { MachinesData } from "../hardware/model.gen";
 import { VMsPage } from "./vms-page";
 
 const proxmox = (state = "healthy"): PluginInfo =>
@@ -15,7 +14,7 @@ const proxmox = (state = "healthy"): PluginInfo =>
   });
 
 const hardware = (state = "healthy"): PluginInfo =>
-  pluginInfo({ id: "hardware", state, topics: ["host", "hardware.machines"] });
+  pluginInfo({ id: "hardware", state, topics: ["hardware.hosts", "hardware.machines"] });
 
 const vm = (vmid: number, name: string, over: Partial<VM> = {}): VM => ({
   ref: `proxmox:VM/${vmid}`,
@@ -73,8 +72,6 @@ const detail = (): VMDetail => ({
   snapshots: [],
 });
 
-const machines = (list: MachinesData["machines"]): MachinesData => ({ machines: list });
-
 describe("the VMs page", () => {
   let stream: TestStream;
   beforeEach(() => {
@@ -122,63 +119,5 @@ describe("the VMs page", () => {
     expect(await within(sheet).findByText("Configuration")).toBeInTheDocument();
     expect(stub.callsTo("GET /api/v1/plugins/proxmox/vms/101")).toHaveLength(1);
     expect(stub.calls.map((c) => c.path)).not.toContain("/api/vms/101");
-  });
-});
-
-describe("the Machines panel", () => {
-  let stream: TestStream;
-  beforeEach(() => {
-    stubFetch();
-    stream = connectStream();
-  });
-  afterEach(() => stream.close());
-
-  it("draws hardware.machines: name, source and Up or Down", async () => {
-    renderApp(<VMsPage />, { path: "/vms" });
-    stream.plugins([proxmox(), hardware()]);
-    stream.send("proxmox.vms", data());
-    stream.send(
-      "hardware.machines",
-      machines([
-        { ref: "hardware:Machine/nas", name: "nas", up: true, source: "prometheus" },
-        { ref: "hardware:Machine/pi", name: "pi", up: false, source: "gatus" },
-      ]),
-    );
-
-    expect(await screen.findByRole("heading", { name: "Other machines" })).toBeInTheDocument();
-    const nas = (await screen.findByText("nas")).closest("li") as HTMLElement;
-    expect(within(nas).getByText("prometheus")).toBeInTheDocument();
-    expect(within(nas).getByText("Up")).toBeInTheDocument();
-    const pi = screen.getByText("pi").closest("li") as HTMLElement;
-    expect(within(pi).getByText("gatus")).toBeInTheDocument();
-    expect(within(pi).getByText("Down")).toBeInTheDocument();
-  });
-
-  it("says so when no machine is tracked", async () => {
-    renderApp(<VMsPage />, { path: "/vms" });
-    stream.plugins([proxmox(), hardware()]);
-    stream.send("proxmox.vms", data());
-    stream.send("hardware.machines", machines([]));
-    expect(await screen.findByText("No other machines are tracked.")).toBeInTheDocument();
-  });
-
-  it("shows a skeleton while the topic is available but has not arrived", () => {
-    renderApp(<VMsPage />, { path: "/vms" });
-    stream.plugins([proxmox(), hardware()]);
-    stream.send("proxmox.vms", data());
-    expect(screen.getByRole("heading", { name: "Other machines" })).toBeInTheDocument();
-    expect(screen.queryByText("No other machines are tracked.")).toBeNull();
-    expect(document.querySelector("[aria-busy=true]")).not.toBeNull();
-  });
-
-  it("is absent when the hardware plugin is off", async () => {
-    renderApp(<VMsPage />, { path: "/vms" });
-    stream.plugins([proxmox(), hardware("disabled")]);
-    stream.send("proxmox.vms", data());
-    await screen.findByRole("link", { name: "plex-vm, VM 101, running" });
-    await waitFor(() => expect(screen.queryByText("Other machines")).toBeNull());
-    expect(screen.queryByText("No other machines are tracked.")).toBeNull();
-    // The activity panel is still there.
-    expect(screen.getByRole("heading", { name: "Proxmox activity" })).toBeInTheDocument();
   });
 });

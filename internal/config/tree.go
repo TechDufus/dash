@@ -141,6 +141,7 @@ func defaults(dev, demo bool) Tree {
 			VictoriaLogs: pluginconf.DefaultVictoriaLogs(),
 			Gatus:        pluginconf.DefaultGatus(),
 			Proxmox:      pluginconf.DefaultProxmox(),
+			Hardware:     pluginconf.DefaultHardware(),
 			Headlamp:     pluginconf.DefaultHeadlamp(),
 		},
 	}
@@ -164,10 +165,6 @@ func (t *Tree) normalize() {
 	}
 	t.Server.AllowedHosts = splitHosts(strings.Join(t.Server.AllowedHosts, ","))
 	t.Server.ReadyRequires = splitHosts(strings.Join(t.Server.ReadyRequires, ","))
-	for i := range t.Plugins.Hardware.Hosts {
-		h := &t.Plugins.Hardware.Hosts[i]
-		h.Nodename, h.Model = strings.TrimSpace(h.Nodename), strings.TrimSpace(h.Model)
-	}
 	for i := range t.Plugins.Kubernetes.BackupJobs {
 		j := &t.Plugins.Kubernetes.BackupJobs[i]
 		j.Namespace, j.CronJob = strings.TrimSpace(j.Namespace), strings.TrimSpace(j.CronJob)
@@ -195,27 +192,16 @@ func (t Tree) config(dev, demo bool) Config {
 			BodyReadTimeout: time.Duration(t.Server.Limits.BodyReadTimeout),
 			MaxHeaderBytes:  t.Server.Limits.MaxHeaderBytes,
 		},
-		DataDir:    t.DataDir,
-		SettingsUI: t.Settings.UI,
-		// The host's nodename: plugins.hardware.hosts[0] below, else the proxmox node. Until the
-		// hardware plugin moves, the legacy host series read it (the Manager adds the node the
-		// proxmox plugin discovers).
-		HostNodename: p.Proxmox.Node,
-		IconBaseURL:  t.UI.IconBaseURL,
-		Kubeconfig:   p.Kubernetes.Kubeconfig,
+		DataDir:     t.DataDir,
+		SettingsUI:  t.Settings.UI,
+		IconBaseURL: t.UI.IconBaseURL,
+		Kubeconfig:  p.Kubernetes.Kubeconfig,
 		Conventions: Conventions{
 			ProtectedLabel:          p.Kubernetes.Conventions.ProtectedLabel,
 			TenantLabel:             p.Kubernetes.Conventions.TenantLabel,
 			SuspendReasonAnnotation: p.Flux.SuspendReasonAnnotation,
 			AppsFluxPrefix:          p.Kubernetes.Conventions.AppsFluxPrefix,
-			ZFSScrubMetricPrefix:    p.Hardware.ZFSScrubMetricPrefix,
 		},
-	}
-	if len(p.Hardware.Hosts) > 0 {
-		if h := p.Hardware.Hosts[0]; h.Nodename != "" {
-			c.HostNodename = h.Nodename
-		}
-		c.HostModel = p.Hardware.Hosts[0].Model
 	}
 	if len(p.Kubernetes.BackupJobs) > 0 {
 		c.Conventions.NASBackupNamespace = p.Kubernetes.BackupJobs[0].Namespace

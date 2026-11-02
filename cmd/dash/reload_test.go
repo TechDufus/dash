@@ -53,18 +53,22 @@ type fakePVE struct {
 	auth []string
 }
 
-func newFakePVE(t *testing.T) *fakePVE {
+func newFakePVE(t *testing.T) *fakePVE { return newFakePVEFor(t, "pve") }
+
+// newFakePVEFor is newFakePVE for a node of the given name.
+func newFakePVEFor(t *testing.T, node string) *fakePVE {
 	t.Helper()
+	n := "/api2/json/nodes/" + node
 	bodies := map[string]string{
-		"/api2/json/nodes":             `{"data":[{"node":"pve","status":"online"}]}`,
-		"/api2/json/nodes/pve/status":  `{"data":{"uptime":1,"pveversion":"pve-manager/9.0.5/x","current-kernel":{"release":"6.8"},"cpuinfo":{"model":"Example CPU"}}}`,
+		"/api2/json/nodes":             `{"data":[{"node":"` + node + `","status":"online"}]}`,
+		n + "/status":                  `{"data":{"uptime":1,"pveversion":"pve-manager/9.0.5/x","current-kernel":{"release":"6.8"},"cpuinfo":{"model":"Example CPU"}}}`,
 		"/api2/json/cluster/resources": `{"data":[{"id":"qemu/101","vmid":101,"name":"vm-101","status":"running","template":0,"maxcpu":2,"maxmem":1073741824}]}`,
 		"/api2/json/cluster/tasks":     `{"data":[]}`,
-		"/api2/json/nodes/pve/storage": `{"data":[]}`,
+		n + "/storage":                 `{"data":[]}`,
 
-		"/api2/json/nodes/pve/qemu/101/config":                       `{"data":{"name":"vm-101","cores":2,"memory":"1024"}}`,
-		"/api2/json/nodes/pve/qemu/101/agent/network-get-interfaces": `{"data":{"result":[]}}`,
-		"/api2/json/nodes/pve/qemu/101/snapshot":                     `{"data":[]}`,
+		n + "/qemu/101/config":                       `{"data":{"name":"vm-101","cores":2,"memory":"1024"}}`,
+		n + "/qemu/101/agent/network-get-interfaces": `{"data":{"result":[]}}`,
+		n + "/qemu/101/snapshot":                     `{"data":[]}`,
 	}
 	f := &fakePVE{}
 	f.Server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

@@ -43,7 +43,8 @@
           "href": "https://pve.example.com:8006/?console=shell\u0026novnc=1\u0026node=pve-demo\u0026resize=off\u0026cmd=",
           "kind": "proxmox"
         }
-      ]
+      ],
+      "ref": "hardware:Host/pve-demo"
     },
     {
       "id": "node:cp-2",
@@ -87,7 +88,8 @@
           "href": "https://pve.example.com:8006/?console=shell\u0026novnc=1\u0026node=pve-demo\u0026resize=off\u0026cmd=",
           "kind": "proxmox"
         }
-      ]
+      ],
+      "ref": "hardware:Disk/pve-demo/S1"
     },
     {
       "id": "workload:Deployment/media/app",
@@ -120,7 +122,8 @@
           "href": "https://pve.example.com:8006/?console=shell\u0026novnc=1\u0026node=pve-demo\u0026resize=off\u0026cmd=",
           "kind": "proxmox"
         }
-      ]
+      ],
+      "ref": "hardware:Pool/pve-demo/bulk"
     },
     {
       "id": "gatus:infrastructure_unifi",
@@ -281,7 +284,8 @@
           "href": "https://pve.example.com:8006/?console=shell\u0026novnc=1\u0026node=pve-demo\u0026resize=off\u0026cmd=",
           "kind": "proxmox"
         }
-      ]
+      ],
+      "ref": "hardware:Pool/pve-demo/fast"
     }
   ],
   "kpis": {
@@ -291,8 +295,6 @@
     "sourceVerified": false,
     "nodesReady": 1,
     "nodesTotal": 2,
-    "powerWatts": 412,
-    "cpuTempMaxC": 91.5,
     "worstPvc": {
       "namespace": "media",
       "name": "data",
@@ -300,6 +302,22 @@
     }
   },
   "kpiList": [
+    {
+      "key": "cpuTemp",
+      "plugin": "hardware",
+      "label": "CPU temp",
+      "unit": "°C",
+      "value": 91.5,
+      "health": "crit"
+    },
+    {
+      "key": "power",
+      "plugin": "hardware",
+      "label": "Power",
+      "unit": "W",
+      "value": 412,
+      "health": "ok"
+    },
     {
       "key": "vms.running",
       "plugin": "proxmox",
@@ -323,6 +341,7 @@
       "health": "crit",
       "powerWatts": 412,
       "cpuTempC": 91.5,
+      "cpuTempHealth": "crit",
       "memUsedRatio": 0.375
     },
     "vms": [

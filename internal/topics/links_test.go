@@ -99,7 +99,7 @@ func grafanaOff() plugin.InstanceConfig {
 	return plugin.InstanceConfig{Name: "grafana", Enabled: &off, Config: &pluginconf.Grafana{URL: "https://gf.example.com"}}
 }
 
-// kinds of the links of every pod of the cluster topic, and of the host topic.
+// kinds of the links of every pod of the cluster topic.
 func (r *linkRig) podLinks(t *testing.T) (pods int, kinds []model.LinkKind) {
 	t.Helper()
 	env, ok := latest(r.h, model.TopicCluster)
@@ -118,19 +118,6 @@ func (r *linkRig) podLinks(t *testing.T) (pods int, kinds []model.LinkKind) {
 	return len(d.Pods), kinds
 }
 
-func (r *linkRig) hostLinks(t *testing.T) (model.HostData, bool) {
-	t.Helper()
-	env, ok := latest(r.h, model.TopicHost)
-	if !ok {
-		return model.HostData{}, false
-	}
-	var d model.HostData
-	if err := json.Unmarshal(env.Data, &d); err != nil {
-		t.Fatal(err)
-	}
-	return d, true
-}
-
 func hasKind(kinds []model.LinkKind, k model.LinkKind) bool {
 	for _, x := range kinds {
 		if x == k {
@@ -140,29 +127,16 @@ func hasKind(kinds []model.LinkKind, k model.LinkKind) bool {
 	return false
 }
 
-func hostHas(d model.HostData, k model.LinkKind) bool {
-	for _, l := range d.Links {
-		if l.Kind == k {
-			return true
-		}
-	}
-	return false
-}
-
 // With headlamp running a pod's payload carries its "Open in Headlamp" link; with headlamp
-// disabled it carries none, and with grafana disabled the host's links lose "Grafana". The
-// Manager reads the providers through Supervisor.Links, so a change of the rows reaches the next
-// rebuild without a restart.
-func TestLinksFollowTheGrafanaAndHeadlampRows(t *testing.T) {
+// disabled it carries none. The Manager reads the providers through Supervisor.Links, so a change
+// of the rows reaches the next rebuild without a restart. (The host's Grafana link is the
+// hardware plugin's.)
+func TestLinksFollowTheHeadlampRow(t *testing.T) {
 	r := newLinkRig(t, config.Defaults(), headlampOn("https://hl.example.com"), grafanaOn("https://gf.example.com"))
 
 	eventually(t, "headlamp links on the pods", func() bool {
 		n, kinds := r.podLinks(t)
 		return n == 2 && hasKind(kinds, model.LinkKindHeadlamp)
-	})
-	eventually(t, "the grafana link on the host", func() bool {
-		d, ok := r.hostLinks(t)
-		return ok && hostHas(d, model.LinkKindGrafana)
 	})
 
 	r.set.Set(headlampOff())
@@ -175,14 +149,10 @@ func TestLinksFollowTheGrafanaAndHeadlampRows(t *testing.T) {
 		}
 		return states["headlamp"] == model.PluginDisabled && states["grafana"] == model.PluginDisabled
 	})
-	r.m.mark(model.TopicCluster, model.TopicHost)
+	r.m.mark(model.TopicCluster)
 	eventually(t, "the pods to lose their headlamp links", func() bool {
 		n, kinds := r.podLinks(t)
 		return n == 2 && !hasKind(kinds, model.LinkKindHeadlamp)
-	})
-	eventually(t, "the host to lose its grafana link", func() bool {
-		d, ok := r.hostLinks(t)
-		return ok && !hostHas(d, model.LinkKindGrafana)
 	})
 
 	// Back on: the links come back.
@@ -190,15 +160,14 @@ func TestLinksFollowTheGrafanaAndHeadlampRows(t *testing.T) {
 	r.set.Set(grafanaOn("https://gf.example.com"))
 	r.sup.Reload()
 	eventually(t, "headlamp to run again", func() bool { return r.sup.Running("headlamp") && r.sup.Running("grafana") })
-	r.m.mark(model.TopicCluster, model.TopicHost)
+	r.m.mark(model.TopicCluster)
 	eventually(t, "the links to return", func() bool {
 		_, kinds := r.podLinks(t)
-		d, _ := r.hostLinks(t)
-		return hasKind(kinds, model.LinkKindHeadlamp) && hostHas(d, model.LinkKindGrafana)
+		return hasKind(kinds, model.LinkKindHeadlamp)
 	})
 }
 
-// The providers are read once per rebuild: two pods, the host and the overview are linked from
+// The providers are read once per rebuild: two pods and the overview are linked from
 // one snapshot, and the next rebuild reads them again.
 func TestProvidersAreReadOncePerRebuild(t *testing.T) {
 	cfg := config.Defaults()
@@ -240,32 +209,5 @@ func TestManagerWithoutProvidersBuildsEmptyLinks(t *testing.T) {
 		if p.Links == nil || len(p.Links) != 0 {
 			t.Errorf("%s: links = %#v, want an empty non-nil slice", p.Name, p.Links)
 		}
-	}
-	if h := m.buildHost(); h.Links == nil {
-		t.Error("host links are nil")
-	}
-}
-
-// The host's model comes from the flat HostModel (plugins.hardware.hosts[0].model) and reaches
-// the host envelope, which is what the SPA's hardware page reads.
-func TestHostModelReachesTheHostEnvelope(t *testing.T) {
-	cfg := config.Defaults()
-	cfg.HostModel = "Dell R730"
-	h := hub.New()
-	m := testManager(cfg, plugintest.AllRunning(h, LegacyManifests()...))
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	m.Run(ctx)
-	var got model.HostData
-	eventually(t, "the host topic", func() bool {
-		env, ok := latest(h, model.TopicHost)
-		return ok && json.Unmarshal(env.Data, &got) == nil
-	})
-	if got.Model != "Dell R730" {
-		t.Errorf("host.model = %q, want the configured model", got.Model)
-	}
-	// Unset it shows nothing.
-	if m2 := testManager(config.Defaults(), nil); m2.buildHost().Model != "" {
-		t.Errorf("host.model = %q without a configured model", m2.buildHost().Model)
 	}
 }

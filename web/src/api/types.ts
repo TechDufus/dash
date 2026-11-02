@@ -77,7 +77,10 @@ export type LinkKind = typeof LinkKindHeadlamp | typeof LinkKindProxmox | typeof
  * Topic is a name published on /api/v1/stream.
  */
 export const TopicOverview = "core.overview";
-export const TopicHost = "host";
+/**
+ * TopicHost is the host's facts (HostData), published by the hardware plugin.
+ */
+export const TopicHost = "hardware.hosts";
 export const TopicVMs = "proxmox.vms";
 /**
  * TopicProxmoxNode is the Proxmox node's facts (proxmox/model.NodeData), TopicProxmoxStorage
@@ -166,8 +169,6 @@ export interface Kpis {
   sourceVerified: boolean;
   nodesReady: number /* int */;
   nodesTotal: number /* int */;
-  powerWatts: number /* float64 */;
-  cpuTempMaxC: number /* float64 */;
   worstPvc?: WorstPVC;
 }
 export interface TopologyHost {
@@ -175,6 +176,11 @@ export interface TopologyHost {
   health: Health;
   powerWatts: number /* float64 */;
   cpuTempC: number /* float64 */;
+  /**
+   * CPUTempHealth is the health of the hottest CPU package against the host's configured
+   * temperature thresholds.
+   */
+  cpuTempHealth: Health;
   memUsedRatio: number /* float64 */;
 }
 export interface TopologyVM {
@@ -235,7 +241,18 @@ export interface PSU {
   name: string;
   state: Health;
 }
+/**
+ * SensorAliases are the texts the Inlet and Exhaust tiles match a sensor's name by, ignoring case.
+ */
+export interface SensorAliases {
+  inlet: string;
+  exhaust: string;
+}
 export interface Pool {
+  /**
+   * Ref is hardware:Pool/<node>/<name> (design L.6).
+   */
+  ref: string;
   name: string;
   state: string;
   lastScrubEnd?: string;
@@ -243,6 +260,10 @@ export interface Pool {
   scrubInProgress: boolean;
 }
 export interface Disk {
+  /**
+   * Ref is hardware:Disk/<node>/<bay> (design L.6).
+   */
+  ref: string;
   bay: string;
   serial: string;
   device: string;
@@ -252,10 +273,37 @@ export interface Disk {
 }
 export interface HostData {
   /**
-   * Model is shown next to the host's name, e.g. "Dell R730"; empty shows nothing. The topic
-   * manager fills it from plugins.hardware.hosts[0].model.
+   * Ref is hardware:Host/<node> (design L.6).
+   */
+  ref: string;
+  /**
+   * Model is shown next to the host's name, e.g. "Dell R730"; empty shows nothing. The hardware
+   * plugin fills it from plugins.hardware.hosts[0].model.
    */
   model: string;
+  /**
+   * Bays is plugins.hardware.hosts[0].bays: the drive slots the Disks grid draws, 0 to derive
+   * them from the highest populated slot.
+   */
+  bays: number /* int */;
+  /**
+   * FanMaxRPM is plugins.hardware.hosts[0].fanMaxRPM: the top of the fan gauges, 0 to scale them
+   * to the fastest fan. The wire key is fanMaxRpm (camel case); the config key is fanMaxRPM.
+   */
+  fanMaxRpm: number /* int */;
+  /**
+   * SensorAliases name the sensors the Inlet and Exhaust tiles read.
+   */
+  sensorAliases: SensorAliases;
+  /**
+   * TempWarnC and TempCritC are plugins.hardware.tempThresholds, in whole °C.
+   */
+  tempWarnC: number /* int */;
+  tempCritC: number /* int */;
+  /**
+   * CPUTempHealth is the health of the hottest CPU package against those thresholds.
+   */
+  cpuTempHealth: Health;
   name: string;
   cpuRatio: number /* float64 */;
   memUsedBytes: number /* int64 */;

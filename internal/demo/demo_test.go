@@ -11,11 +11,13 @@ import (
 	"time"
 
 	"github.com/TechDufus/dash/internal/config"
+	"github.com/TechDufus/dash/internal/demo/world"
 	"github.com/TechDufus/dash/internal/hub"
 	"github.com/TechDufus/dash/internal/model"
 	"github.com/TechDufus/dash/internal/plugin"
 	"github.com/TechDufus/dash/internal/plugin/plugintest"
 	"github.com/TechDufus/dash/internal/plugins/alertmanager"
+	"github.com/TechDufus/dash/internal/plugins/hardware"
 	"github.com/TechDufus/dash/internal/plugins/proxmox"
 	"github.com/TechDufus/dash/internal/topics"
 )
@@ -24,7 +26,7 @@ import (
 func published(t *testing.T) *hub.Hub {
 	t.Helper()
 	h := hub.New()
-	s := New(Config(config.Defaults()))
+	s := New(config.Defaults())
 	s.Plugins(plugintest.AllRunning(h, topics.LegacyManifests()...))
 	s.publish()
 	return h
@@ -33,7 +35,7 @@ func published(t *testing.T) *hub.Hub {
 func TestPublishesEveryTopic(t *testing.T) {
 	h := published(t)
 	for _, topic := range []model.Topic{
-		model.TopicOverview, model.TopicHost, model.TopicHardwareMachines, model.TopicCluster, model.TopicFlux,
+		model.TopicOverview, model.TopicCluster, model.TopicFlux,
 		model.TopicStorage, model.TopicApps,
 	} {
 		ev, ok := h.Latest("", topic)
@@ -62,7 +64,7 @@ func TestFixturesStayFake(t *testing.T) {
 }
 
 func TestDetailsResolve(t *testing.T) {
-	s := New(Config(config.Defaults()))
+	s := New(config.Defaults())
 	ctx := context.Background()
 	w := s.build()
 	p := w.cluster.Pods[0]
@@ -111,7 +113,7 @@ func demoSupervisor(t *testing.T, set *plugintest.Settings) (*Source, *plugin.Su
 	}
 	h := hub.New()
 	sup := plugin.NewSupervisor(plugin.Options{Publisher: h, Settings: set, StatusEvery: 10 * time.Millisecond})
-	s := New(Config(config.Defaults()))
+	s := New(config.Defaults())
 	if err := sup.Add(s.Plugins(sup)...); err != nil {
 		t.Fatal(err)
 	}
@@ -136,7 +138,7 @@ func TestDemoPublishesLegacyTopicsAndCorePlugins(t *testing.T) {
 	}
 	// core.plugins first, then the overview, then the integrations' topics under the names
 	// they keep until their plugin migrates (the alertmanager twin is registered by cmd/dash).
-	want := []string{"core.plugins", "core.overview", "host", "hardware.machines", "cluster", "storage", "apps", "flux"}
+	want := []string{"core.plugins", "core.overview", "cluster", "storage", "apps", "flux"}
 	if strings.Join(got, " ") != strings.Join(want, " ") {
 		t.Fatalf("topics = %v, want %v", got, want)
 	}
@@ -148,16 +150,16 @@ func TestDemoPublishesLegacyTopicsAndCorePlugins(t *testing.T) {
 	if err := json.Unmarshal(env.Data, &pd); err != nil {
 		t.Fatal(err)
 	}
-	if len(pd.Plugins) != 3 { // the shims; the real plugins' twins (prometheus, alertmanager, gatus, victorialogs, proxmox, grafana, headlamp, launcher) are registered by cmd/dash
-		t.Fatalf("core.plugins lists %d plugins, want 3", len(pd.Plugins))
+	if len(pd.Plugins) != 2 { // the shims; the real plugins' twins (prometheus, alertmanager, gatus, victorialogs, proxmox, hardware, grafana, headlamp, launcher) are registered by cmd/dash
+		t.Fatalf("core.plugins lists %d plugins, want 2", len(pd.Plugins))
 	}
 }
 
 func TestDemoPluginsAreHealthy(t *testing.T) {
 	_, sup, _ := demoSupervisor(t, nil)
 	infos := sup.Infos()
-	if len(infos) != 3 {
-		t.Fatalf("%d plugins, want 3", len(infos))
+	if len(infos) != 2 {
+		t.Fatalf("%d plugins, want 2", len(infos))
 	}
 	for _, in := range infos {
 		if in.State != model.PluginHealthy || in.Message != "" {
@@ -173,7 +175,7 @@ func TestDemoPluginsAreHealthy(t *testing.T) {
 // while its twin runs and leaves both out when the plugin does not run.
 func TestDemoOverviewHasTheAlertmanagerKPIOnlyWhileItRuns(t *testing.T) {
 	overview := func(hp plugin.HostProvider, h *hub.Hub) (model.OverviewData, []model.SourceStatus) {
-		s := New(Config(config.Defaults()))
+		s := New(config.Defaults())
 		s.Plugins(hp)
 		s.publish()
 		ev, ok := h.Latest("", model.TopicOverview)
@@ -197,12 +199,12 @@ func TestDemoOverviewHasTheAlertmanagerKPIOnlyWhileItRuns(t *testing.T) {
 	}
 
 	h := hub.New()
-	d, srcs := overview(plugintest.Without(plugintest.AllRunning(h, append(topics.LegacyManifests(), alertmanager.New().Manifest())...), "proxmox"), h)
+	d, srcs := overview(plugintest.Without(plugintest.AllRunning(h, append(topics.LegacyManifests(), alertmanager.New().Manifest())...), "proxmox", "hardware"), h)
 	if len(d.KPIList) != 1 || d.KPIList[0].Plugin != "alertmanager" || d.KPIList[0].Key != "firing" || d.KPIList[0].Value != 2 || !hasChip(srcs) {
 		t.Errorf("with alertmanager running: kpiList %+v, sources %+v", d.KPIList, srcs)
 	}
 	h = hub.New()
-	d, srcs = overview(plugintest.Without(plugintest.AllRunning(h, topics.LegacyManifests()...), "alertmanager", "proxmox"), h)
+	d, srcs = overview(plugintest.Without(plugintest.AllRunning(h, topics.LegacyManifests()...), "alertmanager", "proxmox", "hardware"), h)
 	if len(d.KPIList) != 0 || hasChip(srcs) {
 		t.Errorf("without alertmanager: kpiList %+v, sources %+v", d.KPIList, srcs)
 	}
@@ -212,7 +214,7 @@ func TestDemoOverviewHasTheAlertmanagerKPIOnlyWhileItRuns(t *testing.T) {
 // plugin's: the demo adds them while its twin runs and leaves them out when the plugin does not run.
 func TestDemoOverviewHasTheProxmoxKPIsOnlyWhileItRuns(t *testing.T) {
 	overview := func(hp plugin.HostProvider, h *hub.Hub) (model.OverviewData, []model.SourceStatus) {
-		s := New(Config(config.Defaults()))
+		s := New(config.Defaults())
 		s.Plugins(hp)
 		s.publish()
 		ev, ok := h.Latest("", model.TopicOverview)
@@ -252,6 +254,52 @@ func TestDemoOverviewHasTheProxmoxKPIsOnlyWhileItRuns(t *testing.T) {
 	d, srcs = overview(plugintest.Without(plugintest.AllRunning(h, topics.LegacyManifests()...), "proxmox"), h)
 	if proxmoxKPIs(d) != 0 || len(d.Topology.VMs) != 0 || d.Topology.VMs == nil || hasChip(srcs) {
 		t.Errorf("without proxmox: kpiList %+v, topology VMs %v, sources %+v", d.KPIList, d.Topology.VMs, srcs)
+	}
+}
+
+// The overview's power and CPU temperature tiles, the host in its topology are the hardware
+// plugin's: the demo adds them while its twin runs and leaves them out when the plugin does not
+// run. The tiles are the ones the plugin's KPIs() raises (internal/plugins/hardware).
+func TestDemoOverviewHasTheHardwareKPIsOnlyWhileItRuns(t *testing.T) {
+	overview := func(hp plugin.HostProvider, h *hub.Hub) model.OverviewData {
+		s := New(config.Defaults())
+		s.Plugins(hp)
+		s.publish()
+		ev, ok := h.Latest("", model.TopicOverview)
+		if !ok {
+			t.Fatal("no overview")
+		}
+		var env model.Envelope
+		var d model.OverviewData
+		if err := json.Unmarshal(ev.Data, &env); err != nil || json.Unmarshal(env.Data, &d) != nil {
+			t.Fatalf("bad overview envelope (%v)", err)
+		}
+		return d
+	}
+	kpis := func(d model.OverviewData) map[string]model.KPI {
+		out := map[string]model.KPI{}
+		for _, k := range d.KPIList {
+			if k.Plugin == "hardware" {
+				out[k.Key] = k
+			}
+		}
+		return out
+	}
+
+	h := hub.New()
+	d := overview(plugintest.AllRunning(h, append(topics.LegacyManifests(), hardware.New().Manifest())...), h)
+	got := kpis(d)
+	if len(got) != 2 || got["power"].Unit != "W" || got["power"].Value <= 0 || got["cpuTemp"].Unit != "°C" || got["cpuTemp"].Value <= 0 {
+		t.Errorf("with hardware running: kpiList %+v", d.KPIList)
+	}
+	if host := d.Topology.Host; host.Name != world.HostName || host.PowerWatts != got["power"].Value || host.CPUTempC != got["cpuTemp"].Value ||
+		host.CPUTempHealth != model.HealthOK || host.Health != model.HealthOK {
+		t.Errorf("with hardware running: topology host %+v", host)
+	}
+	h = hub.New()
+	d = overview(plugintest.Without(plugintest.AllRunning(h, topics.LegacyManifests()...), "hardware"), h)
+	if len(kpis(d)) != 0 || d.Topology.Host != (model.TopologyHost{}) {
+		t.Errorf("without hardware: kpiList %+v, topology host %+v", d.KPIList, d.Topology.Host)
 	}
 }
 
@@ -325,7 +373,7 @@ func TestDemoPluginSwitchesOffAndOnWithoutRestart(t *testing.T) {
 func TestDemoSkipsOwnersThatAreNotRunning(t *testing.T) {
 	h := hub.New()
 	hp := plugintest.Without(plugintest.AllRunning(h, topics.LegacyManifests()...), "flux")
-	s := New(Config(config.Defaults()))
+	s := New(config.Defaults())
 	s.Plugins(hp)
 	s.publish()
 	if n := hp.Publishes("flux"); n != 0 {

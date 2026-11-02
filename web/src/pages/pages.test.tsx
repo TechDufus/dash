@@ -1,12 +1,11 @@
 import { screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { AppsData, HostData, LauncherData, OverviewData } from "@/api/types";
+import type { AppsData, LauncherData, OverviewData } from "@/api/types";
 import { connectStream, type TestStream } from "@/plugins/test-util";
 import { pluginInfo, renderApp, stubFetch } from "@/test/harness";
 import { shimRows, withState } from "@/test/shims";
 import { AppsPage } from "./apps";
-import { HardwarePage } from "./hardware";
 import { OverviewPage } from "./overview";
 
 // The topology diagram measures and animates; the overview tests are about the tiles.
@@ -52,6 +51,22 @@ const overview = (extra: Partial<OverviewData> = {}): OverviewData =>
         value: 6,
         health: "ok",
       },
+      {
+        key: "power",
+        plugin: "hardware",
+        label: "Power",
+        unit: "W",
+        value: 240,
+        health: "ok",
+      },
+      {
+        key: "cpuTemp",
+        plugin: "hardware",
+        label: "CPU temp",
+        unit: "°C",
+        value: 62,
+        health: "ok",
+      },
     ],
     topology: { host: {}, vms: [], groups: [] },
     kpis: {
@@ -61,8 +76,6 @@ const overview = (extra: Partial<OverviewData> = {}): OverviewData =>
       sourceVerified: true,
       nodesReady: 3,
       nodesTotal: 3,
-      powerWatts: 240,
-      cpuTempMaxC: 62,
     },
     ...extra,
   }) as unknown as OverviewData;
@@ -644,42 +657,6 @@ describe("pages built from slots", () => {
       stream.plugins(shimRows());
       stream.send("apps", apps(), [DOWN]);
       expect(screen.getAllByText(/source unreachable: kubernetes/)).toHaveLength(1);
-    });
-  });
-
-  describe("Hardware", () => {
-    const host = (model: string) =>
-      ({
-        model,
-        name: "pve-demo",
-        cpuRatio: 0.1,
-        memUsedBytes: 1,
-        memTotalBytes: 2,
-        powerWatts: 200,
-        packageTempsC: [],
-        sensors: [],
-        fans: [],
-        psus: [],
-        pools: [],
-        disks: [],
-        selFreeBytes: 0,
-        scrubTracked: false,
-        links: [],
-      }) as unknown as HostData;
-
-    it("shows the model the host topic carries next to the host's name", () => {
-      renderApp(<HardwarePage />);
-      stream.plugins(shimRows());
-      stream.send("host", host("Dell R730"));
-      expect(screen.getByText("pve-demo · Dell R730")).toBeInTheDocument();
-    });
-
-    it("shows only the name when no model is configured", () => {
-      renderApp(<HardwarePage />);
-      stream.plugins(shimRows());
-      stream.send("host", host(""));
-      expect(screen.getByText("pve-demo")).toBeInTheDocument();
-      expect(screen.queryByText(/pve-demo ·/)).toBeNull();
     });
   });
 });

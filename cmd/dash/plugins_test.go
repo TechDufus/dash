@@ -99,8 +99,8 @@ func loadFramework(t *testing.T) (*framework, *config.Resolved) {
 }
 
 // The framework as run starts it: Supervisor.Run returns before Manager.Run starts, so the
-// Manager's first publishes find every Host running and none is dropped. Everything the SPA
-// reads arrives, and the shims are live, and restart-only.
+// Manager's first publishes find every Host running and none is dropped. Everything the Manager
+// publishes arrives, and the shims are live, and restart-only.
 func TestFrameworkStartOrderPublishesFirstPoll(t *testing.T) {
 	startEnv(t, t.TempDir())
 	fw, res := loadFramework(t)
@@ -116,7 +116,7 @@ func TestFrameworkStartOrderPublishesFirstPoll(t *testing.T) {
 	}
 	defer fw.sup.Shutdown(context.Background())
 
-	want := []string{"core.plugins", "core.overview", "host", "hardware.machines", "cluster", "storage", "apps", "flux"}
+	want := []string{"core.plugins", "core.overview", "cluster", "storage", "apps", "flux"}
 	deadline := time.Now().Add(5 * time.Second)
 	for {
 		snap, _, cancelSub := fw.hub.Subscribe("", nil)
@@ -180,8 +180,9 @@ func TestFrameworkAppliesLiveSectionsAndReportsTheRest(t *testing.T) {
 	}
 }
 
-// Demo mode answers /api/v1/series through the prometheus plugin's demo twin: the series
-// handler asks the running plugin for its Querier, and the demo source no longer serves it.
+// Demo mode answers /api/v1/series through the prometheus plugin's demo twin and the series the
+// hardware twin registers: the handler asks the running plugin for its Querier and for the
+// series, and the demo source serves neither.
 func TestDemoSeriesComeFromThePrometheusTwin(t *testing.T) {
 	startEnv(t, t.TempDir(), "DASH_DEMO=true")
 	res, store, err := loadConfig(secret.NewRegistry())
@@ -191,7 +192,7 @@ func TestDemoSeriesComeFromThePrometheusTwin(t *testing.T) {
 	if store != nil {
 		t.Cleanup(func() { _ = store.Close() })
 	}
-	cfg := demo.Config(res.Config)
+	cfg := res.Config
 	fw := newFramework(res, store, config.ReloadOptions{}, nil, nil, true)
 	src := demo.New(cfg)
 	src.HasReal = hasRealPlugin
@@ -228,7 +229,7 @@ func TestDemoPublishesTheLauncherLinksLast(t *testing.T) {
 		t.Cleanup(func() { _ = store.Close() })
 	}
 	fw := newFramework(res, store, config.ReloadOptions{}, nil, nil, true)
-	src := demo.New(demo.Config(res.Config))
+	src := demo.New(res.Config)
 	src.HasReal = hasRealPlugin
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -237,7 +238,7 @@ func TestDemoPublishesTheLauncherLinksLast(t *testing.T) {
 	}
 	defer fw.sup.Shutdown(context.Background())
 
-	want := []string{"core.plugins", "core.overview", "alertmanager.alerts", "gatus.status", "proxmox.vms", "proxmox.node", "proxmox.storage", "host", "hardware.machines", "cluster", "storage", "apps", "flux", "launcher.links"}
+	want := []string{"core.plugins", "core.overview", "alertmanager.alerts", "gatus.status", "proxmox.vms", "proxmox.node", "proxmox.storage", "hardware.hosts", "hardware.machines", "cluster", "storage", "apps", "flux", "launcher.links"}
 	deadline := time.Now().Add(5 * time.Second)
 	for {
 		snap, _, cancelSub := fw.hub.Subscribe("", nil)
@@ -263,7 +264,7 @@ func TestDemoPublishesTheLauncherLinksLast(t *testing.T) {
 	if err := json.Unmarshal(env.Data, &e); err != nil || json.Unmarshal(e.Data, &data) != nil || len(data.Links) != len(world.Launcher().Links) {
 		t.Fatalf("launcher.links = %s (%v), want the demo links", env.Data, err)
 	}
-	// The demo's host carries the fake host's model, and a pod link comes from the headlamp twin.
+	// The demo's host, published by the hardware twin, carries the fake host's model.
 	hostEnv, ok := fw.hub.Latest("", model.TopicHost)
 	if !ok {
 		t.Fatal("host has no snapshot")

@@ -123,7 +123,6 @@ func run(reg *secret.Registry) error {
 	var srv *api.Server
 	var handler http.Handler
 	if cfg.Demo {
-		cfg = demo.Config(cfg)
 		src := demo.New(cfg)
 		src.HasReal = hasRealPlugin
 		if err := fw.start(ctx, registry(src.Plugins(sup)), func() { src.Run(ctx) }); err != nil {

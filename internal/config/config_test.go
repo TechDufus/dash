@@ -65,14 +65,24 @@ func TestZFSScrubPrefixIsValidatedOnlyWhenSet(t *testing.T) {
 	}
 }
 
-func TestHostNodenameFollowsProxmoxNode(t *testing.T) {
-	base := map[string]string{"DASH_DEV": "true", "DASH_PLUGINS_PROXMOX_NODE": "pve-1"}
-	if c := mustLoad(t, base); c.HostNodename != "pve-1" {
-		t.Errorf("HostNodename = %q", c.HostNodename)
+// The hardware host's nodename is the plugin's to resolve (hosts[0].nodename, else the Proxmox
+// node), so the tree carries what was set and nothing derived.
+func TestHostNodenameIsNotDerivedInTheTree(t *testing.T) {
+	res, err := Resolve(Sources{Environ: environ(map[string]string{"DASH_DEV": "true", "DASH_PLUGINS_PROXMOX_NODE": "pve-1"})})
+	if err != nil {
+		t.Fatal(err)
 	}
-	base["DASH_PLUGINS_HARDWARE_HOSTS"] = `[{"nodename":"box"}]`
-	if c := mustLoad(t, base); c.HostNodename != "box" {
-		t.Errorf("HostNodename = %q", c.HostNodename)
+	if hw := res.Tree.Plugins.Hardware; len(hw.Hosts) != 0 || res.Tree.Plugins.Proxmox.Node != "pve-1" {
+		t.Errorf("hosts = %+v, node = %q", hw.Hosts, res.Tree.Plugins.Proxmox.Node)
+	}
+	res, err = Resolve(Sources{Environ: environ(map[string]string{
+		"DASH_DEV": "true", "DASH_PLUGINS_PROXMOX_NODE": "pve-1", "DASH_PLUGINS_HARDWARE_HOSTS": `[{"nodename":"box"}]`,
+	})})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if hw := res.Tree.Plugins.Hardware; len(hw.Hosts) != 1 || hw.Hosts[0].Nodename != "box" || res.Tree.Plugins.Proxmox.Node != "pve-1" {
+		t.Errorf("hosts = %+v, node = %q", hw.Hosts, res.Tree.Plugins.Proxmox.Node)
 	}
 }
 
@@ -188,51 +198,5 @@ func TestPublicOrigin(t *testing.T) {
 		if got := (Config{PublicURL: tc.url}).PublicOrigin(); got != tc.want {
 			t.Errorf("PublicOrigin(%q) = %q, want %q", tc.url, got, tc.want)
 		}
-	}
-}
-
-// TestDeploymentEnvCompat loads exactly the env names the homelab Kubernetes deployment sets
-// (with placeholder values). DASH_PLUGINS_PROXMOX_NODE, the hardware hosts and the launcher file
-// are deliberately absent: the node is left for discovery at startup.
-func TestDeploymentEnvCompat(t *testing.T) {
-	e := map[string]string{
-		"DASH_SERVER_PUBLIC_URL":            "https://dash.example.com",
-		"DASH_PLUGINS_PROMETHEUS_URL":       "http://vm.example.com:8428",
-		"DASH_PLUGINS_ALERTMANAGER_URL":     "http://alertmanager.example.com:9093",
-		"DASH_PLUGINS_VICTORIALOGS_URL":     "http://vlogs.example.com:9428",
-		"DASH_PLUGINS_GATUS_URL":            "http://gatus.example.com:8080",
-		"DASH_PLUGINS_PROXMOX_URL":          "https://pve.example.com:8006",
-		"DASH_PLUGINS_HEADLAMP_URL":         "https://headlamp.example.com",
-		"DASH_PLUGINS_GRAFANA_URL":          "https://grafana.example.com",
-		"DASH_PLUGINS_PROXMOX_TOKEN_ID":     "dash@pve!ci",
-		"DASH_PLUGINS_PROXMOX_TOKEN_SECRET": "00000000-0000-0000-0000-000000000000",
-	}
-	c := mustLoad(t, e)
-	res, err := Resolve(Sources{Environ: environ(e)}) // the prometheus URL has no flat field: the plugin reads its section
-	if err != nil {
-		t.Fatal(err)
-	}
-	fields := map[string]string{
-		"DASH_SERVER_PUBLIC_URL":            c.PublicURL,
-		"DASH_PLUGINS_PROMETHEUS_URL":       res.Tree.Plugins.Prometheus.URL,
-		"DASH_PLUGINS_ALERTMANAGER_URL":     res.Tree.Plugins.Alertmanager.URL,
-		"DASH_PLUGINS_VICTORIALOGS_URL":     res.Tree.Plugins.VictoriaLogs.URL,
-		"DASH_PLUGINS_GATUS_URL":            res.Tree.Plugins.Gatus.URL,
-		"DASH_PLUGINS_PROXMOX_URL":          res.Tree.Plugins.Proxmox.URL,
-		"DASH_PLUGINS_HEADLAMP_URL":         res.Tree.Plugins.Headlamp.URL,
-		"DASH_PLUGINS_GRAFANA_URL":          res.Tree.Plugins.Grafana.URL,
-		"DASH_PLUGINS_PROXMOX_TOKEN_ID":     res.Tree.Plugins.Proxmox.TokenID,
-		"DASH_PLUGINS_PROXMOX_TOKEN_SECRET": res.Tree.Plugins.Proxmox.TokenSecret.Reveal(),
-	}
-	for name, want := range e {
-		if got := fields[name]; got != want {
-			t.Errorf("%s: field = %q, want %q (env name not consumed?)", name, got, want)
-		}
-	}
-	if len(fields) != len(e) {
-		t.Errorf("table covers %d env names, env sets %d", len(fields), len(e))
-	}
-	if res.Tree.Plugins.Proxmox.Node != "" || c.HostNodename != "" {
-		t.Errorf("node = %q, nodename = %q, want both empty before discovery", res.Tree.Plugins.Proxmox.Node, c.HostNodename)
 	}
 }

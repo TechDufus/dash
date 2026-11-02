@@ -195,33 +195,6 @@ func TestPodAndWorkloadHealth(t *testing.T) {
 	}
 }
 
-func TestHostRules(t *testing.T) {
-	tests := []struct {
-		name string
-		host model.HostData
-		id   string
-		want model.Severity
-	}{
-		{"pool online", model.HostData{Pools: []model.Pool{{Name: "bulk", State: "online"}}}, "zfs:pool:bulk", ""},
-		{"pool degraded", model.HostData{Pools: []model.Pool{{Name: "bulk", State: "degraded"}}}, "zfs:pool:bulk", model.SeverityCrit},
-		{"scrub clean", model.HostData{Pools: []model.Pool{{Name: "bulk", State: "online"}}}, "zfs:scrub:bulk", ""},
-		{"scrub errors", model.HostData{Pools: []model.Pool{{Name: "bulk", State: "online", ScrubErrors: 2}}}, "zfs:scrub:bulk", model.SeverityWarn},
-		{"smart ok", model.HostData{Disks: []model.Disk{{Bay: "3", Healthy: true}}}, "smart:3", ""},
-		{"smart failing", model.HostData{Disks: []model.Disk{{Bay: "3", Healthy: false}}}, "smart:3", model.SeverityCrit},
-		{"temp 84.9", model.HostData{PackageTempsC: []float64{70, 84.9}}, "host:cpu-temp", ""},
-		{"temp 85", model.HostData{PackageTempsC: []float64{70, 85}}, "host:cpu-temp", model.SeverityWarn},
-		{"temp 89.9", model.HostData{PackageTempsC: []float64{89.9}}, "host:cpu-temp", model.SeverityWarn},
-		{"temp 90", model.HostData{PackageTempsC: []float64{90, 60}}, "host:cpu-temp", model.SeverityCrit},
-	}
-	for _, tc := range tests {
-		in := input()
-		in.Host = tc.host
-		if got := severityOf(Attention(in, nil), tc.id); got != tc.want {
-			t.Errorf("%s: %q, want %q", tc.name, got, tc.want)
-		}
-	}
-}
-
 func TestOverallStatusAndOrdering(t *testing.T) {
 	if got := OverallStatus(nil); got != model.HealthOK {
 		t.Errorf("empty = %s", got)

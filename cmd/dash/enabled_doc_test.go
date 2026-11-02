@@ -61,6 +61,9 @@ func TestEnabledDocNamesTheUsers(t *testing.T) {
 		t.Fatalf("setup: pairs %v, shims %v", pairs, shims)
 	}
 	restarts := "(" + strings.Join(pairs, "; ") + ")"
+	// The sentence about the shims follows the restart list directly, so that a plugin that has
+	// moved cannot hide in front of the others ("hardware, kubernetes and flux have not moved").
+	shimSentence := restarts + ". " + joinWith(shims, "and") + " have not moved to plugins of their own yet"
 
 	field, _ := reflect.TypeFor[pluginconf.PluginBase]().FieldByName("Enabled")
 	var table, page bytes.Buffer
@@ -75,30 +78,47 @@ func TestEnabledDocNamesTheUsers(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	tagWants := []string{"This is how " + joinWith(live, "and") + " behave", shimSentence}
+	missing := func(text string, wants []string) []string {
+		var out []string
+		text = squash(text)
+		for _, want := range wants {
+			if !strings.Contains(text, want) {
+				out = append(out, want)
+			}
+		}
+		return out
+	}
 	for _, doc := range []struct {
 		name, text string
 		wants      []string
 	}{
-		{"the enabled doc tag", field.Tag.Get("doc"), []string{
-			"This is how " + joinWith(live, "and") + " behave", restarts,
-			joinWith(shims, "and") + " have not moved to plugins of their own yet",
-		}},
+		{"the enabled doc tag", field.Tag.Get("doc"), tagWants},
 		{"dash config env", table.String(), []string{
-			"applies live for " + joinWith(live, "and") + ",", restarts, "A change to " + joinWith(shims, "or") + ",",
+			"applies live for " + joinWith(live, "and") + ",", restarts + ". A change to " + joinWith(shims, "or") + ",",
 		}},
 		{"the generated page", page.String(), []string{
-			"applies live for " + joinWith(live, "and") + ",", restarts, "A change to " + joinWith(shims, "or") + ",",
+			"applies live for " + joinWith(live, "and") + ",", restarts + ". A change to " + joinWith(shims, "or") + ",",
 		}},
-		{"the README row", string(readme), []string{
-			"That is how " + joinWith(live, "and") + " behave", restarts,
-			joinWith(shims, "and") + " have not moved to plugins of their own yet",
-		}},
+		{"the README row", string(readme), []string{"That is how " + joinWith(live, "and") + " behave", shimSentence}},
 	} {
-		text := squash(doc.text)
-		for _, want := range doc.wants {
-			if !strings.Contains(text, want) {
-				t.Errorf("%s lacks %q", doc.name, want)
-			}
+		for _, want := range missing(doc.text, doc.wants) {
+			t.Errorf("%s lacks %q", doc.name, want)
+		}
+	}
+
+	// The check itself: each stale form of the sentence is caught.
+	tag := squash(field.Tag.Get("doc"))
+	for name, stale := range map[string]string{
+		"a restart pair is missing":                    strings.Replace(tag, " a gatus change restarts hardware;", "", 1),
+		"a moved plugin is listed as one that has not": strings.Replace(tag, ". kubernetes and flux have not moved", ". hardware, kubernetes and flux have not moved", 1),
+		"a live plugin is missing":                     strings.Replace(tag, "proxmox, hardware, grafana", "proxmox, grafana", 1),
+	} {
+		if stale == tag {
+			t.Fatalf("%s: the doc has no text to damage", name)
+		}
+		if len(missing(stale, tagWants)) == 0 {
+			t.Errorf("%s: the check still passes", name)
 		}
 	}
 }
