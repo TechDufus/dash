@@ -89,9 +89,11 @@ type Cluster interface {
 	// Has reports that the API server serves gvr: the last successful discovery of its group
 	// listed it.
 	Has(gvr schema.GroupVersionResource) bool
-	// Listed reports that the first list of gvr has completed, or that discovery says gvr is absent
-	// (or failed for its group). A builder publishes once its own GVRs are listed or absent, so it
-	// never computes from a partial list.
+	// Listed reports that the first list of gvr has completed, or that a discovery has evaluated
+	// gvr and found it absent (or failed for its group). It is false for a gvr no discovery has
+	// evaluated yet, including one registered after the last discovery, unless the discovery
+	// failed altogether (nothing will be known, so nothing waits for ever). A builder publishes
+	// once its own GVRs are listed or absent, so it never computes from a partial list.
 	Listed(gvr schema.GroupVersionResource) bool
 	// Watch asks for informers of gvrs. It is idempotent; the informer of a CRD that is not served
 	// starts when the CRD appears (an immediate discovery runs).
