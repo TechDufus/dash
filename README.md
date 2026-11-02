@@ -220,7 +220,7 @@ restart with `DASH_PLUGINS_PROXMOX_TOKEN_SECRET_FILE`.
 | `plugins.kubernetes.kubeconfig`, `.context` | in-cluster, the kubeconfig's current context | `kubeconfig` is used outside the cluster (development); the standard `KUBECONFIG` fills it too (this setting's own variable wins), with no `_FILE` form. `context` picks the kubeconfig's context and is read only with a kubeconfig |
 | `plugins.kubernetes.qps`, `.burst` | `20`, `40` | the rate limits of dash's Kubernetes client; `0` or unset means the default, a negative value is refused, and `burst` must be at least `qps` |
 | `plugins.kubernetes.etcd.job` | `etcd` | the `job` label of etcd's metrics in Prometheus, for the etcd size |
-| `plugins.kubernetes.optional.certificates`, `.externalSecrets`, `.httpRoutes` | `false` | the cluster may lack the cert-manager, external-secrets or Gateway API CRDs: with the flag set their absence is not a note and does not make the plugin `degraded`, and neither does a failed discovery of that group or a refused list of its resource |
+| `plugins.kubernetes.optional.certificates`, `.externalSecrets`, `.httpRoutes` | `false` | the cluster may lack the cert-manager, external-secrets or Gateway API CRDs: with the flag set their absence is not a note and does not make the plugin `degraded`; a failed discovery or a refused list of that group still adds a note to its topic |
 | `plugins.kubernetes.upstreamViaAPIServer` | `false` | send the other plugins' requests to in-cluster service URLs (`http://<service>.<namespace>.svc`) through the API server's service proxy, with the Kubernetes credentials: for running dash on a laptop against a remote cluster (`DASH_DEV` no longer does this). Applies to requests made after the plugin starts |
 | `plugins.kubernetes.actions.enabled` | `false` | mounts the `restart` action (a rollout restart of a Deployment, StatefulSet or DaemonSet, admin only); a namespace that the protected label marks needs the workload's name typed as a confirmation. `DASH_PLUGINS_KUBERNETES_ACTIONS_ENABLED=true`; a change restarts the plugin |
 | `plugins.kubernetes.actions.denyNamespaces` | `[]` | namespaces where `restart` answers 403 and the refusal is audited (a JSON list in the environment) |
@@ -456,8 +456,9 @@ is published without its objects after 60 seconds, and the row is `degraded` wit
 `external-secrets`, `gateway-api` or `cnpg`, for example `cannot list: ingress (auth)`; the
 topic's source note carries the same category.
 A cluster that lacks a CRD group is fine: mark the kinds in `plugins.kubernetes.optional.*` to
-keep the plugin out of `degraded` for it. A mark also covers a group whose discovery fails (an
-aggregated API that is down) and a resource that cannot be listed.
+keep the plugin out of `degraded` for it. The mark also keeps the row healthy when the discovery of
+that group fails (an aggregated API that is down) or its resource cannot be listed; the topic's
+source note still says so.
 
 ### Secrets from Kubernetes (`k8s:`)
 
