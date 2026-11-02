@@ -4,10 +4,12 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
 
+	"github.com/TechDufus/dash/internal/pluginconf"
 	"github.com/TechDufus/dash/internal/secret"
 )
 
@@ -238,6 +240,62 @@ func TestGeneratedNames(t *testing.T) {
 		}
 		if l := schema.byPath[path]; l == nil || l.env != want {
 			t.Errorf("schema leaf %s: %+v", path, l)
+		}
+	}
+}
+
+// pluralTree is a test-only tree with the leaf shapes the proxmox plugin adds in P3.6: a plural
+// acronym in a key (criticalVMs), a list of integers and the acronym neighbours the converter
+// must keep apart. The real tree gains none of them here.
+type pluralTree struct {
+	Plugins struct {
+		Proxmox struct {
+			pluginconf.PluginBase
+			CriticalVMs struct {
+				IDs  []int    `json:"ids" doc:"Test list of integers."`
+				Tags []string `json:"tags" doc:"Test list of strings."`
+			} `json:"criticalVMs" doc:"Test section."`
+			TokenIDs []string `json:"tokenIDs" doc:"Test plural acronym at the end of a key."`
+			Series   struct {
+				VMSelector string `json:"vmSelector" doc:"Test lower-case acronym."`
+			} `json:"series" doc:"Test section."`
+		} `json:"proxmox" doc:"Test section."`
+		APIServer struct {
+			URL string `json:"url" doc:"Test."`
+		} `json:"APIServer" doc:"Test acronym before a word."`
+	} `json:"plugins" doc:"Test section."`
+}
+
+// A plural acronym is one word (VMs, IDs); an acronym followed by a word still splits before the
+// word (APIServer). The rows run on a test-only tree, because the real one has no such key yet.
+func TestGeneratedNamesOfPluralAcronyms(t *testing.T) {
+	sch := buildSchema(reflect.TypeFor[pluralTree]())
+	for path, want := range map[string]string{
+		"plugins.proxmox.criticalVMs.ids":   "DASH_PLUGINS_PROXMOX_CRITICAL_VMS_IDS",
+		"plugins.proxmox.criticalVMs.tags":  "DASH_PLUGINS_PROXMOX_CRITICAL_VMS_TAGS",
+		"plugins.proxmox.tokenIDs":          "DASH_PLUGINS_PROXMOX_TOKEN_IDS",
+		"plugins.proxmox.series.vmSelector": "DASH_PLUGINS_PROXMOX_SERIES_VM_SELECTOR",
+		"plugins.APIServer.url":             "DASH_PLUGINS_API_SERVER_URL",
+	} {
+		if got := envName(path); got != want {
+			t.Errorf("envName(%s) = %s, want %s", path, got, want)
+		}
+		if l := sch.byPath[path]; l == nil || l.env != want {
+			t.Errorf("schema leaf %s: %+v", path, l)
+		}
+	}
+	if len(sch.byEnv) != len(sch.leaves) {
+		t.Errorf("%d leaves generate %d distinct names", len(sch.leaves), len(sch.byEnv))
+	}
+	// The segment rules in one place: a lower-case s ends a plural only before the segment's end
+	// or an upper-case letter; anything else is a word.
+	for seg, want := range map[string]string{
+		"VMs": "VMS", "IDs": "IDS", "criticalVMsFoo": "CRITICAL_VMS_FOO", "APIServer": "API_SERVER",
+		"HTTPServers": "HTTP_SERVERS", "URLs": "URLS", "publicURL": "PUBLIC_URL", "tokenID": "TOKEN_ID",
+		"iconBaseURL": "ICON_BASE_URL", "IDsomething": "I_DSOMETHING",
+	} {
+		if got := strings.TrimPrefix(envName(seg), "DASH_"); got != want {
+			t.Errorf("envName(%q) = DASH_%s, want DASH_%s", seg, got, want)
 		}
 	}
 }

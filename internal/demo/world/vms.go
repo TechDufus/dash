@@ -20,12 +20,12 @@ func (w *World) vms(now time.Time) model.VMsData {
 		node    string
 	}
 	vmSpecs := []vmSpec{
-		{101, "talos-cp-1", 4, 16, true, []string{"talos", "k8s"}, "talos-cp-1"},
-		{102, "talos-cp-2", 4, 16, true, []string{"talos", "k8s"}, "talos-cp-2"},
-		{103, "talos-cp-3", 4, 16, true, []string{"talos", "k8s"}, "talos-cp-3"},
+		{101, "k8s-cp-1", 4, 16, true, []string{"k8s", "control-plane"}, "k8s-cp-1"},
+		{102, "k8s-cp-2", 4, 16, true, []string{"k8s", "control-plane"}, "k8s-cp-2"},
+		{103, "k8s-cp-3", 4, 16, true, []string{"k8s", "control-plane"}, "k8s-cp-3"},
 		{110, "ci-runner-1", 8, 12, true, []string{"ci"}, ""},
 		{120, "dev-sandbox", 2, 4, true, []string{"scratch"}, ""},
-		{9000, "talos-template", 2, 4, false, []string{"template"}, ""},
+		{9000, "k8s-template", 2, 4, false, []string{"template"}, ""},
 	}
 	var d model.VMsData
 	for _, v := range vmSpecs {
@@ -47,10 +47,8 @@ func (w *World) vms(now time.Time) model.VMsData {
 		}
 		d.VMs = append(d.VMs, vm)
 	}
-	d.Machines = []model.Machine{
-		{Name: "rpi-control", Up: true, Source: "node-exporter"},
-		{Name: "mac-mini-1", Up: true, Source: "node-exporter"},
-		{Name: "router-1", Up: true, Source: "node-exporter"},
+	for _, m := range w.Machines() { // the machines still ride in the VMs payload; hardware.machines carries them next
+		d.Machines = append(d.Machines, model.Machine{Name: m.Name, Up: m.Up, Source: m.Source})
 	}
 	d.Tasks = []model.PVETask{
 		{UPID: "UPID:pve-demo:0001:qmsnapshot", Type: "qmsnapshot", ID: "101", User: "root@pam", Status: "OK", StartTime: ago(now, 26*time.Hour), EndTime: agoP(now, 26*time.Hour-40*time.Second)},

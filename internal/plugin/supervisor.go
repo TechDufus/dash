@@ -994,12 +994,13 @@ func (s *Supervisor) removeTopics(in *instance) {
 		return
 	}
 	for _, t := range in.man.Topics {
-		s.opt.Publisher.Remove(topicName(in.id, t))
+		s.opt.Publisher.Remove(TopicName(in.id, t))
 	}
 }
 
-// topicName is the name a topic is published, listed and removed under.
-func topicName(id ID, t TopicSpec) model.Topic {
+// TopicName is the wire name of a topic: the name it is published, listed and removed under,
+// which is its Legacy name if it has one and "<plugin>.<name>" otherwise.
+func TopicName(id ID, t TopicSpec) model.Topic {
 	if t.Legacy != "" {
 		return model.Topic(t.Legacy)
 	}

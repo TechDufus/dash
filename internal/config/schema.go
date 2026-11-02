@@ -110,8 +110,8 @@ func (s *schemaT) walk(n *node, t reflect.Type, index []int, prefix string) {
 }
 
 // envName is the environment variable generated for a schema path (design B.3): DASH_ plus the
-// path segments in UPPER_SNAKE, joined with "_". An acronym stays one word: publicURL is
-// PUBLIC_URL, tokenID is TOKEN_ID.
+// path segments in UPPER_SNAKE, joined with "_". An acronym stays one word, plural or not:
+// publicURL is PUBLIC_URL, tokenID is TOKEN_ID, criticalVMs is CRITICAL_VMS.
 func envName(path string) string {
 	var b strings.Builder
 	b.WriteString("DASH")
@@ -119,13 +119,24 @@ func envName(path string) string {
 		b.WriteByte('_')
 		r := []rune(seg)
 		for i, c := range r {
-			if i > 0 && unicode.IsUpper(c) && (!unicode.IsUpper(r[i-1]) || (i+1 < len(r) && unicode.IsLower(r[i+1]))) {
+			if i > 0 && unicode.IsUpper(c) && (!unicode.IsUpper(r[i-1]) || endsAcronym(r, i)) {
 				b.WriteByte('_')
 			}
 			b.WriteRune(unicode.ToUpper(c))
 		}
 	}
 	return b.String()
+}
+
+// endsAcronym reports whether the upper-case rune r[i], which follows another upper-case rune,
+// starts a new word: it is followed by lower case (HTTPServer is HTTP_SERVER). The exception is
+// a plural acronym: a lower-case "s" that ends the segment or is followed by upper case belongs
+// to the acronym (VMs, IDs), so criticalVMs is CRITICAL_VMS and not CRITICAL_V_MS.
+func endsAcronym(r []rune, i int) bool {
+	if i+1 >= len(r) || !unicode.IsLower(r[i+1]) {
+		return false
+	}
+	return !(r[i+1] == 's' && (i+2 == len(r) || unicode.IsUpper(r[i+2])))
 }
 
 // uiIneligible reports whether a path can never come from the UI layer (design B.2, S.14).

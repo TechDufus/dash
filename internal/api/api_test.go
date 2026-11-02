@@ -48,15 +48,16 @@ func (f *fakeProm) Range(_ context.Context, expr string, start, end time.Time, s
 }
 
 type fakeData struct {
-	nodes map[string]string
-	vmErr error
+	nodes  map[string]string
+	vmErr  error
+	podErr error
 }
 
 func (f fakeData) PodDetail(_ context.Context, ns, name string) (model.PodDetail, error) {
 	if name == "missing" {
 		return model.PodDetail{}, topics.ErrNotFound
 	}
-	return model.PodDetail{}, nil
+	return model.PodDetail{}, f.podErr
 }
 
 func (f fakeData) NodeIP(name string) (string, bool) {
@@ -250,7 +251,7 @@ func TestSeriesArgs(t *testing.T) {
 		{"bad vmid", "name=vm.cpu&range=1h&vmid=abc", 400, ""},
 		{"missing vmid", "name=vm.cpu&range=1h", 400, ""},
 		{"unknown name", "name=nope&range=1h", 400, ""},
-		{"unknown range", "name=host.cpu&range=2y", 400, ""},
+		{"unknown range", "name=node.cpu&range=2y&node=cp1", 400, ""},
 		{"unknown node", "name=node.cpu&range=1h&node=ghost", 404, ""},
 		{"missing node", "name=node.cpu&range=1h", 400, ""},
 		{"bad pod args", "name=pod.cpu&range=1h&ns=Bad_NS&pod=x", 400, ""},
@@ -299,7 +300,7 @@ func TestSeriesArgs(t *testing.T) {
 
 	t.Run("upstream failure is 502", func(t *testing.T) {
 		s := newServer(func(d *Deps) { d.Plugins = promPlugin(&fakeProm{err: context.DeadlineExceeded}) })
-		w := req{path: "/api/v1/series?name=host.cpu&range=1h"}.do(s.Handler())
+		w := req{path: "/api/v1/series?name=node.cpu&range=1h&node=cp1"}.do(s.Handler())
 		if w.Code != 502 {
 			t.Fatalf("code = %d, want 502", w.Code)
 		}

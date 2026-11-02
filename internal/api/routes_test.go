@@ -202,13 +202,13 @@ func TestLegacyRoutesKeepTheirPathsAndGetTheEnvelope(t *testing.T) {
 	}
 
 	// The ones that read answer where they always did.
-	for _, path := range []string{"/api/vms/100", "/api/pods/apps/web"} {
+	for _, path := range []string{"/api/pods/media/plex-0", "/api/pods/apps/web"} {
 		if w := (req{path: path}.do(h)); w.Code != http.StatusOK {
 			t.Errorf("GET %s = %d %s", path, w.Code, w.Body)
 		}
 	}
 	// And a failing one carries a code and its request id.
-	w := req{path: "/api/vms/abc"}.do(h)
+	w := req{path: "/api/pods/Bad_NS/x"}.do(h)
 	e := wantError(t, w, http.StatusBadRequest, model.ErrCodeInvalidInput)
 	if e.RequestID == "" || e.RequestID != w.Header().Get("X-Request-Id") {
 		t.Errorf("requestId %q, header %q", e.RequestID, w.Header().Get("X-Request-Id"))
@@ -221,8 +221,8 @@ func TestLegacyRoutesKeepTheirPathsAndGetTheEnvelope(t *testing.T) {
 func TestMovedCorePathsAre404WithCode(t *testing.T) {
 	h := newServer(nil).Handler()
 	for _, c := range []struct{ method, path string }{
-		{"GET", "/api/me"}, {"GET", "/api/stream"}, {"GET", "/api/series?name=host.cpu&range=1h"},
-		{"GET", "/api/topics/vms"}, {"GET", "/api/plugins"}, {"GET", "/api/config"},
+		{"GET", "/api/me"}, {"GET", "/api/stream"}, {"GET", "/api/series?name=node.cpu&range=1h&node=cp1"},
+		{"GET", "/api/topics/cluster"}, {"GET", "/api/plugins"}, {"GET", "/api/config"},
 		{"GET", "/api/logs?ns=media&pod=web"}, {"GET", "/api/logs/tail?ns=media&pod=web"},
 		{"POST", "/api/silences"}, {"DELETE", "/api/silences/00000000-0000-4000-8000-000000000001"},
 	} {

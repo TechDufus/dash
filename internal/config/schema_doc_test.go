@@ -126,6 +126,41 @@ func TestSchemaMatchesTheTreeLeaves(t *testing.T) {
 	}
 }
 
+// A list of integers has its own row in the generated tables and its own wording in an error: it
+// is neither "list of objects" nor a string. The real tree has no such setting until P3.6, so the
+// leaf comes from pluralTree.
+func TestIntListLeafDocsAndErrors(t *testing.T) {
+	sch := buildSchema(reflect.TypeFor[pluralTree]())
+	ids := sch.byPath["plugins.proxmox.criticalVMs.ids"]
+	if ids == nil {
+		t.Fatal("no criticalVMs.ids leaf")
+	}
+	if got := envType(ids.typ); got != "list of integers (JSON)" {
+		t.Errorf("docs row type = %q", got)
+	}
+	if got := envType(sch.byPath["plugins.proxmox.criticalVMs.tags"].typ); got != "list of strings (JSON)" {
+		t.Errorf("a list of strings changed its row: %q", got)
+	}
+	v, err := decodeLeaf(ids, []byte(`[2020, 2021]`))
+	if err != nil || !reflect.DeepEqual(v.Interface(), []int{2020, 2021}) {
+		t.Errorf("[2020, 2021] loads as %v, %v", v, err)
+	}
+	for _, bad := range []string{`["a"]`, `[1.5]`, `7`, `"x"`} {
+		_, err := decodeLeaf(ids, []byte(bad))
+		if err == nil {
+			t.Errorf("%s loaded", bad)
+			continue
+		}
+		got := ids.path + ": " + describeDecode(ids, err) // the text resolver.set reports
+		if !strings.HasPrefix(got, "plugins.proxmox.criticalVMs.ids: expected a JSON list of integers, got ") {
+			t.Errorf("%s: %q", bad, got)
+		}
+	}
+	if _, err := decodeLeaf(ids, []byte(`[1] [2]`)); err == nil || !strings.Contains(err.Error(), "unexpected data") {
+		t.Errorf("trailing data: %v", err)
+	}
+}
+
 // A plugin's own schema (Manifest.Config, reflected alone) is the subschema of the tree schema,
 // so what the plugin documents is what the file accepts.
 func TestPluginConfigSchemaMatchesTreeSubschema(t *testing.T) {

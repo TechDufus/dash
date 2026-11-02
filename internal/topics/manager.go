@@ -85,6 +85,7 @@ type Manager struct {
 	built   built
 	linkSet atomic.Pointer[plugin.LinkResolver] // the provider snapshot of the running rebuild
 	tracker *Tracker
+	nodeRev atomic.Uint64 // svc.NodeIndex.Revision: bumped when a node is added, removed or changes readiness
 
 	// seenEndpoints and seenRevision are the service of svc.EndpointHealth and its Revision as
 	// the last rebuild round saw them (see watchEndpoints); only that round reads or writes them.
@@ -279,6 +280,7 @@ func (m *Manager) markAll() {
 func (m *Manager) onKubeChange(k kube.Kind) {
 	switch k {
 	case kube.KindNodes:
+		m.nodeRev.Add(1)
 		m.mark(model.TopicCluster, model.TopicVMs)
 	case kube.KindNamespaces:
 		m.mark(model.TopicCluster, model.TopicApps)

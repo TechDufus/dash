@@ -46,3 +46,31 @@ type EndpointHealth interface {
 	// gatus chip stays on the pages that show its data.
 	SourceStatuses() []model.SourceStatus
 }
+
+// NodeIndex is what the kubernetes plugin exports: the cluster's nodes, for the code that ties
+// its own objects to them (a VM that is a node, the node series). Until the kubernetes plugin
+// exists the kubernetes shim of internal/topics supplies it, so a consumer written against this
+// interface needs no change when the real plugin replaces the shim.
+type NodeIndex interface {
+	// K8sNode maps a VM name to the cluster node of the same name. ok is false when there is no
+	// such node, and for every name until Synced is true.
+	K8sNode(vmName string) (node string, ready, ok bool)
+	// NodeIP is the internal IP of a node, for the node.* series.
+	NodeIP(node string) (ip string, ok bool)
+	// Synced reports that the informers have synced; before that K8sNode answers ok=false for
+	// every name.
+	Synced() bool
+	// Revision changes when the node set or a node's readiness changes (it never repeats for
+	// the life of the process). A consumer polls it on its own tick and republishes when it
+	// differs from the value it last saw; Synced turning true alone is a change the consumer
+	// watches separately.
+	Revision() uint64
+}
+
+// NodeName is what the proxmox plugin exports: the node it reads, for the code that needs the
+// Proxmox node's name (the host half of the hardware plugin, the Manager's host code).
+type NodeName interface {
+	// NodeName is the configured node, or the one discovery found. ok is false until it is
+	// known. The service is non-nil from the plugin's Start, so ok is the only signal.
+	NodeName() (name string, ok bool)
+}

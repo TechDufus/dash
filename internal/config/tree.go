@@ -6,7 +6,6 @@ import (
 	"time"
 
 	"github.com/TechDufus/dash/internal/pluginconf"
-	"github.com/TechDufus/dash/internal/secret"
 )
 
 // Tree is the typed configuration (design B.4). The json tags are the YAML keys and, converted
@@ -74,41 +73,13 @@ type PluginsConfig struct {
 	Alertmanager pluginconf.Alertmanager `json:"alertmanager" doc:"Alertmanager: alerts and silences."`
 	VictoriaLogs pluginconf.VictoriaLogs `json:"victorialogs" doc:"VictoriaLogs: the pod logs the UI shows."`
 	Gatus        pluginconf.Gatus        `json:"gatus" doc:"Gatus: endpoint health."`
-	Proxmox      ProxmoxConfig           `json:"proxmox" doc:"Proxmox VE: virtual machines, containers and the hypervisor."`
-	Hardware     HardwareConfig          `json:"hardware" doc:"The physical host behind the cluster."`
+	Proxmox      pluginconf.Proxmox      `json:"proxmox" doc:"Proxmox VE: virtual machines, containers and the hypervisor."`
+	Hardware     pluginconf.Hardware     `json:"hardware" doc:"The physical host behind the cluster."`
 	Headlamp     pluginconf.Headlamp     `json:"headlamp" doc:"Headlamp: deep links into the Kubernetes UI."`
 	Grafana      pluginconf.Grafana      `json:"grafana" doc:"Grafana: links to dashboards."`
 	Launcher     pluginconf.Launcher     `json:"launcher" doc:"The launcher: links to your infrastructure."`
 	Kubernetes   KubernetesConfig        `json:"kubernetes" doc:"Kubernetes: how dash reaches and reads the cluster."`
 	Flux         FluxConfig              `json:"flux" doc:"Flux: how dash reads Flux objects."`
-}
-
-// ProxmoxConfig is the Proxmox API. TokenID and TokenSecret are the two halves of an API token
-// ("user@realm!name" and its secret), so that only the secret is secret.
-type ProxmoxConfig struct {
-	pluginconf.PluginBase
-	URL         string       `json:"url" dash:"url" doc:"Base URL of the Proxmox API, e.g. https://pve.example.com:8006. Required with a token."`
-	Node        string       `json:"node" doc:"The Proxmox node to read. Empty is discovered from the API when the cluster has exactly one node; set it for several nodes or to skip discovery."`
-	TokenID     string       `json:"tokenID" doc:"API token ID, user@realm!tokenname. Set together with tokenSecret. Empty turns Proxmox off."`
-	TokenSecret secret.Value `json:"tokenSecret" dash:"secret" doc:"API token secret: a literal, env:NAME or file:/path. Set together with tokenID."`
-}
-
-// HardwareConfig is the physical host behind the cluster.
-type HardwareConfig struct {
-	pluginconf.PluginBase
-	// Hosts has at most one entry until the hardware plugin supports several (G3).
-	Hosts []HardwareHost `json:"hosts" doc:"The machine behind the cluster, as [{nodename, model}]. One entry is supported for now."`
-	// ZFSScrubMetricPrefix names the scrub series: <prefix>_last_end_timestamp_seconds,
-	// <prefix>_last_errors and <prefix>_in_progress.
-	ZFSScrubMetricPrefix string `json:"zfsScrubMetricPrefix" doc:"Prefix of the ZFS scrub series: <prefix>_last_end_timestamp_seconds, <prefix>_last_errors and <prefix>_in_progress. Must be a valid metric name. Empty queries no scrub data and the pool cards show none."`
-}
-
-// HardwareHost is a machine whose node-exporter and IPMI series dash reads.
-type HardwareHost struct {
-	// Nodename is the nodename label of its series; empty falls back to the Proxmox node.
-	Nodename string `json:"nodename" doc:"The nodename label of the host's node-exporter and IPMI series. Empty uses plugins.proxmox.node, or the node discovered from the Proxmox API."`
-	// Model is shown next to the host's name, e.g. "Dell R730".
-	Model string `json:"model" doc:"Shown next to the host's name, e.g. Dell R730."`
 }
 
 // KubernetesConfig is how dash reaches and reads the cluster.

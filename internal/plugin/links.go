@@ -8,11 +8,15 @@ import (
 
 // LinkRequest asks for the deep links to one object. Kind is the object's kind: a Kubernetes kind
 // ("Pod", "Deployment", "Kustomization", …) or one of the dash-wide kinds "Alerts" (the alert
-// list) and "Host" (the hypervisor host). Namespace is empty for a cluster-scoped object.
+// list), "Host" (the hypervisor host), "VM" (a guest: ID is its VMID, Name its name),
+// "HostShell" (the shell of the hypervisor node) and "ProxmoxUI" (the hypervisor's own web UI).
+// Namespace is empty for a cluster-scoped object. ID is the object's identity where a name does
+// not identify it (a VMID); it is empty for the kinds that have none.
 type LinkRequest struct {
 	Kind      string
 	Namespace string
 	Name      string
+	ID        string
 }
 
 // LinkProvider is a plugin that links objects into its own tool (Grafana, Headlamp, the launcher).

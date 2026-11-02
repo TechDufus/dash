@@ -1,6 +1,6 @@
 import { act, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { OverviewData } from "@/api/types";
+import type { HostData, OverviewData } from "@/api/types";
 import { renderApp } from "@/test/harness";
 import { shimRows, withState } from "@/test/shims";
 import { Slot } from "./slots";
@@ -165,6 +165,48 @@ describe("Slot", () => {
     act(() => view.rerender(<Slot id="overview.kpis" data={{ ...data, status: "ok" }} />));
     expect(screen.queryByTestId("panel-failed")).toBeNull();
     expect(rendered()).toEqual(["fine"]);
+  });
+
+  it("serves hardware.facts by the same rules: order, visibility, reads, props", () => {
+    const fact = (text: string) =>
+      // biome-ignore lint/correctness/noComponentHookFactories: each contribution needs its own component; the factory runs per test, never during a render
+      function Fact({ host }: SlotProps["hardware.facts"]) {
+        return (
+          <p>
+            {text}:{host?.name ?? "no host"}
+          </p>
+        );
+      };
+    const host = { name: "box" } as HostData;
+
+    // Nothing contributes yet: the slot is empty, as the Hardware page will be until P3.7.
+    renderApp(<Slot id="hardware.facts" host={host} />);
+    const rows = shimRows();
+    stream.plugins(rows);
+    expect(rendered()).toEqual([]);
+
+    mocked.PANELS.proxmox = {
+      "hardware.facts": [
+        { id: "late", order: 2, component: fact("late") },
+        { id: "early", order: 1, component: fact("early") },
+      ],
+    };
+    mocked.PANELS.kubernetes = {
+      // Reads a topic proxmox publishes: hidden with proxmox, never waiting for data.
+      "hardware.facts": [{ id: "k", order: 3, reads: ["vms"], component: fact("needs vms") }],
+    };
+    stream.plugins(shimRows()); // a new list makes the slot read the contributions again
+    expect(rendered()).toEqual(["early:box", "late:box", "needs vms:box"]);
+
+    stream.plugins(withState(rows, "proxmox", "disabled"));
+    expect(rendered()).toEqual([]);
+    stream.plugins(rows);
+    expect(rendered()).toEqual(["early:box", "late:box", "needs vms:box"]);
+
+    // The host prop is optional: before the topic arrives a panel gets none.
+    renderApp(<Slot id="hardware.facts" />);
+    stream.plugins(shimRows());
+    expect(rendered().at(-1)).toBe("needs vms:no host");
   });
 
   it("gives storage panels a cell: full spans the row, half takes one column", () => {

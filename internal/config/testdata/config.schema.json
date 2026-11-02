@@ -208,7 +208,7 @@
       },
       "type": "object"
     },
-    "HardwareConfig": {
+    "Hardware": {
       "additionalProperties": false,
       "properties": {
         "enabled": {
@@ -474,7 +474,7 @@
           "description": "Grafana: links to dashboards."
         },
         "hardware": {
-          "$ref": "#/$defs/HardwareConfig",
+          "$ref": "#/$defs/Hardware",
           "description": "The physical host behind the cluster."
         },
         "headlamp": {
@@ -494,7 +494,7 @@
           "description": "VictoriaMetrics or Prometheus: the series behind charts, KPIs and host metrics."
         },
         "proxmox": {
-          "$ref": "#/$defs/ProxmoxConfig",
+          "$ref": "#/$defs/Proxmox",
           "description": "Proxmox VE: virtual machines, containers and the hypervisor."
         },
         "victorialogs": {
@@ -549,7 +549,7 @@
       },
       "type": "object"
     },
-    "ProxmoxConfig": {
+    "Proxmox": {
       "additionalProperties": false,
       "properties": {
         "enabled": {

@@ -2,6 +2,7 @@ package plugin
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"slices"
 	"strings"
@@ -48,12 +49,12 @@ func (s *Supervisor) info(in *instance) model.PluginInfo {
 		Configurable: in.cfgZero != nil,
 	}
 	for _, t := range m.Topics {
-		pi.Topics = append(pi.Topics, string(topicName(in.id, t)))
+		pi.Topics = append(pi.Topics, string(TopicName(in.id, t)))
 	}
 	for _, v := range m.UI.Generic {
 		for _, t := range m.Topics {
 			if t.Name == v.Topic {
-				v.Topic = string(topicName(in.id, t))
+				v.Topic = string(TopicName(in.id, t))
 			}
 		}
 		v.Columns = append([]model.GenericColumn{}, v.Columns...)
@@ -93,7 +94,7 @@ func (s *Supervisor) TopicOrder() []model.Topic {
 	out := []model.Topic{model.TopicPlugins, model.TopicOverview}
 	for _, in := range s.registry() {
 		for _, t := range in.man.Topics {
-			out = append(out, topicName(in.id, t))
+			out = append(out, TopicName(in.id, t))
 		}
 	}
 	return out
@@ -212,14 +213,26 @@ func (s *Supervisor) RouteInfos(instance ID) []RouteInfo {
 	return nil
 }
 
-// Series finds a named series of a running instance.
+// Series finds a named series of a running instance. The spec comes from the Manifest of the
+// plugin that is running, not from the one captured when the instance was added: a series whose
+// Expr closes over its plugin's own state (its settings, set in Start) must read the instance
+// that was started, which after a reload is a new one, and which in demo mode is the twin. The
+// plugin is called outside every supervisor lock.
 func (s *Supervisor) Series(name string) (SeriesSpec, ID, bool) {
 	for _, in := range s.registry() {
-		if !in.isRunning() {
+		in.mu.RLock()
+		running, p := in.running, in.p
+		in.mu.RUnlock()
+		if !running || p == nil {
 			continue
 		}
-		if i := slices.IndexFunc(in.man.Series, func(sp SeriesSpec) bool { return sp.Name == name }); i >= 0 {
-			return in.man.Series[i], in.id, true
+		var series []SeriesSpec
+		if rec, _ := protect(func() { series = p.Manifest().Series }); rec != nil {
+			s.log().Error("panic in Manifest", "plugin", in.id, "panic", fmt.Sprint(rec))
+			continue
+		}
+		if i := slices.IndexFunc(series, func(sp SeriesSpec) bool { return sp.Name == name }); i >= 0 {
+			return series[i], in.id, true
 		}
 	}
 	return SeriesSpec{}, "", false

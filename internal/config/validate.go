@@ -13,8 +13,6 @@ import (
 	"github.com/TechDufus/dash/internal/pluginconf"
 )
 
-var metricNameRE = regexp.MustCompile(`^[a-zA-Z_:][a-zA-Z0-9_:]*$`)
-
 // hostNameRE matches a DNS host name: dot-separated labels of lowercase letters, digits and hyphens.
 var hostNameRE = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*$`)
 
@@ -107,21 +105,6 @@ func validate(t Tree, dev, demo bool, prov map[string]Provenance) error {
 		if sec.Type != sec.Name {
 			v.fail("plugins."+sec.Name+".type", "%q must be empty or %q: dash runs one instance per plugin type, and the instance name is the type (design J.16)", sec.Type, sec.Name)
 		}
-	}
-
-	px := p.Proxmox
-	if (px.TokenID == "") != !px.TokenSecret.IsSet() {
-		v.fail("plugins.proxmox.tokenSecret", "tokenID and tokenSecret must be set together")
-	}
-	if px.TokenID != "" && px.URL == "" {
-		v.fail("plugins.proxmox.url", "is required with a Proxmox token")
-	}
-
-	if len(p.Hardware.Hosts) > 1 {
-		v.fail("plugins.hardware.hosts", "has %d entries; one host is supported until the hardware plugin handles several", len(p.Hardware.Hosts))
-	}
-	if pre := p.Hardware.ZFSScrubMetricPrefix; pre != "" && !metricNameRE.MatchString(pre) { // empty hides the scrub panel
-		v.fail("plugins.hardware.zfsScrubMetricPrefix", "%q is not a metric name", p.Hardware.ZFSScrubMetricPrefix)
 	}
 
 	if len(p.Kubernetes.BackupJobs) > 1 {

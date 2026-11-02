@@ -56,7 +56,7 @@ func (h *host) Publish(topic string, data any, sources []model.SourceStatus) {
 		h.logger().Error("publish dropped: payload has the wrong type", "topic", topic, "got", fmt.Sprintf("%T", data), "want", fmt.Sprintf("%T", spec.Type))
 		return
 	}
-	if _, err := pub.Publish(topicName(in.id, spec), data, sources); err != nil {
+	if _, err := pub.Publish(TopicName(in.id, spec), data, sources); err != nil {
 		h.logger().Error("publish failed", "topic", topic, "error", err)
 	}
 }

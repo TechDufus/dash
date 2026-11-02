@@ -35,6 +35,7 @@ func TestEveryErrorPathHasACodeThatMatchesItsStatus(t *testing.T) {
 	full := func(s *Server) { s.events = newStreamLimiter(10, 0) }
 	failProm := func(d *Deps) { d.Plugins = promPlugin(&fakeProm{err: context.DeadlineExceeded}) }
 	vmErr := func(err error) func(*Deps) { return func(d *Deps) { d.Data = fakeData{vmErr: err} } }
+	podErr := func(err error) func(*Deps) { return func(d *Deps) { d.Data = fakeData{podErr: err} } }
 	noHook := func(*harness) {}
 	fullTails := func(s *Server) { s.tails = newStreamLimiter(10, 0) }
 
@@ -48,16 +49,18 @@ func TestEveryErrorPathHasACodeThatMatchesItsStatus(t *testing.T) {
 		status int
 		code   string
 	}{
-		{name: "unknown series range", req: req{path: "/api/v1/series?name=host.cpu&range=bad"}, status: 400, code: "invalid_input"},
+		{name: "unknown series range", req: req{path: "/api/v1/series?name=node.cpu&range=bad&node=cp1"}, status: 400, code: "invalid_input"},
 		{name: "unknown series name", req: req{path: "/api/v1/series?name=nope&range=1h"}, status: 400, code: "invalid_input"},
 		{name: "invalid series node", req: req{path: "/api/v1/series?name=node.cpu&range=1h&node=BAD_"}, status: 400, code: "invalid_input"},
 		{name: "unknown series node", req: req{path: "/api/v1/series?name=node.cpu&range=1h&node=ghost"}, status: 404, code: "not_found"},
-		{name: "series upstream failure", req: req{path: "/api/v1/series?name=host.cpu&range=1h"}, mod: failProm, status: 502, code: "upstream_unavailable"},
+		{name: "series upstream failure", req: req{path: "/api/v1/series?name=node.cpu&range=1h&node=cp1"}, mod: failProm, status: 502, code: "upstream_unavailable"},
 		{name: "invalid vmid", req: req{path: "/api/vms/abc"}, status: 400, code: "invalid_input"},
 		{name: "vm not found", req: req{path: "/api/vms/100"}, mod: vmErr(topics.ErrNotFound), status: 404, code: "not_found"},
 		{name: "vm upstream failure", req: req{path: "/api/vms/100"}, mod: vmErr(context.DeadlineExceeded), status: 502, code: "upstream_unavailable"},
 		{name: "invalid pod name", req: req{path: "/api/pods/apps/BAD_"}, status: 400, code: "invalid_input"},
 		{name: "pod not found", req: req{path: "/api/pods/apps/missing"}, status: 404, code: "not_found"},
+		{name: "pod not found upstream", req: req{path: "/api/pods/apps/web"}, mod: podErr(topics.ErrNotFound), status: 404, code: "not_found"},
+		{name: "pod upstream failure", req: req{path: "/api/pods/apps/web"}, mod: podErr(context.DeadlineExceeded), status: 502, code: "upstream_unavailable"},
 		{name: "plugin route input error", req: req{path: "/api/v1/plugins/rt/items?ns=media"}, plug: func(h *harness) {
 			h.items = func(*http.Request) (any, error) { return nil, upstream.ErrInvalid }
 		}, status: 400, code: "invalid_input"},
@@ -75,7 +78,7 @@ func TestEveryErrorPathHasACodeThatMatchesItsStatus(t *testing.T) {
 		{name: "plugin stream cap per user", req: req{path: "/api/v1/plugins/rt/tail?ns=media&pod=web"}, plug: noHook, srv: capped, status: 429, code: "too_many_streams"},
 		{name: "plugin stream cap overall", req: req{path: "/api/v1/plugins/rt/tail?ns=media&pod=web"}, plug: noHook, srv: fullTails, status: 503, code: "too_many_streams"},
 		{name: "invalid topic name", req: req{path: "/api/v1/topics/BAD"}, status: 400, code: "invalid_input"},
-		{name: "unknown topic", req: req{path: "/api/v1/topics/vms"}, status: 404, code: "not_found"},
+		{name: "unknown topic", req: req{path: "/api/v1/topics/cluster"}, status: 404, code: "not_found"},
 		{name: "invalid stream filter", req: req{path: "/api/v1/stream?topics=BAD!"}, status: 400, code: "invalid_input"},
 		{name: "stream cap per user", req: req{path: "/api/v1/stream"}, srv: capped, status: 429, code: "too_many_streams"},
 		{name: "stream cap overall", req: req{path: "/api/v1/stream"}, srv: full, status: 503, code: "too_many_streams"},

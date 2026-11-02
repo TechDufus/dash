@@ -217,7 +217,7 @@ func (s *Source) VMDetail(_ context.Context, vmid int) (model.VMDetail, error) {
 				NICs:  []model.KeySpec{{Key: "net0", Spec: "virtio=BC:24:11:00:00:" + fmt.Sprintf("%02X", vmid%256) + ",bridge=vmbr0"}},
 			},
 			IPs:       []model.IfaceAddr{},
-			Snapshots: []model.Snapshot{{Name: "pre-upgrade", Time: &snap, Description: "before the last Talos upgrade"}},
+			Snapshots: []model.Snapshot{{Name: "pre-upgrade", Time: &snap, Description: "before the last Kubernetes upgrade"}},
 		}
 		if vm.Status == "running" {
 			d.IPs = []model.IfaceAddr{{Iface: "eth0", Address: fmt.Sprintf("192.0.2.%d", vmid%200)}}

@@ -8,6 +8,7 @@ import (
 	"reflect"
 	"slices"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -24,6 +25,7 @@ import (
 	"github.com/TechDufus/dash/internal/model"
 	"github.com/TechDufus/dash/internal/plugin"
 	"github.com/TechDufus/dash/internal/plugin/plugintest"
+	"github.com/TechDufus/dash/internal/queries"
 	"github.com/TechDufus/dash/internal/secret"
 	"github.com/TechDufus/dash/internal/upstream"
 )
@@ -233,6 +235,120 @@ func TestSkippedPollersDoNotStickShimsInStarting(t *testing.T) {
 	}
 }
 
+// promRecorder is a Prometheus that answers every query with an empty vector and counts the
+// queries by expression.
+type promRecorder struct {
+	mu sync.Mutex
+	n  map[string]int
+}
+
+func (p *promRecorder) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	p.mu.Lock()
+	if p.n == nil {
+		p.n = map[string]int{}
+	}
+	p.n[r.FormValue("query")]++
+	p.mu.Unlock()
+	_, _ = w.Write([]byte(`{"status":"success","data":{"resultType":"vector","result":[]}}`))
+}
+
+func (p *promRecorder) count(expr string) int {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.n[expr]
+}
+
+// The same mechanism on the kubernetes shim, the only reader of the usage and storage pollers:
+// with it running the pollers query and the topics come from its Host; with it off nothing is
+// polled, nothing is published for it, and the overview does not wait.
+func TestDisabledKubernetesPublishesNothingAndItsPollersAreSkipped(t *testing.T) {
+	rec := &promRecorder{}
+	prom := httptest.NewServer(rec)
+	defer prom.Close()
+
+	run := func(off ...plugin.ID) (*hub.Hub, *Manager, *plugintest.Partial) {
+		h := hub.New()
+		hp := plugintest.Without(plugintest.AllRunning(h, LegacyManifests()...), off...)
+		cfg := config.Defaults()
+		m := New(Deps{
+			Cfg: cfg, Cluster: fakeCluster(), Hosts: hp, Links: links.New(cfg),
+			Services: promServices(upstream.NewProm(prom.URL, nil)),
+			PVE:      upstream.NewProxmox(cfg.ProxmoxURL, cfg.ProxmoxNode, cfg.ProxmoxTokenID, cfg.ProxmoxTokenSecret, nil),
+		})
+		ctx, cancel := context.WithCancel(context.Background())
+		t.Cleanup(cancel)
+		m.Run(ctx)
+		return h, m, hp
+	}
+
+	// Kubernetes on: both pollers query and the cluster topic is published.
+	h, _, hp := run()
+	eventually(t, "the cluster topic", func() bool { _, ok := h.Latest("", model.TopicCluster); return ok })
+	eventually(t, "the usage and storage queries", func() bool {
+		return rec.count(queries.PodCPU) > 0 && rec.count(queries.PVCUsed) > 0
+	})
+	if hp.Publishes("kubernetes") == 0 {
+		t.Fatal("the recording host saw no publish for a running kubernetes")
+	}
+
+	// Off: not polled, nothing published for it, and the overview still comes.
+	rec.mu.Lock()
+	rec.n = map[string]int{}
+	rec.mu.Unlock()
+	h, m, hp := run("kubernetes")
+	eventually(t, "the overview", func() bool { _, ok := h.Latest("", model.TopicOverview); return ok })
+	eventually(t, "the usage and storage pollers' first round", func() bool { return m.pollDone("usage", "storage") })
+	if n := rec.count(queries.PodCPU) + rec.count(queries.PVCUsed); n != 0 {
+		t.Errorf("a disabled kubernetes was polled %d times", n)
+	}
+	if n := hp.Publishes("kubernetes"); n != 0 {
+		t.Errorf("the Manager called the disabled kubernetes' Host %d times", n)
+	}
+	if _, ok := h.Latest("", model.TopicCluster); ok {
+		t.Error("the cluster topic is published although kubernetes does not run")
+	}
+}
+
+// The source keys of the usage and storage pollers on the kubernetes shim: with kubernetes off
+// they are left out of every source list and the shims' status (they would read "not polled yet"
+// forever), while the informers' key stays; with it on, an unpolled key reads "not polled yet".
+func TestSkippedKubernetesPollersLeaveTheirSourcesOut(t *testing.T) {
+	at := time.Unix(100, 0)
+	okSrc := srcState{ok: true, at: at}
+	keys := []string{"kubernetes", "cluster:victoriametrics", "storage:victoriametrics"}
+
+	hp := plugintest.Without(plugintest.AllRunning(hub.New(), LegacyManifests()...), "kubernetes")
+	m := New(Deps{Cfg: config.Defaults(), Cluster: fakeCluster(), Hosts: hp})
+	got := m.sources(keys...)
+	if len(got) != 1 || got[0].Name != "kubernetes" {
+		t.Errorf("sources of a disabled kubernetes = %+v, want only the informers", got)
+	}
+	for _, id := range []plugin.ID{"kubernetes", "flux"} {
+		st := m.legacyStatus(id)
+		if st.State != plugin.StateStarting {
+			t.Errorf("%s before the informers sync = %s, want starting", id, st.State)
+		}
+		for _, s := range st.Sources {
+			if s.Error == "not polled yet" {
+				t.Errorf("%s: source %q is reported as not polled", id, s.Name)
+			}
+		}
+	}
+
+	// A key of a running poller still counts: not polled yet, then its state.
+	hp = plugintest.Without(plugintest.AllRunning(hub.New(), LegacyManifests()...))
+	m = New(Deps{Cfg: config.Defaults(), Cluster: fakeCluster(), Hosts: hp})
+	got = m.sources(keys[1:]...)
+	if len(got) != 1 || got[0].OK || got[0].Error != "not polled yet" {
+		t.Errorf("sources before the first poll = %+v, want one not polled yet", got)
+	}
+	m.srcs["cluster:victoriametrics"], m.srcs["storage:victoriametrics"] = okSrc, okSrc
+	got = m.sources(keys[1:]...)
+	if len(got) != 1 || !got[0].OK {
+		t.Errorf("sources after the first poll = %+v, want one ok", got)
+	}
+}
+
 // The shims, the supervisor, the Manager and the hub together: an explicitly disabled plugin
 // shows as disabled in core.plugins and its topic never reaches a viewer, while the others run.
 func TestExplicitDisableRemovesShimTopics(t *testing.T) {
@@ -276,6 +392,62 @@ func TestExplicitDisableRemovesShimTopics(t *testing.T) {
 	}
 	if states["kubernetes"].State == model.PluginDisabled || len(pd.Plugins) != 4 {
 		t.Errorf("kubernetes = %s of %d plugins", states["kubernetes"].State, len(pd.Plugins))
+	}
+}
+
+// The explicit-disable path on the kubernetes shim, the owner of the usage and storage pollers:
+// disabled in the settings it shows as disabled in core.plugins, its topics never reach a viewer,
+// and its pollers make no Prometheus request.
+func TestExplicitDisableOfKubernetesStopsItsPollers(t *testing.T) {
+	rec := &promRecorder{}
+	prom := httptest.NewServer(rec)
+	defer prom.Close()
+
+	h := hub.New()
+	off := false
+	set := &plugintest.Settings{}
+	set.Set(plugin.InstanceConfig{Name: "kubernetes", Enabled: &off, Config: &config.KubernetesConfig{}})
+	sup := plugin.NewSupervisor(plugin.Options{Publisher: h, Settings: set, StatusEvery: 10 * time.Millisecond})
+	h.SetOrder(sup.TopicOrder)
+	cfg := config.Defaults()
+	m := New(Deps{
+		Cfg: cfg, Cluster: fakeCluster(), Hosts: sup, Links: links.New(cfg),
+		Services: promServices(upstream.NewProm(prom.URL, nil)),
+		PVE:      upstream.NewProxmox(cfg.ProxmoxURL, cfg.ProxmoxNode, cfg.ProxmoxTokenID, cfg.ProxmoxTokenSecret, nil),
+	})
+	if err := sup.Add(m.Plugins()...); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	if err := sup.Run(ctx); err != nil {
+		t.Fatal(err)
+	}
+	defer sup.Shutdown(context.Background())
+	m.Run(ctx)
+
+	eventually(t, "the overview", func() bool { _, ok := h.Latest("", model.TopicOverview); return ok })
+	eventually(t, "the usage and storage pollers' first round", func() bool { return m.pollDone("usage", "storage") })
+	if n := rec.count(queries.PodCPU) + rec.count(queries.PVCUsed); n != 0 {
+		t.Errorf("a disabled kubernetes was polled %d times", n)
+	}
+	for _, topic := range []model.Topic{model.TopicCluster, model.TopicStorage, model.TopicApps} {
+		if _, ok := h.Latest("", topic); ok {
+			t.Errorf("kubernetes is disabled but its topic %s is still served", topic)
+		}
+	}
+	env, ok := latest(h, model.TopicPlugins)
+	if !ok {
+		t.Fatal("core.plugins is not published")
+	}
+	var pd model.PluginsData
+	if err := json.Unmarshal(env.Data, &pd); err != nil {
+		t.Fatal(err)
+	}
+	for _, in := range pd.Plugins {
+		if in.ID == "kubernetes" && in.State != model.PluginDisabled {
+			t.Errorf("kubernetes = %s, want disabled", in.State)
+		}
 	}
 }
 

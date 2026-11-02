@@ -1,5 +1,5 @@
 // Package world is the fake homelab behind demo mode: one coherent, invented set of payloads (a
-// Proxmox host, three Talos nodes, a few namespaces, alerts, checks) that every demo plugin twin
+// Proxmox host, three Kubernetes nodes, a few namespaces, alerts, checks) that every demo plugin twin
 // and the legacy demo source build their topics from. Nothing here talks to a network.
 //
 // Every name, address and serial is invented. Addresses come from the documentation ranges

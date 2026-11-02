@@ -85,11 +85,11 @@ func TestTopicSnapshotETagAndNotModified(t *testing.T) {
 func TestTopicSnapshotUnknownIs404AndBadNameIs400(t *testing.T) {
 	s := newServer(nil)
 	h := s.Handler()
-	s.d.Hub.Publish("vms", 1, nil) // a legacy name has no dot
+	s.d.Hub.Publish("cluster", 1, nil) // a legacy name has no dot
 	s.d.Hub.PublishFor("alice", "core.approvals", "mine", nil)
 
 	for path, want := range map[string]int{
-		"/api/v1/topics/vms":                          200,
+		"/api/v1/topics/cluster":                      200,
 		"/api/v1/topics/nope":                         404, // valid name, nothing published
 		"/api/v1/topics/core.nope":                    404,
 		"/api/v1/topics/core.approvals":               200, // alice's own scoped topic
@@ -120,8 +120,8 @@ func TestTopicSnapshotUnknownIs404AndBadNameIs400(t *testing.T) {
 		t.Errorf("bob: %d %q ETag=%q", w.Code, w.Body.String(), w.Header().Get("ETag"))
 	}
 	// A removed topic is gone.
-	s.d.Hub.Remove("vms")
-	if w := (req{path: "/api/v1/topics/vms"}).do(h); w.Code != http.StatusNotFound {
+	s.d.Hub.Remove("cluster")
+	if w := (req{path: "/api/v1/topics/cluster"}).do(h); w.Code != http.StatusNotFound {
 		t.Errorf("removed topic = %d, want 404", w.Code)
 	}
 	// Reads only.

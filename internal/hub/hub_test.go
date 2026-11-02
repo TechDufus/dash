@@ -32,24 +32,24 @@ func TestPublishDedupe(t *testing.T) {
 		{"same failure", map[string]int{"a": 2}, src(false, "boom"), false},
 	}
 	for _, tc := range tests {
-		sent, err := h.Publish(model.TopicHost, tc.data, tc.sources)
+		sent, err := h.Publish(model.TopicCluster, tc.data, tc.sources)
 		if err != nil || sent != tc.wantSent {
 			t.Errorf("%s: sent=%v err=%v, want sent=%v", tc.name, sent, err, tc.wantSent)
 		}
 	}
-	ev, ok := h.Latest("", model.TopicHost)
+	ev, ok := h.Latest("", model.TopicCluster)
 	if !ok {
 		t.Fatal("no latest event")
 	}
 	var env model.Envelope
-	if err := json.Unmarshal(ev.Data, &env); err != nil || env.Topic != "host" || string(env.Data) != `{"a":2}` || len(env.Sources) != 1 || env.Sources[0].OK {
+	if err := json.Unmarshal(ev.Data, &env); err != nil || env.Topic != "cluster" || string(env.Data) != `{"a":2}` || len(env.Sources) != 1 || env.Sources[0].OK {
 		t.Errorf("envelope = %+v err=%v", env, err)
 	}
 }
 
 func TestSubscribeSnapshotAndLive(t *testing.T) {
 	h := New()
-	h.SetOrder(func() []model.Topic { return []model.Topic{model.TopicOverview, model.TopicHost, model.TopicApps} })
+	h.SetOrder(func() []model.Topic { return []model.Topic{model.TopicOverview, model.TopicCluster, model.TopicApps} })
 	h.Publish(model.TopicApps, 1, nil)
 	h.Publish(model.TopicOverview, 2, nil)
 	snap, ch, cancel := h.Subscribe("", nil)
@@ -57,10 +57,10 @@ func TestSubscribeSnapshotAndLive(t *testing.T) {
 	if len(snap) != 2 || snap[0].Topic != "core.overview" || snap[1].Topic != "apps" {
 		t.Fatalf("snapshot must follow topic order, got %+v", snap)
 	}
-	h.Publish(model.TopicHost, 3, nil)
+	h.Publish(model.TopicCluster, 3, nil)
 	select {
 	case ev := <-ch:
-		if ev.Topic != "host" {
+		if ev.Topic != "cluster" {
 			t.Errorf("live topic = %s", ev.Topic)
 		}
 	case <-time.After(time.Second):
@@ -314,7 +314,7 @@ func TestSlowSubscriberIsDropped(t *testing.T) {
 	_, ch, cancel := h.Subscribe("", nil)
 	defer cancel()
 	for i := range subscriberBuffer + 1 {
-		h.Publish(model.TopicHost, i, nil)
+		h.Publish(model.TopicCluster, i, nil)
 	}
 	n := 0
 	for range ch { // closed by the hub after the buffer overflowed

@@ -69,7 +69,7 @@ var namespaces = []nsSpec{
 	}},
 }
 
-var nodeNames = []string{"talos-cp-1", "talos-cp-2", "talos-cp-3"}
+var nodeNames = []string{"k8s-cp-1", "k8s-cp-2", "k8s-cp-3"}
 
 // crashing is the one unhealthy pod, so the attention list has something to show.
 const crashingNS, crashingOwner = "acme", "worker"

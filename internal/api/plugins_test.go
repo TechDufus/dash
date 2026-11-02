@@ -216,7 +216,7 @@ func seriesGet(h http.Handler, query string) *httptest.ResponseRecorder {
 func TestSeriesFromPluginBeatsLegacy(t *testing.T) {
 	f := plugintest.New("hw")
 	f.M.Series = []plugin.SeriesSpec{
-		{Name: "host.cpu", Expr: func(a plugin.SeriesArgs) (string, error) { return `plugin_cpu{node="` + a.HostNodename + `"}`, nil }},
+		{Name: "node.cpu", Expr: func(a plugin.SeriesArgs) (string, error) { return `plugin_cpu{instance="` + a.Instance + `"}`, nil }},
 		{Name: "hw.broken", Expr: func(plugin.SeriesArgs) (string, error) { return "", context.Canceled }},
 	}
 	prom := &fakeProm{}
@@ -225,10 +225,10 @@ func TestSeriesFromPluginBeatsLegacy(t *testing.T) {
 	e := newPluginEnv(t, nil, f, pf)
 	h := e.Handler()
 
-	if w := seriesGet(h, "name=host.cpu&range=1h"); w.Code != http.StatusOK {
+	if w := seriesGet(h, "name=node.cpu&range=1h&node=cp1"); w.Code != http.StatusOK {
 		t.Fatalf("series = %d %s", w.Code, w.Body)
 	}
-	if want := `plugin_cpu{node="` + e.d.Cfg.HostNodename + `"}`; prom.expr != want {
+	if want := `plugin_cpu{instance="10.0.0.5:9100"}`; prom.expr != want {
 		t.Errorf("expr = %q, want the plugin's %q", prom.expr, want)
 	}
 	if w := seriesGet(h, "name=hw.broken&range=1h"); w.Code != http.StatusBadRequest {
@@ -240,7 +240,7 @@ func TestSeriesFromPluginBeatsLegacy(t *testing.T) {
 	e.sup.Reload()
 	e.eventually(t, "the instance to stop", func() bool { return !e.sup.Running("hw") })
 	prom.expr = ""
-	if w := seriesGet(h, "name=host.cpu&range=1h"); w.Code != http.StatusOK {
+	if w := seriesGet(h, "name=node.cpu&range=1h&node=cp1"); w.Code != http.StatusOK {
 		t.Fatalf("series = %d %s", w.Code, w.Body)
 	}
 	if prom.expr == "" || strings.HasPrefix(prom.expr, "plugin_cpu") {
@@ -253,13 +253,13 @@ func TestSeriesFromPluginBeatsLegacy(t *testing.T) {
 	e.sup.Reload()
 	e.eventually(t, "prometheus to stop and hw to start", func() bool { return !e.sup.Running("prometheus") && e.sup.Running("hw") })
 	prom.expr, prom.calls = "", 0
-	for _, q := range []string{"name=host.cpu&range=1h", "name=vm.cpu&range=1h&vmid=100"} {
+	for _, q := range []string{"name=node.cpu&range=1h&node=cp1", "name=pod.cpu&range=1h&ns=media&pod=plex-0"} {
 		w := seriesGet(h, q)
 		if got := apiError(t, w); w.Code != http.StatusNotFound || got.Code != model.ErrCodeNotFound || got.Error != "unknown series" {
 			t.Errorf("%s without prometheus = %d %s, want 404 not_found unknown series", q, w.Code, w.Body)
 		}
 	}
-	for _, q := range []string{"name=nope&range=1h", "name=host.cpu&range=2y", "name=vm.cpu&range=1h&vmid=abc", "name=node.cpu&range=1h", "name=hw.broken&range=1h"} {
+	for _, q := range []string{"name=nope&range=1h", "name=node.cpu&range=2y&node=cp1", "name=pod.cpu&range=1h&ns=Bad_NS&pod=x", "name=pod.cpu&range=1h", "name=hw.broken&range=1h"} {
 		if w := seriesGet(h, q); w.Code != http.StatusBadRequest {
 			t.Errorf("%s without prometheus = %d %s, want 400", q, w.Code, w.Body)
 		}
@@ -279,14 +279,14 @@ func TestSeriesRouteFollowsThePrometheusRow(t *testing.T) {
 	h := e.Handler()
 
 	e.eventually(t, "the prometheus row to be disabled", func() bool { return e.infos(t)["prometheus"].State == model.PluginDisabled })
-	if w := seriesGet(h, "name=host.cpu&range=1h"); w.Code != http.StatusNotFound {
+	if w := seriesGet(h, "name=node.cpu&range=1h&node=cp1"); w.Code != http.StatusNotFound {
 		t.Fatalf("series with prometheus disabled = %d %s, want 404", w.Code, w.Body)
 	}
 
 	e.set.Set(plugin.InstanceConfig{Name: "prometheus", Enabled: new(true)})
 	e.sup.Reload()
 	e.eventually(t, "the prometheus row to be healthy", func() bool { return e.infos(t)["prometheus"].State == model.PluginHealthy })
-	if w := seriesGet(h, "name=host.cpu&range=1h"); w.Code != http.StatusOK {
+	if w := seriesGet(h, "name=node.cpu&range=1h&node=cp1"); w.Code != http.StatusOK {
 		t.Fatalf("series with prometheus running = %d %s, want 200", w.Code, w.Body)
 	}
 	if prom.calls != 1 {
@@ -296,7 +296,7 @@ func TestSeriesRouteFollowsThePrometheusRow(t *testing.T) {
 	e.set.Set(plugin.InstanceConfig{Name: "prometheus", Enabled: new(false)})
 	e.sup.Reload()
 	e.eventually(t, "the prometheus row to be disabled again", func() bool { return e.infos(t)["prometheus"].State == model.PluginDisabled })
-	if w := seriesGet(h, "name=host.cpu&range=1h"); w.Code != http.StatusNotFound {
+	if w := seriesGet(h, "name=node.cpu&range=1h&node=cp1"); w.Code != http.StatusNotFound {
 		t.Fatalf("series after disabling prometheus = %d %s, want 404", w.Code, w.Body)
 	}
 }

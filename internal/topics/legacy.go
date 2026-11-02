@@ -6,6 +6,8 @@ import (
 	"github.com/TechDufus/dash/internal/config"
 	"github.com/TechDufus/dash/internal/model"
 	"github.com/TechDufus/dash/internal/plugin"
+	"github.com/TechDufus/dash/internal/pluginconf"
+	"github.com/TechDufus/dash/internal/svc"
 	"github.com/TechDufus/dash/internal/upstream"
 )
 
@@ -16,6 +18,10 @@ import (
 type Legacy struct {
 	M      plugin.Manifest
 	status func() plugin.Status
+	// Provide is what the shim exports to the plugins that use it (plugin.Provider): nil for a
+	// shim that exports nothing. It is read on every Service call, so it can answer from
+	// state that is built later.
+	Provide func() any
 }
 
 // NewLegacy returns the shim of manifest m whose Status is status.
@@ -29,24 +35,36 @@ func (l *Legacy) Stop(context.Context) error                    { return nil }
 func (l *Legacy) Status() plugin.Status                         { return l.status() }
 func (l *Legacy) RestartOnly()                                  {}
 
+// Service is what the shim exports: an untyped nil unless Provide is set, which the supervisor
+// reads as "no service".
+func (l *Legacy) Service() any {
+	if l.Provide == nil {
+		return nil
+	}
+	return l.Provide()
+}
+
 // owner is the plugin that publishes a topic, and the topic's name inside the plugin.
 type owner struct {
 	plugin plugin.ID
 	local  string
 }
 
-// owners says which plugin each topic belongs to, keyed by the un-namespaced name the topic
-// keeps until its plugin migrates (TopicSpec.Legacy). It is derived from the manifests, so the
-// two cannot drift.
-var owners = func() map[model.Topic]owner {
+// owners says which plugin each topic belongs to, keyed by the topic's wire name: the
+// un-namespaced name it keeps until its plugin migrates (TopicSpec.Legacy), else
+// "<plugin>.<name>", which is what the supervisor publishes it under. It is derived from the
+// manifests, so the two cannot drift.
+var owners = ownersOf(legacyManifests())
+
+func ownersOf(ms []plugin.Manifest) map[model.Topic]owner {
 	out := map[model.Topic]owner{}
-	for _, m := range legacyManifests() {
+	for _, m := range ms {
 		for _, t := range m.Topics {
-			out[model.Topic(t.Legacy)] = owner{m.ID, t.Name}
+			out[plugin.TopicName(m.ID, t)] = owner{m.ID, t.Name}
 		}
 	}
 	return out
-}()
+}
 
 // Owner is the plugin that publishes topic and the topic's name inside that plugin, for code
 // that publishes on a plugin's behalf (demo mode). The overview and core.plugins have none.
@@ -74,12 +92,12 @@ func legacyManifests() []plugin.Manifest {
 	return []plugin.Manifest{
 		{ID: "proxmox", Name: "Proxmox VE", Description: "Virtual machines, containers and the hypervisor.", Version: "1.0.0",
 			Uses:   []plugin.ID{"kubernetes", "prometheus"},
-			Config: func() any { return &config.ProxmoxConfig{} },
+			Config: func() any { return &pluginconf.Proxmox{} },
 			Topics: []plugin.TopicSpec{{Name: "vms", Legacy: "vms", Type: model.VMsData{}, Doc: "Virtual machines and containers."}},
 			UI:     nav("/vms", "VMs", "Virtual machines", "Server")},
 		{ID: "hardware", Name: "Hardware", Description: "The physical host behind the cluster.", Version: "1.0.0",
 			Uses:   []plugin.ID{"prometheus", "proxmox"},
-			Config: func() any { return &config.HardwareConfig{} },
+			Config: func() any { return &pluginconf.Hardware{} },
 			Topics: []plugin.TopicSpec{{Name: "hosts", Legacy: "host", Type: model.HostData{}, Doc: "The host's sensors, power, disks and pools."}},
 			UI:     nav("/hardware", "Hardware", "Hardware", "Cpu")},
 		{ID: "kubernetes", Name: "Kubernetes", Description: "How dash reaches and reads the cluster.", Version: "1.0.0",
@@ -110,7 +128,13 @@ func (m *Manager) Plugins() []plugin.Factory {
 	out := make([]plugin.Factory, len(ms))
 	for i, man := range ms {
 		out[i] = func() plugin.Plugin {
-			return NewLegacy(man, func() plugin.Status { return m.legacyStatus(man.ID) })
+			l := NewLegacy(man, func() plugin.Status { return m.legacyStatus(man.ID) })
+			if man.ID == "kubernetes" {
+				// Until the kubernetes plugin exists the Manager is its node index (D14): the
+				// proxmox plugin reads it through Host.Service and needs no change then.
+				l.Provide = func() any { return svc.NodeIndex(m) }
+			}
+			return l
 		}
 	}
 	return out

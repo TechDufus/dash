@@ -214,14 +214,14 @@ func TestDemoOverviewHasTheAlertmanagerKPIOnlyWhileItRuns(t *testing.T) {
 func TestDemoDisabledPluginPublishesNothing(t *testing.T) {
 	off := false
 	set := &plugintest.Settings{}
-	set.Set(plugin.InstanceConfig{Name: "hardware", Enabled: &off, Config: &config.HardwareConfig{}})
+	set.Set(plugin.InstanceConfig{Name: "flux", Enabled: &off, Config: &config.FluxConfig{}})
 	s, _, h := demoSupervisor(t, set)
 	s.publish()
-	if _, ok := h.Latest("", model.TopicHost); ok {
-		t.Error("the host topic is published although hardware is disabled")
+	if _, ok := h.Latest("", model.TopicFlux); ok {
+		t.Error("the flux topic is published although flux is disabled")
 	}
-	if _, ok := h.Latest("", model.TopicVMs); !ok {
-		t.Error("the vms topic is missing")
+	if _, ok := h.Latest("", model.TopicCluster); !ok {
+		t.Error("the cluster topic is missing")
 	}
 }
 
@@ -231,16 +231,16 @@ func TestDemoPluginSwitchesOffAndOnWithoutRestart(t *testing.T) {
 	set := &plugintest.Settings{}
 	s, sup, h := demoSupervisor(t, set)
 	s.publish()
-	if _, ok := h.Latest("", model.TopicHost); !ok {
-		t.Fatal("the host topic is missing before hardware is disabled")
+	if _, ok := h.Latest("", model.TopicFlux); !ok {
+		t.Fatal("the flux topic is missing before flux is disabled")
 	}
 	state := func() model.PluginState {
 		for _, in := range sup.Infos() {
-			if in.ID == "hardware" {
+			if in.ID == "flux" {
 				return in.State
 			}
 		}
-		t.Fatal("hardware is not listed")
+		t.Fatal("flux is not listed")
 		return ""
 	}
 	waitFor := func(what string, ok func() bool) {
@@ -253,25 +253,25 @@ func TestDemoPluginSwitchesOffAndOnWithoutRestart(t *testing.T) {
 	}
 
 	off := false
-	set.Set(plugin.InstanceConfig{Name: "hardware", Enabled: &off, Config: &config.HardwareConfig{}})
+	set.Set(plugin.InstanceConfig{Name: "flux", Enabled: &off, Config: &config.FluxConfig{}})
 	sup.Reload()
-	waitFor("hardware to be disabled", func() bool { return state() == model.PluginDisabled })
-	waitFor("the host topic to go", func() bool { _, ok := h.Latest("", model.TopicHost); return !ok })
+	waitFor("flux to be disabled", func() bool { return state() == model.PluginDisabled })
+	waitFor("the flux topic to go", func() bool { _, ok := h.Latest("", model.TopicFlux); return !ok })
 	s.publish()
-	if _, ok := h.Latest("", model.TopicHost); ok {
-		t.Error("the host topic is published although hardware is disabled")
+	if _, ok := h.Latest("", model.TopicFlux); ok {
+		t.Error("the flux topic is published although flux is disabled")
 	}
-	if _, ok := h.Latest("", model.TopicVMs); !ok {
+	if _, ok := h.Latest("", model.TopicCluster); !ok {
 		t.Error("another plugin's topic went with it")
 	}
 
 	on := true
-	set.Set(plugin.InstanceConfig{Name: "hardware", Enabled: &on, Config: &config.HardwareConfig{}})
+	set.Set(plugin.InstanceConfig{Name: "flux", Enabled: &on, Config: &config.FluxConfig{}})
 	sup.Reload()
-	waitFor("hardware to run again", func() bool { return state() == model.PluginHealthy })
+	waitFor("flux to run again", func() bool { return state() == model.PluginHealthy })
 	s.publish() // what the next tick does
-	if _, ok := h.Latest("", model.TopicHost); !ok {
-		t.Error("the host topic did not come back after hardware was enabled")
+	if _, ok := h.Latest("", model.TopicFlux); !ok {
+		t.Error("the flux topic did not come back after flux was enabled")
 	}
 }
 
@@ -279,14 +279,14 @@ func TestDemoPluginSwitchesOffAndOnWithoutRestart(t *testing.T) {
 // every tick), and still publishes the rest and the core topics.
 func TestDemoSkipsOwnersThatAreNotRunning(t *testing.T) {
 	h := hub.New()
-	hp := plugintest.Without(plugintest.AllRunning(h, topics.LegacyManifests()...), "proxmox")
+	hp := plugintest.Without(plugintest.AllRunning(h, topics.LegacyManifests()...), "flux")
 	s := New(Config(config.Defaults()))
 	s.Plugins(hp)
 	s.publish()
-	if n := hp.Publishes("proxmox"); n != 0 {
-		t.Errorf("demo called a stopped proxmox's Host %d times", n)
+	if n := hp.Publishes("flux"); n != 0 {
+		t.Errorf("demo called a stopped flux's Host %d times", n)
 	}
-	if hp.Publishes("hardware") == 0 {
+	if hp.Publishes("kubernetes") == 0 {
 		t.Error("demo did not publish the topics of a running plugin")
 	}
 	if _, ok := h.Latest("", model.TopicOverview); !ok {

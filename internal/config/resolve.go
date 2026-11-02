@@ -245,6 +245,18 @@ func (r *resolver) set(l *leaf, data []byte, p Provenance) error {
 	if l.secret {
 		return r.setSecret(l, data, p)
 	}
+	v, err := decodeLeaf(l, data)
+	if err != nil {
+		return fmt.Errorf("%s: %s", l.path, describeDecode(l, err))
+	}
+	l.field(&r.tree).Set(v)
+	r.prov[l.path] = p
+	return nil
+}
+
+// decodeLeaf reads one JSON value of the leaf's type, strictly: unknown fields and trailing data
+// are errors.
+func decodeLeaf(l *leaf, data []byte) (reflect.Value, error) {
 	v := reflect.New(l.typ)
 	dec := json.NewDecoder(bytes.NewReader(data))
 	dec.DisallowUnknownFields()
@@ -254,12 +266,7 @@ func (r *resolver) set(l *leaf, data []byte, p Provenance) error {
 			err = errors.New("unexpected data after the value")
 		}
 	}
-	if err != nil {
-		return fmt.Errorf("%s: %s", l.path, describeDecode(l, err))
-	}
-	l.field(&r.tree).Set(v.Elem())
-	r.prov[l.path] = p
-	return nil
+	return v.Elem(), err
 }
 
 // setSecret keeps what a layer says about a secret leaf, a literal or a reference, until every
@@ -359,6 +366,8 @@ func humanType(t reflect.Type) string {
 		return "a string"
 	case t.Kind() == reflect.Slice && t.Elem().Kind() == reflect.String:
 		return "a list of strings"
+	case t.Kind() == reflect.Slice && t.Elem().Kind() == reflect.Int:
+		return "a JSON list of integers"
 	case t.Kind() == reflect.Slice:
 		return "a list of objects"
 	case t.Kind() == reflect.Map:

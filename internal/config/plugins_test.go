@@ -72,11 +72,11 @@ func TestPluginSectionsOrderTypeAndCopy(t *testing.T) {
 	}
 
 	// Changing the copy leaves the tree alone: strings, slices and the enabled pointer.
-	px := by["proxmox"].Value.(*ProxmoxConfig)
+	px := by["proxmox"].Value.(*pluginconf.Proxmox)
 	px.URL, px.Node = "https://changed.example.com", "changed"
-	hw := by["hardware"].Value.(*HardwareConfig)
+	hw := by["hardware"].Value.(*pluginconf.Hardware)
 	hw.Hosts[0].Nodename = "changed"
-	hw.Hosts = append(hw.Hosts, HardwareHost{})
+	hw.Hosts = append(hw.Hosts, pluginconf.HardwareHost{})
 	*by["hardware"].Enabled = true
 	k := by["kubernetes"].Value.(*KubernetesConfig)
 	k.BackupJobs[0].Namespace = "changed"

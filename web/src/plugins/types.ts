@@ -1,7 +1,7 @@
 import type { LucideIcon } from "lucide-react";
 import type { ComponentType, LazyExoticComponent } from "react";
 import type { TopicData, TypedEnvelope } from "@/api/topics";
-import type { OverviewData, Topic } from "@/api/types";
+import type { HostData, OverviewData, Topic } from "@/api/types";
 
 declare const topicBrand: unique symbol;
 
@@ -75,12 +75,14 @@ export function definePlugin<const Id extends string, const T extends TopicMap>(
 }
 
 // --- slots (S3) ---
-export type SlotId = "overview.kpis" | "storage" | "apps.sources";
+export type SlotId = "overview.kpis" | "storage" | "apps.sources" | "hardware.facts";
 
 export interface SlotProps {
   "overview.kpis": { data: OverviewData };
   storage: { env: TypedEnvelope<"storage"> | undefined };
   "apps.sources": { query: string; compact?: boolean };
+  /** Facts about the host that other plugins know (the Proxmox node), drawn on the Hardware page. */
+  "hardware.facts": { host?: HostData };
 }
 
 export interface PanelContribution<S extends SlotId = SlotId> {

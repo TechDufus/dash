@@ -13,7 +13,7 @@ type PluginSection struct {
 	Type string // plugins.<Name>.type; Name when it is unset
 	// Enabled is nil when unset (automatic), otherwise a copy of the explicit choice.
 	Enabled *bool
-	// Value is a pointer to a copy of the section struct, such as *ProxmoxConfig; changing it
+	// Value is a pointer to a copy of the section struct, such as *pluginconf.Proxmox; changing it
 	// leaves the Tree alone. A secret.Value inside is the same handle, so a rotation still
 	// reaches the copy.
 	Value any

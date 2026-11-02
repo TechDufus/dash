@@ -32,8 +32,8 @@ func docManifests() ([]plugin.Manifest, func(plugin.ID) []plugin.RouteInfo) {
 		{Name: "silence.create", Title: "Silence", Idempotent: true},
 	}
 	f.RoutesFn = func(r plugin.Routes) {
-		r.Get("/vms/{vmid}", func(http.ResponseWriter, *http.Request) {}, plugin.RouteSpec{
-			Summary: "One VM", Scope: "read", Query: []plugin.Param{{Name: "fields", Doc: "Fields to return."}}, Response: model.VMDetail{},
+		r.Get("/pods/{pod}", func(http.ResponseWriter, *http.Request) {}, plugin.RouteSpec{
+			Summary: "One pod", Scope: "read", Query: []plugin.Param{{Name: "fields", Doc: "Fields to return."}}, Response: model.PodDetail{},
 		})
 		r.Get("/{$}", func(http.ResponseWriter, *http.Request) {}, plugin.RouteSpec{Summary: "The index"})
 	}
@@ -133,7 +133,7 @@ func TestOpenAPIDocumentsErrorEnvelopeAndEnvelopesPerTopic(t *testing.T) {
 
 	// One envelope per topic: the core topics, and the plugin's own with its type.
 	schemas := dig(t, doc, "components", "schemas").(map[string]any)
-	for _, name := range []string{"core.plugins", "core.overview", "vms", "host", "aa.items"} {
+	for _, name := range []string{"core.plugins", "core.overview", "cluster", "apps", "aa.items"} {
 		env := dig(t, schemas, "Envelope."+name)
 		if c := dig(t, env, "properties", "topic", "const"); c != name {
 			t.Errorf("Envelope.%s topic const = %v", name, c)
@@ -184,9 +184,9 @@ func TestOpenAPIDocumentsPluginActionsAndRoutes(t *testing.T) {
 		t.Error("an action without an input has a request body")
 	}
 
-	vm := dig(t, doc, "paths", "/api/v1/plugins/aa/vms/{vmid}", "get")
-	params := dig(t, vm, "parameters").([]any)
-	if len(params) != 2 || dig(t, params[0], "name") != "vmid" || dig(t, params[0], "in") != "path" || dig(t, params[1], "name") != "fields" {
+	pod := dig(t, doc, "paths", "/api/v1/plugins/aa/pods/{pod}", "get")
+	params := dig(t, pod, "parameters").([]any)
+	if len(params) != 2 || dig(t, params[0], "name") != "pod" || dig(t, params[0], "in") != "path" || dig(t, params[1], "name") != "fields" {
 		t.Errorf("parameters = %v", params)
 	}
 	dig(t, doc, "paths", "/api/v1/plugins/aa/", "get")

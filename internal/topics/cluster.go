@@ -17,6 +17,7 @@ import (
 	"github.com/TechDufus/dash/internal/kube"
 	"github.com/TechDufus/dash/internal/model"
 	"github.com/TechDufus/dash/internal/queries"
+	"github.com/TechDufus/dash/internal/svc"
 )
 
 const (
@@ -79,6 +80,32 @@ func (m *Manager) NodeIP(name string) (string, bool) {
 	ip := nodeIP(n)
 	return ip, ip != ""
 }
+
+// The Manager is the cluster's svc.NodeIndex until the kubernetes plugin replaces it (D14); the
+// kubernetes shim exports it, and NodeIP above is its third method.
+var _ svc.NodeIndex = (*Manager)(nil)
+
+// K8sNode maps a VM name to the cluster node of the same name and says whether it is Ready.
+// Before the informers have synced it answers ok=false for every name, which is the gate the VMs
+// build always had (a VM is linked to its node only once the nodes are known).
+func (m *Manager) K8sNode(vmName string) (node string, ready, ok bool) {
+	if !m.d.Cluster.HasSynced() {
+		return "", false, false
+	}
+	n, err := m.d.Cluster.Nodes.Get(vmName)
+	if err != nil {
+		return "", false, false
+	}
+	return n.Name, nodeReady(n.Status.Conditions), true
+}
+
+// Synced reports that the informers have synced.
+func (m *Manager) Synced() bool { return m.d.Cluster.HasSynced() }
+
+// Revision changes whenever the set of nodes or a node's state changes (every node event bumps
+// it, which is a superset of readiness changes: a consumer that republishes on a change it
+// cannot see is merely early).
+func (m *Manager) Revision() uint64 { return m.nodeRev.Load() }
 
 // nsInfo is the classification of a namespace.
 type nsInfo struct {

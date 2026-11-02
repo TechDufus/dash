@@ -29,29 +29,36 @@ func EnvVars() []EnvVar {
 	treeType := reflect.TypeFor[Tree]()
 	out := make([]EnvVar, 0, len(schema.leaves))
 	for _, l := range schema.leaves {
-		t := "string"
-		elem := l.typ
-		if elem.Kind() == reflect.Pointer {
-			elem = elem.Elem()
-		}
-		switch {
-		case elem == durationType:
-			t = "duration (e.g. 30s)"
-		case elem.Kind() == reflect.Bool:
-			t = "boolean"
-		case elem.Kind() == reflect.Int:
-			t = "integer"
-		case elem.Kind() == reflect.Slice && elem.Elem().Kind() == reflect.String:
-			t = "list of strings (JSON)"
-		case elem.Kind() == reflect.Map:
-			t = "object (JSON)"
-		case elem.Kind() == reflect.Slice:
-			t = "list of objects (JSON)"
-		}
+		t := envType(l.typ)
 		doc := treeType.FieldByIndex(l.index).Tag.Get("doc")
 		out = append(out, EnvVar{l.path, l.env, t, l.secret, l.restart, doc, defaultText(l.field(&tree))})
 	}
 	return out
+}
+
+// envType is how the generated tables name the type of a setting.
+func envType(typ reflect.Type) string {
+	elem := typ
+	if elem.Kind() == reflect.Pointer {
+		elem = elem.Elem()
+	}
+	switch {
+	case elem == durationType:
+		return "duration (e.g. 30s)"
+	case elem.Kind() == reflect.Bool:
+		return "boolean"
+	case elem.Kind() == reflect.Int:
+		return "integer"
+	case elem.Kind() == reflect.Slice && elem.Elem().Kind() == reflect.String:
+		return "list of strings (JSON)"
+	case elem.Kind() == reflect.Slice && elem.Elem().Kind() == reflect.Int:
+		return "list of integers (JSON)"
+	case elem.Kind() == reflect.Map:
+		return "object (JSON)"
+	case elem.Kind() == reflect.Slice:
+		return "list of objects (JSON)"
+	}
+	return "string"
 }
 
 // defaultText is a default as it would be written in the environment.

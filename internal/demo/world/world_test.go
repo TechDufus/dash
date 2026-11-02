@@ -1,12 +1,14 @@
 package world
 
 import (
+	"encoding/json"
 	"reflect"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/TechDufus/dash/internal/model"
+	"github.com/TechDufus/dash/internal/plugin"
 )
 
 // fakeLinks is a LinkSource that records nothing and links to example.com, so the world builds
@@ -131,5 +133,79 @@ func TestWorldIsCoherent(t *testing.T) {
 	}
 	if s.Host.Name != HostName {
 		t.Errorf("host name = %q, want %q", s.Host.Name, HostName)
+	}
+}
+
+// PVENode, PVEStorages and Machines are the parts the proxmox and hardware twins publish; the
+// payloads that still carry them (host, storage, vms) are built from the same values, so a twin
+// and the legacy source cannot disagree about the node's version or a machine's state.
+func TestSplitPartsAgreeWithThePayloads(t *testing.T) {
+	w := testWorld()
+	s := w.Build()
+
+	n := w.PVENode()
+	if n.Node != HostName || n.Version == "" || n.Kernel == "" || n.CPUModel == "" || n.UptimeSeconds <= 0 {
+		t.Errorf("PVENode = %+v", n)
+	}
+	if s.Host.PVEVersion != n.Version || s.Host.Kernel != n.Kernel || s.Host.CPUModel != n.CPUModel || s.Host.UptimeSeconds != n.UptimeSeconds {
+		t.Errorf("host facts %q %q %q %d differ from the node %+v", s.Host.PVEVersion, s.Host.Kernel, s.Host.CPUModel, s.Host.UptimeSeconds, n)
+	}
+
+	ps := w.PVEStorages()
+	if len(ps) == 0 || len(ps) != len(s.Storage.PVEStorages) {
+		t.Fatalf("PVEStorages = %+v, storage payload has %d", ps, len(s.Storage.PVEStorages))
+	}
+	for i, p := range ps {
+		c := s.Storage.PVEStorages[i]
+		if p.Name != c.Name || p.UsedBytes != c.UsedBytes || p.SizeBytes != c.SizeBytes || p.SizeBytes <= p.UsedBytes || p.UsedBytes <= 0 {
+			t.Errorf("storage %d: part %+v, payload %+v", i, p, c)
+		}
+	}
+
+	ms := w.Machines()
+	if len(ms) == 0 || len(ms) != len(s.VMs.Machines) {
+		t.Fatalf("Machines = %+v, vms payload has %d", ms, len(s.VMs.Machines))
+	}
+	for i, m := range ms {
+		c := s.VMs.Machines[i]
+		if m.Name != c.Name || m.Up != c.Up || m.Source != c.Source {
+			t.Errorf("machine %d: part %+v, payload %+v", i, m, c)
+		}
+		if m.Source != "prometheus" && m.Source != "gatus" {
+			t.Errorf("machine %s has source %q, want prometheus or gatus", m.Name, m.Source)
+		}
+	}
+}
+
+// Every ref of the parts is a well-formed ref of its plugin, with the id of its object.
+func TestSplitPartsCarryRefs(t *testing.T) {
+	w := testWorld()
+	check := func(ref string, id plugin.ID, kind, name string) {
+		t.Helper()
+		gotID, gotKind, gotName, ok := plugin.ParseRef(ref)
+		if !ok || gotID != id || gotKind != kind || gotName != name {
+			t.Errorf("ref %q = %s %s %s (%v), want %s %s %s", ref, gotID, gotKind, gotName, ok, id, kind, name)
+		}
+	}
+	check(w.PVENode().Ref, "proxmox", "Node", HostName)
+	for _, p := range w.PVEStorages() {
+		check(p.Ref, "proxmox", "Storage", p.Name)
+	}
+	for _, m := range w.Machines() {
+		check(m.Ref, "hardware", "Machine", m.Name)
+	}
+}
+
+// The fake homelab names no real one: the names of the guests, nodes and machines are generic.
+func TestFixtureNamesAreNeutral(t *testing.T) {
+	b, err := json.Marshal(testWorld().Build())
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := strings.ToLower(string(b))
+	for _, lab := range []string{"talos", "rpi-control", "mac-mini"} {
+		if strings.Contains(body, lab) {
+			t.Errorf("the world still names %q", lab)
+		}
 	}
 }

@@ -275,7 +275,7 @@ func TestMetricLabelValuesComeFromFixedSets(t *testing.T) {
 		{path: "/api/v1/me", header: map[string]string{"X-Forwarded-Preferred-Username": "mallory"}},
 		{path: "/api/v1/me", header: map[string]string{"X-Forwarded-Preferred-Username": ""}},
 		{path: "/api/v1/plugins/aa/actions/ping", method: http.MethodPost, raw: true, header: map[string]string{"X-Forwarded-Preferred-Username": "mallory"}},
-		{path: "/api/vms/9999"},
+		{path: "/api/pods/mallory/9999"},
 	}
 	for _, r := range hostile {
 		r.do(h)
