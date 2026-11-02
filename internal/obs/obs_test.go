@@ -214,6 +214,9 @@ func TestInstrumentKeepsStreamingWorking(t *testing.T) {
 		t.Fatal(err)
 	}
 	_ = resp.Body.Close()
+	// Close blocks until the handler goroutine has returned, which is when Instrument has
+	// counted the request; the client has the body before that, so reading the count sooner races.
+	srv.Close()
 	if v := value(t, scrape(t, m), "dash_http_requests_total", map[string]string{"route": "GET /s", "code": "200"}); v != 1 {
 		t.Errorf("count = %v", v)
 	}
