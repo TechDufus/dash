@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"reflect"
 	goruntime "runtime"
 	"strings"
 	"sync"
@@ -21,6 +22,7 @@ import (
 	"k8s.io/client-go/kubernetes/fake"
 	k8stesting "k8s.io/client-go/testing"
 
+	"github.com/TechDufus/dash/internal/pluginconf"
 	"github.com/TechDufus/dash/internal/secret"
 )
 
@@ -311,6 +313,27 @@ func TestKeyMissingThenPresent(t *testing.T) {
 	}
 }
 
+// A Secret made from a file usually ends in a newline: the value is trimmed like an env: or
+// file: one, and a value that is nothing but whitespace is missing.
+func TestSecretValuesAreTrimmed(t *testing.T) {
+	g := newSwRig(t, swSecret("dash", "creds", map[string]string{"token": " \t" + swCanary + "\r\n", "blank": " \n"}))
+	v := g.handle(refOne)
+	blank := g.handle("k8s:dash/creds#blank")
+	g.start(t.Context())
+	swEventually(t, "the read", v.IsSet)
+	if got := v.Reveal(); got != swCanary {
+		t.Errorf("value = %q, want it trimmed", got)
+	}
+	swEventually(t, "key_missing for a blank value", func() bool { return blank.Reason() == secret.ReasonKeyMissing })
+	if blank.IsSet() {
+		t.Error("a blank value must not be a credential")
+	}
+
+	g.watcher(1).Modify(swSecret("dash", "creds", map[string]string{"token": swCanary + "-2\n", "blank": "x"}))
+	swEventually(t, "the trimmed rotation", reveals(v, swCanary+"-2"))
+	swEventually(t, "the blank key to be read", reveals(blank, "x"))
+}
+
 func TestNotFoundThenCreated(t *testing.T) {
 	g := newSwRig(t)
 	v := g.handle(refOne)
@@ -416,6 +439,8 @@ func TestStopKeepsTheLastValue(t *testing.T) {
 	swEventually(t, "the reason to clear after the restart", func() bool { return v.Reason() == "" })
 }
 
+// stop waits for every watcher goroutine (its WaitGroup), so a stop that returns proves they
+// ended; nothing counts the goroutines of the whole process.
 func TestSecretWatchersEndEveryGoroutine(t *testing.T) {
 	g := newSwRig(t,
 		swSecret("dash", "creds", map[string]string{"token": "a"}),
@@ -423,15 +448,16 @@ func TestSecretWatchersEndEveryGoroutine(t *testing.T) {
 	)
 	g.handle(refOne)
 	g.handle("k8s:media/app#pw")
-	before := goruntime.NumGoroutine()
 	w := g.start(t.Context())
-	g.watcher(2)
-	if goruntime.NumGoroutine() < before+2 {
-		t.Fatalf("expected a goroutine per Secret, %d -> %d", before, goruntime.NumGoroutine())
-	}
+	g.watcher(2) // one watch, hence one goroutine, per Secret
 
-	w.stop()
-	swEventually(t, "the goroutines to end", func() bool { return goruntime.NumGoroutine() <= before })
+	stopped := make(chan struct{})
+	go func() { w.stop(); close(stopped) }()
+	select {
+	case <-stopped:
+	case <-time.After(5 * time.Second):
+		t.Fatal("stop did not return: a watcher goroutine is still running")
+	}
 
 	// And no request reaches the API afterwards, not even a retry.
 	n := len(g.client.Actions())
@@ -440,9 +466,15 @@ func TestSecretWatchersEndEveryGoroutine(t *testing.T) {
 		t.Errorf("%d requests after stop", after-n)
 	}
 	// A reference seen after the stop starts nothing.
+	w.mu.Lock()
+	watched := len(w.objs)
+	w.mu.Unlock()
 	g.handle("k8s:late/ns#key")
-	if goruntime.NumGoroutine() > before {
-		t.Error("a reference after stop started a goroutine")
+	w.mu.Lock()
+	now := len(w.objs)
+	w.mu.Unlock()
+	if now != watched {
+		t.Errorf("a reference after stop started a watcher: %d -> %d", watched, now)
 	}
 }
 
@@ -501,4 +533,28 @@ func TestSecretValueNeverLeaks(t *testing.T) {
 	if got := g.reg.Scrub(log); strings.Contains(got, swCanary) {
 		t.Errorf("a registered value survives the scrub:\n%s", got)
 	}
+}
+
+// The supervisor holds back any plugin with a pending k8s: reference, and the kubernetes plugin
+// is the one that reads them: it must never have a secret field of its own, or it would wait
+// for itself.
+func TestKubernetesSectionHasNoSecretField(t *testing.T) {
+	var walk func(path string, ty reflect.Type, seen map[reflect.Type]bool)
+	walk = func(path string, ty reflect.Type, seen map[reflect.Type]bool) {
+		for ty.Kind() == reflect.Pointer || ty.Kind() == reflect.Slice || ty.Kind() == reflect.Array || ty.Kind() == reflect.Map {
+			ty = ty.Elem()
+		}
+		if ty == reflect.TypeFor[secret.Value]() {
+			t.Errorf("%s is a secret.Value", path)
+			return
+		}
+		if ty.Kind() != reflect.Struct || seen[ty] {
+			return
+		}
+		seen[ty] = true
+		for i := range ty.NumField() {
+			walk(path+"."+ty.Field(i).Name, ty.Field(i).Type, seen)
+		}
+	}
+	walk("plugins.kubernetes", reflect.TypeFor[pluginconf.Kubernetes](), map[reflect.Type]bool{})
 }

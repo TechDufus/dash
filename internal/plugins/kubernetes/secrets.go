@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"strings"
 	"sync"
 	"time"
 
@@ -261,12 +262,14 @@ func (w *secretWatchers) watchErr(o *objWatch, err error) error {
 	return err
 }
 
-// apply copies the referenced keys of sec into their handles. sec is not kept.
+// apply copies the referenced keys of sec into their handles, trimmed like an env: or file:
+// value (a Secret made from a file ends in a newline, which no header may carry); a key that is
+// empty after trimming is missing. sec is not kept.
 func (w *secretWatchers) apply(o *objWatch, sec *corev1.Secret) {
 	missing := false
 	for key, ref := range o.snapshot() {
-		if v := sec.Data[key]; len(v) > 0 {
-			w.refs.Fill(ref, string(v))
+		if v := strings.TrimSpace(string(sec.Data[key])); v != "" {
+			w.refs.Fill(ref, v)
 		} else {
 			missing = true
 			w.refs.SetReason(ref, secret.ReasonKeyMissing)
