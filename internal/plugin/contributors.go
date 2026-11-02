@@ -23,7 +23,9 @@ type Contributor struct {
 // Contributors lists, in registry order, the running instances that implement at least one of
 // AttentionSource, KPISource and TopologySource. The core composes core.overview from them
 // (design A.7); an instance that is not running (disabled, unconfigured, blocked, failed to
-// start) contributes nothing, and so has no source chip on the Overview.
+// start) contributes nothing, and so has no source chip on the Overview. A running instance
+// whose row is hidden (only unavailable can be: its data describes something nobody can reach)
+// keeps its Sources and has Attention, KPIs and Topology nil, so what it last built is not shown.
 func (s *Supervisor) Contributors() []Contributor {
 	var out []Contributor
 	for _, in := range s.registry() {
@@ -39,6 +41,9 @@ func (s *Supervisor) Contributors() []Contributor {
 		c.Topology, _ = p.(TopologySource)
 		if c.Attention != nil || c.KPIs != nil || c.Topology != nil {
 			c.Sources = sourcesOf(p)
+			if st, _ := s.liveState(in); !Visible(st) {
+				c.Attention, c.KPIs, c.Topology = nil, nil, nil
+			}
 			out = append(out, c)
 		}
 	}

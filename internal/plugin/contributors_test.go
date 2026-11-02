@@ -242,3 +242,45 @@ func TestNilAttentionLeavesTheSightingsAndAnEmptyListPrunesThem(t *testing.T) {
 		t.Errorf("since after an empty list = %v, want %v (it pruned the sighting)", got, t1)
 	}
 }
+
+// A running instance whose row is hidden (unavailable) contributes no data, only its sources;
+// it contributes again, with its data, when the row is visible.
+func TestHiddenContributorKeepsItsSourcesAndDropsItsData(t *testing.T) {
+	var mu sync.Mutex
+	st := plugin.StateUnavailable
+	f := plugintest.New("aa")
+	f.StatusFn = func() plugin.Status {
+		mu.Lock()
+		defer mu.Unlock()
+		return plugin.Status{State: st, Sources: []model.SourceStatus{{Name: "up", OK: false, Error: "unreachable"}}}
+	}
+	f.AttentionFn = func(time.Time) []model.AttentionItem { return []model.AttentionItem{{ID: "x"}} }
+	f.KPIFn = func() []model.KPI { return []model.KPI{{Key: "k"}} }
+	f.TopologyFn = func() model.Topology { return model.Topology{VMs: []model.TopologyVM{{}}} }
+	e := start(t, f.Factory())
+
+	find := func() plugin.Contributor {
+		for _, c := range e.sup.Contributors() {
+			if c.ID == "aa" {
+				return c
+			}
+		}
+		t.Fatal("aa is not a contributor")
+		return plugin.Contributor{}
+	}
+	c := find()
+	if c.Attention != nil || c.KPIs != nil || c.Topology != nil {
+		t.Errorf("a hidden contributor kept its data: %+v", c)
+	}
+	if c.Sources == nil || len(c.Sources()) != 1 || c.Sources()[0].Error != "unreachable" {
+		t.Errorf("a hidden contributor lost its sources")
+	}
+
+	mu.Lock()
+	st = plugin.StateHealthy
+	mu.Unlock()
+	c = find()
+	if c.Attention == nil || c.KPIs == nil || c.Topology == nil || c.Sources == nil {
+		t.Errorf("a visible contributor lost something: %+v", c)
+	}
+}

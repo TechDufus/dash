@@ -1,11 +1,15 @@
 package kubernetes
 
 import (
+	"errors"
 	"reflect"
 	"testing"
 	"time"
 
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	k8sruntime "k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
+	clienttesting "k8s.io/client-go/testing"
 
 	"github.com/TechDufus/dash/internal/model"
 	"github.com/TechDufus/dash/internal/plugin"
@@ -13,9 +17,10 @@ import (
 )
 
 // ovPlugin is a running plugin whose last published payloads are cl and st (either may be nil).
+// It runs as a twin, whose row is always healthy: the service is never withdrawn.
 func ovPlugin(cl *model.ClusterData, st *model.StorageData) *Plugin {
 	p := &Plugin{}
-	p.rt.Store(&runtime{cluster: cl, storageD: st})
+	p.rt.Store(&runtime{cluster: cl, storageD: st, twin: &twinSource{}})
 	return p
 }
 
@@ -227,5 +232,36 @@ func TestTopologyOfAnEmptyClusterHasTheThreeGroups(t *testing.T) {
 	}
 	if topo.VMs == nil || topo.Host != (model.TopologyHost{}) {
 		t.Errorf("vms = %#v, host = %+v: the plugin has neither", topo.VMs, topo.Host)
+	}
+}
+
+// An errored kubernetes row is visible, so the supervisor keeps its contributor; the plugin itself
+// has no opinion while its service is withdrawn, and has one again when the sync completes.
+func TestAttentionAndKPIsAreNilWhileTheServiceIsWithdrawn(t *testing.T) {
+	var forbid atomicBool
+	forbid.set(true)
+	e := newEnv(t, envOpts{fakeClock: true, objs: []k8sruntime.Object{node("cp-1", "192.0.2.10", false)}, prefill: func(e *env) {
+		e.kc.PrependReactor("list", "pods", func(clienttesting.Action) (bool, k8sruntime.Object, error) {
+			if forbid.get() {
+				return true, nil, apierrors.NewForbidden(schema.GroupResource{Resource: "pods"}, "", errors.New("no"))
+			}
+			return false, nil, nil
+		})
+	}})
+	e.clock.advance(60 * time.Second)
+	e.state(plugin.StateError)
+	for _, c := range e.sup.Contributors() {
+		if c.ID != ID {
+			continue
+		}
+		if c.Sources == nil || len(c.Sources()) == 0 {
+			t.Error("the errored plugin lost its sources")
+		}
+		if c.Attention != nil && c.Attention.Attention(clNow) != nil {
+			t.Error("attention while the service is withdrawn")
+		}
+		if c.KPIs != nil && c.KPIs.KPIs() != nil {
+			t.Error("KPIs while the service is withdrawn")
+		}
 	}
 }

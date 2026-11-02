@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/TechDufus/dash/internal/model"
+	"github.com/TechDufus/dash/internal/plugin"
 	"github.com/TechDufus/dash/internal/plugins/internal/health"
 )
 
@@ -22,7 +23,7 @@ const (
 // an item without a time of its own gets the time it was first seen, from the supervisor.
 func (p *Plugin) Attention(now time.Time) []model.AttentionItem {
 	r := p.rt.Load()
-	if r == nil {
+	if r == nil || r.withdrawn() {
 		return nil
 	}
 	cl, st := r.builtPayloads()
@@ -37,11 +38,26 @@ func (p *Plugin) Attention(now time.Time) []model.AttentionItem {
 // critical while a node is not ready; the PVC follows the storage thresholds.
 func (p *Plugin) KPIs() []model.KPI {
 	r := p.rt.Load()
-	if r == nil {
+	if r == nil || r.withdrawn() {
 		return nil
 	}
 	cl, st := r.builtPayloads()
 	return kpisOf(cl, st)
+}
+
+// withdrawn reports that the plugin's service is withdrawn (the row is unavailable or an error,
+// as Service has it): what it last built describes a cluster nobody can reach, so its overview
+// sources have no opinion. The supervisor drops a hidden (unavailable) contributor itself; an
+// error row is visible, so the plugin does it.
+func (r *runtime) withdrawn() bool {
+	if r.twin != nil {
+		return false
+	}
+	switch r.status().State {
+	case plugin.StateUnavailable, plugin.StateError:
+		return true
+	}
+	return false
 }
 
 // kpisOf derives the KPIs from the published payloads; either may be nil before its first
