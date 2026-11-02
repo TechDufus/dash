@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { Disk, Fan, HostData, PluginInfo } from "@/api/types";
 import { connectStream, type TestStream } from "@/plugins/test-util";
 import { pluginInfo, renderApp, stubFetch } from "@/test/harness";
-import { fanScale, HardwarePage } from "./hardware-page";
+import { fanScale, HardwarePage, MAX_BAYS } from "./hardware-page";
 import type { Machine } from "./model.gen";
 
 // Motion reads prefers-reduced-motion once; with it on the page prints its numbers at once.
@@ -137,6 +137,33 @@ describe("the Hardware page", () => {
       expect(bayCells()).toHaveLength(4);
       expect(screen.getByRole("button", { name: "Bay 4: healthy" })).toBeInTheDocument();
       expect(screen.getByText("#3")).toBeInTheDocument(); // the empty slot between them
+    });
+
+    it("lists the disks sorted when the derived grid would be absurdly large", () => {
+      // 99999999999 used to throw RangeError: Invalid array length (the error screen).
+      draw(host({ bays: 0, disks: [disk(99999999999)] }));
+      expect(bayCells()).toHaveLength(1);
+      expect(screen.getByRole("button", { name: "Bay 99999999999: healthy" })).toBeInTheDocument();
+    });
+
+    it("lists the disks sorted when the highest slot is far above the others", () => {
+      // 20000 used to draw 20001 slots.
+      draw(host({ bays: 0, disks: [disk(20000), disk(1)] }));
+      expect(bayCells()).toHaveLength(2);
+      const names = screen
+        .getAllByRole("button", { name: /^Bay / })
+        .map((b) => b.getAttribute("aria-label"));
+      expect(names).toEqual(["Bay 1: healthy", "Bay 20000: healthy"]);
+    });
+
+    it("derives a grid of MAX_BAYS slots", () => {
+      draw(host({ bays: 0, disks: [disk(1), disk(MAX_BAYS)] }));
+      expect(bayCells()).toHaveLength(MAX_BAYS);
+    });
+
+    it("lists the disks sorted one slot above MAX_BAYS", () => {
+      draw(host({ bays: 0, disks: [disk(1), disk(MAX_BAYS + 1)] }));
+      expect(bayCells()).toHaveLength(2);
     });
 
     it("keeps every disk when a bay number does not fit the configured grid", () => {

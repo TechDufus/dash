@@ -249,9 +249,17 @@ interface BaySlot {
 }
 
 /**
- * The bay grid. `bays` is the configured slot count; 0 means "derive it": the grid then ends at
- * the highest populated slot. Disks go to their bay number (numbered from 0, or from 1 when no
- * disk sits in slot 0); unparsable or colliding labels fall back to sorted order.
+ * The most slots the grid draws: the limit of the `bays` setting (internal/pluginconf/hardware.go).
+ * A derived grid larger than this is a label that is not a slot number, so the sorted list shows
+ * the disks instead.
+ */
+export const MAX_BAYS = 128;
+
+/**
+ * The bay grid. `bays` is the configured slot count; 0 means "derive it": the grid then runs from
+ * slot 1 (from slot 0 when a disk sits there) to the highest populated slot, as long as that is
+ * at most MAX_BAYS slots. Disks go to their bay number; unparsable or colliding labels, and a
+ * derived grid above MAX_BAYS, fall back to sorted order.
  */
 function placeDisks(disks: Disk[], bays: number): BaySlot[] {
   const parsed = disks.map((d) => ({ d, n: parseBay(d.bay) }));
@@ -265,7 +273,7 @@ function placeDisks(disks: Disk[], bays: number): BaySlot[] {
     const max = Math.max(...nums);
     const offset = min >= 1 && (bays === 0 || max <= bays) ? 1 : 0;
     const count = bays > 0 ? bays : max - offset + 1;
-    if (max - offset < count) {
+    if (count <= MAX_BAYS && max - offset < count) {
       const slots: BaySlot[] = Array.from({ length: count }, (_, i) => ({
         label: String(i + offset),
       }));

@@ -1,4 +1,5 @@
 import { screen, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { PluginInfo, PVETask, VM, VMDetail, VMsData } from "@/api/types";
 import { connectStream, type TestStream } from "@/plugins/test-util";
@@ -119,5 +120,41 @@ describe("the VMs page", () => {
     expect(await within(sheet).findByText("Configuration")).toBeInTheDocument();
     expect(stub.callsTo("GET /api/v1/plugins/proxmox/vms/101")).toHaveLength(1);
     expect(stub.calls.map((c) => c.path)).not.toContain("/api/vms/101");
+  });
+
+  describe("the sheet's Links tab", () => {
+    const hostShell = {
+      label: "Host shell",
+      href: "https://pve.example.com:8006/?console=shell&novnc=1&node=pve-1&resize=off&cmd=",
+      kind: "proxmox",
+    };
+
+    it("offers the host shell link that hardware.hosts carries", async () => {
+      const user = userEvent.setup();
+      stubFetch({ "GET /api/v1/plugins/proxmox/vms/101": detail() });
+      renderApp(<VMsPage vmid="101" />, { path: "/vms/101" });
+      stream.plugins([proxmox(), hardware()]);
+      stream.send("proxmox.vms", data());
+      stream.send("hardware.hosts", { name: "pve-1", links: [hostShell] });
+
+      const sheet = await screen.findByRole("dialog");
+      await user.click(await within(sheet).findByRole("tab", { name: "Links" }));
+      const link = await within(sheet).findByRole("link", { name: /Host shell/ });
+      expect(link).toHaveAttribute("href", hostShell.href);
+      expect(within(sheet).getByText("Host")).toBeInTheDocument();
+    });
+
+    it("has no host link without the hardware plugin", async () => {
+      const user = userEvent.setup();
+      stubFetch({ "GET /api/v1/plugins/proxmox/vms/101": detail() });
+      renderApp(<VMsPage vmid="101" />, { path: "/vms/101" });
+      stream.plugins([proxmox()]);
+      stream.send("proxmox.vms", data());
+
+      const sheet = await screen.findByRole("dialog");
+      await user.click(await within(sheet).findByRole("tab", { name: "Links" }));
+      expect(await within(sheet).findByText("No links for this VM.")).toBeInTheDocument();
+      expect(within(sheet).queryByRole("link", { name: /Host shell/ })).toBeNull();
+    });
   });
 });
