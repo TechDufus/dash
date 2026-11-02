@@ -48,13 +48,11 @@ func deploymentEnv(t *testing.T) []string {
 // the configuration each is started with carries the four changed settings and the ones that
 // stayed, and the running hardware plugin publishes the host with its layout and the two machines.
 func TestDeploymentEnvReachesThePlugins(t *testing.T) {
-	var wantMachines []pluginconf.HardwareMachine // the environment's own list: this file names none
-	for _, kv := range deploymentEnv(t) {
-		if v, ok := strings.CutPrefix(kv, "DASH_PLUGINS_HARDWARE_MACHINES="); ok {
-			if err := json.Unmarshal([]byte(v), &wantMachines); err != nil || len(wantMachines) != 2 {
-				t.Fatalf("DASH_PLUGINS_HARDWARE_MACHINES = %q: %v", v, err)
-			}
-		}
+	// What the environment must resolve to, pinned here and not read back from the file it
+	// checks (internal/config's TestDeploymentEnvV08 pins the same values).
+	wantMachines := []pluginconf.HardwareMachine{
+		{Name: "mac-mini", NodeExporterNodename: "mac-mini"},
+		{Name: "rpi-control", GatusEndpoint: "rpi-control SSH"},
 	}
 	var mu sync.Mutex
 	var asked []string

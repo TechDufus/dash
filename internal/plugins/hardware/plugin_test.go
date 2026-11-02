@@ -253,6 +253,47 @@ func TestStatusBeforeStartIsStarting(t *testing.T) {
 	}
 }
 
+// Machines on Gatus alone have nothing to say until Gatus has polled once, so the row is
+// starting (not healthy with no sources) while its revision is 0, and the first poll ends it,
+// a failed one included. A node-exporter machine is not held back by a Gatus that has not polled.
+func TestGatusMachinesStartUntilGatusHasPolled(t *testing.T) {
+	p, _, h := stubRuntime(t, func(c *pluginconf.Hardware) {
+		c.Machines = []pluginconf.HardwareMachine{{Name: "pi", GatusEndpoint: "pi SSH"}}
+	})
+	ep := newFakeEndpoints(0)
+	h.setService("gatus", ep)
+	if st := p.Status(); st.State != plugin.StateStarting || st.Message != "waiting for the first poll" || len(st.Sources) != 0 {
+		t.Fatalf("before Gatus has polled: %+v, want starting", st)
+	}
+	ep.set("pi SSH", true) // revision 1
+	if st := p.Status(); st.State != plugin.StateHealthy || !hasSource(st.Sources, "gatus", true, "") {
+		t.Errorf("after the first poll: %+v, want healthy with the gatus source", st)
+	}
+
+	failed := newFakeEndpoints(0)
+	h.setService("gatus", failed)
+	failed.mu.Lock()
+	failed.srcs = []model.SourceStatus{{Name: "gatus", OK: false, Error: "timeout"}}
+	failed.rev++
+	failed.mu.Unlock()
+	if st := p.Status(); st.State != plugin.StateError || st.Message != "gatus: timeout" {
+		t.Errorf("after a failed first poll: %+v, want error", st)
+	}
+
+	// Node-exporter machines only, with a Gatus service that has not polled.
+	p2, rt2, h2 := stubRuntime(t, func(c *pluginconf.Hardware) {
+		c.Machines = []pluginconf.HardwareMachine{{Name: "nas", NodeExporterNodename: "nas-1"}}
+	})
+	q := newFakeQuerier()
+	q.set(rt2.q.machineUp("nas-1"), sample(1))
+	h2.setService("prometheus", q)
+	h2.setService("gatus", newFakeEndpoints(0))
+	p2.machinesTick(context.Background(), rt2)
+	if st := p2.Status(); st.State != plugin.StateHealthy {
+		t.Errorf("node-exporter machines with an idle Gatus: %+v, want healthy", st)
+	}
+}
+
 // degraded: some sources fail; error: all of them. The message holds categories only.
 func TestStatusStatesFollowTheSources(t *testing.T) {
 	r := newRig(t, rigOpts{cfg: func(c *pluginconf.Hardware) {

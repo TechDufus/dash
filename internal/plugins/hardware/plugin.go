@@ -343,7 +343,10 @@ func (p *Plugin) Status() plugin.Status {
 		}
 	}
 
-	if (av.host && !hostPolled) || (av.prom && !machPolled) {
+	// Gatus is polled by its own plugin: its first poll has ended once the revision moved off 0
+	// (whatever its outcome), and until then the machines cannot say if they are up.
+	gatusWaiting := av.gatusMachines && rt.endpoints().Revision() == 0
+	if (av.host && !hostPolled) || (av.prom && !machPolled) || gatusWaiting {
 		return plugin.Status{State: plugin.StateStarting, Message: "waiting for the first poll", Sources: srcs}
 	}
 	return plugin.Status{State: stateOf(srcs), Message: failures(srcs), Sources: srcs}
