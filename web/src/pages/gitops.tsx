@@ -199,7 +199,7 @@ function Banner({
           )}
         </p>
       </div>
-      {canReconcile && (
+      {canReconcile && obj && (
         <ReconcileButton
           kind={source.kind}
           namespace={source.namespace}

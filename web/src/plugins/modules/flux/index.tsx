@@ -17,14 +17,23 @@ export default definePlugin({
     const flux = ctx.topic("flux.objects");
     // Reconcile is a framework action: it is offered while the plugin lists it (actions.enabled)
     // and the role meets its minRole, so the group is empty (and hidden) otherwise. One item per
-    // source the plugin verifies (the pins and every source with spec.verify); the kind is in the
-    // id because a GitRepository and a Kustomization may share namespace and name.
+    // source the plugin verifies (the pins and every source in scope) that exists: a pinned source
+    // that was not found has nothing to reconcile. The kind is in the id because a GitRepository
+    // and a Kustomization may share namespace and name.
     const canReconcile = ctx.actionAvailable("flux", "reconcile");
+    const objects = [
+      ...(flux?.sources ?? []),
+      ...(flux?.kustomizations ?? []),
+      ...(flux?.helmReleases ?? []),
+    ];
+    const existing = (flux?.verifiedSources ?? []).filter((s) =>
+      objects.some((o) => o.kind === s.kind && o.namespace === s.namespace && o.name === s.name),
+    );
     return [
       {
         id: "actions",
         heading: "Actions",
-        items: (canReconcile ? (flux?.verifiedSources ?? []) : []).map((s) => ({
+        items: (canReconcile ? existing : []).map((s) => ({
           id: `reconcile:${s.kind}/${s.namespace}/${s.name}`,
           value: `action reconcile ${s.kind} ${s.namespace}/${s.name}`,
           label: `Reconcile ${s.namespace}/${s.name}`,

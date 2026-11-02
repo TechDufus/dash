@@ -79,6 +79,7 @@ function connect(rows = shimRows()): FakeEventSource {
   es.emit(
     "flux.objects",
     envelope("flux.objects", {
+      sources: [{ kind: "GitRepository", namespace: "gitops", name: "root" }],
       kustomizations: [{ kind: "Kustomization", namespace: "gitops", name: "apps" }],
       helmReleases: [{ kind: "HelmRelease", namespace: "media", name: "player" }],
       verifiedSources: [{ kind: "GitRepository", namespace: "gitops", name: "root" }],

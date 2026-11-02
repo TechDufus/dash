@@ -28,7 +28,7 @@ const SOURCES: FluxSourceRef[] = [
 ];
 
 const data: FluxData = {
-  sources: [obj("GitRepository", "gitops", "root")],
+  sources: [obj("GitRepository", "gitops", "root"), obj("OCIRepository", "tenant", "app")],
   kustomizations: [obj("Kustomization", "gitops", "root")],
   helmReleases: [obj("HelmRelease", "media", "player")],
   verifiedSources: SOURCES,
@@ -92,6 +92,19 @@ describe("the flux module", () => {
     expect(flux.palette?.(ctxWith(true, null).ctx).flatMap((g) => g.items)).toEqual([]);
     const none = ctxWith(true, { ...data, verifiedSources: [] });
     expect(flux.palette?.(none.ctx).find((g) => g.id === "actions")?.items).toEqual([]);
+  });
+
+  it("offers no Reconcile for a verified source that was not found", () => {
+    const ghost: FluxSourceRef = { kind: "GitRepository", namespace: "tenant", name: "ghost" };
+    const { ctx } = ctxWith(true, { ...data, verifiedSources: [...SOURCES, ghost] });
+    const items = flux.palette?.(ctx).find((g) => g.id === "actions")?.items ?? [];
+    expect(items.map((i) => i.id)).toEqual([
+      "reconcile:GitRepository/gitops/root",
+      "reconcile:Kustomization/gitops/root",
+      "reconcile:OCIRepository/tenant/app",
+    ]);
+    const onlyGhost = ctxWith(true, { ...data, sources: [], verifiedSources: [ghost] });
+    expect(flux.palette?.(onlyGhost.ctx).find((g) => g.id === "actions")?.items).toEqual([]);
   });
 
   it("filters the page by the object's name when a Flux item is chosen", () => {

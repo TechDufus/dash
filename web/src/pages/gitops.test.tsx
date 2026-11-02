@@ -141,6 +141,8 @@ describe("the GitOps page", () => {
     );
     expect(screen.getByText("OCIRepository tenant/ghost not found")).toBeTruthy();
     expect(banners().map((h) => h.textContent)).toEqual(["ghost"]);
+    // There is nothing to reconcile: the cluster would answer 404.
+    expect(screen.queryAllByRole("button", { name: "Reconcile" })).toHaveLength(0);
   });
 
   it("draws no header when the plugin verifies no source", async () => {
