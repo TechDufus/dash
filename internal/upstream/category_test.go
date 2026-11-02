@@ -21,9 +21,7 @@ func TestCategory(t *testing.T) {
 	status := func(code int) *httptest.Server {
 		return serve(t, func(w http.ResponseWriter, _ *http.Request) { http.Error(w, "nope", code) })
 	}
-	closed := httptest.NewServer(http.NotFoundHandler())
-	closedURL := closed.URL
-	closed.Close() // nothing listens any more: connection refused
+	closedURL := refusedURL(t) // a bound port that never listens: connection refused, and nobody else can get it
 
 	tlsSrv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { io.WriteString(w, "{}") }))
 	t.Cleanup(tlsSrv.Close)
