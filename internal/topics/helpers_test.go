@@ -93,6 +93,9 @@ func (f *fakeKube) FailedGroups() []schema.GroupVersion {
 	return slices.Clone(f.failed)
 }
 
+// Refused: the Manager's flux code gates on Listed alone, so the fake refuses nothing.
+func (f *fakeKube) Refused(schema.GroupVersionResource) (string, bool) { return "", false }
+
 func (f *fakeKube) Watch(gvrs ...schema.GroupVersionResource) {
 	f.mu.Lock()
 	defer f.mu.Unlock()

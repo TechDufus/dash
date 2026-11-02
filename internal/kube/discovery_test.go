@@ -3,6 +3,8 @@ package kube
 import (
 	"context"
 	"errors"
+	"slices"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -108,6 +110,34 @@ func waitFor(t *testing.T, what string, cond func() bool) {
 		time.Sleep(5 * time.Millisecond)
 	}
 	t.Fatalf("timed out waiting for %s", what)
+}
+
+// Registered lists every resource asked for, however it was asked (Discover, AddDynamic or Watch),
+// whether or not the API server serves it, once each and in a fixed order: a consumer keeps a
+// clock per entry.
+func TestRegisteredListsEveryRequestedResource(t *testing.T) {
+	r := newRig(t, []schema.GroupVersionResource{GVRCertificates, GVRKustomizations, GVRHTTPRoutes})
+	r.disc.set(nil, served(GVRCertificates)...)
+	r.start(t)
+	if got := r.c.Registered(); len(got) != 0 {
+		t.Fatalf("registered before anything was asked for: %v", got)
+	}
+
+	r.c.Watch(GVRKustomizations) // not served
+	if err := r.c.Discover(map[schema.GroupVersionResource]Kind{GVRHTTPRoutes: KindHTTPRoutes, GVRCertificates: KindCertificates}); err != nil {
+		t.Fatal(err)
+	}
+	r.c.AddDynamic(GVRCertificates, KindCertificates) // again: once
+	r.c.Watch(GVRHTTPRoutes)
+
+	want := []schema.GroupVersionResource{GVRCertificates, GVRKustomizations, GVRHTTPRoutes}
+	slices.SortFunc(want, func(a, b schema.GroupVersionResource) int { return strings.Compare(a.String(), b.String()) })
+	if got := r.c.Registered(); !slices.Equal(got, want) {
+		t.Errorf("registered = %v, want %v", got, want)
+	}
+	if r.c.Has(GVRKustomizations) || r.c.Has(GVRHTTPRoutes) || !r.c.Has(GVRCertificates) {
+		t.Error("Registered is not what is served: only the certificates are")
+	}
 }
 
 // The informer wedge of the old design: one unserved CRD kept HasSynced false for ever. With the

@@ -75,12 +75,13 @@ func TestBuiltinManifestsAreTheElevenInDisplayOrder(t *testing.T) {
 // emptyCluster is a svc.Cluster with nothing in it, every resource listed at once.
 type emptyCluster struct{}
 
-func (*emptyCluster) Synced() bool                                      { return true }
-func (*emptyCluster) Has(schema.GroupVersionResource) bool              { return true }
-func (*emptyCluster) Listed(schema.GroupVersionResource) bool           { return true }
-func (*emptyCluster) FailedGroups() []schema.GroupVersion               { return nil }
-func (*emptyCluster) Watch(...schema.GroupVersionResource)              {}
-func (*emptyCluster) GVRRevision(...schema.GroupVersionResource) uint64 { return 1 }
+func (*emptyCluster) Synced() bool                                       { return true }
+func (*emptyCluster) Has(schema.GroupVersionResource) bool               { return true }
+func (*emptyCluster) Listed(schema.GroupVersionResource) bool            { return true }
+func (*emptyCluster) FailedGroups() []schema.GroupVersion                { return nil }
+func (*emptyCluster) Refused(schema.GroupVersionResource) (string, bool) { return "", false }
+func (*emptyCluster) Watch(...schema.GroupVersionResource)               {}
+func (*emptyCluster) GVRRevision(...schema.GroupVersionResource) uint64  { return 1 }
 func (*emptyCluster) List(schema.GroupVersionResource) []*unstructured.Unstructured {
 	return nil
 }

@@ -2,13 +2,21 @@ package kubernetes
 
 import (
 	"context"
+	"errors"
 	"net/http"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	k8sruntime "k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
+	fakediscovery "k8s.io/client-go/discovery/fake"
+	dynfake "k8s.io/client-go/dynamic/fake"
+	kubefake "k8s.io/client-go/kubernetes/fake"
 	"k8s.io/client-go/rest"
 	clienttesting "k8s.io/client-go/testing"
 
@@ -301,5 +309,110 @@ func TestClusterObjectsCarryTheProvidersLinks(t *testing.T) {
 	}
 	if len(cl.Nodes[0].Links) != 1 || len(cl.Workloads[0].Links) != 1 {
 		t.Errorf("node links %v, workload links %v", cl.Nodes[0].Links, cl.Workloads[0].Links)
+	}
+}
+
+// forbidList makes the list of a resource a client may not make.
+func forbidList(e *env, resource string) {
+	e.dc.PrependReactor("list", resource, func(clienttesting.Action) (bool, k8sruntime.Object, error) {
+		return true, nil, apierrors.NewForbidden(schema.GroupResource{Resource: resource}, "", errors.New("no"))
+	})
+}
+
+// svc.Cluster.Refused: a served resource whose list the client may not make is refused after the
+// sync timeout of API-server up-time, with the category of the watch's error. Before that, for a
+// resource that lists, and for one nobody registered, it is not.
+func TestServiceRefusesAServedListThatNeverCompletes(t *testing.T) {
+	e := newEnv(t, envOpts{fakeClock: true, prefill: func(e *env) { forbidList(e, "certificates") }})
+	cl := e.serviceOf().(svc.Cluster)
+	r := e.runtime()
+	waitFor(t, "the watch error of the certificates", func() bool { return r.cl.WatchError(kube.GVRCertificates) != nil })
+	waitFor(t, "the external secrets to list", func() bool { return cl.Listed(kube.GVRExternalSecrets) })
+
+	refused := func(gvr schema.GroupVersionResource) (string, bool) { return cl.Refused(gvr) }
+	if cat, ok := refused(kube.GVRCertificates); ok {
+		t.Fatalf("refused at once: %q", cat)
+	}
+	e.clock.advance(59 * time.Second)
+	if cat, ok := refused(kube.GVRCertificates); ok {
+		t.Fatalf("refused after 59 s: %q", cat)
+	}
+	e.clock.advance(time.Second)
+	if cat, ok := refused(kube.GVRCertificates); !ok || cat != "auth" {
+		t.Errorf("Refused(certificates) after 60 s = %q, %v, want auth, true", cat, ok)
+	}
+	if cat, ok := refused(kube.GVRExternalSecrets); ok {
+		t.Errorf("a resource that lists is refused: %q", cat)
+	}
+	if cat, ok := refused(kube.GVRKustomizations); ok {
+		t.Errorf("a resource nobody registered is refused: %q", cat)
+	}
+}
+
+// A resource a consumer registers through Watch has the clock too, counted from the moment it
+// appears: one that shows up an hour in is not refused when it does, though dash started an hour
+// ago.
+func TestServiceRefusedClockOfAWatchedResourceStartsWhenItAppears(t *testing.T) {
+	gvr := kube.GVRKustomizations
+	d := &stubDisc{}
+	d.set(nil, served(allServed...)...)
+	e := newEnv(t, envOpts{fakeClock: true, prefill: func(e *env) {
+		e.discovery = d
+		forbidList(e, "kustomizations")
+	}})
+	e.healthy()
+	cl := e.serviceOf().(svc.Cluster)
+	r := e.runtime()
+
+	cl.Watch(gvr) // not served yet
+	e.clock.advance(time.Hour)
+	if cat, ok := cl.Refused(gvr); ok {
+		t.Fatalf("a resource that is not served is refused: %q", cat)
+	}
+
+	d.set(nil, served(append(slices.Clone(allServed), gvr)...)...)
+	e.clock.advance(time.Second) // the next discovery sees it
+	waitFor(t, "the kustomizations to be served", func() bool { return cl.Has(gvr) })
+	if cat, ok := cl.Refused(gvr); ok {
+		t.Fatalf("refused the moment it appeared, with an hour of dash up-time: %q", cat)
+	}
+	waitFor(t, "the watch error", func() bool { return r.cl.WatchError(gvr) != nil })
+	e.clock.advance(58 * time.Second)
+	if cat, ok := cl.Refused(gvr); ok {
+		t.Fatalf("refused 58 s after it appeared: %q", cat)
+	}
+	e.clock.advance(2 * time.Second)
+	if cat, ok := cl.Refused(gvr); !ok || cat != "auth" {
+		t.Errorf("Refused after 60 s = %q, %v, want auth, true", cat, ok)
+	}
+}
+
+// A list that never completes and never says why (a conversion webhook that does not answer; here
+// an informer that never ran) is refused as unreachable.
+func TestRefusedCategoryIsUnreachableWithoutAWatchError(t *testing.T) {
+	gvr := kube.GVRExternalSecrets
+	kc := kubefake.NewClientset()
+	kc.Discovery().(*fakediscovery.FakeDiscovery).Resources = served(gvr)
+	dc := dynfake.NewSimpleDynamicClientWithCustomListKinds(k8sruntime.NewScheme(), map[schema.GroupVersionResource]string{gvr: "externalsecretsList"})
+	c := kube.NewFromClients(kc, dc) // not started: the informer exists and never lists
+	if err := c.Discover(map[schema.GroupVersionResource]kube.Kind{gvr: kube.KindExtSecrets}); err != nil {
+		t.Fatal(err)
+	}
+	if !c.Has(gvr) || c.Listed(gvr) || c.WatchError(gvr) != nil {
+		t.Fatalf("the fixture: has %v, listed %v, watch error %v", c.Has(gvr), c.Listed(gvr), c.WatchError(gvr))
+	}
+
+	t0 := time.Date(2026, 11, 1, 12, 0, 0, 0, time.UTC)
+	r := &runtime{cl: c, started: t0, t: timing{typedSyncTimeout: 60 * time.Second}}
+	r.h = dtHost{now: t0.Add(59 * time.Second)}
+	if cat, ok := r.refused(gvr); ok {
+		t.Fatalf("refused after 59 s: %q", cat)
+	}
+	r.h = dtHost{now: t0.Add(60 * time.Second)}
+	if cat, ok := r.refused(gvr); !ok || cat != "unreachable" {
+		t.Errorf("refused = %q, %v, want unreachable, true", cat, ok)
+	}
+	if _, ok := (&service{r: r}).Refused(kube.GVRCertificates); ok {
+		t.Error("a resource nobody registered is refused")
 	}
 }

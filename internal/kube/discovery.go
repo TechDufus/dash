@@ -74,6 +74,20 @@ func (c *Cluster) Watch(gvrs ...schema.GroupVersionResource) {
 // was added and discovery should run now rather than at the next tick.
 func (c *Cluster) DiscoveryRequests() <-chan struct{} { return c.wake }
 
+// Registered lists every resource dash was asked to watch (by Discover, AddDynamic or Watch),
+// whether or not the API server serves it, sorted. A consumer that keeps a clock per resource
+// walks it, so a resource registered after the first discovery gets one too.
+func (c *Cluster) Registered() []schema.GroupVersionResource {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	out := make([]schema.GroupVersionResource, 0, len(c.dynamics))
+	for gvr := range c.dynamics {
+		out = append(out, gvr)
+	}
+	slices.SortFunc(out, func(a, b schema.GroupVersionResource) int { return strings.Compare(a.String(), b.String()) })
+	return out
+}
+
 // register records gvr as wanted and reports whether it is new.
 func (c *Cluster) register(gvr schema.GroupVersionResource, kind Kind) bool {
 	c.mu.Lock()

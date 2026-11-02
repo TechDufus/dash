@@ -126,14 +126,15 @@ func (r *runtime) discover() (retry bool) {
 	changed := first || !slices.Equal(failed, r.disc.failed)
 	r.disc = discState{ended: true, failed: failed, retry: retry}
 	// A resource that appears after the first discovery has only now got its informer, so its
-	// time to list starts now.
+	// time to list starts now. Every registered resource has the clock, not only the wanted
+	// ones: a consumer's resource (svc.Cluster.Watch) is judged the same way.
 	now := r.h.Now()
-	for _, c := range r.crds() {
-		has := r.cl.Has(c.gvr)
-		if has && !r.had[c.gvr] && !first {
-			r.appeared[c.gvr] = r.markNowLocked(now)
+	for _, gvr := range r.cl.Registered() {
+		has := r.cl.Has(gvr)
+		if has && !r.had[gvr] && !first {
+			r.appeared[gvr] = r.markNowLocked(now)
 		}
-		r.had[c.gvr] = has
+		r.had[gvr] = has
 	}
 	r.mu.Unlock()
 
@@ -207,14 +208,23 @@ func (r *runtime) crdState(c crd) (absent bool, fail crdFailure) {
 	if !r.cl.Has(c.gvr) {
 		return true, crdFailure{}
 	}
-	if r.stuck(c.gvr) {
-		cat := upstream.CategoryUnreachable
-		if err := r.cl.WatchError(c.gvr); err != nil {
-			cat = kube.Category(err)
-		}
+	if cat, ok := r.refused(c.gvr); ok {
 		return false, crdFailure{list: cat}
 	}
 	return false, crdFailure{}
+}
+
+// refused reports a served resource whose list never completes: it has been trying for the sync
+// timeout of API-server up-time (stuck), and the category says why, that of the watch's error or
+// unreachable when it reported none. It is svc.Cluster.Refused.
+func (r *runtime) refused(gvr schema.GroupVersionResource) (category string, ok bool) {
+	if !r.stuck(gvr) {
+		return "", false
+	}
+	if err := r.cl.WatchError(gvr); err != nil {
+		return kube.Category(err), true
+	}
+	return upstream.CategoryUnreachable, true
 }
 
 // stuck reports a served resource whose informer has not listed within the sync timeout of

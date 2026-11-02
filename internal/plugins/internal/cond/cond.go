@@ -1,8 +1,8 @@
 // Package cond reads the status.conditions of unstructured Kubernetes objects: the shared reader
 // of the plugins that watch custom resources (certificates, external secrets, Flux objects).
 //
-// It is a copy of the helpers in internal/topics, which keep serving the Manager until their last
-// reader moves into a plugin; a plugin imports neither topics nor another plugin.
+// It is a copy of the helpers in internal/topics, which stay until their last reader moves into
+// a plugin; a plugin imports neither topics nor another plugin.
 package cond
 
 import (

@@ -79,9 +79,9 @@ type NodeName interface {
 }
 
 // Cluster is what the kubernetes plugin exports: the informer caches and the dynamic client, for
-// code that reads or patches resources the plugin does not own (the Manager's flux code until the
-// flux plugin exists, then flux and cnpg). One object also implements NodeIndex, so this method is
-// GVRRevision: NodeIndex already has a Revision() uint64 of its own.
+// code that reads or patches resources the plugin does not own (Flux and CNPG objects). One
+// object also implements NodeIndex, so this method is GVRRevision: NodeIndex already has a
+// Revision() uint64 of its own.
 type Cluster interface {
 	// Synced reports that the typed informers have synced: the readiness gate. A dynamic informer
 	// never gates it; Listed is its gate.
@@ -101,6 +101,14 @@ type Cluster interface {
 	// present nor absent: a consumer that would otherwise show its objects as missing reads this
 	// to say so.
 	FailedGroups() []schema.GroupVersion
+	// Refused reports a served resource whose first list has not completed after the sync timeout
+	// (60 s) of API-server up-time: the clock starts when the resource appeared, never before
+	// dash started, and it pauses while the API server does not answer, so an outage never
+	// counts. category is the error category of the watch (auth for a list the client may not
+	// make, say), or unreachable when the watch reported none. A resource that is Refused is
+	// neither listed nor absent: a consumer's publish gate is Listed(gvr) || Refused(gvr), and it
+	// says the category in its source note instead of waiting for ever.
+	Refused(gvr schema.GroupVersionResource) (category string, ok bool)
 	// Watch asks for informers of gvrs. It is idempotent; the informer of a CRD that is not served
 	// starts when the CRD appears (an immediate discovery runs).
 	Watch(gvrs ...schema.GroupVersionResource)
