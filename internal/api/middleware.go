@@ -112,11 +112,11 @@ func (s *Server) auth(next http.Handler) http.Handler {
 			writeErr(w, http.StatusUnauthorized, model.ErrCodeUnauthenticated, "unauthenticated")
 			return
 		}
-		// What carried the identity, for the probe: the process modes sign in a fixed user, any
-		// other request is the header oauth2-proxy set.
+		// What carried the identity, for the probe: the header oauth2-proxy set, or "fixed" when
+		// dev or demo mode signed the request in with no header.
 		via := "fixed"
-		if !s.d.Cfg.Dev && !s.d.Cfg.Demo {
-			_, via = forwardedUser(r)
+		if _, h := forwardedUser(r); h != "" {
+			via = h
 		}
 		// G2 gives every authenticated principal the admin role, as before (design E.1); P4.2
 		// replaces this with the role mapping.

@@ -7,6 +7,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"unsafe"
 
 	"github.com/TechDufus/dash/internal/auth"
 	"github.com/TechDufus/dash/internal/config"
@@ -88,6 +89,35 @@ func TestPrincipalSeenCapsTheLoggedName(t *testing.T) {
 	}
 }
 
+// A name the probe remembers must not be a view into the header value it came from: a 64 KiB
+// header would otherwise stay in memory for each of the 256 names (the cap's point is a bound of
+// 256 names of 128 bytes). The check is on the stored keys' addresses, not on allocation counts.
+func TestPrincipalSeenKeepsNoPartOfTheHeaderValue(t *testing.T) {
+	inputs := []string{
+		"n" + strings.Repeat("x", 100<<10),                 // cut at 128 bytes
+		strings.TrimSpace("\u00a0\u00a0padded-name\u00a0"), // trimmed: a substring of the padded value
+	}
+	pr := &principalProbe{log: probeLogger(&syncBuf{})}
+	for _, in := range inputs {
+		pr.see(auth.Principal{Kind: auth.KindProxy, User: in, Role: auth.RoleAdmin}, "127.0.0.1")
+	}
+	stored := 0
+	pr.seen.Range(func(k, _ any) bool {
+		stored++
+		key := uintptr(unsafe.Pointer(unsafe.StringData(k.(string))))
+		for _, in := range inputs {
+			start := uintptr(unsafe.Pointer(unsafe.StringData(in)))
+			if key >= start && key < start+uintptr(len(in)) {
+				t.Errorf("stored name %q points into a %d-byte header value", k, len(in))
+			}
+		}
+		return true
+	})
+	if stored != len(inputs) {
+		t.Fatalf("%d names stored, want %d", stored, len(inputs))
+	}
+}
+
 // The line names the user, the kind, the role, the TCP peer and what carried the identity, and
 // carries nothing else a client sent.
 func TestPrincipalSeenCarriesPeerAndVia(t *testing.T) {
@@ -109,9 +139,12 @@ func TestPrincipalSeenCarriesPeerAndVia(t *testing.T) {
 		{"dev signs in a fixed user", func(c *config.Config) { c.Dev = true },
 			req{path: "/api/v1/me", header: map[string]string{"X-Forwarded-Preferred-Username": ""}},
 			"dev", "dev", "fixed"},
-		{"demo signs in a fixed user", func(c *config.Config) { c.Demo = true },
+		{"dev with a header names the header", func(c *config.Config) { c.Dev = true },
+			req{path: "/api/v1/me", header: map[string]string{"X-Forwarded-Preferred-Username": "bob-from-header"}},
+			"bob-from-header", "dev", "X-Forwarded-Preferred-Username"},
+		{"demo names the header the demo wrapper injects", func(c *config.Config) { c.Demo = true },
 			req{path: "/api/v1/me", header: map[string]string{"X-Forwarded-Preferred-Username": "", "X-Forwarded-User": "demo"}},
-			"demo", "demo", "fixed"},
+			"demo", "demo", "X-Forwarded-User"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			buf := &syncBuf{}

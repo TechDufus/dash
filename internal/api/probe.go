@@ -43,7 +43,8 @@ func (pr *principalProbe) see(p auth.Principal, peer string) {
 		return
 	}
 	pr.n++
-	pr.seen.Store(name, struct{}{})
+	// A copy: name may be a substring of the client's header value, which the map would keep alive.
+	pr.seen.Store(strings.Clone(name), struct{}{})
 	pr.mu.Unlock()
 
 	l := pr.log

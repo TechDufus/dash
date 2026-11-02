@@ -109,6 +109,9 @@ func TestIndexIsNeverNotModified(t *testing.T) {
 		"both":                {"If-None-Match": "*", "If-Modified-Since": "Fri, 01 Jan 2100 00:00:00 GMT"},
 		"If-Unmodified-Since": {"If-Unmodified-Since": "Fri, 01 Jan 2100 00:00:00 GMT"},
 		"If-Match":            {"If-Match": `"x"`},
+		"Range":               {"Range": "bytes=0-9"},
+		"Range If-Range etag": {"Range": "bytes=0-9", "If-Range": `"x"`},
+		"Range If-Range date": {"Range": "bytes=0-9", "If-Range": "Fri, 01 Jan 2100 00:00:00 GMT"},
 	}
 	for _, target := range []string{"/", "/alerts"} {
 		for name, hdr := range conditions {

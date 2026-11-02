@@ -56,9 +56,11 @@ func (s *Server) serveStatic(w http.ResponseWriter, r *http.Request) {
 		// an ETag or Last-Modified (a non-zero modtime below) on it: a conditional request would
 		// then be answered 304 and the browser would keep an old document whose nonce no longer
 		// matches the one the server issues. With a zero modtime and no ETag there is no validator,
-		// but ServeContent still answers `If-None-Match: *` with 304 (and `If-Match` with 412), so
-		// the request's preconditions are dropped: the document is always a fresh 200
-		// (TestIndexIsNeverNotModified).
+		// but ServeContent still answers `If-None-Match: *` with 304 (and `If-Match` with 412), and
+		// a `Range` request with 206 (it ignores Range only while If-Range is present, and a client
+		// could then stitch bytes of two documents with different nonces together). So the
+		// request's preconditions and ranges are dropped: the document is always a fresh, whole
+		// 200 (TestIndexIsNeverNotModified).
 		nonce, err := newNonce()
 		if err != nil {
 			http.Error(w, "internal error", http.StatusInternalServerError)
@@ -66,7 +68,7 @@ func (s *Server) serveStatic(w http.ResponseWriter, r *http.Request) {
 		}
 		b = bytes.ReplaceAll(b, noncePlaceholder, []byte(nonce))
 		r = r.Clone(r.Context())
-		for _, h := range []string{"If-Match", "If-None-Match", "If-Modified-Since", "If-Unmodified-Since", "If-Range"} {
+		for _, h := range []string{"If-Match", "If-None-Match", "If-Modified-Since", "If-Unmodified-Since", "If-Range", "Range"} {
 			r.Header.Del(h)
 		}
 	case strings.HasPrefix(name, "assets/"):
