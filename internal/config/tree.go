@@ -79,14 +79,7 @@ type PluginsConfig struct {
 	Grafana      pluginconf.Grafana      `json:"grafana" doc:"Grafana: links to dashboards."`
 	Launcher     pluginconf.Launcher     `json:"launcher" doc:"The launcher: links to your infrastructure."`
 	Kubernetes   pluginconf.Kubernetes   `json:"kubernetes" doc:"Kubernetes: how dash reaches and reads the cluster."`
-	Flux         FluxConfig              `json:"flux" doc:"Flux: how dash reads Flux objects."`
-}
-
-// FluxConfig is how dash reads Flux objects.
-type FluxConfig struct {
-	pluginconf.PluginBase
-	// SuspendReasonAnnotation on a Flux object is shown as the reason it is suspended.
-	SuspendReasonAnnotation string `json:"suspendReasonAnnotation" doc:"Flux object annotation whose value is shown as the reason the object is suspended. Empty hides the reason."`
+	Flux         pluginconf.Flux         `json:"flux" doc:"Flux: how dash reads Flux objects."`
 }
 
 // defaults is the built-in layer. Nothing site-specific is in it: an empty upstream URL or

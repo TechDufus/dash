@@ -14,6 +14,7 @@ import (
 	"github.com/TechDufus/dash/internal/model"
 	"github.com/TechDufus/dash/internal/plugin"
 	"github.com/TechDufus/dash/internal/plugin/plugintest"
+	"github.com/TechDufus/dash/internal/pluginconf"
 )
 
 // fluxRig is the shim, the supervisor, the Manager and the hub together over a kubernetes service
@@ -31,7 +32,7 @@ func newFluxRig(t *testing.T, f *fakeKube) *fluxRig {
 	r := &fluxRig{h: hub.New(), holder: &kubeHolder{}}
 	r.holder.cur.Store(f)
 	set := &plugintest.Settings{}
-	set.Set(plugin.InstanceConfig{Name: "flux", Config: &config.FluxConfig{}})
+	set.Set(plugin.InstanceConfig{Name: "flux", Config: &pluginconf.Flux{}})
 	r.sup = plugin.NewSupervisor(plugin.Options{Publisher: r.h, Settings: set, StatusEvery: 5 * time.Millisecond})
 	r.h.SetOrder(r.sup.TopicOrder)
 	r.m = New(Deps{Cfg: config.Defaults(), Cluster: r.holder.get, Hosts: r.sup})

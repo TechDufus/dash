@@ -15,6 +15,7 @@ import (
 	"github.com/TechDufus/dash/internal/model"
 	"github.com/TechDufus/dash/internal/plugin"
 	"github.com/TechDufus/dash/internal/plugin/plugintest"
+	"github.com/TechDufus/dash/internal/pluginconf"
 	"github.com/TechDufus/dash/internal/plugins/alertmanager"
 	"github.com/TechDufus/dash/internal/plugins/hardware"
 	"github.com/TechDufus/dash/internal/plugins/proxmox"
@@ -355,7 +356,7 @@ func TestDemoOverviewHasTheKubernetesKPIsOnlyWhileItRuns(t *testing.T) {
 func TestDemoDisabledPluginPublishesNothing(t *testing.T) {
 	off := false
 	set := &plugintest.Settings{}
-	set.Set(plugin.InstanceConfig{Name: "flux", Enabled: &off, Config: &config.FluxConfig{}})
+	set.Set(plugin.InstanceConfig{Name: "flux", Enabled: &off, Config: &pluginconf.Flux{}})
 	s, _, h := demoSupervisor(t, set)
 	s.publish()
 	if _, ok := h.Latest("", model.TopicFlux); ok {
@@ -394,7 +395,7 @@ func TestDemoPluginSwitchesOffAndOnWithoutRestart(t *testing.T) {
 	}
 
 	off := false
-	set.Set(plugin.InstanceConfig{Name: "flux", Enabled: &off, Config: &config.FluxConfig{}})
+	set.Set(plugin.InstanceConfig{Name: "flux", Enabled: &off, Config: &pluginconf.Flux{}})
 	sup.Reload()
 	waitFor("flux to be disabled", func() bool { return state() == model.PluginDisabled })
 	waitFor("the flux topic to go", func() bool { _, ok := h.Latest("", model.TopicFlux); return !ok })
@@ -407,7 +408,7 @@ func TestDemoPluginSwitchesOffAndOnWithoutRestart(t *testing.T) {
 	}
 
 	on := true
-	set.Set(plugin.InstanceConfig{Name: "flux", Enabled: &on, Config: &config.FluxConfig{}})
+	set.Set(plugin.InstanceConfig{Name: "flux", Enabled: &on, Config: &pluginconf.Flux{}})
 	sup.Reload()
 	waitFor("flux to run again", func() bool { return state() == model.PluginHealthy })
 	s.publish() // what the next tick does

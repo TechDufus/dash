@@ -15,6 +15,7 @@ import (
 	"github.com/TechDufus/dash/internal/model"
 	"github.com/TechDufus/dash/internal/plugin"
 	"github.com/TechDufus/dash/internal/plugin/plugintest"
+	"github.com/TechDufus/dash/internal/pluginconf"
 )
 
 // The Manager publishes through the Host of each topic's owner, and the SSE name stays the one
@@ -90,7 +91,7 @@ func TestExplicitDisableRemovesShimTopics(t *testing.T) {
 	h := hub.New()
 	off := false
 	set := &plugintest.Settings{}
-	set.Set(plugin.InstanceConfig{Name: "flux", Enabled: &off, Config: &config.FluxConfig{}})
+	set.Set(plugin.InstanceConfig{Name: "flux", Enabled: &off, Config: &pluginconf.Flux{}})
 	sup := plugin.NewSupervisor(plugin.Options{Publisher: h, Settings: set, StatusEvery: 10 * time.Millisecond})
 	h.SetOrder(sup.TopicOrder)
 	m := testManager(config.Defaults(), sup)

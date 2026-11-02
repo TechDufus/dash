@@ -4,9 +4,9 @@ import (
 	"context"
 	"strings"
 
-	"github.com/TechDufus/dash/internal/config"
 	"github.com/TechDufus/dash/internal/model"
 	"github.com/TechDufus/dash/internal/plugin"
+	"github.com/TechDufus/dash/internal/pluginconf"
 )
 
 // Legacy is the plugin identity of an integration that still runs inside Manager until its G3
@@ -68,14 +68,14 @@ func legacyManifests() []plugin.Manifest {
 	return []plugin.Manifest{
 		{ID: "flux", Name: "Flux", Description: "Flux sources, kustomizations and Helm releases.", Version: "1.0.0",
 			Uses:   []plugin.ID{"kubernetes"},
-			Config: func() any { return &config.FluxConfig{} },
+			Config: func() any { return &pluginconf.Flux{} },
 			Topics: []plugin.TopicSpec{{Name: "objects", Legacy: "flux", Type: model.FluxData{}, Doc: "Flux objects."}},
 			UI:     nav("/gitops", "GitOps", "GitOps (Flux)", "GitBranch")},
 	}
 }
 
 // LegacyManifests returns the manifests of the shims, in display order. Their Config functions
-// return the section types of config.PluginsConfig.
+// return the section types of config.PluginsConfig (pluginconf).
 func LegacyManifests() []plugin.Manifest { return legacyManifests() }
 
 // Plugins returns one shim per manifest, its Status read from what the Manager sees of the

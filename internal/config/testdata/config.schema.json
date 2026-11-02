@@ -187,7 +187,7 @@
       },
       "type": "object"
     },
-    "FluxConfig": {
+    "Flux": {
       "additionalProperties": false,
       "properties": {
         "enabled": {
@@ -698,7 +698,7 @@
           "description": "Alertmanager: alerts and silences."
         },
         "flux": {
-          "$ref": "#/$defs/FluxConfig",
+          "$ref": "#/$defs/Flux",
           "description": "Flux: how dash reads Flux objects."
         },
         "gatus": {
