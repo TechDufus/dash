@@ -158,4 +158,15 @@ func (p *Proxy) warnIfDisagree(h http.Header, user, via string) {
 	}
 }
 
-var _ Authenticator = (*Proxy)(nil)
+// Warnings implements Warner: admin_wildcard while the role map makes every user an administrator.
+func (p *Proxy) Warnings() []string {
+	if m := p.roles.p.Load(); m != nil && m.Wildcard() {
+		return []string{WarningAdminWildcard}
+	}
+	return nil
+}
+
+var (
+	_ Authenticator = (*Proxy)(nil)
+	_ Warner        = (*Proxy)(nil)
+)

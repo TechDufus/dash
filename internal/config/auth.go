@@ -86,6 +86,23 @@ func (a AuthConfig) Validate() error {
 	if t, err := auth.ParseTrust(parsed); err == nil && t.Wide() && !p.AllowAnyPeer {
 		add("proxy.trustedProxies", "0.0.0.0/0 or ::/0 would believe an identity header from every client; set allowAnyPeer to true to accept that")
 	}
+
+	for i, u := range trimmed(p.AdminUsers) {
+		if u == "" {
+			add("proxy.adminUsers", "entry %d is empty", i+1)
+		}
+	}
+	for i, g := range trimmed(p.AdminGroups) {
+		switch g {
+		case "":
+			add("proxy.adminGroups", "entry %d is empty", i+1)
+		case "*":
+			add("proxy.adminGroups", "entry %d is a wildcard: \"*\" is only valid in adminUsers", i+1)
+		}
+	}
+	if len(p.AdminGroups) > 0 && groups == "" {
+		add("proxy.adminGroups", "needs auth.proxy.groupsHeader: without the header no user has a group, so nobody would ever be an administrator through it")
+	}
 	return errors.Join(errs...)
 }
 
@@ -102,7 +119,7 @@ func trimmed(l []string) []string {
 // normalize trims what operators paste into the lists the authenticator reads. An empty entry
 // stays: Validate reports it.
 func (a *AuthConfig) normalize() {
-	for _, l := range []*[]string{&a.Proxy.UserHeaders, &a.Proxy.TrustedProxies} {
+	for _, l := range []*[]string{&a.Proxy.UserHeaders, &a.Proxy.TrustedProxies, &a.Proxy.AdminUsers, &a.Proxy.AdminGroups} {
 		if *l != nil {
 			*l = trimmed(*l)
 		}

@@ -35,6 +35,21 @@ type Authenticator interface {
 	Authenticate(*http.Request) (Principal, *Failure)
 }
 
+// The warning codes an Authenticator reports through Warner. The API puts them in Me.warnings
+// and the SPA renders a banner for each.
+const (
+	WarningAdminWildcard = "admin_wildcard" // adminUsers holds "*": every authenticated user is an administrator
+	WarningAuthNone      = "auth_none"      // auth.mode=none: every request is an administrator
+)
+
+// Warner is implemented by an Authenticator that has standing warnings for the operator: Proxy
+// with the admin wildcard, and the fixed principal of auth.mode=none. The API reads it through a
+// type assertion; an Authenticator without warnings does not implement it.
+type Warner interface {
+	// Warnings are the codes of the standing warnings, empty when there are none.
+	Warnings() []string
+}
+
 // Bearer extracts a bearer token. present is true only when the Authorization header's scheme
 // is Bearer (case-insensitive); every other scheme, or no header, is ignored (not present) so an
 // upstream proxy that forwards Basic credentials changes nothing. The token is the trimmed

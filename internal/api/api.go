@@ -170,6 +170,10 @@ func (s *Server) me(w http.ResponseWriter, r *http.Request) {
 		UI:       model.MeUI{IconBaseURL: s.d.Cfg.IconBaseURL},
 		Warnings: []string{},
 	}
+	// Standing warnings of the authenticator (admin_wildcard), for the SPA's banners.
+	if w, ok := s.d.Auth.(auth.Warner); ok {
+		me.Warnings = append(me.Warnings, w.Warnings()...)
+	}
 	if s.d.Plugins != nil {
 		for _, pi := range s.d.Plugins.Infos() {
 			// An action the principal's role cannot run grants neither its scope nor the capability:

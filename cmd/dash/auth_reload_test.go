@@ -1,0 +1,112 @@
+package main
+
+import (
+	"context"
+	"log/slog"
+	"net/http"
+	"net/http/httptest"
+	"path/filepath"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/TechDufus/dash/internal/api"
+	"github.com/TechDufus/dash/internal/config"
+	"github.com/TechDufus/dash/internal/secret"
+)
+
+// A file reload of auth.proxy.adminUsers reaches the running authenticator: the role of the next
+// request changes with no restart, and the reloader reports nothing as restart-required.
+func TestAdminUsersReloadAppliesOnTheNextRequest(t *testing.T) {
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "config.yaml")
+	writeTestFile(t, cfgPath, "auth:\n  proxy:\n    adminUsers: [alice]\n")
+	startEnv(t, dir, "DASH_CONFIG="+cfgPath)
+
+	reg := secret.NewRegistry()
+	res, store, err := loadConfig(reg, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	a, proxy, err := buildAuthenticator(res, slog.New(slog.DiscardHandler))
+	if err != nil {
+		t.Fatal(err)
+	}
+	fw := newFramework(res, store, config.ReloadOptions{Interval: time.Millisecond}, nil, nil, nil, false)
+	fw.reloadAuth(proxy)
+	// Subscribers run in the order they were added, so once this one has seen the change the
+	// authenticator has applied it.
+	events := make(chan config.Change, 8)
+	fw.reloader.Subscribe(func(c config.Change) { events <- c })
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() { defer close(done); fw.reloader.Run(ctx) }()
+	defer func() { cancel(); <-done }()
+
+	srv := api.New(api.Deps{Cfg: res.Config, Hub: fw.hub, Secrets: reg, Health: fw.sup, Plugins: fw.sup, Auth: a})
+	meAs := func(user string) string {
+		r := httptest.NewRequest(http.MethodGet, res.Config.PublicURL+"/api/v1/me", nil)
+		r.RemoteAddr = "127.0.0.1:41000"
+		r.Header.Set("X-Forwarded-Preferred-Username", user)
+		w := httptest.NewRecorder()
+		srv.Handler().ServeHTTP(w, r)
+		if w.Code != http.StatusOK {
+			t.Fatalf("me as %s = %d %s", user, w.Code, w.Body)
+		}
+		return w.Body.String()
+	}
+	if got := meAs("alice"); !strings.Contains(got, `"role":"admin"`) {
+		t.Fatalf("before the reload alice = %s", got)
+	}
+
+	writeTestFile(t, cfgPath, "auth:\n  proxy:\n    adminUsers: [bob]\n")
+	waitFor(t, func() bool {
+		select {
+		case c := <-events:
+			return c.Section == "auth"
+		default:
+			return false
+		}
+	})
+	if got := meAs("alice"); !strings.Contains(got, `"role":"viewer"`) {
+		t.Errorf("after the reload alice = %s, want viewer", got)
+	}
+	if got := meAs("bob"); !strings.Contains(got, `"role":"admin"`) {
+		t.Errorf("after the reload bob = %s, want admin", got)
+	}
+	if r := fw.reloader.RestartRequired(); len(r) != 0 {
+		t.Errorf("restart required = %v, want none: the admin lists are live", r)
+	}
+}
+
+// The other auth keys are not live: a change to the trusted proxies is reported as needing a
+// restart, and the running authenticator keeps what it started with.
+func TestOtherAuthKeysNeedARestart(t *testing.T) {
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "config.yaml")
+	writeTestFile(t, cfgPath, "auth:\n  proxy:\n    adminUsers: [alice]\n")
+	startEnv(t, dir, "DASH_CONFIG="+cfgPath)
+
+	res, store, err := loadConfig(secret.NewRegistry(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	_, proxy, err := buildAuthenticator(res, slog.New(slog.DiscardHandler))
+	if err != nil {
+		t.Fatal(err)
+	}
+	fw := newFramework(res, store, config.ReloadOptions{Interval: time.Millisecond}, nil, nil, nil, false)
+	fw.reloadAuth(proxy)
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() { defer close(done); fw.reloader.Run(ctx) }()
+	defer func() { cancel(); <-done }()
+
+	writeTestFile(t, cfgPath, "auth:\n  proxy:\n    adminUsers: [alice]\n    trustedProxies: [\"10.0.0.0/8\"]\n")
+	waitFor(t, func() bool { return len(fw.reloader.RestartRequired()) > 0 })
+	if got := fw.reloader.RestartRequired(); len(got) != 1 || got[0] != "auth.proxy.trustedProxies" {
+		t.Errorf("restart required = %v, want auth.proxy.trustedProxies", got)
+	}
+}

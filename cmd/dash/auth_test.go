@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"testing"
 
@@ -216,5 +217,188 @@ func TestWideTrustedProxiesWarn(t *testing.T) {
 				t.Errorf("%d warnings (%d about forging), want %d (forging %v):\n%s", warns, forge, tc.warns, tc.forge, &logs.buf)
 			}
 		})
+	}
+}
+
+// roleOf authenticates user (with groups) through a and returns the role it was given.
+func roleOf(t *testing.T, a auth.Authenticator, user, groups string) auth.Role {
+	t.Helper()
+	kv := []string{"X-Forwarded-User", user}
+	if groups != "" {
+		kv = append(kv, "X-Forwarded-Groups", groups)
+	}
+	got, f := a.Authenticate(authRequest("127.0.0.1:1", kv...))
+	if f != nil {
+		t.Fatalf("%s refused: %+v", user, f)
+	}
+	return got.Role
+}
+
+func TestRoleMappingFromConfig(t *testing.T) {
+	var logs logCapture
+	a, _, err := buildAuthenticator(resolvedAuth(false, false, func(c *config.AuthConfig) {
+		c.Proxy.AdminUsers = []string{"TechDufus", "  padded  ", ""}
+		c.Proxy.AdminGroups = []string{"ops"}
+		c.Proxy.GroupsHeader = "X-Forwarded-Groups"
+	}), logs.logger())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		user, groups string
+		want         auth.Role
+	}{
+		{"TechDufus", "", auth.RoleAdmin},
+		{"techdufus", "", auth.RoleViewer}, // exact and case-sensitive
+		{"padded", "", auth.RoleAdmin},     // list entries are trimmed
+		{"dash-verify", "", auth.RoleViewer},
+		{"dash-verify", "dev,ops", auth.RoleAdmin},
+		{"dash-verify", "dev,Ops", auth.RoleViewer},
+	} {
+		if got := roleOf(t, a, tc.user, tc.groups); got != tc.want {
+			t.Errorf("%s %q: role = %q, want %q", tc.user, tc.groups, got, tc.want)
+		}
+	}
+}
+
+func TestEmptyAdminListsMakeEveryUserAViewer(t *testing.T) {
+	var logs logCapture
+	a, _, err := buildAuthenticator(resolvedAuth(false, false, nil), logs.logger())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, user := range []string{"alice", "TechDufus", "*", "admin"} {
+		if got := roleOf(t, a, user, ""); got != auth.RoleViewer {
+			t.Errorf("%s: role = %q, want viewer with the default (empty) lists", user, got)
+		}
+	}
+	if w, ok := a.(auth.Warner); !ok || len(w.Warnings()) != 0 {
+		t.Errorf("the default configuration has standing warnings: %v", a)
+	}
+}
+
+func TestWildcardMakesEveryoneAdmin(t *testing.T) {
+	var logs logCapture
+	a, _, err := buildAuthenticator(resolvedAuth(false, false, func(c *config.AuthConfig) {
+		c.Proxy.AdminUsers = []string{"*"}
+	}), logs.logger())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, user := range []string{"alice", "TechDufus", "dash-verify"} {
+		if got := roleOf(t, a, user, ""); got != auth.RoleAdmin {
+			t.Errorf("%s: role = %q, want admin under the wildcard", user, got)
+		}
+	}
+	// A WARN at start, and the standing warning the API shows in /me.
+	if got := logs.with(t, "WARN", adminWildcardWarning); len(got) != 1 {
+		t.Errorf("wildcard WARN lines = %d, want 1:\n%s", len(got), &logs.buf)
+	}
+	w, ok := a.(auth.Warner)
+	if !ok || !slices.Equal(w.Warnings(), []string{"admin_wildcard"}) {
+		t.Errorf("warnings = %v (Warner %v), want [admin_wildcard]", w, ok)
+	}
+
+	// An exact list neither warns nor reports.
+	logs = logCapture{}
+	a, _, err = buildAuthenticator(resolvedAuth(false, false, func(c *config.AuthConfig) {
+		c.Proxy.AdminUsers = []string{"alice"}
+	}), logs.logger())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n := len(logs.with(t, "WARN", adminWildcardWarning)); n != 0 {
+		t.Errorf("an exact admin list logged the wildcard WARN")
+	}
+	if w := a.(auth.Warner).Warnings(); len(w) != 0 {
+		t.Errorf("warnings = %v, want none", w)
+	}
+}
+
+func TestProxyModeLogsCountsNotNames(t *testing.T) {
+	var logs logCapture
+	_, _, err := buildAuthenticator(resolvedAuth(false, false, func(c *config.AuthConfig) {
+		c.Proxy.AdminUsers = []string{"TechDufus", "second-admin-name", " ", ""} // blank entries are not counted
+		c.Proxy.AdminGroups = []string{"secret-group-name", "\t"}
+		c.Proxy.GroupsHeader = "X-Forwarded-Groups"
+	}), logs.logger())
+	if err != nil {
+		t.Fatal(err)
+	}
+	recs := logs.with(t, "INFO", "auth: proxy mode")
+	if len(recs) != 1 || recs[0]["trustedPrefixes"] != float64(2) || recs[0]["adminUsers"] != float64(2) || recs[0]["adminGroups"] != float64(1) {
+		t.Fatalf("startup INFO = %v, want counts 2 prefixes, 2 users, 1 group:\n%s", recs, &logs.buf)
+	}
+	for _, name := range []string{"TechDufus", "second-admin-name", "secret-group-name"} {
+		if strings.Contains(logs.buf.String(), name) {
+			t.Errorf("the startup log names %q:\n%s", name, &logs.buf)
+		}
+	}
+}
+
+func TestApplyAuthReloadAppliesOnTheNextRequest(t *testing.T) {
+	var logs logCapture
+	a, p, err := buildAuthenticator(resolvedAuth(false, false, func(c *config.AuthConfig) {
+		c.Proxy.AdminUsers = []string{"alice"}
+		c.Proxy.GroupsHeader = "X-Forwarded-Groups"
+	}), logs.logger())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if roleOf(t, a, "alice", "") != auth.RoleAdmin || roleOf(t, a, "bob", "") != auth.RoleViewer {
+		t.Fatal("initial lists not applied")
+	}
+
+	reload := config.DefaultAuth()
+	reload.Proxy.AdminUsers = []string{"bob"}
+	reload.Proxy.AdminGroups = []string{"ops"}
+	reload.Proxy.GroupsHeader = "X-Forwarded-Groups"
+	applyAuthReload(p, reload)
+	for _, tc := range []struct {
+		user, groups string
+		want         auth.Role
+	}{
+		{"alice", "", auth.RoleViewer},
+		{"bob", "", auth.RoleAdmin},
+		{"carol", "ops", auth.RoleAdmin},
+	} {
+		if got := roleOf(t, a, tc.user, tc.groups); got != tc.want {
+			t.Errorf("after the reload %s %q: role = %q, want %q", tc.user, tc.groups, got, tc.want)
+		}
+	}
+
+	// Both lists emptied: everyone is a viewer.
+	applyAuthReload(p, config.DefaultAuth())
+	if got := roleOf(t, a, "bob", ""); got != auth.RoleViewer {
+		t.Errorf("after emptying the lists bob = %q, want viewer", got)
+	}
+
+	// A reload to the wildcard warns, as the start does, and shows in the standing warnings.
+	prev := slog.Default()
+	slog.SetDefault(logs.logger())
+	t.Cleanup(func() { slog.SetDefault(prev) })
+	wild := config.DefaultAuth()
+	wild.Proxy.AdminUsers = []string{"*"}
+	applyAuthReload(p, wild)
+	if n := len(logs.with(t, "WARN", adminWildcardWarning)); n != 1 {
+		t.Errorf("wildcard WARN lines after the reload = %d, want 1", n)
+	}
+	if !slices.Equal(a.(auth.Warner).Warnings(), []string{"admin_wildcard"}) {
+		t.Errorf("warnings after the wildcard reload = %v", a.(auth.Warner).Warnings())
+	}
+}
+
+// The fixed modes have no proxy to reload: a nil proxy is accepted and nothing happens.
+func TestApplyAuthReloadIgnoresTheFixedModes(t *testing.T) {
+	var logs logCapture
+	a, p, err := buildAuthenticator(resolvedAuth(true, false, nil), logs.logger())
+	if err != nil || p != nil {
+		t.Fatalf("dev: %v %v", p, err)
+	}
+	reload := config.DefaultAuth()
+	reload.Proxy.AdminUsers = []string{"*"}
+	applyAuthReload(nil, reload)
+	if got, f := a.Authenticate(authRequest("127.0.0.1:1")); f != nil || got.Role != auth.RoleAdmin || got.User != "dev" {
+		t.Errorf("dev principal changed: %+v %+v", got, f)
 	}
 }

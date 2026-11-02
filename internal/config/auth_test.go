@@ -281,3 +281,88 @@ func TestUserHeadersRefuseReservedNames(t *testing.T) {
 		}
 	}
 }
+
+// Groups are only read from a configured header, so adminGroups without one could never match:
+// refused, with the setting to add named.
+func TestAdminGroupsRequireAGroupsHeader(t *testing.T) {
+	ps := authProblems(func(a *AuthConfig) { a.Proxy.AdminGroups = []string{"ops"} })
+	if !hasProblem(ps, "proxy.adminGroups", "auth.proxy.groupsHeader") || len(ps) != 1 {
+		t.Errorf("adminGroups without a groups header: problems %+v", ps)
+	}
+	ps = authProblems(func(a *AuthConfig) { a.Proxy.AdminGroups = []string{"ops"}; a.Proxy.GroupsHeader = "   " })
+	if !hasProblem(ps, "proxy.adminGroups", "auth.proxy.groupsHeader") {
+		t.Errorf("adminGroups beside a blank groups header: problems %+v", ps)
+	}
+	for name, set := range map[string]func(*AuthConfig){
+		"header set": func(a *AuthConfig) {
+			a.Proxy.AdminGroups = []string{"ops"}
+			a.Proxy.GroupsHeader = "X-Forwarded-Groups"
+		},
+		"no groups, no header": func(a *AuthConfig) { a.Proxy.AdminGroups = nil },
+		"header, no groups":    func(a *AuthConfig) { a.Proxy.GroupsHeader = "X-Forwarded-Groups" },
+	} {
+		if ps := authProblems(set); len(ps) != 0 {
+			t.Errorf("%s: problems %+v", name, ps)
+		}
+	}
+
+	_, _, err := resolveEnv(t, `DASH_AUTH_PROXY_ADMIN_GROUPS=["ops"]`)
+	if err == nil {
+		t.Fatal("DASH_AUTH_PROXY_ADMIN_GROUPS without a groups header was accepted")
+	}
+	for _, w := range []string{"auth.proxy.adminGroups", "(env DASH_AUTH_PROXY_ADMIN_GROUPS)", "auth.proxy.groupsHeader"} {
+		if !strings.Contains(err.Error(), w) {
+			t.Errorf("error %q does not contain %q", err, w)
+		}
+	}
+	if _, _, err := resolveEnv(t, `DASH_AUTH_PROXY_ADMIN_GROUPS=["ops"]`, "DASH_AUTH_PROXY_GROUPS_HEADER=X-Forwarded-Groups"); err != nil {
+		t.Errorf("adminGroups with a groups header: %v", err)
+	}
+}
+
+// Entries are trimmed and must name something; "*" is the everyone-is-admin switch of adminUsers
+// and means nothing as a group.
+func TestAdminListEntriesAreValidated(t *testing.T) {
+	withHeader := func(f func(*AuthConfig)) func(*AuthConfig) {
+		return func(a *AuthConfig) { a.Proxy.GroupsHeader = "X-Forwarded-Groups"; f(a) }
+	}
+	users := func(l ...string) func(*AuthConfig) {
+		return withHeader(func(a *AuthConfig) { a.Proxy.AdminUsers = l })
+	}
+	groups := func(l ...string) func(*AuthConfig) {
+		return withHeader(func(a *AuthConfig) { a.Proxy.AdminGroups = l })
+	}
+	for name, c := range map[string]struct {
+		set  func(*AuthConfig)
+		path string // "" = valid
+		msg  string
+	}{
+		"users":                    {users("TechDufus", "alice"), "", ""},
+		"users padded":             {users("  TechDufus "), "", ""},
+		"wildcard user":            {users("*"), "", ""},
+		"empty user":               {users("alice", ""), "proxy.adminUsers", "entry 2 is empty"},
+		"blank user":               {users("   "), "proxy.adminUsers", "entry 1 is empty"},
+		"groups":                   {groups("ops", " sre "), "", ""},
+		"empty group":              {groups(""), "proxy.adminGroups", "entry 1 is empty"},
+		"blank group":              {groups("ops", "\t"), "proxy.adminGroups", "entry 2 is empty"},
+		"wildcard group":           {groups("ops", "*"), "proxy.adminGroups", "only valid in adminUsers"},
+		"padded wildcard group":    {groups(" * "), "proxy.adminGroups", "only valid in adminUsers"},
+		"star inside a group name": {groups("ops*"), "", ""},
+	} {
+		ps := authProblems(c.set)
+		if c.path == "" {
+			if len(ps) != 0 {
+				t.Errorf("%s: problems %+v", name, ps)
+			}
+			continue
+		}
+		if !hasProblem(ps, c.path, c.msg) || len(ps) != 1 {
+			t.Errorf("%s: problems %+v, want one at %s containing %q", name, ps, c.path, c.msg)
+		}
+	}
+
+	_, _, err := resolveEnv(t, `DASH_AUTH_PROXY_ADMIN_USERS=["alice",""]`)
+	if err == nil || !strings.Contains(err.Error(), "auth.proxy.adminUsers") || !strings.Contains(err.Error(), "(env DASH_AUTH_PROXY_ADMIN_USERS)") {
+		t.Errorf("an empty adminUsers entry from the environment: error %v", err)
+	}
+}

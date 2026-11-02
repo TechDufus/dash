@@ -4,10 +4,12 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"testing"
 
 	"github.com/TechDufus/dash/internal/audit"
 	"github.com/TechDufus/dash/internal/auth"
+	"github.com/TechDufus/dash/internal/auth/authtest"
 	"github.com/TechDufus/dash/internal/model"
 	"github.com/TechDufus/dash/internal/obs"
 )
@@ -109,5 +111,40 @@ func TestGuardCountsAuthForbidden(t *testing.T) {
 	ss := scrapeMetrics(t, s)
 	if v, ok := seriesValue(t, ss, "dash_auth_failures_total", map[string]string{"reason": obs.AuthForbidden.String()}); !ok || v != 1 {
 		t.Errorf("forbidden counted %v (present %v), want 1", v, ok)
+	}
+}
+
+// The principal the guard judges is the one the authenticator mapped: behind authn, the user the
+// role map names reaches an admin row and everyone else is a viewer and is refused there, once.
+func TestGuardRefusesTheViewerTheAuthenticatorMapped(t *testing.T) {
+	dir := t.TempDir()
+	s := newServer(func(d *Deps) {
+		d.Metrics = obs.New("test", RoutePatterns(), nil)
+		d.Audit = openAudit(t, dir, newAuditClock().now)
+		d.Auth = authtest.Proxy("ada")
+	})
+	var ran []string
+	h := s.authn(s.muxOf(guardTable(&ran)))
+
+	for _, tc := range []struct {
+		user, path string
+		want       int
+	}{
+		{"ada", "/api/v1/admin-row", http.StatusNoContent},
+		{"ada", "/api/v1/viewer-row", http.StatusNoContent},
+		{"vera", "/api/v1/viewer-row", http.StatusNoContent},
+		{"vera", "/api/v1/admin-row", http.StatusForbidden},
+	} {
+		w := req{path: tc.path, header: map[string]string{"X-Forwarded-Preferred-Username": tc.user}}.do(h)
+		if w.Code != tc.want {
+			t.Errorf("%s on %s = %d %s, want %d", tc.user, tc.path, w.Code, w.Body, tc.want)
+		}
+	}
+	if want := []string{"admin", "viewer", "viewer"}; !slices.Equal(ran, want) {
+		t.Errorf("handlers that ran = %v, want %v", ran, want)
+	}
+	recs := auditRecords(t, dir)
+	if len(recs) != 1 || recs[0].Reason != obs.AuthForbidden.String() || recs[0].Actor.User != "vera" {
+		t.Errorf("audit = %+v, want one forbidden denial naming vera", recs)
 	}
 }

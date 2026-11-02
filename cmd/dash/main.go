@@ -84,7 +84,7 @@ func run(reg *secret.Registry) error {
 	defer alog.Close()
 	cfg := res.Config
 	warnSettledRequirements(res.Tree, cfg.ReadyRequires)
-	authn, _, err := buildAuthenticator(res, slog.Default())
+	authn, proxy, err := buildAuthenticator(res, slog.Default())
 	if err != nil {
 		return err
 	}
@@ -110,6 +110,7 @@ func run(reg *secret.Registry) error {
 	}
 	fw := newFramework(res, store, config.ReloadOptions{}, reg, refs, transport, cfg.Demo)
 	h, sup, reloader := fw.hub, fw.sup, fw.reloader
+	fw.reloadAuth(proxy)
 	reloaderDone := make(chan struct{})
 	go func() { defer close(reloaderDone); reloader.Run(ctx) }()
 	defer func() { stop(); <-reloaderDone }()
