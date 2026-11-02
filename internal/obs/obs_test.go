@@ -422,14 +422,14 @@ func TestTrackActionOutcomeFromStatus(t *testing.T) {
 		}
 	}
 	rec := httptest.NewRecorder()
-	w, done := m.TrackAction(rec, "flux", "reconcile")
+	w, done := m.TrackAction(rec, "alertmanager", "silence.expire")
 	w.WriteHeader(http.StatusTooManyRequests)
 	done()
 	w, done = m.TrackAction(httptest.NewRecorder(), "alertmanager", "silence.create")
 	_, _ = w.Write([]byte("{}")) // no explicit status: 200
 	done()
 	ss := scrape(t, m)
-	if value(t, ss, "dash_actions_total", map[string]string{"plugin": "flux", "action": "reconcile", "outcome": ActionRateLimited}) != 1 ||
+	if value(t, ss, "dash_actions_total", map[string]string{"plugin": "alertmanager", "action": "silence.expire", "outcome": ActionRateLimited}) != 1 ||
 		value(t, ss, "dash_actions_total", map[string]string{"plugin": "alertmanager", "action": "silence.create", "outcome": ActionOK}) != 1 {
 		t.Errorf("series: %v", ss)
 	}

@@ -10,8 +10,11 @@ import (
 	"github.com/TechDufus/dash/internal/model"
 )
 
+// The gate is generic, so it is driven through a real plugin action, the silence the alertmanager
+// plugin creates, with a body that passes it and is refused by the action itself (no matchers).
 func TestCSRF(t *testing.T) {
-	body := model.ReconcileRequest{Kind: "Nope", Namespace: "flux-system", Name: "x"} // reaches the handler, answers 400
+	e := newAMEnv(t)
+	body := model.SilenceRequest{} // reaches the action, answers 400
 	tests := []struct {
 		name   string
 		method string
@@ -31,7 +34,7 @@ func TestCSRF(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			w := req{method: tc.method, path: "/api/actions/reconcile", body: body, header: tc.header, raw: tc.raw}.do(newServer(nil).Handler())
+			w := req{method: tc.method, path: amCreatePath, body: body, header: tc.header, raw: tc.raw}.do(e.Handler())
 			if w.Code != tc.code {
 				t.Fatalf("code = %d, want %d (%s)", w.Code, tc.code, w.Body)
 			}
@@ -49,10 +52,11 @@ func TestCSRF(t *testing.T) {
 
 // Browsers send a lowercase Origin, so a PublicURL written with capitals must still accept it.
 func TestCSRFPublicURLCase(t *testing.T) {
-	s := newServer(func(d *Deps) { d.Cfg.PublicURL = "https://DASH.Example.com:8443/" })
-	body := model.ReconcileRequest{Kind: "Nope", Namespace: "flux-system", Name: "x"} // reaches the handler, answers 400
-	w := req{method: "POST", path: "/api/actions/reconcile", body: body,
-		header: map[string]string{"Origin": "https://dash.example.com:8443"}}.do(s.Handler())
+	e := newAMEnv(t)
+	e.Server.d.Cfg.PublicURL = "https://DASH.Example.com:8443/" // read when the handler is built
+	body := model.SilenceRequest{}                              // reaches the action, answers 400
+	w := req{method: "POST", path: amCreatePath, body: body,
+		header: map[string]string{"Origin": "https://dash.example.com:8443"}}.do(e.Handler())
 	if w.Code != 400 {
 		t.Fatalf("code = %d, want 400 (%s)", w.Code, w.Body)
 	}
@@ -97,7 +101,7 @@ func TestUserResolution(t *testing.T) {
 
 	t.Run("every api path is gated, including stream and unknown", func(t *testing.T) {
 		h := newServer(nil).Handler()
-		for _, p := range []string{"/api/v1/stream", "/api/v1/series", "/api/v1/plugins/rt/tail?ns=media&pod=web", "/api/unknown", "/api/actions/reconcile"} {
+		for _, p := range []string{"/api/v1/stream", "/api/v1/series", "/api/v1/plugins/rt/tail?ns=media&pod=web", "/api/unknown", amCreatePath} {
 			w := req{path: p, header: map[string]string{"X-Forwarded-Preferred-Username": ""}}.do(h)
 			if w.Code != http.StatusUnauthorized {
 				t.Errorf("%s: code = %d, want 401", p, w.Code)

@@ -3,6 +3,7 @@ package plugintest
 import (
 	"fmt"
 	"testing"
+	"time"
 
 	"github.com/TechDufus/dash/internal/model"
 	"github.com/TechDufus/dash/internal/plugin"
@@ -61,6 +62,35 @@ func TestAssertRefs(t *testing.T) {
 		case c.wantErr != "" && (len(r.errs) == 0 || !contains(r.errs[0], c.wantErr)):
 			t.Errorf("%s: errors %v, want one with %q", c.name, r.errs, c.wantErr)
 		}
+	}
+}
+
+func TestAssertAttentionNonNil(t *testing.T) {
+	for _, c := range []struct {
+		name    string
+		fn      func(time.Time) []model.AttentionItem
+		wantErr string // a substring of the first error; "" = none
+	}{
+		{"nil list", func(time.Time) []model.AttentionItem { return nil }, "nil attention list"},
+		{"empty list", func(time.Time) []model.AttentionItem { return []model.AttentionItem{} }, ""},
+		{"items", func(time.Time) []model.AttentionItem { return []model.AttentionItem{{ID: "x"}} }, ""},
+	} {
+		f := New("aa")
+		f.AttentionFn = c.fn
+		r := &recorder{}
+		AssertAttentionNonNil(r, plugin.Contributor{ID: "aa", Attention: f})
+		switch {
+		case c.wantErr == "" && len(r.errs) != 0:
+			t.Errorf("%s: unexpected errors %v", c.name, r.errs)
+		case c.wantErr != "" && (len(r.errs) != 1 || !contains(r.errs[0], c.wantErr)):
+			t.Errorf("%s: errors %v, want one with %q", c.name, r.errs, c.wantErr)
+		}
+	}
+
+	r := &recorder{}
+	AssertAttentionNonNil(r, plugin.Contributor{ID: "aa"})
+	if len(r.errs) != 1 || !contains(r.errs[0], "no AttentionSource") {
+		t.Errorf("no source: errors %v", r.errs)
 	}
 }
 

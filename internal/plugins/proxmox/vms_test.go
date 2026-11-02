@@ -7,6 +7,7 @@ import (
 
 	"github.com/TechDufus/dash/internal/model"
 	"github.com/TechDufus/dash/internal/plugin"
+	"github.com/TechDufus/dash/internal/plugin/plugintest"
 	"github.com/TechDufus/dash/internal/pluginconf"
 	"github.com/TechDufus/dash/internal/upstream"
 )
@@ -152,6 +153,25 @@ func TestAttentionStartsOverWhenTheVMRecovers(t *testing.T) {
 			t.Errorf("Since = %v, want %v", it.Since, t1)
 		}
 	}
+}
+
+// A host with every VM running has nothing to raise, which the contributor says with a non-nil
+// empty list: nil is "no opinion yet" and would keep the sightings of VMs that recovered.
+func TestAttentionOfRunningVMsIsNonNilEmpty(t *testing.T) {
+	pve := newFakePVE(t, false)
+	pve.set("/cluster/resources", `{"data":[{"vmid":101,"name":"cp","status":"running","maxcpu":1,"maxmem":1,"tags":"lab"}]}`)
+	e := newEnv(t, envOpts{pve: pve})
+	e.vms(t, "the running guest", func(d model.VMsData) bool { return len(d.VMs) == 1 && d.VMs[0].Status == "running" })
+	for _, c := range e.sup.Contributors() {
+		if c.ID == ID {
+			plugintest.AssertAttentionNonNil(t, c)
+			if items := c.Attention.Attention(time.Now()); len(items) != 0 {
+				t.Errorf("items = %+v, want none", items)
+			}
+			return
+		}
+	}
+	t.Fatal("proxmox is not among the overview contributors")
 }
 
 func TestNoAttentionKPIsOrTopologyBeforeTheFirstPoll(t *testing.T) {

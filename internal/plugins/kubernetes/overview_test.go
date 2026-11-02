@@ -9,6 +9,7 @@ import (
 
 	"github.com/TechDufus/dash/internal/model"
 	"github.com/TechDufus/dash/internal/plugin"
+	"github.com/TechDufus/dash/internal/plugin/plugintest"
 )
 
 // ovPlugin is a running plugin whose last published payloads are cl and st (either may be nil).
@@ -111,6 +112,23 @@ func TestAttentionIsStampedBySupervisorAndSurvivesARestart(t *testing.T) {
 	if !got.Equal(clNow) {
 		t.Errorf("node since after the restart = %v, want %v", got, clNow)
 	}
+}
+
+// A cluster that has published and has nothing to raise says so with a non-nil empty list; nil
+// would leave the supervisor's first sightings of items that are gone in place.
+func TestAttentionOfAHealthyClusterIsNonNilEmpty(t *testing.T) {
+	e := newEnv(t, envOpts{objs: []k8sruntime.Object{node("cp-1", "192.0.2.10", true)}})
+	e.healthy()
+	for _, c := range e.sup.Contributors() {
+		if c.ID == ID {
+			plugintest.AssertAttentionNonNil(t, c)
+			if items := c.Attention.Attention(clNow); len(items) != 0 {
+				t.Errorf("items = %+v, want none", items)
+			}
+			return
+		}
+	}
+	t.Fatal("kubernetes is not an attention contributor")
 }
 
 func TestKPIsOfNodesAndTheFullestPVC(t *testing.T) {

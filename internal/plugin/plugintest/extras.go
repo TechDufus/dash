@@ -4,6 +4,7 @@ import (
 	"reflect"
 	"strconv"
 	"testing"
+	"time"
 
 	"github.com/TechDufus/dash/internal/model"
 	"github.com/TechDufus/dash/internal/plugin"
@@ -31,6 +32,22 @@ func (d withDemo) Demo() plugin.Plugin { return d.twin }
 // check that a plugin without a twin is left alone.
 func WithDemo(f *Fake, twin plugin.Plugin) plugin.Factory {
 	return func() plugin.Plugin { return withDemo{f, twin} }
+}
+
+// AssertAttentionNonNil checks the attention contract of a contributor that has already polled
+// (design A.7): c.Attention is set, and its Attention call returns a non-nil list, empty when
+// there is nothing to raise. nil means "no opinion yet" and is right only while the plugin is
+// hidden or has not built its data, so a polled plugin that returns nil would leave stale first
+// sightings in the supervisor's tracker instead of pruning them.
+func AssertAttentionNonNil(t testing.TB, c plugin.Contributor) {
+	t.Helper()
+	if c.Attention == nil {
+		t.Errorf("contributor %q has no AttentionSource", c.ID)
+		return
+	}
+	if c.Attention.Attention(time.Now()) == nil {
+		t.Errorf("contributor %q returned a nil attention list after polling; want a non-nil empty list when there is nothing to raise", c.ID)
+	}
 }
 
 // AssertRefs walks payload and checks every object reference in it (design L.6): each struct with

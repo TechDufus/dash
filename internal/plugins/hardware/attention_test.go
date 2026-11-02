@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/TechDufus/dash/internal/model"
+	"github.com/TechDufus/dash/internal/plugin/plugintest"
 	"github.com/TechDufus/dash/internal/pluginconf"
 )
 
@@ -148,6 +149,18 @@ func TestAttentionSinceIsStableAcrossCalls(t *testing.T) {
 		if !it.Since.Equal(want) {
 			t.Errorf("%s: since %v, want %v (the CPU item starts over)", it.ID, it.Since, want)
 		}
+	}
+}
+
+// A host that has polled and is healthy has nothing to raise, which the contributor says with a
+// non-nil empty list: nil is "no opinion yet".
+func TestAttentionOfAHealthyHostIsNonNilEmpty(t *testing.T) {
+	r := hostRig(t, nil)
+	waitTopic(t, r.hub, "hardware.hosts", func(d model.HostData) bool { return d.PowerWatts > 0 })
+	c := contributor(t, r)
+	plugintest.AssertAttentionNonNil(t, c)
+	if items := c.Attention.Attention(time.Now()); len(items) != 0 {
+		t.Errorf("items = %+v, want none", ids(items))
 	}
 }
 

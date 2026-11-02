@@ -189,3 +189,31 @@ func TestKubePolicyMessagesAreScrubbedOnTheWayOut(t *testing.T) {
 		})
 	}
 }
+
+// The refusal a plugin action makes is its own text and may carry what an upstream echoed (a
+// Kubernetes admission webhook behind the Flux reconcile will, from the flux plugin on), so the
+// core scrubs it on the way out whatever the status: the home of the check above once the legacy
+// route is gone.
+func TestPluginActionRefusalsAreScrubbedOnTheWayOut(t *testing.T) {
+	const pat = "dash_pat_abcdefghij0123456789ABCDEFGHIJ0123456789abc"
+	msg := "homelab guardrail: denied; webhook echoed " + strings.Join(canaryForms(), " ") + " and " + pat
+	for _, status := range []int{400, 403, 404, 409, 422} {
+		t.Run(fmt.Sprint(status), func(t *testing.T) {
+			h := newHarness(t)
+			h.Server.d.Secrets = canaryRegistry()
+			h.act = func(string, any) (any, error) { return nil, &plugin.ActionError{Status: status, Message: msg} }
+			w := req{method: "POST", path: "/api/v1/plugins/aa/actions/ping"}.do(h.Handler())
+			if w.Code != status {
+				t.Fatalf("code = %d, want %d (%s)", w.Code, status, w.Body)
+			}
+			if !strings.Contains(w.Body.String(), "homelab guardrail: denied") {
+				t.Errorf("the policy message must still reach the user: %s", w.Body)
+			}
+			for _, leak := range append(canaryForms(), pat) {
+				if strings.Contains(w.Body.String(), leak) {
+					t.Errorf("response carries %q: %s", leak, w.Body)
+				}
+			}
+		})
+	}
+}
