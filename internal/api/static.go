@@ -2,12 +2,30 @@ package api
 
 import (
 	"bytes"
+	"crypto/rand"
+	"encoding/base64"
+	"io"
 	"io/fs"
 	"net/http"
 	"path"
 	"strings"
 	"time"
 )
+
+// noncePlaceholder is the content of index.html's csp-nonce meta in the built SPA.
+var noncePlaceholder = []byte("__CSP_NONCE__")
+
+// nonceSource feeds newNonce; tests replace it to exercise the failure path.
+var nonceSource io.Reader = rand.Reader
+
+// newNonce returns 16 random bytes, base64 raw-std encoded.
+func newNonce() (string, error) {
+	var b [16]byte
+	if _, err := io.ReadFull(nonceSource, b[:]); err != nil {
+		return "", err
+	}
+	return base64.RawStdEncoding.EncodeToString(b[:]), nil
+}
 
 // serveStatic serves the SPA: existing files as they are, any other path as index.html.
 func (s *Server) serveStatic(w http.ResponseWriter, r *http.Request) {
@@ -34,6 +52,23 @@ func (s *Server) serveStatic(w http.ResponseWriter, r *http.Request) {
 	switch {
 	case name == "index.html":
 		w.Header().Set("Cache-Control", "no-cache")
+		// The document carries a per-response nonce, so no two responses may share a body. NEVER set
+		// an ETag or Last-Modified (a non-zero modtime below) on it: a conditional request would
+		// then be answered 304 and the browser would keep an old document whose nonce no longer
+		// matches the one the server issues. With a zero modtime and no ETag there is no validator,
+		// but ServeContent still answers `If-None-Match: *` with 304 (and `If-Match` with 412), so
+		// the request's preconditions are dropped: the document is always a fresh 200
+		// (TestIndexIsNeverNotModified).
+		nonce, err := newNonce()
+		if err != nil {
+			http.Error(w, "internal error", http.StatusInternalServerError)
+			return
+		}
+		b = bytes.ReplaceAll(b, noncePlaceholder, []byte(nonce))
+		r = r.Clone(r.Context())
+		for _, h := range []string{"If-Match", "If-None-Match", "If-Modified-Since", "If-Unmodified-Since", "If-Range"} {
+			r.Header.Del(h)
+		}
 	case strings.HasPrefix(name, "assets/"):
 		w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
 	}
