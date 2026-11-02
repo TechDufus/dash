@@ -82,6 +82,41 @@ func (m *Manager) contributorSources(cs []plugin.Contributor) []model.SourceStat
 	return out
 }
 
+// kubernetesID is the plugin whose service the Manager reads.
+const kubernetesID plugin.ID = "kubernetes"
+
+// withoutHidden drops the contributions of the kubernetes plugin while its service is absent
+// (its row is hidden, or it is in error): its last attention items, KPIs and topology describe a
+// cluster nobody can reach, and flux is unavailable then too. Its sources stay (overviewSources).
+func (m *Manager) withoutHidden(cs []plugin.Contributor, haveCluster bool) []plugin.Contributor {
+	if haveCluster {
+		return cs
+	}
+	out := make([]plugin.Contributor, 0, len(cs))
+	for _, c := range cs {
+		if c.ID != kubernetesID {
+			out = append(out, c)
+		}
+	}
+	return out
+}
+
+// overviewSources is core.overview.sources: the Manager's own kubernetes chip merged with what the
+// plugins report. When the kubernetes plugin reports its own source it replaces the Manager's
+// guess in place: during an outage the plugin says "unreachable", where the Manager (whose service
+// is withdrawn then) could only say "not_configured".
+func (m *Manager) overviewSources(cs []plugin.Contributor) []model.SourceStatus {
+	own := m.contributorSources(cs)
+	base := m.kubeSources()
+	for _, s := range own {
+		if s.Name == base[0].Name {
+			base[0] = s
+			break
+		}
+	}
+	return mergeSources(base, own)
+}
+
 func kpis(in AttentionInput) model.Kpis {
 	k := model.Kpis{}
 	count := func(l []model.FluxObj) {

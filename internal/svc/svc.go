@@ -51,9 +51,9 @@ type EndpointHealth interface {
 }
 
 // NodeIndex is what the kubernetes plugin exports: the cluster's nodes, for the code that ties
-// its own objects to them (a VM that is a node, the node series). Until the kubernetes plugin
-// exists the kubernetes shim of internal/topics supplies it, so a consumer written against this
-// interface needs no change when the real plugin replaces the shim.
+// its own objects to them (a VM that is a node, the node series). The plugin's one service
+// object implements it together with Cluster; the plugin exports no service while it is
+// unavailable or in error, so a consumer sees an absent provider then, not an empty index.
 type NodeIndex interface {
 	// K8sNode maps a VM name to the cluster node of the same name. ok is false when there is no
 	// such node, and for every name until Synced is true.

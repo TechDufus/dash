@@ -148,12 +148,30 @@ func (m *Manager) watchCluster() {
 			c.Watch(fluxGVRs...)
 		}
 		synced, listed, rev = c.Synced(), fluxListed(c), c.GVRRevision(fluxGVRs...)
+	} else if m.seenCluster != nil {
+		m.withdrawFlux()
 	}
 	if c == m.seenCluster && synced == m.seenSynced && listed == m.seenListed && rev == m.seenRevision {
 		return
 	}
 	m.seenCluster, m.seenSynced, m.seenListed, m.seenRevision = c, synced, listed, rev
 	m.mark(model.TopicFlux)
+}
+
+// withdrawFlux is what the flux topic does when the kubernetes service goes away: flux is
+// unavailable while kubernetes is, so the overview stops carrying its attention items and KPIs,
+// and the topic no longer holds the last list for a subscriber that opens once the row is
+// visible again. It publishes once per withdrawal an empty topic whose source says why.
+func (m *Manager) withdrawFlux() {
+	m.mu.Lock()
+	had := m.built.flux != nil
+	m.built.flux = nil
+	m.mu.Unlock()
+	if had {
+		m.publish(model.TopicFlux, model.FluxData{
+			Sources: []model.FluxObj{}, Kustomizations: []model.FluxObj{}, HelmReleases: []model.FluxObj{},
+		}, m.kubeSources())
+	}
 }
 
 // publish hands one topic to the Host of the plugin that owns it, which names, types and
@@ -237,6 +255,6 @@ func (m *Manager) rebuild() {
 	m.mu.RLock()
 	b := m.built
 	m.mu.RUnlock()
-	m.publish(model.TopicOverview, m.buildOverview(b, contributors, now),
-		mergeSources(m.kubeSources(), m.contributorSources(contributors)))
+	m.publish(model.TopicOverview, m.buildOverview(b, m.withoutHidden(contributors, haveCluster), now),
+		m.overviewSources(contributors))
 }

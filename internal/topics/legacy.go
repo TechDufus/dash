@@ -89,8 +89,9 @@ func (m *Manager) Plugins() []plugin.Factory {
 }
 
 // legacyStatus is the state of the flux shim: unavailable while the kubernetes plugin's service
-// is absent, starting until its informers have synced, healthy after. The message is
-// viewer-visible, so it names nothing but the state.
+// is absent, starting until its informers have synced and each of the five flux resources has
+// listed (the topic is withheld until then), healthy after. The message is viewer-visible, so it
+// names nothing but the state.
 func (m *Manager) legacyStatus() plugin.Status {
 	c, ok := m.cluster()
 	switch {
@@ -98,6 +99,8 @@ func (m *Manager) legacyStatus() plugin.Status {
 		return plugin.Status{State: plugin.StateUnavailable, Message: "kubernetes is not available", Sources: m.kubeSources()}
 	case !c.Synced():
 		return plugin.Status{State: plugin.StateStarting, Message: "informers syncing", Sources: m.kubeSources()}
+	case !fluxListed(c):
+		return plugin.Status{State: plugin.StateStarting, Message: "listing the flux resources", Sources: m.kubeSources()}
 	}
 	return plugin.Status{State: plugin.StateHealthy, Sources: m.kubeSources()}
 }
