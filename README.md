@@ -443,17 +443,14 @@ rules:
   - apiGroups: [source.toolkit.fluxcd.io]
     resources: [gitrepositories, ocirepositories, helmrepositories]
     verbs: [get, list, watch, patch]
-  # Only with plugins.kubernetes.apps.ingress: true.
-  - apiGroups: [networking.k8s.io]
-    resources: [ingresses]
-    verbs: [get, list, watch]
 ```
 
-`plugins.kubernetes.upstreamViaAPIServer` (development) also needs `get` on `services/proxy`.
+`plugins.kubernetes.upstreamViaAPIServer` (development) also needs `get` and `create` on
+`services/proxy` (the API server authorizes a proxied GET as `get` and a proxied POST as `create`).
 `plugins.kubernetes.apps.ingress: true` also needs `get`, `list` and `watch` on `ingresses` in
-`networking.k8s.io`; this is documented here and is not part of the rules above, so grant it only
-where you turn the key on (without the permission the apps are published without Ingresses and the
-plugin is `degraded`).
+`networking.k8s.io`; that rule is not part of the ones above, so grant it only where you turn the
+key on (without the permission the apps are published without Ingresses and the plugin is
+`degraded`).
 A cluster that lacks a CRD group is fine: mark the kinds in `plugins.kubernetes.optional.*` to
 keep the plugin out of `degraded` for it.
 
@@ -605,7 +602,7 @@ start unless `server.listen` (`DASH_SERVER_LISTEN`) is a loopback address (`127.
 through the API server. To reach in-cluster services such as
 `http://prometheus.monitoring.svc:9090` from a laptop, set
 `DASH_PLUGINS_KUBERNETES_UPSTREAM_VIA_API_SERVER=true` (`plugins.kubernetes.upstreamViaAPIServer`;
-`dev/site.env.example` sets it, and the service proxy needs the `services/proxy` permission).
+`dev/site.env.example` sets it, and the service proxy needs `get` and `create` on `services/proxy`).
 
 Open http://localhost:5173. `make check` runs everything CI runs: it regenerates the generated
 files and fails if they differ from what is committed (`web/src/api/types.ts`,
