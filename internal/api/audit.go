@@ -5,6 +5,7 @@ import (
 	"net/http"
 
 	"github.com/TechDufus/dash/internal/audit"
+	"github.com/TechDufus/dash/internal/auth"
 	"github.com/TechDufus/dash/internal/model"
 	"github.com/TechDufus/dash/internal/obs"
 )
@@ -12,8 +13,13 @@ import (
 // maxAuditAction caps the request line recorded for a denial: it comes from the client.
 const maxAuditAction = 200
 
-// authMode names how requests are authenticated, for the audit log.
-func (s *Server) authMode() string {
+// authMode names how a request was authenticated, for me and the audit log: the principal's kind
+// (proxy, dev, demo, none). A refusal by authn itself has no principal and is named by the
+// process mode.
+func (s *Server) authMode(p auth.Principal) string {
+	if p.Kind != "" {
+		return string(p.Kind)
+	}
 	switch {
 	case s.d.Cfg.Demo:
 		return "demo"
@@ -35,10 +41,11 @@ func peerOf(r *http.Request) string {
 // auditRecord names the user authn stored; a refusal by authn itself, or by the host check,
 // has none.
 func (s *Server) auditRecord(r *http.Request, action string, t audit.Target) audit.Record {
-	user := userFrom(r.Context())
+	p := principalFrom(r.Context())
+	mode := s.authMode(p)
 	return audit.Record{
-		Action: action, Target: t, Peer: peerOf(r), AuthMode: s.authMode(), RequestID: requestIDFrom(r.Context()),
-		Actor: audit.Actor{Type: s.authMode(), User: user, Surface: "ui"},
+		Action: action, Target: t, Peer: peerOf(r), AuthMode: mode, RequestID: requestIDFrom(r.Context()),
+		Actor: audit.Actor{Type: mode, User: p.User, Surface: "ui"},
 	}
 }
 

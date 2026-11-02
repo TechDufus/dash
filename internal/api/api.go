@@ -165,7 +165,7 @@ func firstOf(r *http.Request, keys ...string) string {
 func (s *Server) me(w http.ResponseWriter, r *http.Request) {
 	p := principalFrom(r.Context())
 	me := model.Me{
-		User: p.User, Role: string(p.Role), AuthMode: s.authMode(), Audience: "api", Version: s.d.Version,
+		User: p.User, Role: string(p.Role), AuthMode: s.authMode(p), Audience: "api", Version: s.d.Version,
 		Scopes:   []string{"read", "logs"},
 		UI:       model.MeUI{IconBaseURL: s.d.Cfg.IconBaseURL},
 		Warnings: []string{},

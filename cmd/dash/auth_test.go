@@ -38,12 +38,12 @@ func (c *logCapture) records(t *testing.T) []map[string]any {
 	return out
 }
 
-// with returns the records of level whose message is msg.
+// with returns the records of level whose message is msg; an empty msg matches every message.
 func (c *logCapture) with(t *testing.T, level, msg string) []map[string]any {
 	t.Helper()
 	var out []map[string]any
 	for _, m := range c.records(t) {
-		if m["level"] == level && m["msg"] == msg {
+		if m["level"] == level && (msg == "" || m["msg"] == msg) {
 			out = append(out, m)
 		}
 	}
@@ -400,5 +400,139 @@ func TestApplyAuthReloadIgnoresTheFixedModes(t *testing.T) {
 	applyAuthReload(nil, reload)
 	if got, f := a.Authenticate(authRequest("127.0.0.1:1")); f != nil || got.Role != auth.RoleAdmin || got.User != "dev" {
 		t.Errorf("dev principal changed: %+v %+v", got, f)
+	}
+}
+
+const noneWarning = "auth.mode=none: every request is signed in as an administrator"
+
+// noneResolved is a hand-built configuration for auth.mode=none: the config enum only allows the
+// value once the mode is released, and buildAuthenticator reads the string.
+func noneResolved(listen string) *config.Resolved {
+	res := resolvedAuth(false, false, func(a *config.AuthConfig) { a.Mode = "none" })
+	res.Config.Listen = listen
+	return res
+}
+
+func TestNoneModeWarnsAtStart(t *testing.T) {
+	var logs logCapture
+	a, p, err := buildAuthenticator(noneResolved("127.0.0.1:8080"), logs.logger())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p != nil {
+		t.Error("none mode returned a proxy to reload")
+	}
+	got, f := a.Authenticate(authRequest("192.0.2.1:1", "X-Forwarded-User", "mallory"))
+	if f != nil || got.Kind != auth.KindNone || got.User != "anonymous" || got.Role != auth.RoleAdmin {
+		t.Errorf("principal = %+v %+v, want the anonymous admin", got, f)
+	}
+	if w, ok := a.(auth.Warner); !ok || !slices.Equal(w.Warnings(), []string{"auth_none"}) {
+		t.Errorf("warnings = %v, want [auth_none]", w)
+	}
+	// On a loopback listener it is the one WARN, and nothing else is logged above INFO.
+	if n := len(logs.with(t, "WARN", noneWarning)); n != 1 {
+		t.Errorf("the none WARN was logged %d times, want once:\n%s", n, &logs.buf)
+	}
+	var warns int
+	for _, m := range logs.records(t) {
+		if m["level"] == "WARN" {
+			warns++
+		}
+	}
+	if warns != 1 {
+		t.Errorf("%d WARN lines on a loopback listener, want 1:\n%s", warns, &logs.buf)
+	}
+
+	// Every start warns, not only the first.
+	buildAuthenticator(noneResolved("127.0.0.1:8080"), logs.logger())
+	if n := len(logs.with(t, "WARN", noneWarning)); n != 2 {
+		t.Errorf("after a second start the WARN count = %d, want 2", n)
+	}
+}
+
+func TestNoneModeWarnsHarderOnNonLoopback(t *testing.T) {
+	for _, tc := range []struct {
+		listen   string
+		stronger bool
+	}{
+		{"127.0.0.1:8080", false},
+		{"127.0.0.9:8080", false},
+		{"[::1]:8080", false},
+		{"localhost:8080", false},
+		{"0.0.0.0:8080", true},
+		{"[::]:8080", true},
+		{":8080", true}, // an empty host binds every interface
+		{"192.0.2.10:8080", true},
+		{"dash.internal:8080", true},
+		{"not-an-address", true}, // anything that does not parse is not known to be loopback
+	} {
+		var logs logCapture
+		if _, _, err := buildAuthenticator(noneResolved(tc.listen), logs.logger()); err != nil {
+			t.Fatal(err)
+		}
+		if n := len(logs.with(t, "WARN", noneWarning)); n != 1 {
+			t.Errorf("%s: the none WARN was logged %d times, want once", tc.listen, n)
+		}
+		var stronger []map[string]any
+		for _, m := range logs.records(t) {
+			if m["level"] == "WARN" && m["msg"] != noneWarning {
+				stronger = append(stronger, m)
+			}
+		}
+		switch {
+		case tc.stronger && (len(stronger) != 1 || stronger[0]["listen"] != tc.listen):
+			t.Errorf("%s: stronger WARNs = %v, want one naming the listen address", tc.listen, stronger)
+		case !tc.stronger && len(stronger) != 0:
+			t.Errorf("%s: unexpected extra WARN: %v", tc.listen, stronger)
+		}
+	}
+}
+
+// none is impossible without the setting: the default section builds the proxy authenticator, and
+// a mode that is empty or misspelled is an error, never none.
+func TestNoneModeIsNeverTheDefault(t *testing.T) {
+	var logs logCapture
+	a, p, err := buildAuthenticator(resolvedAuth(false, false, nil), logs.logger())
+	if err != nil || p == nil {
+		t.Fatalf("default: %v %v", p, err)
+	}
+	if _, ok := a.(*auth.Proxy); !ok || p == nil {
+		t.Fatalf("default authenticator is %T, want the proxy", a)
+	}
+	if got, f := a.Authenticate(authRequest("192.0.2.1:1")); f == nil {
+		t.Errorf("the default configuration signed a request with no credentials in: %+v", got)
+	}
+	for _, mode := range []string{"", "None", "off", "no-auth", "disabled"} {
+		if a, _, err := buildAuthenticator(resolvedAuth(false, false, func(c *config.AuthConfig) { c.Mode = mode }), logs.logger()); err == nil || a != nil {
+			t.Errorf("mode %q built %v (%v), want an error", mode, a, err)
+		}
+	}
+}
+
+// Dev and demo outrank auth.mode: with none set they are still their own fixed identity, and the
+// none warnings are not logged (nothing is anonymous there).
+func TestDevAndDemoOutrankNoneMode(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		dev, demo bool
+		user      string
+	}{{"dev", true, false, "dev"}, {"demo", false, true, "demo"}} {
+		var logs logCapture
+		res := noneResolved("0.0.0.0:8080")
+		res.Config.Dev, res.Config.Demo = tc.dev, tc.demo
+		a, _, err := buildAuthenticator(res, logs.logger())
+		if err != nil {
+			t.Fatal(err)
+		}
+		got, _ := a.Authenticate(authRequest("192.0.2.1:1"))
+		if got.User != tc.user || got.Kind == auth.KindNone {
+			t.Errorf("%s: principal = %+v", tc.name, got)
+		}
+		if _, ok := a.(auth.Warner); ok {
+			t.Errorf("%s: carries the auth_none warning", tc.name)
+		}
+		if n := len(logs.with(t, "WARN", "")); n != 0 || len(logs.with(t, "INFO", "auth.mode is ignored: dev and demo mode sign every request in as a fixed identity")) != 1 {
+			t.Errorf("%s: logs:\n%s", tc.name, &logs.buf)
+		}
 	}
 }

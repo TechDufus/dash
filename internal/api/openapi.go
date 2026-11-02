@@ -113,7 +113,7 @@ func (b *specBuilder) build() object {
 				"identityProxy": object{
 					"type": "apiKey", "in": "header", "name": "X-Forwarded-Preferred-Username",
 					"description": "The user the identity proxy in front of dash authenticated. dash believes the header only from a TCP peer in " +
-						"auth.proxy.trustedProxies (X-Forwarded-For is never read), so a client cannot send it itself. Dev and demo modes supply a fixed user.",
+						"auth.proxy.trustedProxies (X-Forwarded-For is never read), so a client cannot send it itself. Dev, demo and auth.mode none supply a fixed user.",
 				},
 			},
 			"headers": object{

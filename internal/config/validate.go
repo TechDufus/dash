@@ -77,7 +77,7 @@ func validate(t Tree, dev, demo bool, prov map[string]Provenance) error {
 			v.fail(l.path, "%q must be an http(s) URL with a host, e.g. https://example.com", u)
 		}
 	}
-	if dev && !loopbackAddr(s.Listen) {
+	if dev && !LoopbackAddr(s.Listen) {
 		v.fail("server.listen", "DASH_DEV=true signs requests in as %q without authentication, so the listen address must be a loopback address such as 127.0.0.1:8080, not %q", "dev", s.Listen)
 	}
 	for _, h := range s.AllowedHosts {

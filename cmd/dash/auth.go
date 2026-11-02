@@ -25,8 +25,21 @@ func buildAuthenticator(res *config.Resolved, log *slog.Logger) (auth.Authentica
 	switch a.Mode {
 	case config.AuthModeProxy:
 		return buildProxy(a.Proxy, log)
+	case config.AuthModeNone:
+		return buildNone(res.Config.Listen, log), nil, nil
 	}
 	return nil, nil, fmt.Errorf("auth.mode %q is not supported", a.Mode)
+}
+
+// buildNone is the authenticator of auth.mode=none: every request is signed in as the same
+// administrator, whatever it carries. The WARN is logged at every start, and a stronger one when
+// the listener is not bound to the loopback, where anyone who can reach dash is that administrator.
+func buildNone(listen string, log *slog.Logger) auth.Authenticator {
+	log.Warn("auth.mode=none: every request is signed in as an administrator")
+	if !config.LoopbackAddr(listen) {
+		log.Warn("auth.mode=none with server.listen not bound to the loopback: anyone who can reach dash is an administrator; bind 127.0.0.1 or use another auth.mode", "listen", listen)
+	}
+	return auth.Fixed(auth.Principal{Kind: auth.KindNone, User: "anonymous", Role: auth.RoleAdmin})
 }
 
 // fixedPrincipal is the identity of the process modes that need no credential.

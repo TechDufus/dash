@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { GlobalDialogs } from "@/components/dialogs";
 import { Toaster } from "@/components/ui/sonner";
+import { AuthBanner } from "./auth-banner";
 import { Backdrop } from "./backdrop";
 import { CommandPalette } from "./command-palette";
 import { Rail } from "./rail";
@@ -13,6 +14,7 @@ export function Shell({ children }: { children: ReactNode }) {
       <Rail />
       <div className="relative z-10 flex min-h-dvh flex-col md:pl-[72px]">
         <TopBar />
+        <AuthBanner />
         <main className="flex-1">{children}</main>
       </div>
       <CommandPalette />

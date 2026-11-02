@@ -162,9 +162,9 @@ func normalizeHost(host string) string {
 	return strings.TrimSuffix(strings.ToLower(strings.Trim(host, "[]")), ".")
 }
 
-// loopbackAddr reports whether a host:port listen address binds only the loopback interface.
-// An empty host (":8080") binds every interface.
-func loopbackAddr(addr string) bool {
+// LoopbackAddr reports whether a host:port listen address binds only the loopback interface.
+// An empty host (":8080") binds every interface, and so does anything that does not parse.
+func LoopbackAddr(addr string) bool {
 	host, _, err := net.SplitHostPort(addr)
 	if err != nil {
 		return false

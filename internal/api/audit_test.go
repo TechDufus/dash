@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/TechDufus/dash/internal/audit"
+	"github.com/TechDufus/dash/internal/auth"
 	"github.com/TechDufus/dash/internal/plugin"
 )
 
@@ -128,6 +129,12 @@ func TestActionsWriteIntentThenOutcome(t *testing.T) {
 				pl.attach(d)
 				d.Audit = al
 				d.Cfg.Dev, d.Cfg.Demo = mode.dev, mode.demo
+				switch { // dev and demo sign in a fixed principal, whatever the request carries
+				case mode.dev:
+					d.Auth = auth.Fixed(auth.Principal{Kind: auth.KindDev, User: "dev", Role: auth.RoleAdmin})
+				case mode.demo:
+					d.Auth = auth.Fixed(auth.Principal{Kind: auth.KindDemo, User: "demo", Role: auth.RoleAdmin})
+				}
 			})
 			for _, tc := range actionCases() {
 				req{method: tc.method, path: tc.path, body: tc.body}.do(s.Handler())
@@ -151,7 +158,11 @@ func TestActionsWriteIntentThenOutcome(t *testing.T) {
 				if out.Target.Name != tc.target {
 					t.Errorf("%s: outcome target name %q, want %q", tc.name, out.Target.Name, tc.target)
 				}
-				wantActor := audit.Actor{Type: mode.name, User: "alice", Surface: "ui"}
+				user := "alice"
+				if mode.dev || mode.demo {
+					user = mode.name
+				}
+				wantActor := audit.Actor{Type: mode.name, User: user, Surface: "ui"}
 				for _, r := range []audit.Record{in, out} {
 					if r.Actor != wantActor || r.AuthMode != mode.name || r.Peer != "127.0.0.1" {
 						t.Errorf("%s: actor %+v mode %q peer %q", tc.name, r.Actor, r.AuthMode, r.Peer)

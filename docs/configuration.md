@@ -55,7 +55,7 @@ How dash learns who is making a request and what they may do.
 
 | Setting | Variable | Type | Default | Description |
 |---|---|---|---|---|
-| `auth.mode` | `DASH_AUTH_MODE` | string | `proxy` | How dash learns who is making a request. proxy: an identity proxy in front of dash (oauth2-proxy, Authelia, Authentik) forwards the user name in a header, and dash believes it only from the peers in auth.proxy.trustedProxies. _Restart-only._ |
+| `auth.mode` | `DASH_AUTH_MODE` | string | `proxy` | How dash learns who is making a request. proxy: an identity proxy in front of dash (oauth2-proxy, Authelia, Authentik) forwards the user name in a header, and dash believes it only from the peers in auth.proxy.trustedProxies. none: no authentication at all, every request is signed in as an administrator named anonymous; dash warns at every start and shows a banner on every page, so bind server.listen to 127.0.0.1 and keep the port reachable only from the machine itself. It is never the default. _Restart-only._ |
 
 ## `auth.proxy`
 

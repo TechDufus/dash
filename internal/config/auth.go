@@ -11,13 +11,16 @@ import (
 )
 
 // Values of AuthConfig.Mode.
-const AuthModeProxy = "proxy"
+const (
+	AuthModeProxy = "proxy"
+	AuthModeNone  = "none"
+)
 
 // AuthConfig is the auth section: how dash learns who is making a request and what that person
 // may do (design E.2, E.4). Every key is a restart setting except the two admin lists, which a
 // reload applies to the next request.
 type AuthConfig struct {
-	Mode  string          `json:"mode" dash:"restart,enum=proxy" doc:"How dash learns who is making a request. proxy: an identity proxy in front of dash (oauth2-proxy, Authelia, Authentik) forwards the user name in a header, and dash believes it only from the peers in auth.proxy.trustedProxies."`
+	Mode  string          `json:"mode" dash:"restart,enum=proxy|none" doc:"How dash learns who is making a request. proxy: an identity proxy in front of dash (oauth2-proxy, Authelia, Authentik) forwards the user name in a header, and dash believes it only from the peers in auth.proxy.trustedProxies. none: no authentication at all, every request is signed in as an administrator named anonymous; dash warns at every start and shows a banner on every page, so bind server.listen to 127.0.0.1 and keep the port reachable only from the machine itself. It is never the default."`
 	Proxy AuthProxyConfig `json:"proxy" doc:"The proxy mode: which headers name the user, which peers are believed, and who is an administrator."`
 }
 
@@ -45,7 +48,7 @@ func DefaultAuth() AuthConfig {
 
 // authModes are the accepted values of AuthConfig.Mode, in the order the error lists them; the
 // enum tag on the field documents the same set.
-var authModes = []string{AuthModeProxy}
+var authModes = []string{AuthModeProxy, AuthModeNone}
 
 // Validate reports unusable auth settings, each at its path relative to "auth" (the problem
 // format of pluginconf.Problems). A message names the path and the problem and never echoes a
