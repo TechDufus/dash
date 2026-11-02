@@ -6,6 +6,7 @@ import (
 	"github.com/TechDufus/dash/internal/config"
 	"github.com/TechDufus/dash/internal/model"
 	"github.com/TechDufus/dash/internal/plugin"
+	"github.com/TechDufus/dash/internal/pluginconf"
 	"github.com/TechDufus/dash/internal/svc"
 )
 
@@ -88,7 +89,7 @@ func legacyManifests() []plugin.Manifest {
 	return []plugin.Manifest{
 		{ID: "kubernetes", Name: "Kubernetes", Description: "How dash reaches and reads the cluster.", Version: "1.0.0",
 			Uses:   []plugin.ID{"prometheus", "gatus"},
-			Config: func() any { return &config.KubernetesConfig{} },
+			Config: func() any { return &pluginconf.Kubernetes{} },
 			Topics: []plugin.TopicSpec{
 				{Name: "cluster", Legacy: "cluster", Type: model.ClusterData{}, Doc: "Nodes, namespaces, pods, workloads and certificates."},
 				{Name: "storage", Legacy: "storage", Type: model.StorageData{}, Doc: "Volumes, buckets and backups."},

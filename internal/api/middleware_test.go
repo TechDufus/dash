@@ -97,7 +97,7 @@ func TestUserResolution(t *testing.T) {
 
 	t.Run("every api path is gated, including stream and unknown", func(t *testing.T) {
 		h := newServer(nil).Handler()
-		for _, p := range []string{"/api/v1/stream", "/api/v1/series", "/api/v1/plugins/rt/tail?ns=media&pod=web", "/api/unknown", "/api/pods/media/x"} {
+		for _, p := range []string{"/api/v1/stream", "/api/v1/series", "/api/v1/plugins/rt/tail?ns=media&pod=web", "/api/unknown", "/api/actions/reconcile"} {
 			w := req{path: p, header: map[string]string{"X-Forwarded-Preferred-Username": ""}}.do(h)
 			if w.Code != http.StatusUnauthorized {
 				t.Errorf("%s: code = %d, want 401", p, w.Code)

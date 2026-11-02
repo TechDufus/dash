@@ -3,6 +3,8 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -246,20 +248,28 @@ func TestSeriesFromPluginBeatsLegacy(t *testing.T) {
 	if prom.expr == "" || strings.HasPrefix(prom.expr, "plugin_cpu") {
 		t.Errorf("expr = %q, want the built-in query", prom.expr)
 	}
+}
 
-	// Without prometheus nothing answers, whoever registered the series: a valid request is a
-	// 404 "unknown series", a bad one is still the 400 it is with prometheus running.
-	e.set.Set(plugin.InstanceConfig{Name: "hw", Enabled: new(true)}, plugin.InstanceConfig{Name: "prometheus", Enabled: new(false)})
-	e.sup.Reload()
-	e.eventually(t, "prometheus to stop and hw to start", func() bool { return !e.sup.Running("prometheus") && e.sup.Running("hw") })
-	prom.expr, prom.calls = "", 0
-	for _, q := range []string{"name=node.cpu&range=1h&node=cp1", "name=pod.cpu&range=1h&ns=media&pod=plex-0"} {
+// Without prometheus nothing answers, whoever registered the series: a valid request is a 404
+// "unknown series", a bad one is still the 400 it is with prometheus running, and the querier is
+// never reached.
+func TestSeriesWithoutPrometheus(t *testing.T) {
+	prom := &fakeProm{}
+	pf := plugintest.New("prometheus")
+	pf.ServiceVal = prom
+	broken := plugintest.New("hw")
+	broken.M.Series = []plugin.SeriesSpec{{Name: "hw.broken", Expr: func(plugin.SeriesArgs) (string, error) { return "", context.Canceled }}}
+	e := newPluginEnv(t, []plugin.InstanceConfig{{Name: "prometheus", Enabled: new(false)}}, seriesFake(), broken, pf)
+	h := e.Handler()
+	e.eventually(t, "the prometheus row to be disabled", func() bool { return e.infos(t)["prometheus"].State == model.PluginDisabled })
+
+	for _, q := range []string{"name=sr.cpu&range=1h", "name=sr.pod&range=1h&ns=media&pod=plex-0"} {
 		w := seriesGet(h, q)
 		if got := apiError(t, w); w.Code != http.StatusNotFound || got.Code != model.ErrCodeNotFound || got.Error != "unknown series" {
 			t.Errorf("%s without prometheus = %d %s, want 404 not_found unknown series", q, w.Code, w.Body)
 		}
 	}
-	for _, q := range []string{"name=nope&range=1h", "name=node.cpu&range=2y&node=cp1", "name=pod.cpu&range=1h&ns=Bad_NS&pod=x", "name=pod.cpu&range=1h", "name=hw.broken&range=1h"} {
+	for _, q := range []string{"name=nope&range=1h", "name=sr.cpu&range=2y", "name=sr.pod&range=1h&ns=Bad_NS&pod=x", "name=sr.pod&range=1h", "name=hw.broken&range=1h"} {
 		if w := seriesGet(h, q); w.Code != http.StatusBadRequest {
 			t.Errorf("%s without prometheus = %d %s, want 400", q, w.Code, w.Body)
 		}
@@ -269,24 +279,70 @@ func TestSeriesFromPluginBeatsLegacy(t *testing.T) {
 	}
 }
 
+// An Expr that wraps plugin.ErrNotFound answers 404 not_found with its message; any other Expr
+// error stays a 400. Argument validation still comes first (a bad node is 400 before any Expr
+// runs) and the Expr still runs before the "is prometheus running" check, so the 404 is the
+// plugin's own words, never "unknown series".
+func TestSeriesExprNotFoundIs404(t *testing.T) {
+	var calls int
+	f := plugintest.New("hw")
+	f.M.Series = []plugin.SeriesSpec{
+		{Name: "hw.ghost", Expr: func(a plugin.SeriesArgs) (string, error) {
+			calls++
+			return "", fmt.Errorf("%w: unknown disk %q", plugin.ErrNotFound, a.Pod)
+		}},
+		{Name: "hw.broken", Expr: func(plugin.SeriesArgs) (string, error) { calls++; return "", errors.New("broken") }},
+	}
+	prom := &fakeProm{}
+	pf := plugintest.New("prometheus")
+	pf.ServiceVal = prom
+	e := newPluginEnv(t, nil, f, pf)
+	h := e.Handler()
+
+	check := func(query string, code int, errCode, msg string) {
+		t.Helper()
+		w := seriesGet(h, query)
+		if got := apiError(t, w); w.Code != code || got.Code != errCode || got.Error != msg {
+			t.Errorf("%s = %d %s, want %d %s %q", query, w.Code, w.Body, code, errCode, msg)
+		}
+	}
+	check("name=hw.ghost&range=1h&pod=sda", http.StatusNotFound, model.ErrCodeNotFound, `not found: unknown disk "sda"`)
+	check("name=hw.broken&range=1h", http.StatusBadRequest, model.ErrCodeInvalidInput, "broken")
+	calls = 0
+	check("name=hw.ghost&range=1h&node=Bad_Node", http.StatusBadRequest, model.ErrCodeInvalidInput, "invalid node")
+	check("name=hw.ghost&range=2y", http.StatusBadRequest, model.ErrCodeInvalidInput, "unknown range")
+	if calls != 0 {
+		t.Errorf("an Expr ran %d times for a request that fails validation", calls)
+	}
+	if prom.calls != 0 {
+		t.Errorf("the querier ran %d times for requests that fail before it", prom.calls)
+	}
+
+	// Without prometheus the plugin's 404 is still the plugin's: the Expr runs first.
+	e.set.Set(plugin.InstanceConfig{Name: "prometheus", Enabled: new(false)})
+	e.sup.Reload()
+	e.eventually(t, "prometheus to stop", func() bool { return !e.sup.Running("prometheus") })
+	check("name=hw.ghost&range=1h&pod=sda", http.StatusNotFound, model.ErrCodeNotFound, `not found: unknown disk "sda"`)
+}
+
 // A row turning visible changes core.plugins and the series route starts answering, without a
 // restart: this is the visibility rule (a) of the topic-less prometheus plugin.
 func TestSeriesRouteFollowsThePrometheusRow(t *testing.T) {
 	prom := &fakeProm{}
 	pf := plugintest.New("prometheus")
 	pf.ServiceVal = prom
-	e := newPluginEnv(t, []plugin.InstanceConfig{{Name: "prometheus", Enabled: new(false)}}, pf)
+	e := newPluginEnv(t, []plugin.InstanceConfig{{Name: "prometheus", Enabled: new(false)}}, seriesFake(), pf)
 	h := e.Handler()
 
 	e.eventually(t, "the prometheus row to be disabled", func() bool { return e.infos(t)["prometheus"].State == model.PluginDisabled })
-	if w := seriesGet(h, "name=node.cpu&range=1h&node=cp1"); w.Code != http.StatusNotFound {
+	if w := seriesGet(h, "name=sr.cpu&range=1h"); w.Code != http.StatusNotFound {
 		t.Fatalf("series with prometheus disabled = %d %s, want 404", w.Code, w.Body)
 	}
 
 	e.set.Set(plugin.InstanceConfig{Name: "prometheus", Enabled: new(true)})
 	e.sup.Reload()
 	e.eventually(t, "the prometheus row to be healthy", func() bool { return e.infos(t)["prometheus"].State == model.PluginHealthy })
-	if w := seriesGet(h, "name=node.cpu&range=1h&node=cp1"); w.Code != http.StatusOK {
+	if w := seriesGet(h, "name=sr.cpu&range=1h"); w.Code != http.StatusOK {
 		t.Fatalf("series with prometheus running = %d %s, want 200", w.Code, w.Body)
 	}
 	if prom.calls != 1 {
@@ -296,7 +352,7 @@ func TestSeriesRouteFollowsThePrometheusRow(t *testing.T) {
 	e.set.Set(plugin.InstanceConfig{Name: "prometheus", Enabled: new(false)})
 	e.sup.Reload()
 	e.eventually(t, "the prometheus row to be disabled again", func() bool { return e.infos(t)["prometheus"].State == model.PluginDisabled })
-	if w := seriesGet(h, "name=node.cpu&range=1h&node=cp1"); w.Code != http.StatusNotFound {
+	if w := seriesGet(h, "name=sr.cpu&range=1h"); w.Code != http.StatusNotFound {
 		t.Fatalf("series after disabling prometheus = %d %s, want 404", w.Code, w.Body)
 	}
 }

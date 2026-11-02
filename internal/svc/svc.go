@@ -9,6 +9,9 @@ import (
 	"context"
 	"time"
 
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime/schema"
+
 	"github.com/TechDufus/dash/internal/model"
 )
 
@@ -73,4 +76,33 @@ type NodeName interface {
 	// NodeName is the configured node, or the one discovery found. ok is false until it is
 	// known. The service is non-nil from the plugin's Start, so ok is the only signal.
 	NodeName() (name string, ok bool)
+}
+
+// Cluster is what the kubernetes plugin exports: the informer caches and the dynamic client, for
+// code that reads or patches resources the plugin does not own (the Manager's flux code until the
+// flux plugin exists, then flux and cnpg). One object also implements NodeIndex.
+type Cluster interface {
+	// Synced reports that the typed informers have synced: the readiness gate. A dynamic informer
+	// never gates it; Listed is its gate.
+	Synced() bool
+	// Has reports that the API server serves gvr: the last successful discovery of its group
+	// listed it.
+	Has(gvr schema.GroupVersionResource) bool
+	// Listed reports that the first list of gvr has completed, or that discovery says gvr is absent
+	// (or failed for its group). A builder publishes once its own GVRs are listed or absent, so it
+	// never computes from a partial list.
+	Listed(gvr schema.GroupVersionResource) bool
+	// Watch asks for informers of gvrs. It is idempotent; the informer of a CRD that is not served
+	// starts when the CRD appears (an immediate discovery runs).
+	Watch(gvrs ...schema.GroupVersionResource)
+	// List returns the cached objects of a watched resource, all namespaces; nil while gvr is not
+	// served or not watched.
+	List(gvr schema.GroupVersionResource) []*unstructured.Unstructured
+	// Revision is bumped when a watched resource in gvrs (all of them when none are given) has an
+	// object added, changed or deleted, or when its CRD appears or goes. A consumer polls it on its
+	// own tick and republishes when it differs from the value it last saw.
+	Revision(gvrs ...schema.GroupVersionResource) uint64
+	// Patch sends a JSON merge patch through the dynamic client under the field manager "dash".
+	// The error is the API server's, unwrapped.
+	Patch(ctx context.Context, gvr schema.GroupVersionResource, namespace, name string, merge []byte) error
 }

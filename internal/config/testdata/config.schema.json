@@ -370,7 +370,7 @@
       },
       "type": "object"
     },
-    "KubernetesConfig": {
+    "Kubernetes": {
       "additionalProperties": false,
       "properties": {
         "backupJobs": {
@@ -581,7 +581,7 @@
           "description": "Headlamp: deep links into the Kubernetes UI."
         },
         "kubernetes": {
-          "$ref": "#/$defs/KubernetesConfig",
+          "$ref": "#/$defs/Kubernetes",
           "description": "Kubernetes: how dash reaches and reads the cluster."
         },
         "launcher": {

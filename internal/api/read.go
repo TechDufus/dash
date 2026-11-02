@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/TechDufus/dash/internal/model"
+	"github.com/TechDufus/dash/internal/plugin"
 	"github.com/TechDufus/dash/internal/queries"
 	"github.com/TechDufus/dash/internal/svc"
 	"github.com/TechDufus/dash/internal/topics"
@@ -38,7 +39,11 @@ func (s *Server) series(w http.ResponseWriter, r *http.Request) {
 		args.Instance = ip + ":" + strconv.Itoa(queries.NodeExporterPort)
 	}
 	expr, err := s.seriesExpr(name, args)
-	if err != nil {
+	switch {
+	case errors.Is(err, plugin.ErrNotFound):
+		writeErr(w, http.StatusNotFound, model.ErrCodeNotFound, err.Error())
+		return
+	case err != nil:
 		writeErr(w, http.StatusBadRequest, model.ErrCodeInvalidInput, err.Error())
 		return
 	}

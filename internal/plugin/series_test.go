@@ -3,11 +3,13 @@ package plugin_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sync/atomic"
 	"testing"
 
 	"github.com/TechDufus/dash/internal/plugin"
 	"github.com/TechDufus/dash/internal/plugin/plugintest"
+	"github.com/TechDufus/dash/internal/queries"
 )
 
 // selectorFactory builds, on every call, a plugin whose series expression closes over the
@@ -92,5 +94,24 @@ func TestSeriesComeFromTheDemoTwin(t *testing.T) {
 	e2 := start(t, plugintest.WithDemo(real, twin))
 	if got := exprOf(t, e2, "vm.cpu"); got != "real" {
 		t.Errorf("series = %q, want the real plugin's", got)
+	}
+}
+
+// plugin.ErrNotFound survives the wrapping an Expr gives it and is not confused with the
+// "bad series" class the other Expr errors belong to.
+func TestSeriesExprCanSayNotFound(t *testing.T) {
+	f := plugintest.New("aa", func(f *plugintest.Fake) {
+		f.M.Series = []plugin.SeriesSpec{{Name: "vm.cpu", Expr: func(a plugin.SeriesArgs) (string, error) {
+			return "", fmt.Errorf("%w: unknown node %q", plugin.ErrNotFound, a.Instance)
+		}}}
+	})
+	e := start(t, f.Factory())
+	sp, _, ok := e.sup.Series("vm.cpu")
+	if !ok {
+		t.Fatal("series not found")
+	}
+	_, err := sp.Expr(plugin.SeriesArgs{Instance: "n1"})
+	if !errors.Is(err, plugin.ErrNotFound) || errors.Is(err, queries.ErrBadSeries) || err.Error() != `not found: unknown node "n1"` {
+		t.Errorf("err = %v", err)
 	}
 }

@@ -124,7 +124,7 @@ type actionCase struct {
 
 func actionCases() []actionCase {
 	return []actionCase{
-		{"restart", "/api/actions/restart", "POST", model.RestartRequest{Kind: "Deployment", Namespace: "apps", Name: "web"}, "restart", "Deployment", "apps", "web"},
+		{"restart", "/api/v1/plugins/aa/actions/restart", "POST", restartIn{Kind: "Deployment", Namespace: "apps", Name: "web"}, "restart", "Workload", "apps", "web"},
 		{"reconcile", "/api/actions/reconcile", "POST", model.ReconcileRequest{Kind: "Kustomization", Namespace: "flux-system", Name: "app"}, "reconcile", "Kustomization", "flux-system", "app"},
 		{"silence create", "/api/v1/plugins/aa/actions/silence.create", "POST", silenceIn{Alertname: "HighTemp"}, "silence.create", "Silence", "", silenceID},
 		{"silence expire", "/api/v1/plugins/aa/actions/silence.expire", "POST", expireIn{ID: silenceID}, "silence.expire", "Silence", "", silenceID},
@@ -335,9 +335,9 @@ func TestIntentWriteFailureBlocksTheAction(t *testing.T) {
 }
 
 func TestDenialsAreAuditedOncePerPeerAndMinute(t *testing.T) {
-	csrfFail := req{method: "POST", path: "/api/actions/restart", header: map[string]string{"X-Dash-Csrf": ""}}
+	csrfFail := req{method: "POST", path: "/api/v1/plugins/aa/actions/restart", header: map[string]string{"X-Dash-Csrf": ""}}
 	// csrf runs before auth, so its denial must take the user from the proxy headers itself.
-	csrfFallbackHeader := req{method: "POST", path: "/api/actions/restart", header: map[string]string{
+	csrfFallbackHeader := req{method: "POST", path: "/api/v1/plugins/aa/actions/restart", header: map[string]string{
 		"X-Dash-Csrf": "", "X-Forwarded-Preferred-Username": "", "X-Forwarded-User": "bob",
 	}}
 	noUser := req{path: "/api/v1/me", header: map[string]string{"X-Forwarded-Preferred-Username": ""}}

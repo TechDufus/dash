@@ -86,9 +86,9 @@ func TestWrapAnswersActionsAndSignsIn(t *testing.T) {
 		w.WriteHeader(http.StatusTeapot)
 	})
 	rec := httptest.NewRecorder()
-	Wrap(next).ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/actions/restart", nil))
+	Wrap(next).ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/actions/reconcile", nil))
 	if rec.Code != http.StatusAccepted {
-		t.Fatalf("restart: got %d, want 202", rec.Code)
+		t.Fatalf("a legacy action: got %d, want 202", rec.Code)
 	}
 	// The silence routes are gone: nothing answers for them here any more, the request goes on.
 	for _, c := range []struct{ method, path string }{{http.MethodPost, "/api/silences"}, {http.MethodDelete, "/api/silences/abc"}} {

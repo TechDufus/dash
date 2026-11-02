@@ -49,6 +49,8 @@ func TestAssertRefs(t *testing.T) {
 		{"nested value checked", payload{Nested: map[string]*obj{"k": {Ref: ""}}}, nil, "empty ref"},
 		{"must-have type without a Ref field", ok, []any{noRef{}}, "has no `Ref string` field"},
 		{"must-have type absent from the payload", payload{}, []any{obj{}}, "holds no"},
+		{"duplicate ref in one list", payload{Items: []obj{{Ref: "aa:Item/1"}, {Ref: "aa:Item/1"}}}, nil, `ref "aa:Item/1" is also the ref of payload.Items[0]`},
+		{"duplicate ref across fields", payload{Items: []obj{{Ref: "aa:Item/1"}}, Nested: map[string]*obj{"k": {Ref: "aa:Item/1"}}}, nil, `is also the ref of payload.Items[0] (plugintest.obj)`},
 	} {
 		r := &recorder{}
 		AssertRefs(r, nil, "aa", c.payload, c.must...)

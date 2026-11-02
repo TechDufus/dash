@@ -78,7 +78,7 @@ func TestPluginSectionsOrderTypeAndCopy(t *testing.T) {
 	hw.Hosts[0].Nodename = "changed"
 	hw.Hosts = append(hw.Hosts, pluginconf.HardwareHost{})
 	*by["hardware"].Enabled = true
-	k := by["kubernetes"].Value.(*KubernetesConfig)
+	k := by["kubernetes"].Value.(*pluginconf.Kubernetes)
 	k.BackupJobs[0].Namespace = "changed"
 	if tree.Plugins.Proxmox.URL != "https://pve.example.com:8006" || tree.Plugins.Proxmox.Node == "changed" ||
 		tree.Plugins.Hardware.Hosts[0].Nodename != "pve1" || len(tree.Plugins.Hardware.Hosts) != 1 ||

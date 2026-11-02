@@ -48,11 +48,11 @@ func TestEveryErrorPathHasACodeThatMatchesItsStatus(t *testing.T) {
 		status int
 		code   string
 	}{
-		{name: "unknown series range", req: req{path: "/api/v1/series?name=node.cpu&range=bad&node=cp1"}, status: 400, code: "invalid_input"},
+		{name: "unknown series range", req: req{path: "/api/v1/series?name=sr.cpu&range=bad"}, status: 400, code: "invalid_input"},
 		{name: "unknown series name", req: req{path: "/api/v1/series?name=nope&range=1h"}, status: 400, code: "invalid_input"},
-		{name: "invalid series node", req: req{path: "/api/v1/series?name=node.cpu&range=1h&node=BAD_"}, status: 400, code: "invalid_input"},
+		{name: "invalid series node", req: req{path: "/api/v1/series?name=sr.cpu&range=1h&node=BAD_"}, status: 400, code: "invalid_input"},
 		{name: "unknown series node", req: req{path: "/api/v1/series?name=node.cpu&range=1h&node=ghost"}, status: 404, code: "not_found"},
-		{name: "series upstream failure", req: req{path: "/api/v1/series?name=node.cpu&range=1h&node=cp1"}, mod: failProm, status: 502, code: "upstream_unavailable"},
+		{name: "series upstream failure", req: req{path: "/api/v1/series?name=sr.cpu&range=1h"}, mod: failProm, status: 502, code: "upstream_unavailable"},
 		{name: "invalid pod name", req: req{path: "/api/pods/apps/BAD_"}, status: 400, code: "invalid_input"},
 		{name: "pod not found", req: req{path: "/api/pods/apps/missing"}, status: 404, code: "not_found"},
 		{name: "pod not found upstream", req: req{path: "/api/pods/apps/web"}, mod: podErr(topics.ErrNotFound), status: 404, code: "not_found"},

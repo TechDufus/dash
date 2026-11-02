@@ -5,6 +5,7 @@ import (
 	"cmp"
 	"context"
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -64,15 +65,33 @@ func (f fakeData) NodeIP(name string) (string, bool) {
 	return ip, ok
 }
 
-// promPlugin is a running supervisor with one fake plugin, "prometheus", whose service is q: the
-// series handler reads its querier from Plugins.Service("prometheus"). It publishes into a
-// recorder, so nothing reaches the hub the test serves. A test that wants no plugins sets
-// Deps.Plugins to emptyPlugins(); one that runs plugins of its own sets Deps.Plugins, and
-// adds a prometheus fake of its own when it wants series.
+// promPlugin is a running supervisor with two fake plugins: "prometheus", whose service is q (the
+// series handler reads its querier from Plugins.Service("prometheus")), and "sr", which registers
+// the series the generic series tests ask for (seriesFake). It publishes into a recorder, so
+// nothing reaches the hub the test serves. A test that wants no plugins sets Deps.Plugins to
+// emptyPlugins(); one that runs plugins of its own sets Deps.Plugins, and adds a prometheus fake
+// of its own when it wants series.
 func promPlugin(q svc.Querier) PluginsAPI {
 	f := plugintest.New("prometheus")
 	f.ServiceVal = q
-	return runSup(f)
+	return runSup(f, seriesFake())
+}
+
+// seriesFake is the plugin "sr": two series that need no integration, so the generic behaviour
+// of /api/v1/series (the range, the argument aliases, the prometheus gate, the error mapping)
+// has a subject of its own. sr.cpu takes no argument; sr.pod needs a namespace and a pod.
+func seriesFake() *plugintest.Fake {
+	f := plugintest.New("sr")
+	f.M.Series = []plugin.SeriesSpec{
+		{Name: "sr.cpu", Expr: func(plugin.SeriesArgs) (string, error) { return "sr_cpu", nil }},
+		{Name: "sr.pod", Expr: func(a plugin.SeriesArgs) (string, error) {
+			if !queries.ValidDNS(a.Namespace) || !queries.ValidDNS(a.Pod) {
+				return "", fmt.Errorf("%w: namespace and pod required", queries.ErrBadSeries)
+			}
+			return `sr_pod{namespace="` + a.Namespace + `",pod="` + a.Pod + `"}`, nil
+		}},
+	}
+	return f
 }
 
 // emptyPlugins is a running supervisor with no plugin: /api/v1/plugins answers [].
@@ -236,25 +255,18 @@ func TestStaticSPA(t *testing.T) {
 	})
 }
 
-func TestSeriesArgs(t *testing.T) {
-	tests := []struct {
-		name  string
-		query string
-		code  int
-		want  string // expected PromQL substring
-	}{
-		// The vm.* and host.* series are the proxmox and hardware plugins': without them running they are unknown (400).
-		{"vm series without the plugin", "name=vm.cpu&range=6h&vmid=100", 400, ""},
-		{"unknown name", "name=nope&range=1h", 400, ""},
-		{"unknown range", "name=node.cpu&range=2y&node=cp1", 400, ""},
-		{"unknown node", "name=node.cpu&range=1h&node=ghost", 404, ""},
-		{"missing node", "name=node.cpu&range=1h", 400, ""},
-		{"bad pod args", "name=pod.cpu&range=1h&ns=Bad_NS&pod=x", 400, ""},
-		{"host series without the plugin", "name=host.cpu&range=15m", 400, ""},
-		{"node ok", "name=node.cpu&range=1h&node=cp1", 200, `instance="10.0.0.5:9100"`},
-		{"pod ns alias", "name=pod.mem&range=1h&ns=media&pod=plex-0", 200, `namespace="media",pod="plex-0"`},
-		{"pod namespace", "name=pod.mem&range=1h&namespace=media&pod=plex-0", 200, `namespace="media",pod="plex-0"`},
-	}
+// seriesCase is one /api/v1/series request: the status it must answer and, for a 200, a
+// substring of the PromQL the querier must have received.
+type seriesCase struct {
+	name  string
+	query string
+	code  int
+	want  string
+}
+
+// runSeriesCases sends each case to a server whose prometheus fake records the query.
+func runSeriesCases(t *testing.T, tests []seriesCase) {
+	t.Helper()
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			prom := &fakeProm{}
@@ -291,13 +303,39 @@ func TestSeriesArgs(t *testing.T) {
 			}
 		})
 	}
+}
+
+// The series are the fake plugin sr's (seriesFake): the request handling is the subject, not
+// any integration's series.
+func TestSeriesArgs(t *testing.T) {
+	runSeriesCases(t, []seriesCase{
+		// The vm.* and host.* series are the proxmox and hardware plugins': without them running they are unknown (400).
+		{"vm series without the plugin", "name=vm.cpu&range=6h&vmid=100", 400, ""},
+		{"unknown name", "name=nope&range=1h", 400, ""},
+		{"unknown range", "name=sr.cpu&range=2y", 400, ""},
+		{"bad pod args", "name=sr.pod&range=1h&ns=Bad_NS&pod=x", 400, ""},
+		{"host series without the plugin", "name=host.cpu&range=15m", 400, ""},
+		{"plain series", "name=sr.cpu&range=1h", 200, "sr_cpu"},
+		{"pod ns alias", "name=sr.pod&range=1h&ns=media&pod=plex-0", 200, `namespace="media",pod="plex-0"`},
+		{"pod namespace", "name=sr.pod&range=1h&namespace=media&pod=plex-0", 200, `namespace="media",pod="plex-0"`},
+	})
 
 	t.Run("upstream failure is 502", func(t *testing.T) {
 		s := newServer(func(d *Deps) { d.Plugins = promPlugin(&fakeProm{err: context.DeadlineExceeded}) })
-		w := req{path: "/api/v1/series?name=node.cpu&range=1h&node=cp1"}.do(s.Handler())
+		w := req{path: "/api/v1/series?name=sr.cpu&range=1h"}.do(s.Handler())
 		if w.Code != 502 {
 			t.Fatalf("code = %d, want 502", w.Code)
 		}
+	})
+}
+
+// The node argument is resolved by the core (DataAPI.NodeIP) and node.* are built-in series
+// until the kubernetes plugin owns both; the plugin's leaf replaces this test.
+func TestSeriesNodeArgument(t *testing.T) {
+	runSeriesCases(t, []seriesCase{
+		{"unknown node", "name=node.cpu&range=1h&node=ghost", 404, ""},
+		{"missing node", "name=node.cpu&range=1h", 400, ""},
+		{"node ok", "name=node.cpu&range=1h&node=cp1", 200, `instance="10.0.0.5:9100"`},
 	})
 }
 

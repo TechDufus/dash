@@ -64,7 +64,7 @@ func (v *validator) section(prefix string, err error) {
 // validate reports settings that are missing or unusable.
 func validate(t Tree, dev, demo bool, prov map[string]Provenance) error {
 	v := &validator{prov: prov}
-	s, p := t.Server, t.Plugins
+	s := t.Server
 
 	if s.PublicURL == "" && !dev && !demo {
 		v.fail("server.publicURL", "is required (the URL users open, e.g. https://dash.example.com); set %s or server.publicURL in the config file", envName("server.publicURL"))
@@ -104,15 +104,6 @@ func validate(t Tree, dev, demo bool, prov map[string]Provenance) error {
 	for _, sec := range t.PluginSections() {
 		if sec.Type != sec.Name {
 			v.fail("plugins."+sec.Name+".type", "%q must be empty or %q: dash runs one instance per plugin type, and the instance name is the type (design J.16)", sec.Type, sec.Name)
-		}
-	}
-
-	if len(p.Kubernetes.BackupJobs) > 1 {
-		v.fail("plugins.kubernetes.backupJobs", "has %d entries; one job is supported until G3", len(p.Kubernetes.BackupJobs))
-	}
-	for i, j := range p.Kubernetes.BackupJobs {
-		if j.Namespace == "" || j.CronJob == "" {
-			v.fail("plugins.kubernetes.backupJobs", "entry %d needs both namespace and cronjob", i+1)
 		}
 	}
 

@@ -126,7 +126,7 @@ func TestCacheControlNoStoreOnV1AndPrivateNoCacheOnSnapshots(t *testing.T) {
 	}
 	h := s.Handler()
 
-	for _, path := range []string{"/api/v1/me", "/api/v1/plugins", "/api/v1/series?name=node.cpu&range=1h&node=cp1", "/api/v1/topics/missing", "/api/v1/nope", "/api/v1/series?range=bad"} {
+	for _, path := range []string{"/api/v1/me", "/api/v1/plugins", "/api/v1/series?name=sr.cpu&range=1h", "/api/v1/topics/missing", "/api/v1/nope", "/api/v1/series?range=bad"} {
 		if got := cacheControl(t, h, req{path: path}); got != "no-store" {
 			t.Errorf("%s: Cache-Control = %q, want no-store", path, got)
 		}
@@ -152,7 +152,7 @@ func TestCacheControlNoStoreOnV1AndPrivateNoCacheOnSnapshots(t *testing.T) {
 	}
 
 	// What is not under /api/v1 keeps what it had: no header of its own.
-	for _, path := range []string{"/api/pods/media/plex-0", "/api/nope"} {
+	for _, path := range []string{"/api/me", "/api/nope"} {
 		if got := cacheControl(t, h, req{path: path}); got != "" {
 			t.Errorf("legacy %s: Cache-Control = %q, want none", path, got)
 		}

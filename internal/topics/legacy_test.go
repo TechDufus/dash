@@ -23,6 +23,7 @@ import (
 	"github.com/TechDufus/dash/internal/model"
 	"github.com/TechDufus/dash/internal/plugin"
 	"github.com/TechDufus/dash/internal/plugin/plugintest"
+	"github.com/TechDufus/dash/internal/pluginconf"
 	"github.com/TechDufus/dash/internal/queries"
 	"github.com/TechDufus/dash/internal/upstream"
 )
@@ -306,7 +307,7 @@ func TestExplicitDisableOfKubernetesStopsItsPollers(t *testing.T) {
 	h := hub.New()
 	off := false
 	set := &plugintest.Settings{}
-	set.Set(plugin.InstanceConfig{Name: "kubernetes", Enabled: &off, Config: &config.KubernetesConfig{}})
+	set.Set(plugin.InstanceConfig{Name: "kubernetes", Enabled: &off, Config: &pluginconf.Kubernetes{}})
 	sup := plugin.NewSupervisor(plugin.Options{Publisher: h, Settings: set, StatusEvery: 10 * time.Millisecond})
 	h.SetOrder(sup.TopicOrder)
 	cfg := config.Defaults()

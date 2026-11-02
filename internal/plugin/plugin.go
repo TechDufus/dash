@@ -9,6 +9,7 @@ package plugin
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -121,6 +122,13 @@ type SeriesSpec struct {
 	Name string // "vm.cpu"
 	Expr func(a SeriesArgs) (string, error)
 }
+
+// ErrNotFound is what a SeriesSpec.Expr returns, wrapped with a message for the client
+// (fmt.Errorf("%w: unknown node %q", plugin.ErrNotFound, n)), for a resource that does not
+// exist. The series route answers it 404 not_found with the error's text; any other Expr error
+// is 400 invalid_input. Argument validation still comes first: a malformed argument is a 400
+// before an Expr runs.
+var ErrNotFound = errors.New("not found")
 
 // UISpec is what a plugin adds to the SPA.
 type UISpec struct {
