@@ -45,7 +45,13 @@ func TestDemoRunsTheTwinAndContactsNoCluster(t *testing.T) {
 		t.Fatalf("the twin published empty data: %d nodes, %d pods, %d pvcs, %d apps", len(cl.Nodes), len(cl.Pods), len(st.PVCs), len(ap.Apps))
 	}
 	plugintest.AssertRefs(t, e.sup, ID, cl, model.Node{}, model.Namespace{}, model.Workload{}, model.Pod{}, model.Cert{}, model.ExtSecret{})
-	plugintest.AssertRefs(t, e.sup, ID, st, model.PVC{}, model.BackupJob{})
+	// The buckets and CNPG clusters in this payload are the cnpg and rustfs plugins' objects and
+	// carry no ref here (they leave the payload with those plugins), so only this plugin's parts
+	// are checked.
+	plugintest.AssertRefs(t, e.sup, ID, struct {
+		PVCs       []model.PVC
+		BackupJobs []model.BackupJob
+	}{st.PVCs, st.BackupJobs}, model.PVC{}, model.BackupJob{})
 	plugintest.AssertRefs(t, e.sup, ID, ap, model.App{})
 	if v, ok := e.sup.Service(ID); ok || v != nil {
 		t.Errorf("the twin exports a service: %v", v)

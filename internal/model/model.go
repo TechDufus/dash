@@ -497,6 +497,9 @@ type PodDetail struct {
 // ---- flux ----
 
 type FluxObj struct {
+	// Ref is flux:<Kind>/<ns>/<name> (design L.6). The kind is part of the id: a GitRepository and
+	// a Kustomization may share a namespace and a name.
+	Ref            string     `json:"ref"`
 	Kind           FluxKind   `json:"kind"`
 	Namespace      string     `json:"namespace"`
 	Name           string     `json:"name"`
@@ -507,14 +510,27 @@ type FluxObj struct {
 	Message        string     `json:"message"`
 	LastTransition *time.Time `json:"lastTransition,omitempty"`
 	// Verified is the SourceVerified condition (sources only; nil when absent).
-	Verified *bool  `json:"verified,omitempty"`
-	Links    []Link `json:"links"`
+	Verified *bool `json:"verified,omitempty"`
+	// SpecVerify is true when the source has spec.verify (sources only; false on every other kind).
+	SpecVerify bool   `json:"specVerify"`
+	Links      []Link `json:"links"`
+}
+
+// FluxSourceRef names a source whose verification the GitOps page reports: a configured pin or any
+// source with spec.verify.
+type FluxSourceRef struct {
+	Kind      FluxKind `json:"kind"`
+	Namespace string   `json:"namespace"`
+	Name      string   `json:"name"`
 }
 
 type FluxData struct {
 	Sources        []FluxObj `json:"sources"`
 	Kustomizations []FluxObj `json:"kustomizations"`
 	HelmReleases   []FluxObj `json:"helmReleases"`
+	// VerifiedSources lists the configured pins and every source with spec.verify, each once,
+	// sorted by kind, namespace and name.
+	VerifiedSources []FluxSourceRef `json:"verifiedSources"`
 }
 
 // ---- storage ----
@@ -535,6 +551,8 @@ type PVC struct {
 }
 
 type Bucket struct {
+	// Ref is rustfs:Bucket/<name> (design L.6).
+	Ref       string `json:"ref"`
 	Name      string `json:"name"`
 	UsedBytes int64  `json:"usedBytes"`
 	// QuotaBytes 0 means no quota.
@@ -548,6 +566,8 @@ type UsedSize struct {
 }
 
 type CNPGCluster struct {
+	// Ref is cnpg:Cluster/<ns>/<name> (design L.6).
+	Ref                  string   `json:"ref"`
 	Namespace            string   `json:"namespace"`
 	Name                 string   `json:"name"`
 	Instances            int      `json:"instances"`
@@ -577,6 +597,17 @@ type StorageData struct {
 	CNPG       []CNPGCluster `json:"cnpg"`
 	BackupJobs []BackupJob   `json:"backupJobs"`
 	Etcd       Etcd          `json:"etcd"`
+}
+
+// CNPGClustersData is the payload of the cnpg plugin's topic.
+type CNPGClustersData struct {
+	Clusters []CNPGCluster `json:"clusters"`
+}
+
+// RustFSUsageData is the payload of the rustfs plugin's topic.
+type RustFSUsageData struct {
+	Buckets  []Bucket `json:"buckets"`
+	Capacity UsedSize `json:"capacity"`
 }
 
 // ---- alerts ----

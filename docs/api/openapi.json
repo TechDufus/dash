@@ -281,6 +281,9 @@
           "quotaBytes": {
             "type": "integer"
           },
+          "ref": {
+            "type": "string"
+          },
           "usedBytes": {
             "type": "integer"
           }
@@ -313,6 +316,9 @@
           },
           "readyInstances": {
             "type": "integer"
+          },
+          "ref": {
+            "type": "string"
           }
         },
         "type": "object"
@@ -998,6 +1004,12 @@
               "$ref": "#/components/schemas/FluxObj"
             },
             "type": "array"
+          },
+          "verifiedSources": {
+            "items": {
+              "$ref": "#/components/schemas/FluxSourceRef"
+            },
+            "type": "array"
           }
         },
         "type": "object"
@@ -1030,8 +1042,14 @@
           "ready": {
             "type": "boolean"
           },
+          "ref": {
+            "type": "string"
+          },
           "revision": {
             "type": "string"
+          },
+          "specVerify": {
+            "type": "boolean"
           },
           "suspendReason": {
             "type": "string"
@@ -1041,6 +1059,21 @@
           },
           "verified": {
             "type": "boolean"
+          }
+        },
+        "type": "object"
+      },
+      "FluxSourceRef": {
+        "additionalProperties": false,
+        "properties": {
+          "kind": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "namespace": {
+            "type": "string"
           }
         },
         "type": "object"

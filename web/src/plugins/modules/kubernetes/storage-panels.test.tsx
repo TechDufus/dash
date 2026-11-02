@@ -168,7 +168,15 @@ describe("the object storage and Postgres panels", () => {
     show(
       <ObjectStoragePanel />,
       storage({
-        buckets: [{ name: "media", usedBytes: 5, quotaBytes: 10, health: "ok" } as never],
+        buckets: [
+          {
+            ref: "rustfs:Bucket/media",
+            name: "media",
+            usedBytes: 5,
+            quotaBytes: 10,
+            health: "ok",
+          } as never,
+        ],
       }),
     );
     expect(screen.getByText("media")).toBeInTheDocument();
@@ -177,6 +185,7 @@ describe("the object storage and Postgres panels", () => {
 
   it("draws each CNPG cluster with its ready instances", () => {
     const cluster = {
+      ref: "cnpg:Cluster/db/main",
       namespace: "db",
       name: "main",
       instances: 3,

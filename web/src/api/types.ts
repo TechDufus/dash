@@ -549,6 +549,11 @@ export interface PodDetail {
   events: Event[];
 }
 export interface FluxObj {
+  /**
+   * Ref is flux:<Kind>/<ns>/<name> (design L.6). The kind is part of the id: a GitRepository and
+   * a Kustomization may share a namespace and a name.
+   */
+  ref: string;
   kind: FluxKind;
   namespace: string;
   name: string;
@@ -562,12 +567,30 @@ export interface FluxObj {
    * Verified is the SourceVerified condition (sources only; nil when absent).
    */
   verified?: boolean;
+  /**
+   * SpecVerify is true when the source has spec.verify (sources only; false on every other kind).
+   */
+  specVerify: boolean;
   links: Link[];
+}
+/**
+ * FluxSourceRef names a source whose verification the GitOps page reports: a configured pin or any
+ * source with spec.verify.
+ */
+export interface FluxSourceRef {
+  kind: FluxKind;
+  namespace: string;
+  name: string;
 }
 export interface FluxData {
   sources: FluxObj[];
   kustomizations: FluxObj[];
   helmReleases: FluxObj[];
+  /**
+   * VerifiedSources lists the configured pins and every source with spec.verify, each once,
+   * sorted by kind, namespace and name.
+   */
+  verifiedSources: FluxSourceRef[];
 }
 export interface PVC {
   /**
@@ -586,6 +609,10 @@ export interface PVC {
   links: Link[];
 }
 export interface Bucket {
+  /**
+   * Ref is rustfs:Bucket/<name> (design L.6).
+   */
+  ref: string;
   name: string;
   usedBytes: number /* int64 */;
   /**
@@ -599,6 +626,10 @@ export interface UsedSize {
   usableBytes: number /* int64 */;
 }
 export interface CNPGCluster {
+  /**
+   * Ref is cnpg:Cluster/<ns>/<name> (design L.6).
+   */
+  ref: string;
   namespace: string;
   name: string;
   instances: number /* int */;
@@ -629,6 +660,19 @@ export interface StorageData {
   cnpg: CNPGCluster[];
   backupJobs: BackupJob[];
   etcd: Etcd;
+}
+/**
+ * CNPGClustersData is the payload of the cnpg plugin's topic.
+ */
+export interface CNPGClustersData {
+  clusters: CNPGCluster[];
+}
+/**
+ * RustFSUsageData is the payload of the rustfs plugin's topic.
+ */
+export interface RustFSUsageData {
+  buckets: Bucket[];
+  capacity: UsedSize;
 }
 export interface Alert {
   ref: string; // alertmanager:Alert/<fingerprint>
