@@ -29,11 +29,19 @@ type view struct {
 	// are missing from the topic although the cluster has them, and Listed says nothing of it.
 	failed   []string
 	failedGV map[schema.GroupVersion]bool
+	// flags and rev are the per-resource flags and the informers' revision as the same read saw
+	// them, so the signature a round compares can never describe a later state than the view it
+	// decided on (a flag that flips between two reads would otherwise be recorded as seen and
+	// never acted on).
+	flags string
+	rev   uint64
 }
 
-// look reads the service once.
+// look reads the service once. The revision is read first: an informer event after it makes the
+// next round's revision differ, so the round that read the older data is always followed by one
+// that reads the newer.
 func look(c svc.Cluster) view {
-	v := view{synced: c.Synced(), refused: map[schema.GroupVersionResource]string{}, failedGV: map[schema.GroupVersion]bool{}}
+	v := view{rev: c.GVRRevision(gvrs...), synced: c.Synced(), refused: map[schema.GroupVersionResource]string{}, failedGV: map[schema.GroupVersion]bool{}}
 	for _, gv := range c.FailedGroups() {
 		for _, g := range gvrs {
 			if g.GroupVersion() == gv {
@@ -46,18 +54,22 @@ func look(c svc.Cluster) view {
 		}
 	}
 	slices.Sort(v.failed)
+	var b strings.Builder
 	for _, g := range gvrs {
 		cat, refused := c.Refused(g)
 		if refused {
 			v.refused[g] = cat
 		}
-		if !c.Listed(g) && !refused {
+		listed, served := c.Listed(g), c.Has(g)
+		if !listed && !refused {
 			v.pending = true
 		}
-		if c.Has(g) {
+		if served {
 			v.served++
 		}
+		fmt.Fprintf(&b, "%t,%t,%t,%s;", listed, served, refused, cat)
 	}
+	v.flags = b.String()
 	return v
 }
 
@@ -93,13 +105,7 @@ type signature struct {
 }
 
 func signatureOf(c svc.Cluster, v view) signature {
-	var b strings.Builder
-	for _, g := range gvrs {
-		listed, served := c.Listed(g), c.Has(g)
-		cat, refused := v.refused[g]
-		fmt.Fprintf(&b, "%t,%t,%t,%s;", listed, served, refused, cat)
-	}
-	return signature{svc: c, synced: v.synced, flags: b.String(), rev: c.GVRRevision(gvrs...), failed: strings.Join(v.failed, ",")}
+	return signature{svc: c, synced: v.synced, flags: v.flags, rev: v.rev, failed: strings.Join(v.failed, ",")}
 }
 
 // sources are the sources of the topic and the row: the cluster (ok, or the category while the

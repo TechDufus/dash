@@ -12,6 +12,8 @@ import (
 	"testing"
 	"time"
 
+	"k8s.io/apimachinery/pkg/runtime/schema"
+
 	"github.com/TechDufus/dash/internal/hub"
 	"github.com/TechDufus/dash/internal/kube"
 	"github.com/TechDufus/dash/internal/model"
@@ -378,5 +380,40 @@ func TestFluxRowStaysHiddenUntilBuiltForTheReturningCRDs(t *testing.T) {
 	awaitVisibleThenPayload(t, ch)
 	if r.row().State != model.PluginHealthy {
 		t.Errorf("row = %+v", r.row())
+	}
+}
+
+// listsOnRead is a cluster whose list of one resource completes between two reads of it: the
+// read that finds it pending flips it, so the next read says listed.
+type listsOnRead struct {
+	*plugintest.KubeCluster
+	gvr   schema.GroupVersionResource
+	armed bool
+}
+
+func (c *listsOnRead) Listed(g schema.GroupVersionResource) bool {
+	was := c.KubeCluster.Listed(g)
+	if g == c.gvr && c.armed && !was {
+		c.armed = false
+		c.KubeCluster.SetListed(g, true)
+	}
+	return was
+}
+
+// A list that completes while a round is reading must not be recorded as seen without having been
+// acted on: the round decided on "pending", so the signature it compares next time says
+// "pending" too, and the following round publishes.
+func TestRoundDoesNotRecordAFlipItDidNotActOn(t *testing.T) {
+	kc := plugintest.NewKubeCluster()
+	kc.SetListed(kube.GVRHelmReleases, false)
+	h := &stubHost{cluster: &listsOnRead{KubeCluster: kc, gvr: kube.GVRHelmReleases, armed: true}}
+	r := &runtime{h: h, cfg: *cfgPtr(), t: fastTiming(), ctx: context.Background()}
+	r.round()
+	if h.published.Load() != 0 {
+		t.Fatal("published while a resource was still being listed")
+	}
+	r.round()
+	if h.published.Load() != 1 {
+		t.Errorf("published %d times after the list completed, want 1", h.published.Load())
 	}
 }
