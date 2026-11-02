@@ -2,6 +2,7 @@ package topics
 
 import (
 	"context"
+	"strings"
 
 	"github.com/TechDufus/dash/internal/config"
 	"github.com/TechDufus/dash/internal/model"
@@ -88,19 +89,39 @@ func (m *Manager) Plugins() []plugin.Factory {
 	return out
 }
 
-// legacyStatus is the state of the flux shim: unavailable while the kubernetes plugin's service
-// is absent, starting until its informers have synced and each of the five flux resources has
-// listed (the topic is withheld until then), healthy after. The message is viewer-visible, so it
-// names nothing but the state.
+// legacyStatus is the state of the flux shim:
+//
+//   - unavailable (hidden) while the kubernetes plugin's service is absent;
+//   - unavailable (hidden) while the hub holds a flux payload that was not built from the service
+//     running now (the emptied topic of a withdrawal, the last build of a service that a reload
+//     replaced): a row that turned visible then would resend it, and the GitOps page and the
+//     overview would flash empty until the Manager's next round;
+//   - starting until the informers have synced and each of the five flux resources has listed,
+//     and until the first build;
+//   - degraded while the discovery of a flux API group fails (its objects are missing);
+//   - healthy otherwise.
+//
+// The message is viewer-visible, so it names nothing but the state and API group names.
 func (m *Manager) legacyStatus() plugin.Status {
 	c, ok := m.cluster()
-	switch {
-	case !ok:
+	if !ok {
 		return plugin.Status{State: plugin.StateUnavailable, Message: "kubernetes is not available", Sources: m.kubeSources()}
+	}
+	m.mu.RLock()
+	builtFor, published := m.fluxFor, m.fluxPublished
+	m.mu.RUnlock()
+	switch {
+	case published && builtFor != c:
+		return plugin.Status{State: plugin.StateUnavailable, Message: "reading the flux resources", Sources: m.kubeSources()}
 	case !c.Synced():
 		return plugin.Status{State: plugin.StateStarting, Message: "informers syncing", Sources: m.kubeSources()}
 	case !fluxListed(c):
 		return plugin.Status{State: plugin.StateStarting, Message: "listing the flux resources", Sources: m.kubeSources()}
+	case builtFor != c:
+		return plugin.Status{State: plugin.StateStarting, Message: "reading the flux resources", Sources: m.kubeSources()}
+	}
+	if groups := fluxFailedGroups(c); len(groups) > 0 {
+		return plugin.Status{State: plugin.StateDegraded, Message: "discovery failed for: " + strings.Join(groups, ", "), Sources: m.fluxSources(c)}
 	}
 	return plugin.Status{State: plugin.StateHealthy, Sources: m.kubeSources()}
 }

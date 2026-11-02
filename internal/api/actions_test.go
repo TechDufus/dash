@@ -35,6 +35,7 @@ func (f fakeKubeCluster) Patch(ctx context.Context, gvr schema.GroupVersionResou
 func (fakeKubeCluster) Synced() bool                                      { return true }
 func (fakeKubeCluster) Has(schema.GroupVersionResource) bool              { return true }
 func (fakeKubeCluster) Listed(schema.GroupVersionResource) bool           { return true }
+func (fakeKubeCluster) FailedGroups() []schema.GroupVersion               { return nil }
 func (fakeKubeCluster) Watch(...schema.GroupVersionResource)              {}
 func (fakeKubeCluster) GVRRevision(...schema.GroupVersionResource) uint64 { return 0 }
 func (fakeKubeCluster) List(schema.GroupVersionResource) []*unstructured.Unstructured {

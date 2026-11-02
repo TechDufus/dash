@@ -199,7 +199,7 @@ func TestLegacyStatusStartsUntilFluxHasListed(t *testing.T) {
 	})
 	holder := &kubeHolder{}
 	holder.cur.Store(f)
-	m := New(Deps{Cfg: config.Defaults(), Cluster: holder.get})
+	m := New(Deps{Cfg: config.Defaults(), Cluster: holder.get, Hosts: plugintest.AllRunning(hub.New(), LegacyManifests()...)})
 	if got := m.legacyStatus(); got.State != plugin.StateStarting {
 		t.Fatalf("synced but unlisted: %s %q, want starting", got.State, got.Message)
 	}
@@ -214,7 +214,11 @@ func TestLegacyStatusStartsUntilFluxHasListed(t *testing.T) {
 		t.Fatalf("one resource still unlisted: %s, want starting", got.State)
 	}
 	f.set(func(f *fakeKube) { delete(f.pending, kube.GVRHelmReleases) })
+	if got := m.legacyStatus(); got.State != plugin.StateStarting {
+		t.Fatalf("everything listed but not built: %s, want starting", got.State)
+	}
+	m.rebuild()
 	if got := m.legacyStatus(); got.State != plugin.StateHealthy {
-		t.Errorf("everything listed: %s %q, want healthy", got.State, got.Message)
+		t.Errorf("everything listed and built: %s %q, want healthy", got.State, got.Message)
 	}
 }

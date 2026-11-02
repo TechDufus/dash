@@ -7,6 +7,7 @@ package topics
 import (
 	"context"
 	"log/slog"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -50,12 +51,19 @@ type Manager struct {
 	linkSet atomic.Pointer[plugin.LinkResolver] // the provider snapshot of the running rebuild
 	tracker *Tracker
 
-	// seenCluster, seenSynced, seenListed and seenRevision are the kubernetes service and what
-	// watchCluster read of it in the last rebuild round; only that round reads or writes them.
+	// seenCluster, seenSynced, seenListed, seenRevision and seenFailed are the kubernetes service
+	// and what watchCluster read of it in the last rebuild round; only that round reads or writes
+	// them.
 	seenCluster  svc.Cluster
 	seenSynced   bool
 	seenListed   bool
 	seenRevision uint64
+	seenFailed   string
+
+	// fluxFor is the service the flux topic was last built from (nil after a withdrawal), and
+	// fluxPublished says the hub holds a flux payload at all (under mu).
+	fluxFor       svc.Cluster
+	fluxPublished bool
 
 	dmu   sync.Mutex
 	dirty map[model.Topic]bool
@@ -132,7 +140,8 @@ func (m *Manager) mark(topics ...model.Topic) {
 }
 
 // watchCluster marks flux when the kubernetes service, its Synced state, its flux resources'
-// revision or the listed state of the five flux resources differs from the last round's. A plugin
+// revision, the listed state of the five flux resources or the set of their API groups whose
+// discovery failed differs from the last round's. A plugin
 // cannot mark the Manager's topics, and a callback registered once would not survive a reload
 // (which builds a new service), so the Manager compares on its own tick. It asks each new
 // service to watch the flux resources once. It runs at the top of rebuild, ahead of the early
@@ -142,36 +151,70 @@ func (m *Manager) watchCluster() {
 	var (
 		synced, listed bool
 		rev            uint64
+		failed         string
 	)
 	if ok {
 		if c != m.seenCluster {
 			c.Watch(fluxGVRs...)
 		}
 		synced, listed, rev = c.Synced(), fluxListed(c), c.GVRRevision(fluxGVRs...)
+		failed = strings.Join(fluxFailedGroups(c), ",")
 	} else if m.seenCluster != nil {
 		m.withdrawFlux()
 	}
-	if c == m.seenCluster && synced == m.seenSynced && listed == m.seenListed && rev == m.seenRevision {
+	if c == m.seenCluster && synced == m.seenSynced && listed == m.seenListed && rev == m.seenRevision && failed == m.seenFailed {
 		return
 	}
-	m.seenCluster, m.seenSynced, m.seenListed, m.seenRevision = c, synced, listed, rev
+	m.seenCluster, m.seenSynced, m.seenListed, m.seenRevision, m.seenFailed = c, synced, listed, rev, failed
 	m.mark(model.TopicFlux)
 }
 
 // withdrawFlux is what the flux topic does when the kubernetes service goes away: flux is
 // unavailable while kubernetes is, so the overview stops carrying its attention items and KPIs,
-// and the topic no longer holds the last list for a subscriber that opens once the row is
-// visible again. It publishes once per withdrawal an empty topic whose source says why.
+// and the topic no longer holds the last list. It publishes once per withdrawal an empty topic
+// whose source says why. That payload must never be what a returning row shows, which is why the
+// shim stays hidden until a build of the next service replaces it (legacyStatus).
 func (m *Manager) withdrawFlux() {
 	m.mu.Lock()
 	had := m.built.flux != nil
 	m.built.flux = nil
+	m.fluxFor = nil
 	m.mu.Unlock()
 	if had {
 		m.publish(model.TopicFlux, model.FluxData{
 			Sources: []model.FluxObj{}, Kustomizations: []model.FluxObj{}, HelmReleases: []model.FluxObj{},
 		}, m.kubeSources())
 	}
+}
+
+// fluxFailedGroups names the API groups of the five flux resources whose discovery failed at the
+// last attempt: their objects are missing from the topic although the cluster has them, and
+// Listed says nothing of it.
+func fluxFailedGroups(c svc.Cluster) []string {
+	var out []string
+	for _, gv := range c.FailedGroups() {
+		for _, gvr := range fluxGVRs {
+			if gvr.GroupVersion() == gv {
+				if !slices.Contains(out, gv.Group) {
+					out = append(out, gv.Group)
+				}
+				break
+			}
+		}
+	}
+	slices.Sort(out)
+	return out
+}
+
+// fluxSources are the sources of the flux topic: the kubernetes service's, and a flux source that
+// is unreachable while the discovery of a flux API group fails, so a page that shows no objects
+// of that group says why.
+func (m *Manager) fluxSources(c svc.Cluster) []model.SourceStatus {
+	srcs := m.kubeSources()
+	if len(fluxFailedGroups(c)) > 0 {
+		srcs = append(srcs, model.SourceStatus{Name: "flux", Error: upstream.CategoryUnreachable, CheckedAt: m.now().UTC()})
+	}
+	return srcs
 }
 
 // publish hands one topic to the Host of the plugin that owns it, which names, types and
@@ -242,15 +285,23 @@ func (m *Manager) rebuild() {
 
 	// The flux build waits for the kubernetes service, its sync and the first list (or the
 	// absence) of each of the five flux resources: sourceVerified is never computed from a
-	// partial list.
+	// partial list. The shim reads fluxFor to stay out of sight until the topic holds a build of
+	// the service that is running now, so it is set after the publish.
 	c, haveCluster := m.cluster()
+	fluxBuilt := false
 	build(model.TopicFlux, haveCluster && c.Synced() && fluxListed(c), func() (any, []model.SourceStatus) {
 		d := m.buildFlux(c)
 		m.mu.Lock()
 		m.built.flux = &d
 		m.mu.Unlock()
-		return d, m.kubeSources()
+		fluxBuilt = true
+		return d, m.fluxSources(c)
 	})
+	if fluxBuilt {
+		m.mu.Lock()
+		m.fluxFor, m.fluxPublished = c, true
+		m.mu.Unlock()
+	}
 
 	m.mu.RLock()
 	b := m.built

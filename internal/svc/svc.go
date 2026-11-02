@@ -95,6 +95,12 @@ type Cluster interface {
 	// failed altogether (nothing will be known, so nothing waits for ever). A builder publishes
 	// once its own GVRs are listed or absent, so it never computes from a partial list.
 	Listed(gvr schema.GroupVersionResource) bool
+	// FailedGroups lists the group versions of the watched resources whose discovery failed at the
+	// last attempt (an aggregated API that is down), sorted. Listed counts such a resource as
+	// listed so a builder can publish without it, and a resource of a failed group is neither
+	// present nor absent: a consumer that would otherwise show its objects as missing reads this
+	// to say so.
+	FailedGroups() []schema.GroupVersion
 	// Watch asks for informers of gvrs. It is idempotent; the informer of a CRD that is not served
 	// starts when the CRD appears (an immediate discovery runs).
 	Watch(gvrs ...schema.GroupVersionResource)

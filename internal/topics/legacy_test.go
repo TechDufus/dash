@@ -181,7 +181,7 @@ func TestLegacyShimsAreRestartOnly(t *testing.T) {
 func TestLegacyStatusFollowsTheKubernetesService(t *testing.T) {
 	f := newFakeKube()
 	holder := &kubeHolder{}
-	m := New(Deps{Cfg: config.Defaults(), Cluster: holder.get})
+	m := New(Deps{Cfg: config.Defaults(), Cluster: holder.get, Hosts: plugintest.AllRunning(hub.New(), LegacyManifests()...)})
 	if got := m.legacyStatus(); got.State != plugin.StateUnavailable {
 		t.Errorf("without the kubernetes service: %s, want unavailable", got.State)
 	}
@@ -191,8 +191,12 @@ func TestLegacyStatusFollowsTheKubernetesService(t *testing.T) {
 		t.Errorf("before the informers sync: %s %q", got.State, got.Message)
 	}
 	f.set(func(f *fakeKube) { f.synced = true })
+	if got := m.legacyStatus(); got.State != plugin.StateStarting {
+		t.Errorf("synced and listed but not yet built: %s, want starting", got.State)
+	}
+	m.rebuild()
 	if got := m.legacyStatus(); got.State != plugin.StateHealthy {
-		t.Errorf("after sync: %s", got.State)
+		t.Errorf("after the first build: %s", got.State)
 	}
 	// A viewer never reads a URL or host out of a plugin's status: the shims name no upstream.
 	for _, s := range m.legacyStatus().Sources {

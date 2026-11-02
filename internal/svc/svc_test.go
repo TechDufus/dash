@@ -21,6 +21,7 @@ func (kubeService) Synced() bool                                                
 func (kubeService) Revision() uint64                                              { return 7 }
 func (kubeService) Has(schema.GroupVersionResource) bool                          { return true }
 func (kubeService) Listed(schema.GroupVersionResource) bool                       { return true }
+func (kubeService) FailedGroups() []schema.GroupVersion                           { return nil }
 func (kubeService) Watch(...schema.GroupVersionResource)                          {}
 func (kubeService) List(schema.GroupVersionResource) []*unstructured.Unstructured { return nil }
 func (kubeService) GVRRevision(...schema.GroupVersionResource) uint64             { return 9 }

@@ -37,6 +37,7 @@ func (s *service) Revision() uint64 { return s.r.nodeRev.Load() }
 
 func (s *service) Has(gvr schema.GroupVersionResource) bool    { return s.r.cl.Has(gvr) }
 func (s *service) Listed(gvr schema.GroupVersionResource) bool { return s.r.cl.Listed(gvr) }
+func (s *service) FailedGroups() []schema.GroupVersion         { return s.r.cl.FailedGroups() }
 func (s *service) Watch(gvrs ...schema.GroupVersionResource)   { s.r.cl.Watch(gvrs...) }
 func (s *service) List(gvr schema.GroupVersionResource) []*unstructured.Unstructured {
 	return s.r.cl.List(gvr)

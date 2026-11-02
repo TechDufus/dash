@@ -54,6 +54,7 @@ type fakeKube struct {
 	pending map[schema.GroupVersionResource]bool // not listed yet
 	absent  map[schema.GroupVersionResource]bool // not served: counts as listed
 	rev     uint64
+	failed  []schema.GroupVersion           // groups whose discovery failed
 	watched [][]schema.GroupVersionResource // the gvrs of every Watch call
 	patches []string
 }
@@ -84,6 +85,12 @@ func (f *fakeKube) Listed(gvr schema.GroupVersionResource) bool {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return f.absent[gvr] || !f.pending[gvr]
+}
+
+func (f *fakeKube) FailedGroups() []schema.GroupVersion {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return slices.Clone(f.failed)
 }
 
 func (f *fakeKube) Watch(gvrs ...schema.GroupVersionResource) {
