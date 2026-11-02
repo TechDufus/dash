@@ -63,6 +63,14 @@ func (h *stubHost) Go(_ string, fn func()) {
 	}()
 }
 
+// wantIdle fails unless every goroutine started through Go has ended. A plugin's Stop returns
+// when its own function has (its WaitGroup, its done channel), which is before the wrapper above
+// has counted the goroutine out, so the count settles instead of being read once.
+func (h *stubHost) wantIdle(t *testing.T, when string) {
+	t.Helper()
+	eventually(t, "the goroutines started through Go to end "+when, func() bool { return h.live.Load() == 0 })
+}
+
 // Stop returns when the round has ended, and nothing touches the cluster afterwards.
 func TestStopEndsEveryGoroutine(t *testing.T) {
 	kc := plugintest.NewKubeCluster()
@@ -80,9 +88,7 @@ func TestStopEndsEveryGoroutine(t *testing.T) {
 	if err := p.Stop(ctx); err != nil {
 		t.Fatal(err)
 	}
-	if n := h.live.Load(); n != 0 {
-		t.Fatalf("%d goroutines still running after Stop returned", n)
-	}
+	h.wantIdle(t, "after Stop returned")
 	published, lookups := h.published.Load(), h.lookups.Load()
 	synced := kc.Watched()
 	time.Sleep(25 * time.Millisecond) // 25 rounds of a loop that had leaked

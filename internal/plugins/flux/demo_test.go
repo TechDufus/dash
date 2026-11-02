@@ -93,9 +93,7 @@ func TestDemoTwinStopsWithItsContext(t *testing.T) {
 	if err := tw.Stop(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	if n := h.live.Load(); n != 0 {
-		t.Errorf("%d goroutines after Stop", n)
-	}
+	h.wantIdle(t, "after Stop")
 	// A twin that never started contributes nothing and stops.
 	idle := newTwin()
 	if idle.Attention(t0) != nil || idle.KPIs() != nil {
