@@ -43,6 +43,16 @@ for (const f of cssFiles) {
     problems.push(`assets/${f} contains url(data:...): an inlined asset needs a data: CSP source`);
   }
 }
+// sonner's own stylesheet is a CSS file (imported statically); its stylesheet text inside a JS
+// chunk means the injection of a runtime <style> is back, e.g. because a release moved the entry
+// the vite-plugins/static-sonner.ts transform matches. The marker is the first rule of that CSS.
+for (const f of assets.filter((a) => a.endsWith(".js"))) {
+  if (readFileSync(join(dist, "assets", f), "utf8").includes("[data-sonner-toaster][dir=ltr]")) {
+    problems.push(
+      `assets/${f} contains sonner's stylesheet text: sonner injects a <style> at runtime again (see vite-plugins/static-sonner.ts)`,
+    );
+  }
+}
 if (/<script(?![^>]*\bsrc=)[^>]*>/i.test(html)) {
   problems.push("dist/index.html has an inline <script> (a script tag without src)");
 }
