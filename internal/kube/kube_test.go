@@ -49,6 +49,19 @@ contexts:
 	return path
 }
 
+// A context the kubeconfig lacks is its own error, so the row can name the setting at fault.
+func TestLoadConfigNamesAMissingContext(t *testing.T) {
+	path := writeKubeconfig(t)
+	for _, mode := range []string{ModeKubeconfig, ModeAuto} {
+		if _, err := LoadConfig(mode, path, "nope", 20, 40); !errors.Is(err, ErrBadContext) {
+			t.Errorf("%s: err = %v, want ErrBadContext", mode, err)
+		}
+	}
+	if _, err := LoadConfig(ModeKubeconfig, path, "b", 20, 40); errors.Is(err, ErrBadContext) {
+		t.Errorf("a context the kubeconfig has: err = %v", err)
+	}
+}
+
 func TestLoadConfigKubeconfigAndContext(t *testing.T) {
 	t.Setenv("KUBERNETES_SERVICE_HOST", "")
 	path := writeKubeconfig(t)

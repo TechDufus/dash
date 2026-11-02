@@ -438,3 +438,95 @@ func TestWatchErrorExplainsAResourceThatNeverLists(t *testing.T) {
 		t.Error("an unwatched resource has a watch error")
 	}
 }
+
+// A resource registered with Watch after a discovery has no informer yet, so it is neither
+// served as far as Has knows nor listed: a builder that reads Listed in the same tick as Watch
+// must not publish without it. The next Discover starts its informer, and only that list
+// completes it.
+func TestWatchAfterDiscoveryIsNotListedUntilDiscovered(t *testing.T) {
+	r := newRig(t, []schema.GroupVersionResource{GVRCertificates, GVRKustomizations}, object(GVRKustomizations, "Kustomization", "flux-system", "apps"))
+	r.disc.set(nil, served(GVRCertificates, GVRKustomizations)...)
+	r.start(t)
+	if err := r.c.Discover(map[schema.GroupVersionResource]Kind{GVRCertificates: KindCertificates}); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, "the certificates to list", func() bool { return r.c.Listed(GVRCertificates) })
+
+	r.c.Watch(GVRKustomizations) // served, holds one object, and no discovery has seen the request yet
+	if r.c.Has(GVRKustomizations) {
+		t.Fatal("Has is true before a discovery evaluated the resource")
+	}
+	if r.c.Listed(GVRKustomizations) {
+		t.Fatal("Listed is true for a resource that has no informer")
+	}
+	if got := r.c.List(GVRKustomizations); len(got) != 0 {
+		t.Fatalf("List = %v before the resource is discovered", got)
+	}
+	select {
+	case <-r.c.DiscoveryRequests():
+	default:
+		t.Fatal("Watch did not request a discovery")
+	}
+
+	if err := r.c.Discover(nil); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, "the kustomizations to list", func() bool { return r.c.Listed(GVRKustomizations) })
+	if !r.c.Has(GVRKustomizations) || len(r.c.List(GVRKustomizations)) != 1 {
+		t.Errorf("Has %v, List %v: Listed must mean the list is in the cache", r.c.Has(GVRKustomizations), r.c.List(GVRKustomizations))
+	}
+}
+
+// A resource registered while the API server's discovery is failing counts as listed, as one
+// registered before the first discovery does: nothing will be known until a discovery works.
+func TestWatchWhileDiscoveryFailsIsListed(t *testing.T) {
+	r := newRig(t, []schema.GroupVersionResource{GVRCertificates, GVRKustomizations})
+	r.disc.set(nil, served(GVRCertificates)...)
+	r.start(t)
+	if err := r.c.Discover(map[schema.GroupVersionResource]Kind{GVRCertificates: KindCertificates}); err != nil {
+		t.Fatal(err)
+	}
+	boom := errors.New("connection refused")
+	r.disc.set(boom)
+	r.c.Watch(GVRKustomizations)
+	if r.c.Listed(GVRKustomizations) {
+		t.Fatal("listed before the failed discovery")
+	}
+	if err := r.c.Discover(nil); !errors.Is(err, boom) {
+		t.Fatalf("err = %v", err)
+	}
+	if !r.c.Listed(GVRKustomizations) {
+		t.Error("a resource no discovery could evaluate must count as listed")
+	}
+	if got := r.c.FailedGroups(); len(got) != 1 || got[0] != GVRKustomizations.GroupVersion() {
+		t.Errorf("FailedGroups = %v, want only the unevaluated resource's group", got)
+	}
+}
+
+// Shutdown waits for every informer, typed and custom, to end once the context is cancelled.
+func TestShutdownEndsEveryInformer(t *testing.T) {
+	r := newRig(t, []schema.GroupVersionResource{GVRCertificates}, object(GVRCertificates, "Certificate", "a", "c"))
+	r.disc.set(nil, served(GVRCertificates)...)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	r.c.Start(ctx)
+	if err := r.c.Discover(map[schema.GroupVersionResource]Kind{GVRCertificates: KindCertificates}); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, "the informers to list", func() bool { return r.c.HasSynced() && r.c.Listed(GVRCertificates) })
+	if r.c.Stopped() {
+		t.Fatal("Stopped is true while the informers run")
+	}
+
+	cancel()
+	done := make(chan struct{})
+	go func() { r.c.Shutdown(); close(done) }()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("Shutdown did not return")
+	}
+	if !r.c.Stopped() {
+		t.Error("an informer still runs after Shutdown")
+	}
+}

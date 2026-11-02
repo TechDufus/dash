@@ -94,6 +94,10 @@ const (
 // in-cluster environment: dash runs without a cluster.
 var ErrNoCluster = errors.New("no cluster configuration")
 
+// ErrBadContext is what LoadConfig wraps when the kubeconfig has no context of the name asked
+// for (plugins.kubernetes.context).
+var ErrBadContext = errors.New("the kubeconfig has no such context")
+
 // LoadConfig returns the REST config of a mode: kubeconfig (a path, with an optional context) for
 // ModeKubeconfig, the in-cluster service account for ModeInCluster, and for ModeAuto the
 // kubeconfig when a path is given, else the in-cluster one, else ErrNoCluster. qps and burst are
@@ -107,6 +111,11 @@ func LoadConfig(mode, kubeconfig, kubeContext string, qps float32, burst int) (*
 			return nil, errors.New("mode kubeconfig needs plugins.kubernetes.kubeconfig (or KUBECONFIG)")
 		}
 		rules := &clientcmd.ClientConfigLoadingRules{ExplicitPath: kubeconfig}
+		if raw, lerr := rules.Load(); kubeContext != "" && lerr == nil {
+			if _, ok := raw.Contexts[kubeContext]; !ok {
+				return nil, fmt.Errorf("kubeconfig: %q: %w", kubeContext, ErrBadContext)
+			}
+		}
 		rc, err = clientcmd.NewNonInteractiveDeferredLoadingClientConfig(rules, &clientcmd.ConfigOverrides{CurrentContext: kubeContext}).ClientConfig()
 		if err != nil {
 			return nil, fmt.Errorf("kubeconfig: %w", err)
@@ -152,15 +161,16 @@ type Cluster struct {
 	disc   discovery.ServerResourcesInterface
 
 	synced   []cache.InformerSynced // the typed informers: the readiness gate
-	syncErr  atomic.Pointer[error]  // the last watch error of a typed informer
-	wake     chan struct{}          // a request for an immediate discovery (coalesced)
-	mu       sync.RWMutex           // guards what follows
+	typedInf []cache.SharedIndexInformer
+	syncErr  atomic.Pointer[error] // the last watch error of a typed informer
+	wake     chan struct{}         // a request for an immediate discovery (coalesced)
+	mu       sync.RWMutex          // guards what follows
 	onChange []func(Kind)
 	ctx      context.Context // set by Start
 	dynamics map[schema.GroupVersionResource]*dynamicState
-	// discovered is set by the first discovery that returned an answer; discoverFailed by a
-	// discovery that failed altogether before any answer.
-	discovered, discoverFailed bool
+	// discoverFailed is set by a discovery that failed altogether, and cleared by one that
+	// returned an answer.
+	discoverFailed bool
 }
 
 // New builds clients and (unstarted) informers from a REST config.
@@ -218,6 +228,7 @@ func NewFromClients(client kubernetes.Interface, dyn dynamic.Interface) *Cluster
 // watchTyped adds a typed informer to the readiness gate and the change notifications.
 func (c *Cluster) watchTyped(inf cache.SharedIndexInformer, kind Kind) {
 	c.synced = append(c.synced, inf.HasSynced)
+	c.typedInf = append(c.typedInf, inf)
 	notify := func() { c.notify(kind) }
 	// Registering a handler or an error handler on a not-yet-started informer cannot fail.
 	_, _ = inf.AddEventHandler(cache.ResourceEventHandlerFuncs{
@@ -258,6 +269,33 @@ func (c *Cluster) Start(ctx context.Context) {
 	c.typed.Start(ctx.Done())
 	c.events.Start(ctx.Done())
 	c.dyn.Start(ctx.Done())
+}
+
+// Shutdown waits until every informer goroutine has ended. The context given to Start must be
+// cancelled first, or it never returns. The Cluster starts no informer afterwards: a discovery
+// that still runs creates its informers without starting them.
+func (c *Cluster) Shutdown() {
+	c.typed.Shutdown()
+	c.events.Shutdown()
+	c.dyn.Shutdown()
+}
+
+// Stopped reports that every informer the Cluster has has ended (after Shutdown, or when the
+// context of Start is done and they have exited).
+func (c *Cluster) Stopped() bool {
+	for _, inf := range c.typedInf {
+		if !inf.IsStopped() {
+			return false
+		}
+	}
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	for _, st := range c.dynamics {
+		if st.inf != nil && !st.inf.IsStopped() {
+			return false
+		}
+	}
+	return true
 }
 
 // HasSynced is true once every typed informer has completed its first list. A dynamic informer

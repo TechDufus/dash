@@ -28,6 +28,10 @@ type dynamicState struct {
 	rev         atomic.Uint64
 	present     bool // the last successful discovery of its group lists it
 	groupFailed bool // the last discovery failed for its group (present keeps the earlier answer)
+	// evaluated says a Discover has applied its answer to this resource. Until then nothing is
+	// known about it: it is not present, and it is not listed either (its informer may not
+	// exist yet).
+	evaluated bool
 	inf         cache.SharedIndexInformer
 	watchErr    atomic.Pointer[error] // the last error the informer's watch reported
 	lister      cache.GenericLister
@@ -89,8 +93,8 @@ func (c *Cluster) register(gvr schema.GroupVersionResource, kind Kind) bool {
 // A failure of some groups returns an *ErrGroupDiscoveryFailed after applying the healthy
 // groups: a wanted resource of a failed group is neither present nor absent (it keeps its last
 // answer), and Listed counts it as listed so a builder can publish without it. A failure of the
-// whole call keeps the previous state and returns the error; before any success it makes Listed
-// true for every wanted resource (nothing is known, nothing will be).
+// whole call keeps the previous state and returns the error; a resource that no discovery has
+// evaluated yet then counts as listed (nothing is known, nothing will be) until one succeeds.
 func (c *Cluster) Discover(wanted map[schema.GroupVersionResource]Kind) error {
 	for gvr, kind := range wanted {
 		c.register(gvr, kind)
@@ -109,9 +113,7 @@ func (c *Cluster) Discover(wanted map[schema.GroupVersionResource]Kind) error {
 		}
 	default:
 		c.mu.Lock()
-		if !c.discovered {
-			c.discoverFailed = true
-		}
+		c.discoverFailed = true
 		c.mu.Unlock()
 		return fmt.Errorf("discovery: %w", err)
 	}
@@ -119,8 +121,9 @@ func (c *Cluster) Discover(wanted map[schema.GroupVersionResource]Kind) error {
 	served := servedSet(lists)
 	var changed []schema.GroupVersionResource
 	c.mu.Lock()
-	c.discovered, c.discoverFailed = true, false
+	c.discoverFailed = false
 	for gvr, st := range c.dynamics {
+		st.evaluated = true
 		_, groupFailed := failed[gvr.GroupVersion()]
 		st.groupFailed = groupFailed
 		if groupFailed {
@@ -202,9 +205,11 @@ func (c *Cluster) Has(gvr schema.GroupVersionResource) bool {
 }
 
 // Listed reports that the first list of gvr has completed, or will never happen: discovery says
-// gvr is not served, or failed for its group (or failed altogether before it ever worked). A
-// builder publishes once its own resources are listed, so it never computes from a partial
-// list. It is false for a resource nobody asked for and before the first discovery.
+// gvr is not served, or failed for its group (or the discovery that would have evaluated gvr
+// failed altogether). A builder publishes once its own resources are listed, so it never
+// computes from a partial list. It is false for a resource nobody asked for, and for one that
+// no discovery has evaluated yet: a resource registered after the last Discover has no informer
+// until the next one, so Has and Listed are both false then.
 func (c *Cluster) Listed(gvr schema.GroupVersionResource) bool {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
@@ -212,10 +217,8 @@ func (c *Cluster) Listed(gvr schema.GroupVersionResource) bool {
 	switch {
 	case st == nil:
 		return false
-	case c.discoverFailed:
-		return true
-	case !c.discovered:
-		return false
+	case !st.evaluated:
+		return c.discoverFailed
 	case st.groupFailed || !st.present:
 		return true
 	}
@@ -223,14 +226,15 @@ func (c *Cluster) Listed(gvr schema.GroupVersionResource) bool {
 }
 
 // FailedGroups lists the group versions of the wanted resources whose discovery failed at the
-// last attempt: the group's own failure, or every wanted one when discovery has never worked.
+// last attempt: the group's own failure, or, for a resource no discovery has evaluated, the
+// failure of the whole call.
 // The result is sorted and has no duplicates.
 func (c *Cluster) FailedGroups() []schema.GroupVersion {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	var out []schema.GroupVersion
 	for gvr, st := range c.dynamics {
-		if (c.discoverFailed || st.groupFailed) && !slices.Contains(out, gvr.GroupVersion()) {
+		if ((c.discoverFailed && !st.evaluated) || st.groupFailed) && !slices.Contains(out, gvr.GroupVersion()) {
 			out = append(out, gvr.GroupVersion())
 		}
 	}
