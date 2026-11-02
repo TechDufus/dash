@@ -415,3 +415,26 @@ func TestDiscoverReadsTheClientsDiscovery(t *testing.T) {
 		t.Error("the route CRD is not present")
 	}
 }
+
+// A custom resource whose list is refused never lists, and WatchError says why.
+func TestWatchErrorExplainsAResourceThatNeverLists(t *testing.T) {
+	r := newRig(t, []schema.GroupVersionResource{GVRIngresses})
+	r.dyn.PrependReactor("list", "ingresses", func(clienttesting.Action) (bool, runtime.Object, error) {
+		return true, nil, apierrors.NewForbidden(GVRIngresses.GroupResource(), "", errors.New("no"))
+	})
+	r.disc.set(nil, served(GVRIngresses)...)
+	r.start(t)
+	if err := r.c.Discover(map[schema.GroupVersionResource]Kind{GVRIngresses: KindIngresses}); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, "the watch error", func() bool { return r.c.WatchError(GVRIngresses) != nil })
+	if got := Category(r.c.WatchError(GVRIngresses)); got != "auth" {
+		t.Errorf("category = %q", got)
+	}
+	if r.c.Listed(GVRIngresses) {
+		t.Error("listed although the list is refused")
+	}
+	if r.c.WatchError(GVRHTTPRoutes) != nil {
+		t.Error("an unwatched resource has a watch error")
+	}
+}

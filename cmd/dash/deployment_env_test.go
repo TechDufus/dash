@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"strings"
 	"sync"
@@ -127,6 +128,16 @@ func deploymentEnvReachesThePlugins(t *testing.T, file string, wantRestart bool)
 		}
 		if k8s.Actions.Enabled != wantRestart || len(k8s.Actions.DenyNamespaces) != 0 {
 			t.Errorf("kubernetes start config: actions %+v, want enabled=%v and no denied namespace", k8s.Actions, wantRestart)
+		}
+		// The apps list is v0.9.0's: before it the keys do not exist in the environment and the
+		// generic defaults apply.
+		wantApps := pluginconf.KubernetesApps{AnnotationPrefix: "gethomepage.dev"}
+		if wantRestart {
+			wantApps.Gateways = []pluginconf.AppsGateway{{Namespace: "gateway", Name: "home"}}
+			wantApps.ExcludeNamespaces = []string{"dash"}
+		}
+		if !reflect.DeepEqual(k8s.Apps, wantApps) {
+			t.Errorf("kubernetes start config: apps %+v, want %+v", k8s.Apps, wantApps)
 		}
 	})
 

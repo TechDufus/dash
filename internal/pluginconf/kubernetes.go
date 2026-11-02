@@ -36,12 +36,30 @@ type Kubernetes struct {
 	Etcd        KubernetesEtcd        `json:"etcd" doc:"How dash finds etcd's metrics."`
 	Optional    KubernetesOptional    `json:"optional" doc:"CRDs that a cluster may not have. A missing CRD of the kinds the plugin reads shows as a note and makes the plugin degraded, unless it is marked optional here."`
 	Conventions KubernetesConventions `json:"conventions" doc:"Labels dash reads from namespaces. None has a default: while one is empty the feature that depends on it is off."`
+	Apps        KubernetesApps        `json:"apps" doc:"Which routes make the apps on the Apps page and how their annotations are read."`
 	// UpstreamViaAPIServer sends the plugins' requests to in-cluster service URLs through the
 	// API server's service proxy.
 	UpstreamViaAPIServer bool    `json:"upstreamViaAPIServer" doc:"Send the requests of the other plugins to in-cluster service URLs (http://<service>.<namespace>.svc) through the API server's service proxy, with the Kubernetes credentials. For running dash on a laptop against a remote cluster (development); off by default. Applies to requests made after the plugin starts."`
 	Actions              Actions `json:"actions" doc:"The restart action."`
 	// BackupJobs locate the backup CronJobs whose last success is shown as the age of a backup.
 	BackupJobs []BackupJob `json:"backupJobs" doc:"The CronJobs behind the backup ages, as [{namespace, cronjob, label}] (up to 8). cronjob also matches every CronJob named cronjob-<suffix>. label names the row; empty names each row after the CronJob. Empty hides the backup rows. A JSON list in the environment."`
+}
+
+// AppsAnnotationPrefix is the default plugins.kubernetes.apps.annotationPrefix.
+const AppsAnnotationPrefix = "gethomepage.dev"
+
+// AppsGateway names a Gateway API gateway whose routes are apps.
+type AppsGateway struct {
+	Namespace string `json:"namespace" doc:"Namespace of the gateway."`
+	Name      string `json:"name" doc:"Name of the gateway."`
+}
+
+// KubernetesApps is how the Apps page is discovered.
+type KubernetesApps struct {
+	Gateways          []AppsGateway `json:"gateways" doc:"Only routes whose spec.parentRefs name one of these gateways are apps, as [{namespace, name}]. A parent reference without a namespace means the route's own namespace. Empty accepts every HTTPRoute. A JSON list in the environment."`
+	ExcludeNamespaces []string      `json:"excludeNamespaces" doc:"Namespaces whose routes and ingresses are never apps (typically dash's own). Empty skips nothing. A JSON list in the environment."`
+	AnnotationPrefix  string        `json:"annotationPrefix" doc:"The annotation prefix an app's name, group, description and icon are read from: <prefix>/name, <prefix>/group, <prefix>/description and <prefix>/icon. A trailing / is ignored. The default is gethomepage.dev."`
+	Ingress           bool          `json:"ingress" doc:"Also read networking.k8s.io Ingresses: one app per rule host. Needs get, list and watch on ingresses in the cluster role; off by default."`
 }
 
 // KubernetesEtcd is where etcd's metrics are.
@@ -78,6 +96,7 @@ func DefaultKubernetes() Kubernetes {
 	return Kubernetes{
 		Mode: KubernetesModeAuto, QPS: KubernetesQPSDefault, Burst: KubernetesBurstDefault,
 		Etcd: KubernetesEtcd{Job: KubernetesEtcdJob},
+		Apps: KubernetesApps{AnnotationPrefix: AppsAnnotationPrefix},
 	}
 }
 
@@ -111,6 +130,15 @@ func (k Kubernetes) EtcdJob() string {
 		return KubernetesEtcdJob
 	}
 	return k.Etcd.Job
+}
+
+// Prefix is the annotation prefix without a trailing slash, the default when none is set.
+func (a KubernetesApps) Prefix() string {
+	p := strings.TrimSuffix(strings.TrimSpace(a.AnnotationPrefix), "/")
+	if p == "" {
+		return AppsAnnotationPrefix
+	}
+	return p
 }
 
 // RowName is the name of the backup row: the label, or empty when each row is named after its
@@ -156,6 +184,33 @@ func (k Kubernetes) Validate() error {
 				p.add("backupJobs", "entry %d repeats the row %s/%s", i+1, j.Namespace, name)
 			}
 			rows[key] = true
+		}
+	}
+	p.addAll("apps", k.Apps.validate())
+	return p.err()
+}
+
+var (
+	// annotationPrefixRE is a DNS-style prefix: labels of letters, digits and dashes joined by dots.
+	annotationPrefixRE = regexp.MustCompile(`^[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?(\.[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?)*$`)
+	k8sNameRE          = regexp.MustCompile(`^[a-z0-9]([-a-z0-9.]{0,251}[a-z0-9])?$`)
+)
+
+func (a KubernetesApps) validate() error {
+	var p problems
+	for i, g := range a.Gateways {
+		if g.Namespace == "" || g.Name == "" {
+			p.add("gateways", "entry %d needs both namespace and name", i+1)
+		}
+	}
+	for i, ns := range a.ExcludeNamespaces {
+		if !k8sNameRE.MatchString(ns) {
+			p.add("excludeNamespaces", "entry %d, %q, is not a namespace name", i+1, ns)
+		}
+	}
+	if a.AnnotationPrefix != "" {
+		if pre := a.Prefix(); len(pre) > 253 || !annotationPrefixRE.MatchString(pre) {
+			p.add("annotationPrefix", "%q is not an annotation prefix such as gethomepage.dev", a.AnnotationPrefix)
 		}
 	}
 	return p.err()

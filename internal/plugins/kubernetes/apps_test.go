@@ -3,10 +3,12 @@ package kubernetes
 import (
 	"encoding/json"
 	"slices"
+	"strings"
 	"testing"
 
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	k8sruntime "k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 
 	"github.com/TechDufus/dash/internal/kube"
 	"github.com/TechDufus/dash/internal/model"
@@ -43,10 +45,25 @@ func appsRoute(ns, name string, parents []appsParent, hosts []string, ann map[st
 	return u
 }
 
+// appsHomelab is the configuration that reproduces the list the code had before the settings
+// existed: one gateway, and dash's own namespace left out.
+func appsHomelab() pluginconf.Kubernetes {
+	cfg := pluginconf.DefaultKubernetes()
+	cfg.Apps.Gateways = []pluginconf.AppsGateway{{Namespace: "gateway", Name: "home"}}
+	cfg.Apps.ExcludeNamespaces = []string{"dash"}
+	return cfg
+}
+
 func appsBuild(t *testing.T, ep *fakeGatus, infos map[string]nsInfo, objs ...k8sruntime.Object) model.AppsData {
 	t.Helper()
-	c := testCluster(t, nil, objs...)
-	return buildApps(appsInput{c: c, cfg: pluginconf.Kubernetes{}, ep: ep, infos: infos})
+	return appsBuildWith(t, appsHomelab(), nil, ep, infos, objs...)
+}
+
+// appsBuildWith builds with a configuration; crds are the served resources (nil: the default four).
+func appsBuildWith(t *testing.T, cfg pluginconf.Kubernetes, crds []schema.GroupVersionResource, ep *fakeGatus, infos map[string]nsInfo, objs ...k8sruntime.Object) model.AppsData {
+	t.Helper()
+	c := testCluster(t, crds, objs...)
+	return buildApps(appsInput{c: c, cfg: cfg, ep: ep, infos: infos})
 }
 
 func appByHref(t *testing.T, d model.AppsData, href string) model.App {
@@ -100,26 +117,22 @@ func TestAppsReproduceTheHomelabList(t *testing.T) {
 		ns                     string
 		healthy                *bool
 	}
-	cdn := "https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/"
 	want := []row{
 		// Apps, then Platform, then Tenants; by lower-cased name inside a group.
 		{"Archive", "", "", "https://old.example.com", model.GroupApps, "media", new(false)},
 		{"plex", "", "", "https://plex.example.com", model.GroupApps, "media", new(false)},
 		{"plex-alt", "", "", "https://plex-alt.example.com", model.GroupApps, "media", nil},
-		{"Grafana", "Dashboards", cdn + "png/grafana.png", "https://grafana.example.com", model.GroupPlatform, "monitoring", new(true)},
-		{"portal", "", cdn + "svg/acme.svg", "https://portal.acme.example.com", model.GroupTenants, "acme", nil},
+		{"Grafana", "Dashboards", "grafana.png", "https://grafana.example.com", model.GroupPlatform, "monitoring", new(true)},
+		{"portal", "", "acme.svg", "https://portal.acme.example.com", model.GroupTenants, "acme", nil},
 	}
 	if len(d.Apps) != len(want) {
 		t.Fatalf("apps = %+v, want %d", d.Apps, len(want))
 	}
 	for i, w := range want {
 		a := d.Apps[i]
-		got := row{a.Name, a.Description, a.IconURL, a.Href, a.Group, a.Namespace, a.Healthy}
+		got := row{a.Name, a.Description, a.Icon, a.Href, a.Group, a.Namespace, a.Healthy}
 		if got.name != w.name || got.desc != w.desc || got.icon != w.icon || got.href != w.href || got.group != w.group || got.ns != w.ns || !appsSameBool(got.healthy, w.healthy) {
 			t.Errorf("app %d = %+v (healthy %v), want %+v (healthy %v)", i, got, appsHealthValue(got.healthy), w, appsHealthValue(w.healthy))
-		}
-		if a.Icon != "" {
-			t.Errorf("app %d: Icon = %q, empty until the icon setting exists", i, a.Icon)
 		}
 	}
 	plugintest.AssertRefs(t, nil, ID, d, model.App{})
@@ -194,28 +207,178 @@ func TestAppsGroupRules(t *testing.T) {
 	}
 }
 
-func TestIconURL(t *testing.T) {
-	const cdn = "https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/"
+// The icon is the annotation as written (trimmed, bounded); the prefixed tokens of the homepage
+// dashboards, which name no dashboard icon, become empty. The web UI resolves the token.
+func TestIconToken(t *testing.T) {
+	long := strings.Repeat("a", 257)
 	tests := map[string]string{
-		"grafana.png":           cdn + "png/grafana.png",
-		"zot.svg":               cdn + "svg/zot.svg",
-		"home-assistant.svg":    cdn + "svg/home-assistant.svg",
-		"a1.png":                cdn + "png/a1.png",
-		"mdi-monitor-dashboard": "",
-		"../x.png":              "",
-		"a/b.png":               "",
-		"a.gif":                 "",
-		"A.png":                 "",
-		"a.png ":                "",
-		"a.png\n":               "",
-		"https://x.test/a.png":  "",
-		".png":                  "",
-		"":                      "",
+		"grafana.png":                   "grafana.png",
+		"grafana.svg":                   "grafana.svg",
+		"grafana":                       "grafana",
+		"a.b.png":                       "a.b.png",
+		"home-assistant.png":            "home-assistant.png",
+		"  zot.svg \n":                  "zot.svg",
+		"https://cdn.example.com/a.png": "https://cdn.example.com/a.png",
+		"/static/icons/a.png":           "/static/icons/a.png",
+		"mdi-monitor-dashboard":         "",
+		"si-github":                     "",
+		"sh-grafana":                    "",
+		"mdi-":                          "",
+		"mdix":                          "mdix",
+		"simple":                        "simple",
+		strings.Repeat("a", 256):        strings.Repeat("a", 256),
+		long:                            "",
+		"":                              "",
+		"   ":                           "",
 	}
 	for in, want := range tests {
-		if got := iconURL(in); got != want {
-			t.Errorf("iconURL(%q) = %q, want %q", in, got, want)
+		if got := iconToken(in); got != want {
+			t.Errorf("iconToken(%q) = %q, want %q", in, got, want)
 		}
+	}
+}
+
+// The gateway rule: none listed accepts every route; a listed one must be named by a parent
+// reference, by name and namespace, a reference without a namespace meaning the route's own.
+func TestAppsGatewayFilter(t *testing.T) {
+	gw := func(ns, name string) pluginconf.AppsGateway { return pluginconf.AppsGateway{Namespace: ns, Name: name} }
+	routes := []k8sruntime.Object{
+		appsRoute("media", "explicit", []appsParent{{"home", "gateway"}}, []string{"explicit.example.com"}, nil),
+		appsRoute("gateway", "implicit", []appsParent{{"home", ""}}, []string{"implicit.example.com"}, nil),
+		appsRoute("media", "implicit-elsewhere", []appsParent{{"home", ""}}, []string{"elsewhere.example.com"}, nil),
+		appsRoute("media", "public", []appsParent{{"public", "gateway"}}, []string{"public.example.com"}, nil),
+		appsRoute("media", "both", []appsParent{{"public", "gateway"}, {"home", "gateway"}}, []string{"both.example.com"}, nil),
+		appsRoute("media", "orphan", nil, []string{"orphan.example.com"}, nil),
+	}
+	for _, tc := range []struct {
+		name     string
+		gateways []pluginconf.AppsGateway
+		want     []string
+	}{
+		{"none listed accepts every route", nil, []string{"both", "elsewhere", "explicit", "implicit", "orphan", "public"}},
+		{"one gateway", []pluginconf.AppsGateway{gw("gateway", "home")}, []string{"both", "explicit", "implicit"}},
+		{"several gateways", []pluginconf.AppsGateway{gw("gateway", "home"), gw("gateway", "public")}, []string{"both", "explicit", "implicit", "public"}},
+		{"the namespace must match", []pluginconf.AppsGateway{gw("media", "home")}, []string{"elsewhere"}},
+		{"the name must match", []pluginconf.AppsGateway{gw("gateway", "other")}, nil},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := pluginconf.DefaultKubernetes()
+			cfg.Apps.Gateways = tc.gateways
+			d := appsBuildWith(t, cfg, nil, &fakeGatus{}, nil, routes...)
+			var got []string
+			for _, a := range d.Apps {
+				got = append(got, strings.TrimSuffix(a.Href[len("https://"):], ".example.com"))
+			}
+			slices.Sort(got)
+			if !slices.Equal(got, tc.want) {
+				t.Errorf("apps = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestAppsNamespaceExclusion(t *testing.T) {
+	routes := []k8sruntime.Object{
+		appsRoute("dash", "dash", nil, []string{"dash.example.com"}, nil),
+		appsRoute("media", "plex", nil, []string{"plex.example.com"}, nil),
+		appsRoute("kube-system", "hubble", nil, []string{"hubble.example.com"}, nil),
+	}
+	for _, tc := range []struct {
+		exclude []string
+		want    int
+	}{{nil, 3}, {[]string{"dash"}, 2}, {[]string{"dash", "kube-system"}, 1}, {[]string{"absent"}, 3}} {
+		cfg := pluginconf.DefaultKubernetes()
+		cfg.Apps.ExcludeNamespaces = tc.exclude
+		if got := len(appsBuildWith(t, cfg, nil, &fakeGatus{}, nil, routes...).Apps); got != tc.want {
+			t.Errorf("exclude %v: %d apps, want %d", tc.exclude, got, tc.want)
+		}
+	}
+}
+
+// The prefix names the annotation keys; a trailing slash is the same prefix.
+func TestAppsAnnotationPrefix(t *testing.T) {
+	ann := map[string]string{
+		"gethomepage.dev/name": "Home", "gethomepage.dev/icon": "home.png",
+		"dash.example.com/name": "Mine", "dash.example.com/description": "Custom", "dash.example.com/icon": "mine.svg", "dash.example.com/group": "Platform",
+	}
+	route := appsRoute("media", "r", nil, []string{"x.example.com"}, ann)
+	for _, tc := range []struct {
+		prefix, name, desc, icon string
+		group                    model.Group
+	}{
+		{"", "Home", "", "home.png", model.GroupApps},
+		{"gethomepage.dev", "Home", "", "home.png", model.GroupApps},
+		{"gethomepage.dev/", "Home", "", "home.png", model.GroupApps},
+		{"dash.example.com", "Mine", "Custom", "mine.svg", model.GroupPlatform},
+		{"dash.example.com/", "Mine", "Custom", "mine.svg", model.GroupPlatform},
+		{"other.example.com", "x", "", "", model.GroupApps},
+	} {
+		cfg := pluginconf.DefaultKubernetes()
+		cfg.Apps.AnnotationPrefix = tc.prefix
+		d := appsBuildWith(t, cfg, nil, &fakeGatus{}, nil, route)
+		if len(d.Apps) != 1 {
+			t.Fatalf("prefix %q: %+v", tc.prefix, d.Apps)
+		}
+		a := d.Apps[0]
+		if a.Name != tc.name || a.Description != tc.desc || a.Icon != tc.icon || a.Group != tc.group {
+			t.Errorf("prefix %q: app = %+v", tc.prefix, a)
+		}
+	}
+}
+
+func appsIngress(ns, name string, hosts []string, ann map[string]string) *unstructured.Unstructured {
+	u := obj(kube.GVRIngresses, ns, name)
+	rules := []any{}
+	for _, h := range hosts {
+		rules = append(rules, map[string]any{"host": h})
+	}
+	rules = append(rules, map[string]any{}) // a rule without a host is no app
+	_ = unstructured.SetNestedSlice(u.Object, rules, "spec", "rules")
+	if ann != nil {
+		u.SetAnnotations(ann)
+	}
+	return u
+}
+
+// With apps.ingress an Ingress rule host is an app too, grouped, annotated, excluded and
+// referenced like a route's; without it Ingresses are not read.
+func TestAppsIngressOnAndOff(t *testing.T) {
+	objs := []k8sruntime.Object{
+		appsRoute("media", "plex", nil, []string{"plex.example.com"}, nil),
+		appsIngress("tools", "wiki", []string{"wiki.example.com", "docs.example.com"}, map[string]string{"gethomepage.dev/name": "Wiki", "gethomepage.dev/icon": "wiki.png"}),
+		appsIngress("dash", "dash", []string{"dash.example.com"}, nil),
+		appsIngress("media", "plex", []string{"plex.example.com"}, nil), // same name and host as the route
+	}
+	crds := []schema.GroupVersionResource{kube.GVRHTTPRoutes, kube.GVRIngresses}
+	cfg := pluginconf.DefaultKubernetes()
+	cfg.Apps.ExcludeNamespaces = []string{"dash"}
+
+	off := appsBuildWith(t, cfg, crds, &fakeGatus{}, nil, objs...)
+	if len(off.Apps) != 1 || off.Apps[0].Href != "https://plex.example.com" {
+		t.Fatalf("ingress off: %+v", off.Apps)
+	}
+	cfg.Apps.Ingress = true
+	on := appsBuildWith(t, cfg, crds, &fakeGatus{}, nil, objs...)
+	if len(on.Apps) != 4 {
+		t.Fatalf("ingress on: %+v", on.Apps)
+	}
+	plugintest.AssertRefs(t, nil, ID, on, model.App{})
+	wiki := appByHref(t, on, "https://wiki.example.com")
+	if wiki.Ref != "kubernetes:App/tools/ingress/wiki/wiki.example.com" || wiki.Name != "Wiki" || wiki.Icon != "wiki.png" || wiki.Namespace != "tools" {
+		t.Errorf("wiki = %+v", wiki)
+	}
+	if docs := appByHref(t, on, "https://docs.example.com"); docs.Name != "Wiki" {
+		t.Errorf("docs = %+v", docs)
+	}
+	var refs []string
+	for _, a := range on.Apps {
+		if a.Href == "https://plex.example.com" {
+			refs = append(refs, a.Ref)
+		}
+	}
+	slices.Sort(refs)
+	if !slices.Equal(refs, []string{"kubernetes:App/media/httproute/plex/plex.example.com", "kubernetes:App/media/ingress/plex/plex.example.com"}) {
+		t.Errorf("the route and the ingress of one name: refs = %v", refs)
 	}
 }
 

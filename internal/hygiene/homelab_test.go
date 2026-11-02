@@ -12,9 +12,8 @@ import (
 )
 
 // denylist is the epic's list of literals that name one lab and so must not be in code that ships.
-// A term scans only while active; the two PR-3 terms are listed so that PR-3 flips their flags
-// and nothing else: until then nothing scans for them (the Flux and gateway code that uses them
-// moves in PR-3).
+// A term scans only while active; flux-system is listed so that PR-3b flips its flag and nothing
+// else: until then nothing scans for it (the Flux code that uses it moves in PR-3b).
 var denylist = []struct {
 	term   string
 	active bool
@@ -24,7 +23,7 @@ var denylist = []struct {
 	{"rpi-control", true, "P3.7"},
 	{"2020 && vmid", true, "P3.7"}, // the old "critical VM" rule: vmid >= 2020 && vmid <= 2022
 	{"flux-system", false, "PR-3"},
-	{"gateway/home", false, "PR-3"},
+	{"gateway/home", true, "P3.9"},
 }
 
 // hit is one occurrence of a denied term.
@@ -164,6 +163,7 @@ func TestHomelabScanCatchesALeakAndSkipsWhatDoesNotShip(t *testing.T) {
 	want := []string{
 		`cmd/dash/z.go:3: "2020 && vmid"`,
 		`internal/demo/fixtures.go:3: "rpi-control"`,
+		`internal/flux/f.go:4: "gateway/home"`,
 		`internal/x/x.go:4: "mac-mini"`,
 		`web/src/pages/p.tsx:1: "mac-mini"`,
 	}

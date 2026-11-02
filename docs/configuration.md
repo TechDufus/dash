@@ -68,7 +68,7 @@ What the web UI is told by the server.
 
 | Setting | Variable | Type | Default | Description |
 |---|---|---|---|---|
-| `ui.iconBaseURL` | `DASH_UI_ICON_BASE_URL` | string | - | Where the icons of launcher links resolve: a launcher icon called proxmox is requested from <iconBaseURL>/proxmox.png, and an absolute icon URL on a launcher link is used only when it lies under this URL. App icons on the Apps page are not affected in this release: they still come from the server-built CDN URL until a later release. An http(s) URL with a host, without query or fragment, e.g. https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/png. Empty (the default) shows letter tiles for launcher links, so the launcher makes no third-party request. _Restart-only._ |
+| `ui.iconBaseURL` | `DASH_UI_ICON_BASE_URL` | string | - | Where icons resolve, for launcher links and for the apps on the Apps page: an icon called proxmox is requested from <iconBaseURL>/proxmox.png (one trailing .png, .svg or .webp on the name is dropped first), and an absolute icon URL is used only when it lies under this URL. Homepage-style names (mdi-, si- and sh- prefixes) show no icon. An http(s) URL with a host, without query or fragment, e.g. https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/png. Empty (the default) shows letter tiles for launcher links and apps, so dash makes no third-party request for icons. _Restart-only._ |
 
 ## `plugins.prometheus`
 
@@ -394,6 +394,17 @@ Labels dash reads from namespaces. None has a default: while one is empty the fe
 | `plugins.kubernetes.conventions.protectedLabel` | `DASH_PLUGINS_KUBERNETES_CONVENTIONS_PROTECTED_LABEL` | string | - | Namespace label (value "true") that makes a restart ask you to type the namespace name. Empty protects no namespace. |
 | `plugins.kubernetes.conventions.tenantLabel` | `DASH_PLUGINS_KUBERNETES_CONVENTIONS_TENANT_LABEL` | string | - | Namespace label that puts the namespace under Tenants; its value is the tenant. Empty turns the grouping off. |
 | `plugins.kubernetes.conventions.appsFluxPrefix` | `DASH_PLUGINS_KUBERNETES_CONVENTIONS_APPS_FLUX_PREFIX` | string | - | Namespaces applied by a Flux Kustomization whose name starts with this prefix are listed under Apps. Empty turns the grouping off. |
+
+## `plugins.kubernetes.apps`
+
+Which routes make the apps on the Apps page and how their annotations are read.
+
+| Setting | Variable | Type | Default | Description |
+|---|---|---|---|---|
+| `plugins.kubernetes.apps.gateways` | `DASH_PLUGINS_KUBERNETES_APPS_GATEWAYS` | list of objects (JSON) | - | Only routes whose spec.parentRefs name one of these gateways are apps, as [{namespace, name}]. A parent reference without a namespace means the route's own namespace. Empty accepts every HTTPRoute. A JSON list in the environment. |
+| `plugins.kubernetes.apps.excludeNamespaces` | `DASH_PLUGINS_KUBERNETES_APPS_EXCLUDE_NAMESPACES` | list of strings (JSON) | - | Namespaces whose routes and ingresses are never apps (typically dash's own). Empty skips nothing. A JSON list in the environment. |
+| `plugins.kubernetes.apps.annotationPrefix` | `DASH_PLUGINS_KUBERNETES_APPS_ANNOTATION_PREFIX` | string | `gethomepage.dev` | The annotation prefix an app's name, group, description and icon are read from: <prefix>/name, <prefix>/group, <prefix>/description and <prefix>/icon. A trailing / is ignored. The default is gethomepage.dev. |
+| `plugins.kubernetes.apps.ingress` | `DASH_PLUGINS_KUBERNETES_APPS_INGRESS` | boolean | - | Also read networking.k8s.io Ingresses: one app per rule host. Needs get, list and watch on ingresses in the cluster role; off by default. |
 
 ## `plugins.kubernetes.actions`
 

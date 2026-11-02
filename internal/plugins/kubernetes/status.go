@@ -121,7 +121,12 @@ func (r *runtime) storageReady() bool {
 }
 
 func (r *runtime) appsReady() bool {
-	return r.cl.HasSynced() && r.cl.Listed(kube.GVRHTTPRoutes) && r.endpointsReady()
+	if !r.cl.HasSynced() || !r.cl.Listed(kube.GVRHTTPRoutes) || !r.endpointsReady() {
+		return false
+	}
+	// Ingresses are read only on request, and may be refused: apps waits for them for as long as
+	// the informers get to sync, then publishes without them (and the row is degraded).
+	return !r.cfg.Apps.Ingress || r.cl.Listed(kube.GVRIngresses) || r.h.Now().Sub(r.started) >= r.t.typedSyncTimeout
 }
 
 func (r *runtime) publishCluster() bool {

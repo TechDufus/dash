@@ -58,8 +58,7 @@ func hardwareLeaves() []reachLeaf {
 	}
 }
 
-// kubernetesLeaves is every setting of plugins.kubernetes that exists in P3.8; the rows of
-// plugins.kubernetes.apps.* join with their keys in P3.9. The values never reach a cluster: the
+// kubernetesLeaves is every setting of plugins.kubernetes. The values never reach a cluster: the
 // test starts a fake that records the plugin's configuration.
 func kubernetesLeaves() []reachLeaf {
 	return []reachLeaf{
@@ -83,6 +82,12 @@ func kubernetesLeaves() []reachLeaf {
 		{"plugins.kubernetes.backupJobs",
 			`[{"namespace":"backup","cronjob":"nas-backup","label":"NAS"}]`,
 			`[{"namespace":"backup","cronjob":"db-backup","label":"DB"}]`},
+		{"plugins.kubernetes.apps.gateways",
+			`[{"namespace":"edge","name":"public"},{"namespace":"edge","name":"internal"}]`,
+			`[{"namespace":"edge","name":"public"}]`},
+		{"plugins.kubernetes.apps.excludeNamespaces", `["ops","scratch"]`, `["ops"]`},
+		{"plugins.kubernetes.apps.annotationPrefix", "apps.example.com/", "apps.example.org"},
+		{"plugins.kubernetes.apps.ingress", "true", "false"},
 	}
 }
 
@@ -222,8 +227,7 @@ func TestPR2SettingsReachThePlugin(t *testing.T) {
 	}
 }
 
-// Every setting of plugins.kubernetes that exists in this release (P3.9 adds the rows of
-// plugins.kubernetes.apps.* with the keys) arrives in the configuration the plugin is started
+// Every setting of plugins.kubernetes arrives in the configuration the plugin is started
 // with, and a reload of the file layer restarts the instance with the new value.
 func TestPR3aSettingsReachThePlugin(t *testing.T) {
 	settingsReachThePlugin(t, "kubernetes", kubernetesLeaves(), kubernetes.New())
@@ -272,14 +276,21 @@ func settingsReachThePlugin(t *testing.T, id plugin.ID, leaves []reachLeaf, pl p
 		allSet(t, "plugins.hardware.machines", reflect.ValueOf(machines))
 	case "kubernetes":
 		var jobs []pluginconf.BackupJob
+		var gateways []pluginconf.AppsGateway
 		for _, l := range leaves {
-			if l.path == "plugins.kubernetes.backupJobs" {
-				if err := json.Unmarshal([]byte(l.env), &jobs); err != nil {
-					t.Fatalf("%s: %v", l.path, err)
-				}
+			var err error
+			switch l.path {
+			case "plugins.kubernetes.backupJobs":
+				err = json.Unmarshal([]byte(l.env), &jobs)
+			case "plugins.kubernetes.apps.gateways":
+				err = json.Unmarshal([]byte(l.env), &gateways)
+			}
+			if err != nil {
+				t.Fatalf("%s: %v", l.path, err)
 			}
 		}
 		allSet(t, "plugins.kubernetes.backupJobs", reflect.ValueOf(jobs))
+		allSet(t, "plugins.kubernetes.apps.gateways", reflect.ValueOf(gateways))
 	}
 
 	for _, leaf := range leaves {

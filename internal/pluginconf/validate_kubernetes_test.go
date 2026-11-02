@@ -103,3 +103,44 @@ func TestKubernetesActionsConfigIsTheSection(t *testing.T) {
 		t.Errorf("ActionsConfig = %+v", got)
 	}
 }
+
+func TestKubernetesAppsRules(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		a    KubernetesApps
+		want []string
+	}{
+		{"nothing set", KubernetesApps{}, nil},
+		{"a gateway", KubernetesApps{Gateways: []AppsGateway{{Namespace: "gateway", Name: "main"}}}, nil},
+		{"a gateway without a namespace", KubernetesApps{Gateways: []AppsGateway{{Name: "main"}}}, []string{"apps.gateways"}},
+		{"a gateway without a name", KubernetesApps{Gateways: []AppsGateway{{Namespace: "gateway"}}}, []string{"apps.gateways"}},
+		{"an excluded namespace", KubernetesApps{ExcludeNamespaces: []string{"dash", "kube-system"}}, nil},
+		{"a bad excluded namespace", KubernetesApps{ExcludeNamespaces: []string{"Dash!"}}, []string{"apps.excludeNamespaces"}},
+		{"an empty excluded namespace", KubernetesApps{ExcludeNamespaces: []string{""}}, []string{"apps.excludeNamespaces"}},
+		{"a prefix", KubernetesApps{AnnotationPrefix: "dash.example.com"}, nil},
+		{"a prefix with a trailing slash", KubernetesApps{AnnotationPrefix: "gethomepage.dev/"}, nil},
+		{"a prefix with a space", KubernetesApps{AnnotationPrefix: "my prefix"}, []string{"apps.annotationPrefix"}},
+		{"a prefix with a scheme", KubernetesApps{AnnotationPrefix: "https://x.example.com"}, []string{"apps.annotationPrefix"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			err := Kubernetes{Apps: tc.a}.Validate()
+			if got := paths(err); !slices.Equal(got, tc.want) {
+				t.Fatalf("paths = %v, want %v (%v)", got, tc.want, err)
+			}
+		})
+	}
+}
+
+func TestKubernetesAppsPrefix(t *testing.T) {
+	for in, want := range map[string]string{
+		"": "gethomepage.dev", "gethomepage.dev": "gethomepage.dev", "gethomepage.dev/": "gethomepage.dev",
+		" dash.example.com/ ": "dash.example.com", "/": "gethomepage.dev",
+	} {
+		if got := (KubernetesApps{AnnotationPrefix: in}).Prefix(); got != want {
+			t.Errorf("Prefix(%q) = %q, want %q", in, got, want)
+		}
+	}
+	if got := DefaultKubernetes().Apps; got.AnnotationPrefix != "gethomepage.dev" || got.Ingress || len(got.Gateways) != 0 || len(got.ExcludeNamespaces) != 0 {
+		t.Errorf("default apps = %+v", got)
+	}
+}

@@ -103,6 +103,20 @@
       },
       "type": "object"
     },
+    "AppsGateway": {
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "description": "Name of the gateway.",
+          "type": "string"
+        },
+        "namespace": {
+          "description": "Namespace of the gateway.",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
     "Auth": {
       "additionalProperties": false,
       "properties": {
@@ -398,6 +412,10 @@
           "$ref": "#/$defs/Actions",
           "description": "The restart action."
         },
+        "apps": {
+          "$ref": "#/$defs/KubernetesApps",
+          "description": "Which routes make the apps on the Apps page and how their annotations are read."
+        },
         "backupJobs": {
           "description": "The CronJobs behind the backup ages, as [{namespace, cronjob, label}] (up to 8). cronjob also matches every CronJob named cronjob-<suffix>. label names the row; empty names each row after the CronJob. Empty hides the backup rows. A JSON list in the environment.",
           "items": {
@@ -455,6 +473,35 @@
         },
         "upstreamViaAPIServer": {
           "description": "Send the requests of the other plugins to in-cluster service URLs (http://<service>.<namespace>.svc) through the API server's service proxy, with the Kubernetes credentials. For running dash on a laptop against a remote cluster (development); off by default. Applies to requests made after the plugin starts.",
+          "type": "boolean"
+        }
+      },
+      "type": "object"
+    },
+    "KubernetesApps": {
+      "additionalProperties": false,
+      "properties": {
+        "annotationPrefix": {
+          "default": "gethomepage.dev",
+          "description": "The annotation prefix an app's name, group, description and icon are read from: <prefix>/name, <prefix>/group, <prefix>/description and <prefix>/icon. A trailing / is ignored. The default is gethomepage.dev.",
+          "type": "string"
+        },
+        "excludeNamespaces": {
+          "description": "Namespaces whose routes and ingresses are never apps (typically dash's own). Empty skips nothing. A JSON list in the environment.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "gateways": {
+          "description": "Only routes whose spec.parentRefs name one of these gateways are apps, as [{namespace, name}]. A parent reference without a namespace means the route's own namespace. Empty accepts every HTTPRoute. A JSON list in the environment.",
+          "items": {
+            "$ref": "#/$defs/AppsGateway"
+          },
+          "type": "array"
+        },
+        "ingress": {
+          "description": "Also read networking.k8s.io Ingresses: one app per rule host. Needs get, list and watch on ingresses in the cluster role; off by default.",
           "type": "boolean"
         }
       },
@@ -924,7 +971,7 @@
       "additionalProperties": false,
       "properties": {
         "iconBaseURL": {
-          "description": "Where the icons of launcher links resolve: a launcher icon called proxmox is requested from <iconBaseURL>/proxmox.png, and an absolute icon URL on a launcher link is used only when it lies under this URL. App icons on the Apps page are not affected in this release: they still come from the server-built CDN URL until a later release. An http(s) URL with a host, without query or fragment, e.g. https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/png. Empty (the default) shows letter tiles for launcher links, so the launcher makes no third-party request.",
+          "description": "Where icons resolve, for launcher links and for the apps on the Apps page: an icon called proxmox is requested from <iconBaseURL>/proxmox.png (one trailing .png, .svg or .webp on the name is dropped first), and an absolute icon URL is used only when it lies under this URL. Homepage-style names (mdi-, si- and sh- prefixes) show no icon. An http(s) URL with a host, without query or fragment, e.g. https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/png. Empty (the default) shows letter tiles for launcher links and apps, so dash makes no third-party request for icons.",
           "format": "uri",
           "type": "string",
           "x-dash-restart": true

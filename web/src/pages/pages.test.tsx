@@ -97,7 +97,6 @@ const overview = (extra: Partial<OverviewData> = {}): OverviewData =>
 const app = (name: string, group: string, host = name): AppsData["apps"][number] => ({
   name,
   description: `${name} app`,
-  iconUrl: "",
   icon: "",
   ref: "",
   href: `https://${host}.example.com`,

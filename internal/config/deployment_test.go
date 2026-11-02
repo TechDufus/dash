@@ -60,14 +60,17 @@ func TestDeploymentEnvV09(t *testing.T) {
 	assertHomelabEnvV08(t, res)
 
 	k := res.Tree.Plugins.Kubernetes
-	// One row per variable v0.9.0 adds, with the value the deployment's behaviour needs. The two
-	// rows of the apps list (plugins.kubernetes.apps.gateways = [{namespace: gateway, name: home}]
-	// and plugins.kubernetes.apps.excludeNamespaces = [dash]) join with P3.9's keys.
+	// One row per variable v0.9.0 adds, with the value the deployment's behaviour needs.
 	for _, row := range []struct {
 		path      string
 		got, want any
 	}{
 		{"plugins.kubernetes.actions.enabled", k.Actions.Enabled, true},
+		{"plugins.kubernetes.apps.gateways", k.Apps.Gateways, []pluginconf.AppsGateway{{Namespace: "gateway", Name: "home"}}},
+		{"plugins.kubernetes.apps.excludeNamespaces", k.Apps.ExcludeNamespaces, []string{"dash"}},
+		// The two apps keys the deployment leaves alone stay at their defaults.
+		{"plugins.kubernetes.apps.annotationPrefix", k.Apps.AnnotationPrefix, "gethomepage.dev"},
+		{"plugins.kubernetes.apps.ingress", k.Apps.Ingress, false},
 		// What the deployment leaves alone stays at the defaults: in-cluster, no dev proxy, no
 		// denied namespace, the client's rates and etcd's job.
 		{"plugins.kubernetes.mode", k.Mode, "auto"},

@@ -1,6 +1,7 @@
 package kube
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"slices"
@@ -28,6 +29,7 @@ type dynamicState struct {
 	present     bool // the last successful discovery of its group lists it
 	groupFailed bool // the last discovery failed for its group (present keeps the earlier answer)
 	inf         cache.SharedIndexInformer
+	watchErr    atomic.Pointer[error] // the last error the informer's watch reported
 	lister      cache.GenericLister
 }
 
@@ -178,7 +180,11 @@ func (c *Cluster) startInformerLocked(gvr schema.GroupVersionResource, st *dynam
 		st.rev.Add(1)
 		c.notify(st.kind)
 	}
-	// Registering a handler on a not-yet-started informer cannot fail.
+	// Registering handlers on a not-yet-started informer cannot fail.
+	_ = st.inf.SetWatchErrorHandlerWithContext(func(ctx context.Context, r *cache.Reflector, err error) {
+		st.watchErr.Store(&err)
+		cache.DefaultWatchErrorHandler(ctx, r, err)
+	})
 	_, _ = st.inf.AddEventHandler(cache.ResourceEventHandlerFuncs{
 		AddFunc:    func(any) { bump() },
 		UpdateFunc: func(_, _ any) { bump() },
@@ -277,4 +283,19 @@ func (c *Cluster) Revision(gvrs ...schema.GroupVersionResource) uint64 {
 		}
 	}
 	return sum
+}
+
+// WatchError is the last error the watch of gvr reported, nil when none has: what explains an
+// informer that never lists (a forbidden list, say).
+func (c *Cluster) WatchError(gvr schema.GroupVersionResource) error {
+	c.mu.RLock()
+	st := c.dynamics[gvr]
+	c.mu.RUnlock()
+	if st == nil {
+		return nil
+	}
+	if p := st.watchErr.Load(); p != nil {
+		return *p
+	}
+	return nil
 }

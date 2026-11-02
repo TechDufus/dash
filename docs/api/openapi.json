@@ -190,9 +190,6 @@
           "icon": {
             "type": "string"
           },
-          "iconUrl": {
-            "type": "string"
-          },
           "name": {
             "type": "string"
           },

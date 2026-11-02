@@ -58,6 +58,28 @@ describe("iconSrc", () => {
     ["a name that is a path in disguise", "a b", CDN, ""],
     ["a base that is not a URL", "proxmox", "not a url", ""],
     ["a base with another scheme", "proxmox", "ftp://cdn.example.com", ""],
+    // A name carries the extension an annotation gives it; the PNG is requested either way.
+    ["a name with .png", "grafana.png", CDN, `${CDN}/grafana.png`],
+    ["a name with .svg", "grafana.svg", CDN, `${CDN}/grafana.png`],
+    ["a name with .webp", "grafana.webp", CDN, `${CDN}/grafana.png`],
+    ["the same name with no extension", "grafana", CDN, `${CDN}/grafana.png`],
+    ["a dotted name that is not an extension", "a.b", CDN, `${CDN}/a.b.png`],
+    ["a dotted name with an extension", "a.b.png", CDN, `${CDN}/a.b.png`],
+    ["a hyphenated name with an extension", "home-assistant.png", CDN, `${CDN}/home-assistant.png`],
+    ["only one trailing extension is dropped", "x.png.png", CDN, `${CDN}/x.png.png`],
+    ["an extension in the middle stays", "x.svg.old", CDN, `${CDN}/x.svg.old.png`],
+    ["an uppercase extension is not one", "x.PNG", CDN, `${CDN}/x.PNG.png`],
+    ["a name with an extension and no base shows no icon", "grafana.png", "", ""],
+    ["an absolute URL keeps its own extension", `${CDN}/nas.svg`, CDN, `${CDN}/nas.svg`],
+    // Homepage-style tokens name icon sets that are not dashboard-icons.
+    ["a homepage mdi- token", "mdi-monitor-dashboard", CDN, ""],
+    ["a homepage si- token", "si-github", CDN, ""],
+    ["a homepage sh- token", "sh-plex", CDN, ""],
+    ["a homepage token with an extension", "mdi-home.png", CDN, ""],
+    ["a homepage token with no base", "mdi-monitor-dashboard", "", ""],
+    ["a name that only starts like a homepage prefix", "mdix-tool", CDN, `${CDN}/mdix-tool.png`],
+    ["a name that merely begins with si", "simple-icons", CDN, `${CDN}/simple-icons.png`],
+    ["a same-origin path named like a homepage token", "/icons/mdi-x.png", CDN, "/icons/mdi-x.png"],
   ];
   for (const [what, token, base, want] of cases) {
     it(what, () => expect(iconSrc(token, base)).toBe(want));

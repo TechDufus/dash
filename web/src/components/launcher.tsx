@@ -4,7 +4,7 @@ import { useTopic } from "@/api/stream";
 import type { App, Group } from "@/api/types";
 import { Panel, SourceChips } from "@/components/panel";
 import { Skeleton } from "@/components/ui/skeleton";
-import { type InfraLink, useInfraLinks } from "@/config/links";
+import { type InfraLink, iconSrc, useIconBase, useInfraLinks } from "@/config/links";
 import { cn } from "@/lib/utils";
 import { usePluginsState, usePluginVisible, useTopicAvailable } from "@/plugins/state";
 
@@ -181,6 +181,7 @@ interface SectionsProps {
 /** The Kubernetes apps, grouped Platform/Apps/Tenants (then any other group), filtered by `query`. */
 export function AppsSection({ query, compact }: SectionsProps) {
   const env = useTopic("kubernetes.apps");
+  const iconBase = useIconBase();
   const apps = env?.data.apps;
   if (!apps) return <LauncherSkeleton />;
 
@@ -217,7 +218,7 @@ export function AppsSection({ query, compact }: SectionsProps) {
               name={a.name}
               description={a.description}
               href={a.href}
-              icon={a.iconUrl}
+              icon={iconSrc(a.icon, iconBase)}
               health={{ healthy: a.healthy }}
               compact={compact}
             />

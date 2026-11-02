@@ -11,6 +11,12 @@ const NO_LINKS: InfraLink[] = [];
 
 // A dashboard-icons name: "proxmox", "unifi-drive", "home-assistant".
 const ICON_NAME = /^\w[\w.-]*$/;
+// Homepage-style tokens ("mdi-monitor-dashboard", "si-github", "sh-plex") name icon sets that are
+// not dashboard-icons: a request for them would be a CDN 404, so they show no icon.
+const FOREIGN_SET = /^(mdi|si|sh)-/;
+// An image extension a name may carry as written in an annotation ("grafana.png"); the PNG is
+// requested either way, so one trailing extension is dropped before ".png" is appended.
+const IMAGE_EXT = /\.(png|svg|webp)$/;
 
 /** `base` without trailing slashes as a parsed http(s) URL, or undefined when it is not one. */
 function parseBase(base: string): URL | undefined {
@@ -29,7 +35,9 @@ function parseBase(base: string): URL | undefined {
  * falls back to a letter. `iconBaseURL` is ui.iconBaseURL, the only origin an icon may come from:
  *
  * - a same-origin path ("/icons/nas.png") is used as is;
- * - a name ("proxmox") becomes `<base>/<name>.png`, and shows nothing without a base;
+ * - a name ("proxmox") becomes `<base>/<name>.png`, and shows nothing without a base; one trailing
+ *   `.png`, `.svg` or `.webp` is dropped first, so "grafana.svg" and "grafana" give the same icon;
+ * - a homepage-style name (`mdi-`, `si-`, `sh-` prefix) shows nothing;
  * - an absolute URL is used only when it lies under the base;
  * - anything else (another origin, a protocol-relative or relative path, a data: or javascript:
  *   URL) shows nothing.
@@ -38,7 +46,7 @@ function parseBase(base: string): URL | undefined {
  */
 export function iconSrc(token: string, iconBaseURL: string): string {
   const t = token.trim();
-  if (t === "") return "";
+  if (t === "" || FOREIGN_SET.test(t)) return "";
   const base = parseBase(iconBaseURL);
   if (t.startsWith("/")) {
     // "//host/x" and "/\host/x" are protocol-relative to a browser, not same-origin paths, and the
@@ -46,7 +54,9 @@ export function iconSrc(token: string, iconBaseURL: string): string {
     return t[1] === "/" || /[\t\n\r\\]/.test(t) ? "" : t;
   }
   if (ICON_NAME.test(t)) {
-    return base ? `${base.href.replace(/\/+$/, "")}/${encodeURIComponent(t)}.png` : "";
+    return base
+      ? `${base.href.replace(/\/+$/, "")}/${encodeURIComponent(t.replace(IMAGE_EXT, ""))}.png`
+      : "";
   }
   if (!base) return "";
   let u: URL;
@@ -62,6 +72,14 @@ export function iconSrc(token: string, iconBaseURL: string): string {
   return underBase ? u.href : "";
 }
 
+/**
+ * ui.iconBaseURL, which arrives with /me; until then (and when it is unset) every icon is a letter
+ * tile, so nothing is requested from a third-party host.
+ */
+export function useIconBase(): string {
+  return useMe().data?.ui?.iconBaseUrl ?? "";
+}
+
 export interface InfraLinks {
   links: InfraLink[];
   /** The launcher.links envelope has not arrived: nothing is known yet, which is not "no links". */
@@ -74,8 +92,7 @@ export interface InfraLinks {
  */
 export function useInfraLinks(): InfraLinks {
   const data = useTopicData("launcher.links");
-  // The icon base arrives with /me; until then every icon is a letter tile.
-  const base = useMe().data?.ui?.iconBaseUrl ?? "";
+  const base = useIconBase();
   // A launcher that failed to start never publishes (the supervisor drops its topics): its
   // missing envelope is an answer, not something still on its way.
   const failed = usePluginsState().byId.get("launcher")?.state === "error";

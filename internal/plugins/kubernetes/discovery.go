@@ -28,15 +28,22 @@ type crd struct {
 	// absent one is not a note.
 	wantedWhenAbsent bool
 	topic            uint32 // the topic that carries its data (dirtyCluster, dirtyStorage, dirtyApps)
+	// needsList marks a resource that is served everywhere but may be refused to this client (the
+	// Ingresses need RBAC the default role lacks): when its informer has not listed within the
+	// sync timeout it counts as failed, and the topic publishes without it.
+	needsList bool
 }
 
 // crds are the resources the plugin watches, from the settings.
 func (r *runtime) crds() []crd {
 	out := []crd{
-		{kube.GVRCertificates, kube.KindCertificates, "cert-manager", r.cfg.Optional.Certificates, true, dirtyCluster},
-		{kube.GVRExternalSecrets, kube.KindExtSecrets, "external-secrets", r.cfg.Optional.ExternalSecrets, true, dirtyCluster},
-		{kube.GVRHTTPRoutes, kube.KindHTTPRoutes, "gateway-api", r.cfg.Optional.HTTPRoutes, true, dirtyApps},
-		{kube.GVRCNPGClusters, kube.KindCNPG, "cnpg", true, false, dirtyStorage},
+		{kube.GVRCertificates, kube.KindCertificates, "cert-manager", r.cfg.Optional.Certificates, true, dirtyCluster, false},
+		{kube.GVRExternalSecrets, kube.KindExtSecrets, "external-secrets", r.cfg.Optional.ExternalSecrets, true, dirtyCluster, false},
+		{kube.GVRHTTPRoutes, kube.KindHTTPRoutes, "gateway-api", r.cfg.Optional.HTTPRoutes, true, dirtyApps, false},
+		{kube.GVRCNPGClusters, kube.KindCNPG, "cnpg", true, false, dirtyStorage, false},
+	}
+	if r.cfg.Apps.Ingress {
+		out = append(out, crd{kube.GVRIngresses, kube.KindIngresses, "ingress", false, true, dirtyApps, true})
 	}
 	return out
 }
@@ -135,7 +142,15 @@ func (r *runtime) crdState(c crd) (absent, failed bool) {
 	if slices.Contains(d.failed, c.gvr.GroupVersion().String()) {
 		return false, true
 	}
-	return !r.cl.Has(c.gvr), false
+	if absent := !r.cl.Has(c.gvr); absent || !c.needsList {
+		return absent, false
+	}
+	return false, r.stuck(c)
+}
+
+// stuck reports a served resource whose informer has not listed within the sync timeout.
+func (r *runtime) stuck(c crd) bool {
+	return !r.cl.Listed(c.gvr) && r.h.Now().Sub(r.started) >= r.t.typedSyncTimeout
 }
 
 // notes are the source notes of the topic(s) in mask: one per CRD the topic carries data of that
@@ -149,7 +164,11 @@ func (r *runtime) notes(mask uint32, now time.Time) []model.SourceStatus {
 		absent, failed := r.crdState(c)
 		switch {
 		case failed:
-			out = append(out, model.SourceStatus{Name: c.name, Error: upstream.CategoryUnreachable, CheckedAt: now.UTC()})
+			cat := upstream.CategoryUnreachable
+			if err := r.cl.WatchError(c.gvr); err != nil && c.needsList {
+				cat = kube.Category(err)
+			}
+			out = append(out, model.SourceStatus{Name: c.name, Error: cat, CheckedAt: now.UTC()})
 		case absent && c.wantedWhenAbsent && !c.optional:
 			out = append(out, model.SourceStatus{Name: c.name, Error: upstream.CategoryNotConfigured, CheckedAt: now.UTC()})
 		}

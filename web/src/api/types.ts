@@ -706,10 +706,9 @@ export interface StatusData {
 export interface App {
   name: string;
   description: string;
-  iconUrl: string;
   /**
    * Icon is the raw icon token of the app (a dashboard-icons name, a same-origin path or a URL);
-   * the SPA resolves it, and it replaces IconURL (design D9).
+   * the SPA resolves it against ui.iconBaseURL (design D9).
    */
   icon: string;
   /**

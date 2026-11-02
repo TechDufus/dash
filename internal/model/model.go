@@ -658,9 +658,8 @@ type StatusData struct {
 type App struct {
 	Name        string `json:"name"`
 	Description string `json:"description"`
-	IconURL     string `json:"iconUrl"`
 	// Icon is the raw icon token of the app (a dashboard-icons name, a same-origin path or a URL);
-	// the SPA resolves it, and it replaces IconURL (design D9).
+	// the SPA resolves it against ui.iconBaseURL (design D9).
 	Icon string `json:"icon"`
 	// Ref is kubernetes:App/<ns>/<source>/<resource>/<host> (design L.6).
 	Ref       string `json:"ref"`

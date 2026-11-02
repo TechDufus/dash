@@ -6,11 +6,9 @@ import (
 	"github.com/TechDufus/dash/internal/model"
 )
 
-// Apps is the application list: six apps, all healthy.
+// Apps is the application list: six apps, all healthy. Icons are raw dashboard-icons tokens; the
+// SPA resolves them against ui.iconBaseURL.
 func (*World) Apps() model.AppsData {
-	icon := func(n string) string {
-		return "https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/png/" + n + ".png"
-	}
 	var d model.AppsData
 	yes := true
 	for _, a := range []struct{ name, desc, icon, ns string }{
@@ -28,7 +26,7 @@ func (*World) Apps() model.AppsData {
 		if a.ns == "acme" {
 			g = model.GroupTenants
 		}
-		d.Apps = append(d.Apps, model.App{Name: a.name, Description: a.desc, IconURL: icon(a.icon),
+		d.Apps = append(d.Apps, model.App{Name: a.name, Description: a.desc, Icon: a.icon,
 			Href: "https://" + strings.ToLower(strings.ReplaceAll(a.name, " ", "-")) + ".example.com", Group: g, Namespace: a.ns, Healthy: &yes})
 	}
 	return d

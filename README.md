@@ -212,7 +212,7 @@ restart with `DASH_PLUGINS_PROXMOX_TOKEN_SECRET_FILE`.
 | `plugins.headlamp.url`, `.cluster` | empty, `main` | Headlamp deep links; a change applies without a restart |
 | `plugins.grafana.url` | empty | Grafana links (the alert list on alerts, Grafana on the host); a change applies without a restart |
 | `plugins.launcher.file`, `.links` | empty | the launcher's links, from a YAML or JSON file or inline (not both); the file is read when the launcher starts, so restart dash or change the launcher's settings to read it again |
-| `ui.iconBaseURL` (`DASH_UI_ICON_BASE_URL`) | empty (letter tiles) | where the icons of launcher links come from: a name such as `proxmox` is requested from `<iconBaseURL>/proxmox.png`, an absolute icon URL is used only under it. It covers the launcher only: the icons of apps on the Apps page still come from the CDN URL dash builds. Set it to `https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/png` to keep launcher icons by name; a restart applies it |
+| `ui.iconBaseURL` (`DASH_UI_ICON_BASE_URL`) | empty (letter tiles) | where icons come from, for launcher links and for the apps on the Apps page: a name such as `proxmox` is requested from `<iconBaseURL>/proxmox.png` (a trailing `.png`, `.svg` or `.webp` on the name is dropped first), an absolute icon URL is used only under it, and homepage-style `mdi-`, `si-` and `sh-` names show no icon. With it empty no icon is requested and every app and link is a letter tile: app icons no longer come from a CDN by default. Set it to `https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/png` to keep icons by name; a restart applies it |
 | `plugins.kubernetes.mode` | `auto` | how dash reaches the cluster: `auto` uses `plugins.kubernetes.kubeconfig` (or `KUBECONFIG`) when set, else the in-cluster configuration, else runs without a cluster (the plugin is `unavailable`, its pages are hidden, and dash still serves everything else); `inCluster` and `kubeconfig` insist on that one source and report an error when it is missing. A change of any `plugins.kubernetes.*` setting applies live: the kubernetes plugin restarts, and so does `proxmox` |
 | `plugins.kubernetes.kubeconfig`, `.context` | in-cluster, the kubeconfig's current context | `kubeconfig` is used outside the cluster (development); the standard `KUBECONFIG` fills it too (this setting's own variable wins), with no `_FILE` form. `context` picks the kubeconfig's context and is read only with a kubeconfig |
 | `plugins.kubernetes.qps`, `.burst` | `20`, `40` | the rate limits of dash's Kubernetes client; `qps` above 0 and `burst` at least `qps` |
@@ -221,6 +221,10 @@ restart with `DASH_PLUGINS_PROXMOX_TOKEN_SECRET_FILE`.
 | `plugins.kubernetes.upstreamViaAPIServer` | `false` | send the other plugins' requests to in-cluster service URLs (`http://<service>.<namespace>.svc`) through the API server's service proxy, with the Kubernetes credentials: for running dash on a laptop against a remote cluster (`DASH_DEV` no longer does this). Applies to requests made after the plugin starts |
 | `plugins.kubernetes.actions.enabled` | `false` | mounts the `restart` action (a rollout restart of a Deployment, StatefulSet or DaemonSet, admin only); a namespace that the protected label marks needs the workload's name typed as a confirmation. `DASH_PLUGINS_KUBERNETES_ACTIONS_ENABLED=true`; a change restarts the plugin |
 | `plugins.kubernetes.actions.denyNamespaces` | `[]` | namespaces where `restart` answers 403 and the refusal is audited (a JSON list in the environment) |
+| `plugins.kubernetes.apps.gateways` | `[]` (every route) | `[{namespace, name}]` (a JSON list in the environment): only HTTPRoutes whose `spec.parentRefs` name one of these gateways are apps; a parent reference without a namespace means the route's own namespace. Empty accepts every HTTPRoute. `DASH_PLUGINS_KUBERNETES_APPS_GATEWAYS='[{"namespace":"gateway","name":"home"}]'` |
+| `plugins.kubernetes.apps.excludeNamespaces` | `[]` (none) | namespaces whose routes and ingresses are never apps, typically dash's own (a JSON list in the environment) |
+| `plugins.kubernetes.apps.annotationPrefix` | `gethomepage.dev` | the annotation keys read for an app: `<prefix>/name`, `/group`, `/description` and `/icon`; a trailing `/` is ignored. `/icon` is a [dashboard-icons](https://github.com/homarr-labs/dashboard-icons) name, a same-origin path or a URL under `ui.iconBaseURL`; homepage-style `mdi-`, `si-` and `sh-` names show no icon |
+| `plugins.kubernetes.apps.ingress` | `false` | also reads `networking.k8s.io/v1` Ingresses, one app per rule host (`https://<host>`), with the same annotations and exclusions; needs the `ingresses` permission under [Kubernetes permissions](#kubernetes-permissions-rbac) |
 | `plugins.<id>.enabled` | unset (on when configured) | `false` turns that plugin off: its topics are removed, and the web UI drops its rail entry, palette entries, overview tiles and panels and shows a "switched off" page at its address. Unset turns it on when it has the settings it needs: a plugin without them is `disabled` ("not configured: set plugins.<id>.url", naming the setting to make; the launcher names `links` or `file`; the hardware plugin names `hosts` or `machines`) and the web UI hides its pages; `true` with settings missing or invalid makes it `unconfigured`. That is how `prometheus`, `alertmanager`, `gatus`, `victorialogs`, `proxmox`, `hardware`, `kubernetes`, `grafana`, `headlamp` and `launcher` behave, and a change to any of their settings applies live: that plugin restarts, and so do the plugins that use or require it (a `prometheus` change restarts `proxmox`, `hardware` and `kubernetes`; a `gatus` change restarts `hardware` and `kubernetes`; a `proxmox` change restarts `hardware`; a `kubernetes` change restarts `proxmox`; a `grafana` change restarts `alertmanager`). `flux` has not moved to a plugin of its own yet: a change to it needs a restart |
 | `plugins.<id>.type` | the section name | the plugin type; dash runs one instance per type, so leave it unset or equal to the section name |
 
@@ -436,9 +440,17 @@ rules:
   - apiGroups: [source.toolkit.fluxcd.io]
     resources: [gitrepositories, ocirepositories, helmrepositories]
     verbs: [get, list, watch, patch]
+  # Only with plugins.kubernetes.apps.ingress: true.
+  - apiGroups: [networking.k8s.io]
+    resources: [ingresses]
+    verbs: [get, list, watch]
 ```
 
 `plugins.kubernetes.upstreamViaAPIServer` (development) also needs `get` on `services/proxy`.
+`plugins.kubernetes.apps.ingress: true` also needs `get`, `list` and `watch` on `ingresses` in
+`networking.k8s.io`; this is documented here and is not part of the rules above, so grant it only
+where you turn the key on (without the permission the apps are published without Ingresses and the
+plugin is `degraded`).
 A cluster that lacks a CRD group is fine: mark the kinds in `plugins.kubernetes.optional.*` to
 keep the plugin out of `degraded` for it.
 
@@ -459,6 +471,9 @@ upstream URL turns that source off: dash makes no request to it and its panels s
 | `app-` | `plugins.kubernetes.conventions.appsFluxPrefix` |
 | `homelab_zfs_scrub` | `plugins.hardware.zfsScrubMetricPrefix` |
 | `rustfs` / `nas-backup` | `plugins.kubernetes.backupJobs` (`[{namespace: rustfs, cronjob: nas-backup}]`) |
+| only routes of the gateway `gateway/home` were apps | `plugins.kubernetes.apps.gateways` (`[{namespace: gateway, name: home}]`); empty now accepts every HTTPRoute |
+| the `dash` namespace was never an app | `plugins.kubernetes.apps.excludeNamespaces` (`[dash]`); empty now skips nothing |
+| app icons from a CDN | `ui.iconBaseURL` (`https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/png`); empty now shows letter tiles |
 
 ### Removed variable names
 
