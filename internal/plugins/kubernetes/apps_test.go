@@ -2,7 +2,11 @@ package kubernetes
 
 import (
 	"encoding/json"
+	"fmt"
+	"maps"
+	"reflect"
 	"slices"
+	"sort"
 	"strings"
 	"testing"
 
@@ -12,8 +16,10 @@ import (
 
 	"github.com/TechDufus/dash/internal/kube"
 	"github.com/TechDufus/dash/internal/model"
+	"github.com/TechDufus/dash/internal/plugin"
 	"github.com/TechDufus/dash/internal/plugin/plugintest"
 	"github.com/TechDufus/dash/internal/pluginconf"
+	"github.com/TechDufus/dash/internal/svc"
 )
 
 // appsParent is one entry of an HTTPRoute's spec.parentRefs.
@@ -45,14 +51,17 @@ func appsRoute(ns, name string, parents []appsParent, hosts []string, ann map[st
 	return u
 }
 
-// appsHomelab is the configuration that reproduces the list the code had before the settings
-// existed: one gateway, and dash's own namespace left out.
-func appsHomelab() pluginconf.Kubernetes {
+// appsConfig is the configuration that reproduces the list the code had before the settings
+// existed: one gateway, and one namespace left out.
+func appsConfig(gateway appsParent, excluded string) pluginconf.Kubernetes {
 	cfg := pluginconf.DefaultKubernetes()
-	cfg.Apps.Gateways = []pluginconf.AppsGateway{{Namespace: "gateway", Name: "home"}}
-	cfg.Apps.ExcludeNamespaces = []string{"dash"}
+	cfg.Apps.Gateways = []pluginconf.AppsGateway{{Namespace: gateway.namespace, Name: gateway.name}}
+	cfg.Apps.ExcludeNamespaces = []string{excluded}
 	return cfg
 }
+
+// appsHomelab is appsConfig for the gateway of appsHomeGateway and dash's own namespace.
+func appsHomelab() pluginconf.Kubernetes { return appsConfig(appsHomeGateway, "dash") }
 
 func appsBuild(t *testing.T, ep *fakeGatus, infos map[string]nsInfo, objs ...k8sruntime.Object) model.AppsData {
 	t.Helper()
@@ -476,5 +485,197 @@ func TestRefsAreUniqueUnderCollidingNames(t *testing.T) {
 		if !refs[want] {
 			t.Errorf("missing ref %s in %v", want, refs)
 		}
+	}
+}
+
+// legacyApps is the apps list of v0.8.0, the hand-written code that kubernetes.apps replaced
+// (Manager.buildApps and routeAttachesToHome in internal/topics/feeds.go at v0.8.0), copied into
+// the test as the oracle of the configurable rules. It had two constants of one installation,
+// the gateway a route must be parented on and the namespace it left out, which are parameters
+// here so the test carries neither. The rules are v0.8.0's except the documented differences,
+// which the oracle models:
+//   - a parentRef without a namespace means the route's own (the Gateway API default; v0.8.0
+//     required an explicit namespace);
+//   - Icon is the raw annotation token, trimmed, and not a CDN URL (the web UI resolves it), and
+//     the prefixed tokens that name no dashboard icon (mdi-, si-, sh-) are empty;
+//   - apps of one group and name are ordered by their ref (v0.8.0 left ties to sort.Slice) and a
+//     hostname a route lists twice is one app.
+//
+// routes is every HTTPRoute of the cluster, in any order.
+func legacyApps(routes []*unstructured.Unstructured, infos map[string]nsInfo, ep svc.EndpointHealth, gateway appsParent, excluded string) []model.App {
+	attaches := func(u *unstructured.Unstructured) bool {
+		refs, _, _ := unstructured.NestedSlice(u.Object, "spec", "parentRefs")
+		for _, r := range refs {
+			rm, ok := r.(map[string]any)
+			if !ok {
+				continue
+			}
+			ns, _ := rm["namespace"].(string)
+			if ns == "" {
+				ns = u.GetNamespace()
+			}
+			if rm["name"] == gateway.name && ns == gateway.namespace {
+				return true
+			}
+		}
+		return false
+	}
+	icon := func(raw string) string {
+		raw = strings.TrimSpace(raw)
+		for _, p := range []string{"mdi-", "si-", "sh-"} {
+			if strings.HasPrefix(raw, p) {
+				return ""
+			}
+		}
+		return raw
+	}
+	out := []model.App{}
+	for _, u := range routes {
+		if u.GetNamespace() == excluded || !attaches(u) {
+			continue
+		}
+		hosts, _, _ := unstructured.NestedStringSlice(u.Object, "spec", "hostnames")
+		ann := u.GetAnnotations()
+		listed := map[string]bool{}
+		for _, h := range hosts {
+			if listed[h] {
+				continue
+			}
+			listed[h] = true
+			name := ann["gethomepage.dev/name"]
+			if name == "" {
+				name = strings.SplitN(h, ".", 2)[0]
+			}
+			group := model.GroupApps
+			switch {
+			case infos[u.GetNamespace()].group == model.GroupTenants:
+				group = model.GroupTenants
+			case ann["gethomepage.dev/group"] == "Platform":
+				group = model.GroupPlatform
+			}
+			app := model.App{
+				Name: name, Description: ann["gethomepage.dev/description"], Icon: icon(ann["gethomepage.dev/icon"]),
+				Ref:  plugin.Ref(ID, "App", u.GetNamespace(), "httproute", u.GetName(), h),
+				Href: "https://" + h, Group: group, Namespace: u.GetNamespace(),
+			}
+			if state, known := ep.ByHost(h); known {
+				app.Healthy = new(state == model.HealthOK)
+			}
+			out = append(out, app)
+		}
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Group != out[j].Group {
+			return out[i].Group < out[j].Group
+		}
+		if a, b := strings.ToLower(out[i].Name), strings.ToLower(out[j].Name); a != b {
+			return a < b
+		}
+		return out[i].Ref < out[j].Ref
+	})
+	return out
+}
+
+// The configurable apps rules, with the settings of the installation they replaced, give the
+// list v0.8.0 gave: the oracle and the code are compared over a cross product of parents,
+// namespaces, hostnames, annotations and endpoint health, rather than over ten hand-built routes.
+func TestAppsMatchTheV080Rules(t *testing.T) {
+	gw := appsParent{name: "edge", namespace: "ingress"}
+	const excluded = "tooling"
+
+	parents := map[string][]appsParent{
+		"none":                   nil,
+		"gateway":                {gw},
+		"gateway, no namespace":  {{name: gw.name}},
+		"gateway elsewhere":      {{name: gw.name, namespace: "elsewhere"}},
+		"a public gateway":       {{name: "public", namespace: gw.namespace}},
+		"another, then gateway":  {{name: "other", namespace: "elsewhere"}, gw},
+		"gateway name, wrong ns": {{name: gw.name, namespace: "media"}},
+	}
+	namespaces := []string{"media", "monitoring", "acme", excluded, excluded + "-extra", gw.namespace}
+	hostSets := map[string]func(n int) []string{
+		"none": func(int) []string { return nil },
+		"one":  func(n int) []string { return []string{fmt.Sprintf("a%d.example.com", n)} },
+		"two": func(n int) []string {
+			return []string{fmt.Sprintf("b%d.example.com", n), fmt.Sprintf("c%d.apps.example.com", n)}
+		},
+		"duplicate": func(n int) []string {
+			return []string{fmt.Sprintf("d%d.example.com", n), fmt.Sprintf("d%d.example.com", n)}
+		},
+	}
+	annotations := map[string]map[string]string{
+		"none": nil,
+		"full": {
+			"gethomepage.dev/name": "Full App", "gethomepage.dev/group": "Platform",
+			"gethomepage.dev/description": "Described", "gethomepage.dev/icon": "full.png",
+		},
+		"another group":  {"gethomepage.dev/group": "Media"},
+		"lower platform": {"gethomepage.dev/group": "platform"},
+		"png":            {"gethomepage.dev/icon": "app.png"},
+		"svg":            {"gethomepage.dev/icon": " app.svg "},
+		"mdi":            {"gethomepage.dev/icon": "mdi-monitor-dashboard"},
+		"path":           {"gethomepage.dev/icon": "../x.png"},
+	}
+	infos := map[string]nsInfo{
+		"acme":       {group: model.GroupTenants},
+		"media":      {group: model.GroupApps},
+		"monitoring": {group: model.GroupPlatform},
+	}
+	health := []model.Health{model.HealthUnknown, model.HealthOK, model.HealthCrit}
+	// Maps iterate in no order, so the corpus is built over their sorted keys: it is the same on
+	// every run, and a failure names the same route.
+	var (
+		objs   []k8sruntime.Object
+		routes []*unstructured.Unstructured
+		ep     = &fakeGatus{}
+		n      int
+		hosted int // the hostnames of every route, accepted or not
+	)
+	for _, pk := range slices.Sorted(maps.Keys(parents)) {
+		for _, ns := range namespaces {
+			for _, hk := range slices.Sorted(maps.Keys(hostSets)) {
+				for _, ak := range slices.Sorted(maps.Keys(annotations)) {
+					n++
+					hosts := hostSets[hk](n)
+					hosted += len(hosts)
+					for i, h := range hosts {
+						if hv := health[(n+i)%len(health)]; hv != model.HealthUnknown {
+							ep.set(h, hv)
+						}
+					}
+					u := appsRoute(ns, fmt.Sprintf("r%d", n), parents[pk], hosts, annotations[ak])
+					objs, routes = append(objs, u), append(routes, u)
+				}
+			}
+		}
+	}
+
+	got := buildApps(appsInput{c: testCluster(t, nil, objs...), cfg: appsConfig(gw, excluded), ep: ep, infos: infos}).Apps
+	want := legacyApps(routes, infos, ep, gw, excluded)
+
+	// The corpus is not vacuous: some routes are apps and some are not, and the apps cover every
+	// group and every health verdict.
+	groups, verdicts := map[model.Group]bool{}, map[string]bool{}
+	for _, a := range want {
+		groups[a.Group] = true
+		verdicts[fmt.Sprint(appsHealthValue(a.Healthy))] = true
+	}
+	if len(want) < 100 || len(want) >= hosted || len(groups) != 3 || len(verdicts) != 3 {
+		t.Fatalf("the corpus is degenerate: %d apps of %d hostnames, groups %v, verdicts %v", len(want), hosted, groups, verdicts)
+	}
+
+	if len(got) != len(want) {
+		t.Fatalf("%d apps, the v0.8.0 rules give %d", len(got), len(want))
+	}
+	bad := 0
+	for i := range want {
+		if !reflect.DeepEqual(got[i], want[i]) {
+			if bad++; bad <= 5 {
+				t.Errorf("app %d = %+v (healthy %v)\n   want %+v (healthy %v)", i, got[i], appsHealthValue(got[i].Healthy), want[i], appsHealthValue(want[i].Healthy))
+			}
+		}
+	}
+	if bad > 5 {
+		t.Errorf("... and %d more differences", bad-5)
 	}
 }
