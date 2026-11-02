@@ -497,7 +497,9 @@ func TestRefsAreUniqueUnderCollidingNames(t *testing.T) {
 //   - a parentRef without a namespace means the route's own (the Gateway API default; v0.8.0
 //     required an explicit namespace);
 //   - Icon is the raw annotation token, trimmed, and not a CDN URL (the web UI resolves it), and
-//     the prefixed tokens that name no dashboard icon (mdi-, si-, sh-) are empty;
+//     the prefixed tokens that name no dashboard icon (mdi-, si-, sh-) are empty, and so is a
+//     token longer than 256 bytes;
+//   - a hostname that is empty is skipped, not an app with the href "https://" (v0.8.0 listed it);
 //   - apps of one group and name are ordered by their ref (v0.8.0 left ties to sort.Slice) and a
 //     hostname a route lists twice is one app.
 //
@@ -522,6 +524,9 @@ func legacyApps(routes []*unstructured.Unstructured, infos map[string]nsInfo, ep
 	}
 	icon := func(raw string) string {
 		raw = strings.TrimSpace(raw)
+		if len(raw) > 256 {
+			return ""
+		}
 		for _, p := range []string{"mdi-", "si-", "sh-"} {
 			if strings.HasPrefix(raw, p) {
 				return ""
@@ -538,7 +543,7 @@ func legacyApps(routes []*unstructured.Unstructured, infos map[string]nsInfo, ep
 		ann := u.GetAnnotations()
 		listed := map[string]bool{}
 		for _, h := range hosts {
-			if listed[h] {
+			if h == "" || listed[h] {
 				continue
 			}
 			listed[h] = true
@@ -602,6 +607,7 @@ func TestAppsMatchTheV080Rules(t *testing.T) {
 		"duplicate": func(n int) []string {
 			return []string{fmt.Sprintf("d%d.example.com", n), fmt.Sprintf("d%d.example.com", n)}
 		},
+		"empty": func(n int) []string { return []string{"", fmt.Sprintf("e%d.example.com", n)} },
 	}
 	annotations := map[string]map[string]string{
 		"none": nil,
@@ -615,13 +621,15 @@ func TestAppsMatchTheV080Rules(t *testing.T) {
 		"svg":            {"gethomepage.dev/icon": " app.svg "},
 		"mdi":            {"gethomepage.dev/icon": "mdi-monitor-dashboard"},
 		"path":           {"gethomepage.dev/icon": "../x.png"},
+		"icon at limit":  {"gethomepage.dev/icon": strings.Repeat("a", maxIconToken)},
+		"icon over":      {"gethomepage.dev/icon": strings.Repeat("a", maxIconToken+1)},
 	}
 	infos := map[string]nsInfo{
 		"acme":       {group: model.GroupTenants},
 		"media":      {group: model.GroupApps},
 		"monitoring": {group: model.GroupPlatform},
 	}
-	health := []model.Health{model.HealthUnknown, model.HealthOK, model.HealthCrit}
+	health := []model.Health{model.HealthUnknown, model.HealthOK, model.HealthWarn, model.HealthCrit}
 	// Maps iterate in no order, so the corpus is built over their sorted keys: it is the same on
 	// every run, and a failure names the same route.
 	var (
@@ -654,14 +662,27 @@ func TestAppsMatchTheV080Rules(t *testing.T) {
 	want := legacyApps(routes, infos, ep, gw, excluded)
 
 	// The corpus is not vacuous: some routes are apps and some are not, and the apps cover every
-	// group and every health verdict.
+	// group, every health verdict (a warn endpoint is not healthy), an icon of exactly the limit
+	// and one over it, and a route that lists an empty hostname.
 	groups, verdicts := map[model.Group]bool{}, map[string]bool{}
+	var warned, maxIcon, overIcon int
 	for _, a := range want {
 		groups[a.Group] = true
 		verdicts[fmt.Sprint(appsHealthValue(a.Healthy))] = true
+		if state, known := ep.ByHost(strings.TrimPrefix(a.Href, "https://")); known && state == model.HealthWarn {
+			warned++
+		}
+		if len(a.Icon) == maxIconToken {
+			maxIcon++
+		}
 	}
-	if len(want) < 100 || len(want) >= hosted || len(groups) != 3 || len(verdicts) != 3 {
-		t.Fatalf("the corpus is degenerate: %d apps of %d hostnames, groups %v, verdicts %v", len(want), hosted, groups, verdicts)
+	for _, u := range routes {
+		if icon := u.GetAnnotations()["gethomepage.dev/icon"]; len(icon) > maxIconToken {
+			overIcon++
+		}
+	}
+	if len(want) < 100 || len(want) >= hosted || len(groups) != 3 || len(verdicts) != 3 || warned == 0 || maxIcon == 0 || overIcon == 0 {
+		t.Fatalf("the corpus is degenerate: %d apps of %d hostnames, groups %v, verdicts %v, %d warn, %d icons at the limit, %d over it", len(want), hosted, groups, verdicts, warned, maxIcon, overIcon)
 	}
 
 	if len(got) != len(want) {
