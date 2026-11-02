@@ -223,9 +223,39 @@ describe("Slot", () => {
         { id: "narrow", order: 2, component: () => <p>narrow</p> },
       ],
     };
-    renderApp(<Slot id="storage" env={undefined} />);
+    renderApp(<Slot id="storage" />);
     stream.plugins(shimRows());
     expect(screen.getByText("wide").closest("div.lg\\:col-span-2")).not.toBeNull();
     expect(screen.getByText("narrow").closest("div.lg\\:col-span-2")).toBeNull();
+  });
+
+  it("keeps a storage panel that threw failed until the slot mounts again: it has no props to reset on", () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    let broken = true;
+    mocked.PANELS.kubernetes = {
+      storage: [
+        {
+          id: "picky",
+          order: 1,
+          component: () => {
+            if (broken) throw new Error("bad payload");
+            return <p>fine</p>;
+          },
+        },
+      ],
+    };
+    const view = renderApp(<Slot id="storage" />);
+    stream.plugins(shimRows());
+    expect(screen.getByTestId("panel-failed")).toBeInTheDocument();
+
+    broken = false;
+    stream.plugins(withState(shimRows(), "kubernetes", "degraded"));
+    expect(screen.getByTestId("panel-failed")).toBeInTheDocument();
+
+    view.unmount();
+    renderApp(<Slot id="storage" />);
+    stream.plugins(shimRows());
+    expect(screen.queryByTestId("panel-failed")).toBeNull();
+    expect(screen.getByText("fine")).toBeInTheDocument();
   });
 });

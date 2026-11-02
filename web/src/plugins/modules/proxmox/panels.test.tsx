@@ -123,8 +123,8 @@ describe("the Proxmox storage panel", () => {
 
   const storage = (storages: PVEStorageData["storages"]): PVEStorageData => ({ storages });
 
-  it("reads proxmox.storage, whatever env the slot holds", async () => {
-    renderApp(<Slot id="storage" env={undefined} />);
+  it("reads proxmox.storage itself", async () => {
+    renderApp(<Slot id="storage" />);
     stream.plugins([row()]);
     stream.send(
       "proxmox.storage",
@@ -139,21 +139,21 @@ describe("the Proxmox storage panel", () => {
   });
 
   it("says so when there is no storage", async () => {
-    renderApp(<Slot id="storage" env={undefined} />);
+    renderApp(<Slot id="storage" />);
     stream.plugins([row()]);
     stream.send("proxmox.storage", storage([]));
     expect(await screen.findByText("No storages.")).toBeInTheDocument();
   });
 
   it("shows its own skeleton until the envelope arrives", () => {
-    renderApp(<Slot id="storage" env={undefined} />);
+    renderApp(<Slot id="storage" />);
     stream.plugins([row()]);
     expect(document.querySelector("[aria-busy=true]")).not.toBeNull();
     expect(screen.queryByRole("heading", { name: "Proxmox storage" })).toBeNull();
   });
 
   it("is hidden when proxmox is off", () => {
-    renderApp(<Slot id="storage" env={undefined} />);
+    renderApp(<Slot id="storage" />);
     stream.plugins([row("disabled")]);
     stream.send("proxmox.storage", storage([]));
     expect(screen.queryByRole("heading", { name: "Proxmox storage" })).toBeNull();

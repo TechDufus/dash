@@ -1,6 +1,6 @@
 import type { LucideIcon } from "lucide-react";
 import type { ComponentType, LazyExoticComponent } from "react";
-import type { TopicData, TypedEnvelope } from "@/api/topics";
+import type { TopicData } from "@/api/topics";
 import type { HostData, OverviewData, Topic } from "@/api/types";
 
 declare const topicBrand: unique symbol;
@@ -81,7 +81,8 @@ export type SlotId = "overview.kpis" | "storage" | "apps.sources" | "hardware.fa
 
 export interface SlotProps {
   "overview.kpis": { data: OverviewData };
-  storage: { env: TypedEnvelope<"kubernetes.storage"> | undefined };
+  /** The panels read their own topics; the slot passes nothing. */
+  storage: Record<never, never>;
   "apps.sources": { query: string; compact?: boolean };
   /** Facts about the host that other plugins know (the Proxmox node), drawn on the Hardware page. */
   "hardware.facts": { host?: HostData };

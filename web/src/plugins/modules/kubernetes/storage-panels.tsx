@@ -1,5 +1,6 @@
 import { Archive, Boxes, Database, HardDrive, Search, Waypoints } from "lucide-react";
 import { useMemo } from "react";
+import { useTopic } from "@/api/stream";
 import type { BackupJob, CNPGCluster, Health, PVC, StorageData } from "@/api/types";
 import { BytesBar } from "@/components/bytes-bar";
 import { HeadlampIcon } from "@/components/links";
@@ -25,7 +26,6 @@ import { formatBytes, formatDuration, formatNumber } from "@/lib/format";
 import { HEALTH_TEXT } from "@/lib/health";
 import { useQueryParam } from "@/lib/query-param";
 import { cn } from "@/lib/utils";
-import type { SlotProps } from "../../types";
 
 const HOUR = 3600;
 const SORTS = ["worst", "fullest", "days", "name"] as const;
@@ -311,9 +311,12 @@ function Buckets({ data }: { data: StorageData }) {
   );
 }
 
-type PanelProps = SlotProps["storage"];
-
-export function PvcPanel({ env }: PanelProps) {
+/**
+ * Each panel reads `kubernetes.storage` itself, as the Proxmox panel reads its own topic, so the
+ * Storage slot carries no envelope; the slot only mounts them while the topic is published.
+ */
+export function PvcPanel() {
+  const env = useTopic("kubernetes.storage");
   if (!env) return <PanelSkeleton lines={6} />;
   return (
     <Panel>
@@ -323,7 +326,8 @@ export function PvcPanel({ env }: PanelProps) {
   );
 }
 
-export function ObjectStoragePanel({ env }: PanelProps) {
+export function ObjectStoragePanel() {
+  const env = useTopic("kubernetes.storage");
   if (!env) return <PanelSkeleton lines={3} />;
   return (
     <Panel className="h-full">
@@ -335,7 +339,8 @@ export function ObjectStoragePanel({ env }: PanelProps) {
   );
 }
 
-export function CnpgPanel({ env }: PanelProps) {
+export function CnpgPanel() {
+  const env = useTopic("kubernetes.storage");
   if (!env) return <PanelSkeleton lines={3} />;
   return (
     <Panel className="h-full">
@@ -351,7 +356,8 @@ export function CnpgPanel({ env }: PanelProps) {
 }
 
 /** The backup jobs and the etcd database share one cell of the storage grid. */
-export function BackupEtcdPanel({ env }: PanelProps) {
+export function BackupEtcdPanel() {
+  const env = useTopic("kubernetes.storage");
   if (!env) return <PanelSkeleton lines={2} />;
   const { data } = env;
   const jobs = data.backupJobs ?? [];

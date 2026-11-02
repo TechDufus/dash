@@ -5,9 +5,9 @@ import { Slot } from "@/plugins/slots";
 import { usePluginsState, useTopicAvailable } from "@/plugins/state";
 
 /**
- * The panels come from every plugin that has one. The kubernetes plugin's storage topic feeds its
- * own panels; the Proxmox panel reads proxmox.storage itself, so the page is usable with either
- * plugin alone.
+ * The panels come from every plugin that has one, and each reads its own topic. The page reads
+ * kubernetes.storage only to decide between its skeleton and its panels; the Proxmox panel reads
+ * proxmox.storage itself, so the page is usable with either plugin alone.
  */
 export function StoragePage() {
   const env = useTopic("kubernetes.storage");
@@ -35,7 +35,7 @@ export function StoragePage() {
     return (
       <Page>
         <div className="grid gap-4 lg:grid-cols-2">
-          <Slot id="storage" env={undefined} />
+          <Slot id="storage" />
         </div>
       </Page>
     );
@@ -58,7 +58,7 @@ export function StoragePage() {
   return (
     <Page>
       <div className="grid gap-4 lg:grid-cols-2">
-        <Slot id="storage" env={env} />
+        <Slot id="storage" />
       </div>
     </Page>
   );
