@@ -192,6 +192,8 @@ An **interactive principal** is a person using the SPA: kind `session`, `proxy`,
 
 **As shipped (G4 R1, v0.10.1).** `auth.Principal` carries these fields now; R1 fills `Kind`, `User`, `Role` and `Via`, and the other fields are declared for the releases that follow. Two differences from the sketch: `RoleClaim` is a `[]string` (an OIDC token can carry several role values), and there is a seventh kind, `none`, for `auth.mode: none` (E.2): interactive and admin with no credential. `Via` names what carried the identity (a header name, `cookie` or `fixed`); only the log reads it. `Principal` holds slices, so it is not comparable with `==`.
 
+**As shipped (G4 R2, v0.11.0).** `Authenticator.Authenticate` resolves the proxy, dev, demo and `none` kinds; a Bearer credential is refused 401 `invalid_token` without reading the identity headers (tokens arrive with P7.1), and the principal's `Groups` come from the groups header when `auth.proxy.groupsHeader` is set. `Principal.Via` for a fixed principal is `fixed`. `auth.Warner` lets an authenticator report standing warnings, which `/api/v1/me` returns in `warnings`.
+
 ### M.2 CSRF and Origin checks
 
 CSRF and Origin checks apply to every non-bearer request: interactive and anonymous principals, the ones a browser can be tricked into sending. Bearer principals skip them: a bearer token is not attached automatically, so there is nothing for a forged request to ride on. The SPA never uses bearer tokens.

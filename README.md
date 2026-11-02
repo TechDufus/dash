@@ -167,7 +167,7 @@ restart with `DASH_PLUGINS_PROXMOX_TOKEN_SECRET_FILE`.
 | Setting (file path) | Default | What |
 |---|---|---|
 | `server.publicURL` | required (dev and demo: `http://localhost:5173`) | the URL people open, with scheme and host (`https://dash.example.com`); the only `Origin` accepted on writes |
-| `server.listen` | `127.0.0.1:8080` | API and SPA, reached through oauth2-proxy |
+| `server.listen` | `127.0.0.1:8080` | API and SPA, reached through the identity proxy (oauth2-proxy) |
 | `server.allowedHosts` | empty | extra Host names the API answers besides the `server.publicURL` host (a JSON list in the environment; `["*"]` accepts any) |
 | `server.healthListen` | `0.0.0.0:8081` | `/healthz` and `/readyz` |
 | `server.readyRequires` | empty | plugins `/readyz` waits for, e.g. `["kubernetes"]` for the informer sync (a JSON list in the environment); each must have left `starting` |
@@ -178,6 +178,13 @@ restart with `DASH_PLUGINS_PROXMOX_TOKEN_SECRET_FILE`.
 | `server.limits.tailMaxDuration` | `30m` | a log tail ends after this; the browser reconnects (a duration string, also in the environment) |
 | `server.limits.sseWriteTimeout`, `.bodyReadTimeout` | `10s`, `10s` | a stalled stream write, or a request body that does not arrive, is cut off after this |
 | `server.limits.maxHeaderBytes` | `65536` | request header size of the API listener |
+| `auth.mode` | `proxy` | how dash learns who makes a request: `proxy` (an identity proxy forwards the user name) or `none` (no authentication: every request is an administrator; dash warns at every start and shows a banner, so bind `127.0.0.1`). Never `none` unless you set it |
+| `auth.proxy.userHeaders` | `["X-Forwarded-Preferred-Username","X-Forwarded-User"]` | request headers that carry the user name, first one the proxy sets wins (a JSON list in the environment). Two lines of one header are refused |
+| `auth.proxy.groupsHeader` | empty (groups off) | the header the user's groups arrive in, comma-separated (oauth2-proxy: `X-Forwarded-Groups`); `adminGroups` needs it |
+| `auth.proxy.trustedProxies` | `["127.0.0.1/32","::1/128"]` | the TCP peers whose identity headers dash believes (`X-Forwarded-For` is never read); any other peer sending them gets 401 (a JSON list in the environment) |
+| `auth.proxy.allowAnyPeer` | `false` | the opt-in for `0.0.0.0/0` or `::/0` in `trustedProxies`, which lets every client forge an identity (a WARN at every start) |
+| `auth.proxy.adminUsers` | `[]` | user names that are administrators, exact and case-sensitive; `["*"]` makes everyone one (a WARN). **With both admin lists empty every user is a viewer: read-only, no actions.** A JSON list in the environment; applies on a reload |
+| `auth.proxy.adminGroups` | `[]` | groups whose members are administrators; needs `groupsHeader`; a JSON list in the environment; applies on a reload |
 | `settings.ui` | `editable` | `editable` or `readonly` (fully managed) |
 | `dataDir` (`DASH_DATA_DIR`) | `/data` | where dash keeps its state and looks for `config.yaml` |
 | `plugins.prometheus.url` | empty (source not configured) | VictoriaMetrics or Prometheus; a change of any `plugins.prometheus.*` setting applies without a restart |
@@ -620,7 +627,7 @@ name wins), with no `_FILE` form because it is another tool's variable.
 | `internal/hub`, `internal/api` | SSE hub, REST, middleware |
 | `internal/obs` | dash's own Prometheus metrics (`server.metrics`), in a private registry |
 | `internal/hygiene` | repository-wide guards that belong to no package (`TestNoHomelabLiterals`: no lab identifier in non-test code) |
-| `internal/demo` | demo mode: the sign-in of the demo's viewer; `internal/demo/world` is the fake homelab the plugins' demo twins publish from |
+| `internal/demo` | demo mode: `internal/demo/world` is the fake homelab the plugins' demo twins publish from (the demo's user is the fixed principal `auth.Fixed` builds in `cmd/dash`) |
 | `web/` | React 19, Vite, Tailwind v4, shadcn/ui and Magic UI |
 | `web/src/plugins` | the SPA's plugin modules, registry, slots and generic panels; a module's directory name is its plugin ID |
 
