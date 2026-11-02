@@ -68,6 +68,7 @@ type Server struct {
 	openUser    *rateLimiter   // stream-open audit records per user
 	hostWarn    atomic.Int64   // unix nanos of the last unknown-host warning
 	serving     atomic.Bool    // the listeners are bound (MarkServing)
+	probe       principalProbe // first sighting of each user name, for the log
 	schemas     sync.Map       // reflect.Type -> json.RawMessage: action input schemas
 }
 

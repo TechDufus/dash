@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/TechDufus/dash/internal/auth"
 	"github.com/TechDufus/dash/internal/model"
 	"github.com/TechDufus/dash/internal/obs"
 )
@@ -116,7 +117,12 @@ func TestEveryTableRouteRunsInsideTheRouteLabelAndRecovery(t *testing.T) {
 	for i := range table {
 		table[i].Handler = func(http.ResponseWriter, *http.Request) { panic("kaboom") }
 	}
-	h := s.d.Metrics.Instrument(s.muxOf(table))
+	// The guard answers a request without a principal before the handler, so the requests are
+	// admin's: this test is about what runs around the handler, not the guard.
+	mux := s.d.Metrics.Instrument(s.muxOf(table))
+	h := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mux.ServeHTTP(w, asPrincipal(r, auth.Principal{Kind: auth.KindProxy, User: "ada", Role: auth.RoleAdmin}))
+	})
 	for _, r := range table {
 		method := r.Method
 		if method == "" {

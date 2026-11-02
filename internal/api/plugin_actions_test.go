@@ -340,7 +340,8 @@ func TestActionWritesIntentAndOutcome(t *testing.T) {
 			if a.action != "restart" || !ok || *in != okRestart {
 				t.Errorf("Act got %q %#v", a.action, a.input)
 			}
-			if want := (auth.Principal{Kind: auth.KindProxy, User: "alice", Role: auth.RoleAdmin}); !reflect.DeepEqual(a.p, want) {
+			want := auth.Principal{Kind: auth.KindProxy, User: "alice", Role: auth.RoleAdmin, Via: "X-Forwarded-Preferred-Username"}
+			if !reflect.DeepEqual(a.p, want) {
 				t.Errorf("principal = %+v, want %+v", a.p, want)
 			}
 

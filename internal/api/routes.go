@@ -17,7 +17,10 @@ type Route struct {
 	Path    string // the ServeMux path, e.g. "/api/v1/topics/{topic}"
 	Summary string
 	Tag     string
-	Role    auth.Role // the lowest role that may call it
+	Role    auth.Role // the lowest role that may call it; empty = public (the catch-alls and the SPA)
+	// Interactive marks a route for a person: a principal that is not interactive (a token, phase
+	// 7) is refused with 403 forbidden, whatever its role. Settings, token and consent routes set it.
+	Interactive bool
 	// Scope is the token scope the route needs: "read", "logs" or "actions:<plugin>". Documented
 	// now; enforced for bearer tokens from phase 7.
 	Scope      string
@@ -121,15 +124,16 @@ func RoutePatterns() []string {
 	return out
 }
 
-// mux registers every route of the table. Mark is the innermost layer, the one that sees the
-// pattern the mux matched; recovered is outside it.
+// mux registers every route of the table. guard enforces the row's Role ahead of the handler;
+// Mark is the layer outside it, the one that sees the pattern the mux matched; recovered is
+// outside both.
 func (s *Server) mux() *http.ServeMux { return s.muxOf(s.routeTable()) }
 
 // muxOf is mux for the given table (the tests wrap its handlers).
 func (s *Server) muxOf(table []Route) *http.ServeMux {
 	mux := http.NewServeMux()
 	for _, r := range table {
-		mux.HandleFunc(r.pattern(), s.recovered(s.d.Metrics.Mark(r.Handler)))
+		mux.HandleFunc(r.pattern(), s.recovered(s.d.Metrics.Mark(s.guard(r, r.Handler))))
 	}
 	return mux
 }

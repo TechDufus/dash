@@ -70,12 +70,21 @@ func (s *Server) csrf(next http.Handler) http.Handler {
 	})
 }
 
+// forwardedUser is the user oauth2-proxy forwarded and the header that carried it, or "" when it
+// sent none. The preferred username wins over the subject.
+func forwardedUser(r *http.Request) (user, header string) {
+	for _, h := range [...]string{"X-Forwarded-Preferred-Username", "X-Forwarded-User"} {
+		if u := strings.TrimSpace(r.Header.Get(h)); u != "" {
+			return u, h
+		}
+	}
+	return "", ""
+}
+
 // proxyUser is the user oauth2-proxy forwarded, or "" when it sent none.
 func proxyUser(r *http.Request) string {
-	if u := strings.TrimSpace(r.Header.Get("X-Forwarded-Preferred-Username")); u != "" {
-		return u
-	}
-	return strings.TrimSpace(r.Header.Get("X-Forwarded-User"))
+	u, _ := forwardedUser(r)
+	return u
 }
 
 // requestUser is the user a request acts as before auth has run: the forwarded user, or "dev"
@@ -103,9 +112,16 @@ func (s *Server) auth(next http.Handler) http.Handler {
 			writeErr(w, http.StatusUnauthorized, model.ErrCodeUnauthenticated, "unauthenticated")
 			return
 		}
+		// What carried the identity, for the probe: the process modes sign in a fixed user, any
+		// other request is the header oauth2-proxy set.
+		via := "fixed"
+		if !s.d.Cfg.Dev && !s.d.Cfg.Demo {
+			_, via = forwardedUser(r)
+		}
 		// G2 gives every authenticated principal the admin role, as before (design E.1); P4.2
 		// replaces this with the role mapping.
-		p := auth.Principal{Kind: auth.Kind(s.authMode()), User: user, Role: auth.RoleAdmin}
+		p := auth.Principal{Kind: auth.Kind(s.authMode()), User: user, Role: auth.RoleAdmin, Via: via}
+		s.probe.see(p, peerOf(r))
 		ctx := context.WithValue(context.WithValue(r.Context(), userKey{}, user), principalKey{}, p)
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
