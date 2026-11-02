@@ -123,6 +123,8 @@ Two follow-on defaults are part of this decision:
 
 **As shipped (G3 PR-2, v0.8.0).** `hardware` does not require `prometheus`: it `Uses` prometheus, proxmox and gatus, so a deployment that lists only Gatus-backed machines runs without a Prometheus-compatible source, and whichever half of the plugin cannot run reports that in its sources instead of the plugin being `blocked`. The rest of this decision stands: `hardware` is its own plugin, enabled, shown and configured on its own (`disabled` until `plugins.hardware.hosts` or `machines` is set).
 
+**As shipped (G3 PR-3b, v0.10.0).** `cnpg` `Requires` `kubernetes` and `Uses` `prometheus` (the backup age is a Prometheus series, so without the `prometheus` plugin it lists its clusters with a `not_configured` note and no age instead of being `blocked`), and `rustfs` `Requires` `prometheus` as written. `flux` is a plugin of its own too (`Requires` `kubernetes`). One part of the decision's reasoning is qualified: **`rustfs` is the one plugin that is off unless `enabled: true`**, because nothing in its settings says that an object store exists, whereas `cnpg` and `flux` are automatic and hide themselves when the cluster serves no CRD of theirs. The `enabled` documentation says so.
+
 ### 11. Actions default
 
 **Decision.** Actions are off per plugin: `actions.enabled: false` (design A.8).
@@ -133,6 +135,8 @@ Two follow-on defaults are part of this decision:
 **Consequences.** With actions disabled the action route is not mounted and the SPA hides its buttons. Each plugin that declares actions needs the `actions.enabled` field. The existing deployment sets it to `true` explicitly. The admission policy remains the real fence for Kubernetes writes.
 
 **As shipped (G3 PR-3a, v0.9.0).** Kubernetes Restart and Flux reconcile were on without a setting. Restart now follows this decision: it is a framework action of the `kubernetes` plugin, off until `plugins.kubernetes.actions.enabled` (`DASH_PLUGINS_KUBERNETES_ACTIONS_ENABLED=true`), so the existing deployment must set it in the same change as the image (the PR-3a release notes say so). Reconcile is still the legacy route, outside this rule, until v0.10.0.
+
+**As shipped (G3 PR-3b, v0.10.0).** Reconcile now follows this decision too: it is a framework action of the `flux` plugin, off until `plugins.flux.actions.enabled` (`DASH_PLUGINS_FLUX_ACTIONS_ENABLED=true`), so the existing deployment must set it in the same change as the image (the PR-3b release notes say so). The legacy route, with its missing role check, rate limit and `denyNamespaces`, is gone and answers 404; the PR-3a sentence "Reconcile is still the legacy route, outside this rule, until v0.10.0" is history. No action is outside the rule any more.
 
 ### 12. Roles
 

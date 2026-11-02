@@ -570,6 +570,8 @@ upstream URL turns that source off: dash makes no request to it and its panels s
 | the `dash` namespace was never an app | `plugins.kubernetes.apps.excludeNamespaces` (`[dash]`); empty now skips nothing |
 | app icons from a CDN | `ui.iconBaseURL` (`https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/png`); empty now shows letter tiles |
 | the RustFS buckets and capacity were always read | `plugins.rustfs.enabled` (`true`; the plugin is now off unless set, and its series names are `plugins.rustfs.metrics.*`) |
+| one Flux source was always the one that had to be signed and verified | `plugins.flux.verify.sources` (`[{kind: GitRepository, namespace: <ns>, name: <name>}]`); empty now pins none, and any source with `spec.verify` is checked unless `plugins.flux.verify.requireWhenSpecVerify` is `false` |
+| Reconcile was always on | `plugins.flux.actions.enabled` (`true`; the action is now off unless set) |
 
 ### Removed variable names
 
