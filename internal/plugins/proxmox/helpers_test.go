@@ -310,6 +310,7 @@ type envOpts struct {
 	demo     bool
 	scrub    func(string) string
 	links    func(plugin.LinkRequest) []model.Link // a headlamp-like provider
+	prefill  func(*env)                            // fills the fakes before the plugin starts: a poll never sees half of it
 }
 
 // testToken is a secret.Value holding testToken; Update rotates it.
@@ -389,6 +390,9 @@ func newEnv(t *testing.T, o envOpts) *env {
 		t.Fatal(err)
 	}
 	e.hub.SetOrder(sup.TopicOrder)
+	if o.prefill != nil {
+		o.prefill(e)
+	}
 	ctx, cancel := context.WithCancel(context.Background())
 	if err := sup.Run(ctx); err != nil {
 		cancel()

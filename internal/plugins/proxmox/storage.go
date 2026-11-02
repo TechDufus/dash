@@ -3,7 +3,9 @@ package proxmox
 import (
 	"context"
 	"errors"
+	"slices"
 	"sort"
+	"strings"
 	"sync"
 
 	"github.com/TechDufus/dash/internal/model"
@@ -100,25 +102,55 @@ func (r *runtime) storageFromPrometheus(ctx context.Context) error {
 			r.promNames[s.Labels["id"]] = s.Labels["storage"]
 		}
 	}
-	r.storages = prometheusStorages(r.promUsed, r.promSize, r.promNames)
+	r.storages = prometheusStorages(r.node, r.promUsed, r.promSize, r.promNames)
 	return errors.Join(errs[:]...)
 }
 
 // prometheusStorages assembles the storages from the exporter's series, which are keyed by the
 // "storage/<node>/<name>" id: the name comes from pve_storage_info, or is the id when there is
 // none. The list is by name.
-func prometheusStorages(used, size map[string]float64, names map[string]string) []pvemodel.PVEStorage {
-	out := make([]pvemodel.PVEStorage, 0, len(size))
-	for id, total := range size {
-		name := names[id]
-		if name == "" {
-			name = id
+//
+// An exporter that reports several nodes carries every node's storages. When any id belongs to
+// this plugin's node, only those are kept, as the API source lists only this node's; when none
+// does (the exporter names its nodes differently), all of them stay. A ref is the name, except
+// for a name that more than one remaining storage has: those use their id, so refs never repeat.
+func prometheusStorages(node string, used, size map[string]float64, names map[string]string) []pvemodel.PVEStorage {
+	ids := make([]string, 0, len(size))
+	mine := false
+	for id := range size {
+		ids = append(ids, id)
+		mine = mine || (node != "" && strings.HasPrefix(id, "storage/"+node+"/"))
+	}
+	if mine {
+		ids = slices.DeleteFunc(ids, func(id string) bool { return !strings.HasPrefix(id, "storage/"+node+"/") })
+	}
+	nameOf := func(id string) string {
+		if n := names[id]; n != "" {
+			return n
+		}
+		return id
+	}
+	count := map[string]int{}
+	for _, id := range ids {
+		count[nameOf(id)]++
+	}
+	sort.Slice(ids, func(i, j int) bool {
+		if a, b := nameOf(ids[i]), nameOf(ids[j]); a != b {
+			return a < b
+		}
+		return ids[i] < ids[j]
+	})
+	out := make([]pvemodel.PVEStorage, 0, len(ids))
+	for _, id := range ids {
+		name := nameOf(id)
+		key := name
+		if count[name] > 1 {
+			key = id
 		}
 		out = append(out, pvemodel.PVEStorage{
-			Ref: plugin.Ref(ID, "Storage", name), Name: name, UsedBytes: int64(used[id]), SizeBytes: int64(total),
+			Ref: plugin.Ref(ID, "Storage", key), Name: name, UsedBytes: int64(used[id]), SizeBytes: int64(size[id]),
 		})
 	}
-	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
 	return out
 }
 

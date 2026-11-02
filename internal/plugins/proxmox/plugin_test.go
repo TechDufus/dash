@@ -3,6 +3,7 @@ package proxmox
 import (
 	"context"
 	"net/http"
+	goruntime "runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -271,13 +272,19 @@ func TestStorageTopicFromTheAPISkipsInactiveStorages(t *testing.T) {
 // builder did for the same samples: the name from pve_storage_info (the id when there is none),
 // usage by id, sorted by name.
 func TestStorageSourceAPIAndPrometheus(t *testing.T) {
-	e := newEnv(t, envOpts{cfg: func(c *pluginconf.Proxmox) { c.Storage.Source = pluginconf.ProxmoxStoragePrometheus }})
-	e.prom.set(exprStorageUsed,
-		sample(1000, "id", "storage/pve-1/local"), sample(50, "id", "storage/pve-1/tank"), sample(7, "id", "storage/pve-1/nameless"))
-	e.prom.set(exprStorageSize,
-		sample(4000, "id", "storage/pve-1/local"), sample(100, "id", "storage/pve-1/tank"), sample(70, "id", "storage/pve-1/nameless"))
-	e.prom.set(exprStorageInfo,
-		sample(1, "id", "storage/pve-1/local", "storage", "local"), sample(1, "id", "storage/pve-1/tank", "storage", "tank"))
+	e := newEnv(t, envOpts{
+		cfg: func(c *pluginconf.Proxmox) { c.Storage.Source = pluginconf.ProxmoxStoragePrometheus },
+		// Loaded before the plugin starts: a poll that ran in the middle of loading it published
+		// three storages without their names, and the wait below saw them.
+		prefill: func(e *env) {
+			e.prom.set(exprStorageUsed,
+				sample(1000, "id", "storage/pve-1/local"), sample(50, "id", "storage/pve-1/tank"), sample(7, "id", "storage/pve-1/nameless"))
+			e.prom.set(exprStorageSize,
+				sample(4000, "id", "storage/pve-1/local"), sample(100, "id", "storage/pve-1/tank"), sample(70, "id", "storage/pve-1/nameless"))
+			e.prom.set(exprStorageInfo,
+				sample(1, "id", "storage/pve-1/local", "storage", "local"), sample(1, "id", "storage/pve-1/tank", "storage", "tank"))
+		},
+	})
 	var s pvemodel.PVEStorageData
 	var srcs []model.SourceStatus
 	waitFor(t, "storages from prometheus", func() bool {
@@ -310,6 +317,65 @@ func TestStorageSourceAPIAndPrometheus(t *testing.T) {
 	if srcs[0].Error != "unreachable" {
 		t.Errorf("error = %q, want a category", srcs[0].Error)
 	}
+}
+
+// An exporter that reports the storages of several nodes: this node's are listed, with its own
+// numbers, and no ref repeats.
+func TestStoragePrometheusSelectsThisNodesStorages(t *testing.T) {
+	e := newEnv(t, envOpts{
+		cfg:     func(c *pluginconf.Proxmox) { c.Storage.Source = pluginconf.ProxmoxStoragePrometheus },
+		prefill: twoNodeStorages,
+	})
+	want := []pvemodel.PVEStorage{
+		{Ref: "proxmox:Storage/local", Name: "local", UsedBytes: 1000, SizeBytes: 4000},
+		{Ref: "proxmox:Storage/tank", Name: "tank", UsedBytes: 50, SizeBytes: 100},
+	}
+	var s pvemodel.PVEStorageData
+	waitFor(t, "this node's storages", func() bool { e.payload(t, "proxmox.storage", &s); return len(s.Storages) > 0 })
+	if !slices.Equal(s.Storages, want) {
+		t.Errorf("storages = %+v\nwant      %+v", s.Storages, want)
+	}
+}
+
+// When no id carries this node's name, every storage stays and the ones that share a name get
+// their id as the ref, each with its own numbers.
+func TestStoragePrometheusRefsNeverRepeat(t *testing.T) {
+	e := newEnv(t, envOpts{
+		cfg: func(c *pluginconf.Proxmox) {
+			c.Storage.Source = pluginconf.ProxmoxStoragePrometheus
+			c.Node = "pve-9"
+		},
+		prefill: twoNodeStorages,
+	})
+	want := []pvemodel.PVEStorage{
+		{Ref: "proxmox:Storage/storage/pve-1/local", Name: "local", UsedBytes: 1000, SizeBytes: 4000},
+		{Ref: "proxmox:Storage/storage/pve-2/local", Name: "local", UsedBytes: 2000, SizeBytes: 8000},
+		{Ref: "proxmox:Storage/tank", Name: "tank", UsedBytes: 50, SizeBytes: 100},
+	}
+	var s pvemodel.PVEStorageData
+	waitFor(t, "every node's storages", func() bool { e.payload(t, "proxmox.storage", &s); return len(s.Storages) > 0 })
+	if !slices.Equal(s.Storages, want) {
+		t.Errorf("storages = %+v\nwant      %+v", s.Storages, want)
+	}
+	refs := map[string]bool{}
+	for _, st := range s.Storages {
+		if refs[st.Ref] {
+			t.Errorf("ref %s repeats", st.Ref)
+		}
+		refs[st.Ref] = true
+	}
+}
+
+// twoNodeStorages loads pve-1 and pve-2: both have a "local" with different numbers, and only
+// pve-1 has "tank".
+func twoNodeStorages(e *env) {
+	e.prom.set(exprStorageUsed,
+		sample(1000, "id", "storage/pve-1/local"), sample(2000, "id", "storage/pve-2/local"), sample(50, "id", "storage/pve-1/tank"))
+	e.prom.set(exprStorageSize,
+		sample(4000, "id", "storage/pve-1/local"), sample(8000, "id", "storage/pve-2/local"), sample(100, "id", "storage/pve-1/tank"))
+	e.prom.set(exprStorageInfo,
+		sample(1, "id", "storage/pve-1/local", "storage", "local"), sample(1, "id", "storage/pve-2/local", "storage", "local"),
+		sample(1, "id", "storage/pve-1/tank", "storage", "tank"))
 }
 
 func TestStoragePrometheusWithoutPrometheusIsNotConfigured(t *testing.T) {
@@ -392,12 +458,38 @@ func TestReloadedSecretReachesTheProxmoxClient(t *testing.T) {
 	}
 }
 
-// Stop ends every goroutine: no request reaches the fake afterwards, and Stop returns in time.
+// runtimeGoroutines counts the goroutines whose stack has a frame of the plugin's runtime: the
+// pollers, the node index watcher and discovery, and anything they started.
+func runtimeGoroutines() int {
+	buf := make([]byte, 1<<20)
+	for {
+		n := goruntime.Stack(buf, true)
+		if n < len(buf) {
+			buf = buf[:n]
+			break
+		}
+		buf = make([]byte, 2*len(buf))
+	}
+	count := 0
+	for _, g := range strings.Split(string(buf), "\n\n") {
+		if strings.Contains(g, "internal/plugins/proxmox.(*runtime)") {
+			count++
+		}
+	}
+	return count
+}
+
+// Stop ends every goroutine: they are gone shortly after it, no request reaches the fake
+// afterwards, and Stop returns in time.
 func TestStopEndsEveryGoroutine(t *testing.T) {
+	before := runtimeGoroutines()
 	pve := newFakePVE(t, false)
 	e := newEnv(t, envOpts{pve: pve, cfg: func(c *pluginconf.Proxmox) { c.Node = "" }}) // discovery too
 	e.state(t, plugin.StateHealthy)
 	p := e.current()
+	if running := runtimeGoroutines(); running < before+4 {
+		t.Fatalf("%d runtime goroutines running, from %d: the count does not see the pollers and the watcher", running, before)
+	}
 
 	start := time.Now()
 	e.sup.Shutdown(context.Background())
@@ -407,9 +499,17 @@ func TestStopEndsEveryGoroutine(t *testing.T) {
 	if err := p.Stop(context.Background()); err != nil { // a second Stop is a no-op
 		t.Errorf("second Stop: %v", err)
 	}
-	before := pve.total()
+	// The goroutines have returned (a goroutine leaves a moment after its WaitGroup is done).
+	deadline := time.Now().Add(2 * time.Second)
+	for runtimeGoroutines() > before && time.Now().Before(deadline) {
+		time.Sleep(5 * time.Millisecond)
+	}
+	if after := runtimeGoroutines(); after > before {
+		t.Errorf("%d runtime goroutines still run after Stop, from %d before Start", after, before)
+	}
+	requests := pve.total()
 	time.Sleep(150 * time.Millisecond) // many poll intervals at the test timing
-	if after := pve.total(); after != before {
-		t.Errorf("%d requests reached the fake after Stop", after-before)
+	if after := pve.total(); after != requests {
+		t.Errorf("%d requests reached the fake after Stop", after-requests)
 	}
 }
