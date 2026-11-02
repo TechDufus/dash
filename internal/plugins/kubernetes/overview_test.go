@@ -71,13 +71,14 @@ func TestAttentionIsNilUntilBothPayloadsExist(t *testing.T) {
 func TestAttentionIsStampedBySupervisorAndSurvivesARestart(t *testing.T) {
 	e := newEnv(t, envOpts{objs: []k8sruntime.Object{node("cp-1", "192.0.2.10", false)}})
 	e.healthy()
+	// at is nil while the instance is not a contributor (a restart in progress): the polls
+	// retry, they must not fail the test from inside.
 	at := func(now time.Time) []model.AttentionItem {
 		for _, c := range e.sup.Contributors() {
 			if c.ID == ID && c.Attention != nil {
 				return c.Attention.Attention(now)
 			}
 		}
-		t.Fatal("kubernetes is not an attention contributor")
 		return nil
 	}
 	since := func(now time.Time) time.Time {

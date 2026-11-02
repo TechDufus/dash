@@ -152,6 +152,26 @@ func (g *swRig) watcher(n int) *watch.RaceFreeFakeWatcher {
 	return g.watches[n-1]
 }
 
+// modifyUntil sends sec as a Modified event to the newest watch, and again to each newer one, until
+// cond holds. A watch the watchers closed to resync (a key was added) drops what it is sent, and
+// the one that replaces it reads the Secret again, not the event.
+func (g *swRig) modifyUntil(what string, sec *corev1.Secret, cond func() bool) {
+	g.t.Helper()
+	sent := -1
+	swEventually(g.t, what, func() bool {
+		g.mu.Lock()
+		var w *watch.RaceFreeFakeWatcher
+		if n := len(g.watches); n-1 != sent && n > 0 {
+			sent, w = n-1, g.watches[n-1]
+		}
+		g.mu.Unlock()
+		if w != nil {
+			w.Modify(sec)
+		}
+		return cond()
+	})
+}
+
 func (g *swRig) gets() int {
 	n := 0
 	for _, a := range g.client.Actions() {
@@ -329,9 +349,11 @@ func TestSecretValuesAreTrimmed(t *testing.T) {
 		t.Error("a blank value must not be a credential")
 	}
 
-	g.watcher(1).Modify(swSecret("dash", "creds", map[string]string{"token": swCanary + "-2\n", "blank": "x"}))
-	swEventually(t, "the trimmed rotation", reveals(v, swCanary+"-2"))
-	swEventually(t, "the blank key to be read", reveals(blank, "x"))
+	// Two handles of one Secret: the second one's reference makes the first watch end and start
+	// again, so the watch open when the rotation is sent may be the one that is already closed.
+	g.modifyUntil("the trimmed rotation and the blank key to be read",
+		swSecret("dash", "creds", map[string]string{"token": swCanary + "-2\n", "blank": "x"}),
+		func() bool { return reveals(v, swCanary+"-2")() && reveals(blank, "x")() })
 }
 
 func TestNotFoundThenCreated(t *testing.T) {

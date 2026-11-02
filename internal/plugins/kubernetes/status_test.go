@@ -704,19 +704,23 @@ func TestUnconfiguredUpstreamsMakeNoRequests(t *testing.T) {
 	}})
 	e.healthy()
 	for _, topic := range []string{"kubernetes.cluster", "kubernetes.storage"} {
-		var raw json.RawMessage
-		srcs, _ := e.payload(topic, &raw)
-		found := false
-		for _, s := range srcs {
-			if s.Name == sourcePrometheus {
-				found = true
-				if s.OK || s.Error != "not_configured" {
-					t.Errorf("%s: prometheus source = %+v", topic, s)
+		// The row is healthy once both polls ended, but the topic is republished after each
+		// poll: until then its source still reads "not polled yet". Wait for the settled one.
+		var srcs []model.SourceStatus
+		waitFor(t, topic+" to carry the settled prometheus source", func() bool {
+			var raw json.RawMessage
+			srcs, _ = e.payload(topic, &raw)
+			for _, s := range srcs {
+				if s.Name == sourcePrometheus {
+					return s.Error != "not polled yet"
 				}
 			}
-		}
-		if !found {
-			t.Errorf("%s: no prometheus source in %+v", topic, srcs)
+			return false
+		})
+		for _, s := range srcs {
+			if s.Name == sourcePrometheus && (s.OK || s.Error != "not_configured") {
+				t.Errorf("%s: prometheus source = %+v", topic, s)
+			}
 		}
 	}
 	if n := e.prom.requests(); n != 0 {
