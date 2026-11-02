@@ -215,6 +215,42 @@ func TestAttentionSinceStartsOverWhenTheInstanceIsDisabledUnconfiguredOrFailsToS
 	}
 }
 
+// An overview rebuild can hold a contributor across a disable. Its late call must not stamp the
+// list into the tracker the disable reset, neither while the instance is disabled nor after it
+// runs again: the next run's items get the time they are first seen then.
+func TestStaleContributorDoesNotStampAfterTheTrackerReset(t *testing.T) {
+	f, _ := stampedFake()
+	e := start(t, f.Factory())
+	var stale plugin.AttentionSource
+	for _, c := range e.sup.Contributors() {
+		if c.ID == "aa" {
+			stale = c.Attention
+		}
+	}
+	if stale == nil {
+		t.Fatal("aa is not an attention contributor")
+	}
+	if got := sinceVia(t, e, "aa", t0); !got.Equal(t0) {
+		t.Fatalf("first since = %v", got)
+	}
+
+	e.set.Set(plugin.InstanceConfig{Name: "aa", Enabled: new(false)})
+	e.reloadUntil(t, "aa to be disabled", func() bool { s, _ := e.state(t, "aa"); return s == model.PluginDisabled })
+	if got := stale.Attention(t0.Add(time.Hour)); got != nil {
+		t.Fatalf("a contributor of a stopped instance came back with %+v, want nil", got)
+	}
+
+	e.set.Set(plugin.InstanceConfig{Name: "aa", Enabled: new(true)})
+	e.reloadUntil(t, "aa to run", func() bool { return e.sup.Running("aa") })
+	if got := stale.Attention(t0.Add(90 * time.Minute)); got != nil {
+		t.Fatalf("a contributor of an earlier run came back with %+v, want nil", got)
+	}
+	t2 := t0.Add(2 * time.Hour)
+	if got := sinceVia(t, e, "aa", t2); !got.Equal(t2) {
+		t.Errorf("since after the late calls = %v, want %v (the first sighting of the new run)", got, t2)
+	}
+}
+
 // nil is "no opinion yet": the sightings stay. A non-nil empty list is "nothing to raise": they go.
 func TestNilAttentionLeavesTheSightingsAndAnEmptyListPrunesThem(t *testing.T) {
 	f, l := stampedFake()

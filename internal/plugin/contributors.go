@@ -30,13 +30,13 @@ func (s *Supervisor) Contributors() []Contributor {
 	var out []Contributor
 	for _, in := range s.registry() {
 		in.mu.RLock()
-		running, p := in.running, in.p
+		running, p, gen := in.running, in.p, in.gen
 		in.mu.RUnlock()
 		if !running || p == nil {
 			continue
 		}
 		c := Contributor{ID: in.id}
-		c.Attention = stampedOf(p, &in.seen)
+		c.Attention = stampedOf(p, in, gen)
 		c.KPIs, _ = p.(KPISource)
 		c.Topology, _ = p.(TopologySource)
 		if c.Attention != nil || c.KPIs != nil || c.Topology != nil {
@@ -51,30 +51,41 @@ func (s *Supervisor) Contributors() []Contributor {
 }
 
 // stamped is an AttentionSource that gives the items of src that have no Since the time they
-// were first seen, by the instance's tracker.
+// were first seen, by the instance's tracker. It belongs to one run of the instance (gen): an
+// overview rebuild can hold it across a disable, and a late call must not write into the tracker
+// that the disable reset, or the next run's items would carry the time of the disable.
 type stamped struct {
-	src  AttentionSource
-	seen *FirstSeen
+	src AttentionSource
+	in  *instance
+	gen uint64
 }
 
-// stampedOf wraps p when it is an AttentionSource, and is nil otherwise.
-func stampedOf(p Plugin, seen *FirstSeen) AttentionSource {
+// stampedOf wraps p, the plugin of in's run gen, when it is an AttentionSource, and is nil
+// otherwise.
+func stampedOf(p Plugin, in *instance, gen uint64) AttentionSource {
 	src, ok := p.(AttentionSource)
 	if !ok {
 		return nil
 	}
-	return stamped{src: src, seen: seen}
+	return stamped{src: src, in: in, gen: gen}
 }
 
 // Attention returns nil, and leaves the tracker alone, while the plugin has no opinion yet (a nil
-// list); any other list, an empty one included, is stamped, which prunes the sightings of items
-// that are gone.
+// list) or its run is over; any other list, an empty one included, is stamped, which prunes the
+// sightings of items that are gone. src runs outside the instance's lock; the tracker is written
+// under its read lock, which excludes the reset (setNotRunning and a failed start hold it for
+// writing), after checking that the instance still runs the same generation.
 func (s stamped) Attention(now time.Time) []model.AttentionItem {
 	items := s.src.Attention(now)
 	if items == nil {
 		return nil
 	}
-	return s.seen.Stamp(now, items)
+	s.in.mu.RLock()
+	defer s.in.mu.RUnlock()
+	if !s.in.running || s.in.gen != s.gen {
+		return nil
+	}
+	return s.in.seen.Stamp(now, items)
 }
 
 // sourcesOf is the Sources function of a plugin: a copy of its Status().Sources, none when Status
