@@ -68,7 +68,7 @@ func TestEveryErrorPathHasACodeThatMatchesItsStatus(t *testing.T) {
 		{name: "plugin stream cap per user", req: req{path: "/api/v1/plugins/rt/tail?ns=media&pod=web"}, plug: noHook, srv: capped, status: 429, code: "too_many_streams"},
 		{name: "plugin stream cap overall", req: req{path: "/api/v1/plugins/rt/tail?ns=media&pod=web"}, plug: noHook, srv: fullTails, status: 503, code: "too_many_streams"},
 		{name: "invalid topic name", req: req{path: "/api/v1/topics/BAD"}, status: 400, code: "invalid_input"},
-		{name: "unknown topic", req: req{path: "/api/v1/topics/cluster"}, status: 404, code: "not_found"},
+		{name: "unknown topic", req: req{path: "/api/v1/topics/x.cluster"}, status: 404, code: "not_found"},
 		{name: "invalid stream filter", req: req{path: "/api/v1/stream?topics=BAD!"}, status: 400, code: "invalid_input"},
 		{name: "stream cap per user", req: req{path: "/api/v1/stream"}, srv: capped, status: 429, code: "too_many_streams"},
 		{name: "stream cap overall", req: req{path: "/api/v1/stream"}, srv: full, status: 503, code: "too_many_streams"},

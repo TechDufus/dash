@@ -70,8 +70,8 @@ type NodeIndex interface {
 	Revision() uint64
 }
 
-// NodeName is what the proxmox plugin exports: the node it reads, for the code that needs the
-// Proxmox node's name (the host half of the hardware plugin, the Manager's host code).
+// NodeName is what the proxmox plugin exports: the node it reads, for the plugins that need the
+// Proxmox node's name (the host half of the hardware plugin).
 type NodeName interface {
 	// NodeName is the configured node, or the one discovery found. ok is false until it is
 	// known. The service is non-nil from the plugin's Start, so ok is the only signal.

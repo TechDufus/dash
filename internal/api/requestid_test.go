@@ -121,12 +121,12 @@ func cacheControl(t *testing.T, h http.Handler, r req) string {
 // no-cache, and the legacy routes are untouched.
 func TestCacheControlNoStoreOnV1AndPrivateNoCacheOnSnapshots(t *testing.T) {
 	s := newServer(nil)
-	if _, err := s.d.Hub.Publish("cluster", map[string]string{"a": "1"}, []model.SourceStatus{}); err != nil {
+	if _, err := s.d.Hub.Publish("x.cluster", map[string]string{"a": "1"}, []model.SourceStatus{}); err != nil {
 		t.Fatal(err)
 	}
 	h := s.Handler()
 
-	for _, path := range []string{"/api/v1/me", "/api/v1/plugins", "/api/v1/series?name=sr.cpu&range=1h", "/api/v1/topics/missing", "/api/v1/nope", "/api/v1/series?range=bad"} {
+	for _, path := range []string{"/api/v1/me", "/api/v1/plugins", "/api/v1/series?name=sr.cpu&range=1h", "/api/v1/topics/x.missing", "/api/v1/nope", "/api/v1/series?range=bad"} {
 		if got := cacheControl(t, h, req{path: path}); got != "no-store" {
 			t.Errorf("%s: Cache-Control = %q, want no-store", path, got)
 		}
@@ -136,12 +136,12 @@ func TestCacheControlNoStoreOnV1AndPrivateNoCacheOnSnapshots(t *testing.T) {
 		t.Errorf("a refused action: Cache-Control = %q", got)
 	}
 
-	w := req{path: "/api/v1/topics/cluster"}.do(h)
+	w := req{path: "/api/v1/topics/x.cluster"}.do(h)
 	etag := w.Header().Get("ETag")
 	if w.Code != http.StatusOK || w.Header().Get("Cache-Control") != "private, no-cache" || etag == "" {
 		t.Fatalf("snapshot = %d, Cache-Control %q, ETag %q", w.Code, w.Header().Get("Cache-Control"), etag)
 	}
-	w = req{path: "/api/v1/topics/cluster", header: map[string]string{"If-None-Match": etag}}.do(h)
+	w = req{path: "/api/v1/topics/x.cluster", header: map[string]string{"If-None-Match": etag}}.do(h)
 	if w.Code != http.StatusNotModified || w.Header().Get("Cache-Control") != "private, no-cache" {
 		t.Errorf("revalidation = %d, Cache-Control %q", w.Code, w.Header().Get("Cache-Control"))
 	}

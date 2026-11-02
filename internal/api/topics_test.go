@@ -85,12 +85,14 @@ func TestTopicSnapshotETagAndNotModified(t *testing.T) {
 func TestTopicSnapshotUnknownIs404AndBadNameIs400(t *testing.T) {
 	s := newServer(nil)
 	h := s.Handler()
-	s.d.Hub.Publish("cluster", 1, nil) // a legacy name has no dot
+	s.d.Hub.Publish("x.cluster", 1, nil)
 	s.d.Hub.PublishFor("alice", "core.approvals", "mine", nil)
 
 	for path, want := range map[string]int{
-		"/api/v1/topics/cluster":                      200,
-		"/api/v1/topics/nope":                         404, // valid name, nothing published
+		"/api/v1/topics/x.cluster":                    200,
+		"/api/v1/topics/x.nope":                       404, // valid name, nothing published
+		"/api/v1/topics/cluster":                      400, // a bare name is not a topic: every topic is <instance>.<topic>
+		"/api/v1/topics/vms":                          400,
 		"/api/v1/topics/core.nope":                    404,
 		"/api/v1/topics/core.approvals":               200, // alice's own scoped topic
 		"/api/v1/topics/Core":                         400,
@@ -120,8 +122,8 @@ func TestTopicSnapshotUnknownIs404AndBadNameIs400(t *testing.T) {
 		t.Errorf("bob: %d %q ETag=%q", w.Code, w.Body.String(), w.Header().Get("ETag"))
 	}
 	// A removed topic is gone.
-	s.d.Hub.Remove("cluster")
-	if w := (req{path: "/api/v1/topics/cluster"}).do(h); w.Code != http.StatusNotFound {
+	s.d.Hub.Remove("x.cluster")
+	if w := (req{path: "/api/v1/topics/x.cluster"}).do(h); w.Code != http.StatusNotFound {
 		t.Errorf("removed topic = %d, want 404", w.Code)
 	}
 	// Reads only.
@@ -154,19 +156,19 @@ func eventNames(t *testing.T, lines <-chan string, n int) []string {
 func TestStreamTopicsFilter(t *testing.T) {
 	s := newServer(nil)
 	s.heartbeat = time.Hour
-	for _, name := range []model.Topic{"a", "b", "core.c"} {
+	for _, name := range []model.Topic{"x.a", "x.b", "core.c"} {
 		s.d.Hub.Publish(name, 1, nil)
 	}
-	_, lines := sseClient(t, s.Handler(), "/api/v1/stream?topics=b,core.c,later")
-	if got := eventNames(t, lines, 2); !slices.Equal(got, []string{"b", "core.c"}) {
+	_, lines := sseClient(t, s.Handler(), "/api/v1/stream?topics=x.b,core.c,x.later")
+	if got := eventNames(t, lines, 2); !slices.Equal(got, []string{"core.c", "x.b"}) {
 		t.Fatalf("snapshot = %v, want only the listed topics, in name order", got)
 	}
-	// "a" is filtered, "later" was unknown at connect time and still arrives once published.
-	s.d.Hub.Publish("a", 2, nil)
-	s.d.Hub.Publish("later", 1, nil)
-	s.d.Hub.Publish("b", 2, nil)
-	if got := eventNames(t, lines, 2); !slices.Equal(got, []string{"later", "b"}) {
-		t.Errorf("live = %v, want [later b]", got)
+	// "x.a" is filtered, "x.later" was unknown at connect time and still arrives once published.
+	s.d.Hub.Publish("x.a", 2, nil)
+	s.d.Hub.Publish("x.later", 1, nil)
+	s.d.Hub.Publish("x.b", 2, nil)
+	if got := eventNames(t, lines, 2); !slices.Equal(got, []string{"x.later", "x.b"}) {
+		t.Errorf("live = %v, want [x.later x.b]", got)
 	}
 }
 
@@ -244,15 +246,17 @@ func TestStreamRejectsBadTopicsFilter(t *testing.T) {
 	h := s.Handler()
 	var tooMany []string
 	for i := range maxStreamTopics + 1 {
-		tooMany = append(tooMany, "t"+strconv.Itoa(i))
+		tooMany = append(tooMany, "t.n"+strconv.Itoa(i))
 	}
 	for name, q := range map[string]string{
-		"uppercase":  "A",
-		"empty item": "a,,b",
-		"trailing":   "a,",
-		"space":      "a, b",
-		"nested":     "a.b.c",
-		"too many":   strings.Join(tooMany, ","),
+		"bare name":      "cluster",
+		"bare in a list": "core.c,cluster",
+		"uppercase":      "A",
+		"empty item":     "a,,b",
+		"trailing":       "a,",
+		"space":          "a, b",
+		"nested":         "a.b.c",
+		"too many":       strings.Join(tooMany, ","),
 	} {
 		w := req{path: "/api/v1/stream?topics=" + strings.ReplaceAll(q, " ", "%20")}.do(h)
 		if w.Code != http.StatusBadRequest || decodeErr(t, w) == "" {
@@ -260,7 +264,7 @@ func TestStreamRejectsBadTopicsFilter(t *testing.T) {
 		}
 	}
 	// The limit is inclusive: exactly 32 is fine (checked on the parser, the stream never ends).
-	if want, err := topicFilter(strings.Join(tooMany[:maxStreamTopics], ",")); err != nil || !want("t31") || want("t32") {
+	if want, err := topicFilter(strings.Join(tooMany[:maxStreamTopics], ",")); err != nil || !want("t.n31") || want("t.n32") {
 		t.Errorf("32 topics: err=%v", err)
 	}
 	// A rejected request holds no stream slot.

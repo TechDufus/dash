@@ -23,9 +23,8 @@ const (
 // an item without a time of its own gets the time it was first seen, from the supervisor.
 //
 // Every item therefore waits for the storage payload, where v0.9.0 showed the cluster's items as
-// soon as the cluster payload existed. storageReady needs both the first storage poll, up to
-// pollTimeout (25 s), and the CNPG list, which while it is refused takes up to 60 s of
-// API-server up-time (listedOrStuck): the item waits for the later of the two.
+// soon as the cluster payload existed. storageReady needs the typed informers synced and the
+// first storage poll, up to pollTimeout (25 s): the items wait for the later of the two.
 func (p *Plugin) Attention(now time.Time) []model.AttentionItem {
 	r := p.rt.Load()
 	if r == nil || r.withdrawn() {

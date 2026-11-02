@@ -13,8 +13,8 @@ import (
 // maxStreamTopics bounds the ?topics= filter of the event stream.
 const maxStreamTopics = 32
 
-// topicNameRE is a topic's SSE name: "<instance>.<topic>", or a bare legacy name ("vms").
-var topicNameRE = regexp.MustCompile(`^[a-z][a-z0-9_]{0,31}(\.[a-z][a-z0-9_]{0,31})?$`)
+// topicNameRE is a topic's SSE name: "<instance>.<topic>", as every plugin and core topic is.
+var topicNameRE = regexp.MustCompile(`^[a-z][a-z0-9_]{0,31}\.[a-z][a-z0-9_]{0,31}$`)
 
 // topic serves the stored envelope of one topic, for clients that poll instead of holding the
 // stream. The ETag is the hub's content digest, so If-None-Match answers 304 until the data or a
