@@ -48,8 +48,8 @@ func openapiCommand(args []string, out io.Writer) error {
 // builtinRoutes are the GET routes and streams of a plugin dash ships, read off a fresh instance
 // that is never started.
 func builtinRoutes(id plugin.ID) []plugin.RouteInfo {
-	if f, ok := realPlugins[id]; ok {
-		if r, ok := f().(plugin.Router); ok {
+	if p, ok := builtinPlugin(id); ok {
+		if r, ok := p.(plugin.Router); ok {
 			return plugin.CollectRoutes(r)
 		}
 	}

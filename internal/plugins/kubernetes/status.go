@@ -15,10 +15,15 @@ import (
 // polls have ended; then degraded (a wanted group is missing or failed) or healthy. The messages
 // carry categories and setting names only.
 func (r *runtime) status() plugin.Status {
-	if r.twin != nil {
-		return plugin.Status{State: plugin.StateHealthy}
-	}
 	now := r.h.Now()
+	if r.twin != nil {
+		// The twin has no cluster to ask: the row says what the live one says when all is well,
+		// so the demo overview carries the chips the plugin's own overview does.
+		return plugin.Status{State: plugin.StateHealthy, Sources: []model.SourceStatus{
+			{Name: sourceKubernetes, OK: true, CheckedAt: now.UTC()},
+			{Name: sourcePrometheus, OK: true, CheckedAt: now.UTC()},
+		}}
+	}
 	srcs := r.rowSources(now)
 	if r.isUnavailable(now) {
 		return plugin.Status{State: plugin.StateUnavailable, Message: "api server unreachable", Sources: srcs}

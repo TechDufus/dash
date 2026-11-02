@@ -1,4 +1,4 @@
-package topics
+package overview
 
 import (
 	"slices"
@@ -116,7 +116,7 @@ func mergeTopology(ts []model.Topology) model.Topology {
 					out.Groups[i].Namespaces = []model.TopologyNamespace{}
 				}
 			} else {
-				out.Groups[i].Health = Worst(out.Groups[i].Health, g.Health)
+				out.Groups[i].Health = worst(out.Groups[i].Health, g.Health)
 				out.Groups[i].Namespaces = append(out.Groups[i].Namespaces, g.Namespaces...)
 			}
 			for node, n := range g.PodsByNode {

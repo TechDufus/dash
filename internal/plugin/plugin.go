@@ -347,7 +347,7 @@ type Publisher interface {
 }
 
 // HostProvider hands out the Host of an instance to code that publishes on behalf of plugins
-// it hosts (demo.Source until P3.13), and the core's Host to topics.Manager.
+// it hosts, and the core's Host to the overview publisher.
 type HostProvider interface {
 	// HostFor never returns nil. For an instance that is not running (or unknown) every call is
 	// a no-op; HostFor(plugin.Core) is always live (core.* topics).

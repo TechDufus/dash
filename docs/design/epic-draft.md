@@ -569,7 +569,7 @@ No aliases survive the phase.
 
 **Acceptance criteria**
 - All leaves closed.
-- `internal/topics` no longer exists, or holds only core composition.
+- `internal/topics` no longer exists; the overview composition lives in `internal/overview`.
 - `rg -n 'flux-system|mac-mini|rpi-control|gateway/home|2020 && vmid' internal web/src` finds only test fixtures that deliberately use neutral names, or nothing.
 - dash starts without a cluster.
 - Every object in plugin payloads carries a `ref`, and each ref prefix resolves to its owning plugin.

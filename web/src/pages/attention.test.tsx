@@ -16,6 +16,7 @@ const item = (id: string, plugin: string, route: string): AttentionItem => ({
   since: "2026-01-01T00:00:00Z",
   route,
   links: [],
+  ref: `${plugin || "core"}:Item/${id}`,
 });
 
 const queue = pluginInfo({

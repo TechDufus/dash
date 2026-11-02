@@ -2,6 +2,7 @@ package api
 
 import (
 	"errors"
+	"fmt"
 	"net/http"
 	"time"
 
@@ -74,13 +75,13 @@ func (s *Server) querier() (svc.Querier, bool) {
 	return q, ok
 }
 
-// seriesExpr builds the query of a named series: a running plugin's series first, then dash's
-// built-in ones.
+// seriesExpr builds the query of a named series from the running plugin that defines it: dash
+// defines none itself, so any other name is a bad series request.
 func (s *Server) seriesExpr(name string, a queries.Args) (string, error) {
 	if s.d.Plugins != nil {
 		if sp, _, ok := s.d.Plugins.Series(name); ok {
 			return sp.Expr(a)
 		}
 	}
-	return queries.Series(name, a)
+	return "", fmt.Errorf("%w: unknown series %q", queries.ErrBadSeries, name)
 }

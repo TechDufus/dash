@@ -1,4 +1,4 @@
-// Plugin rows for tests: the eleven shims as /api/v1/plugins reports them (the built-in plugins' own descriptors).
+// Plugin rows for tests: the built-in plugins as /api/v1/plugins reports them (their own descriptors).
 import type { ActionInfo, PluginInfo } from "@/api/types";
 import { pluginInfo } from "./harness";
 

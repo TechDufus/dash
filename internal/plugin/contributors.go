@@ -16,7 +16,7 @@ type Contributor struct {
 	// Sources reports the instance's own source health (its Status().Sources) as it is now; the
 	// overview merges them, deduplicated by name, into core.overview.sources, so a dead upstream
 	// shows on the Overview panels even though the plugin's data no longer goes through the
-	// topic Manager. A panic in Status gives none.
+	// overview publisher. A panic in Status gives none.
 	Sources func() []model.SourceStatus
 }
 

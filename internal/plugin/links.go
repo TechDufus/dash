@@ -71,7 +71,7 @@ func (l linkSet) Resolve(req LinkRequest) []model.Link {
 
 // Links returns a resolver over the link providers that run now: the registry is read once, and
 // the providers are called outside every supervisor lock, so a provider may call back into the
-// supervisor. The Manager asks once per rebuild, not once per object.
+// supervisor. A caller asks once per round, not once per object.
 func (s *Supervisor) Links() LinkResolver {
 	var set []linkEntry
 	for _, in := range s.registry() {

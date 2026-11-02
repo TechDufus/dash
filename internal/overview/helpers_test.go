@@ -1,4 +1,4 @@
-package topics
+package overview
 
 import (
 	"encoding/json"
@@ -44,12 +44,8 @@ func mustEnvelope(t *testing.T, h *hub.Hub, topic model.Topic) model.Envelope {
 	return env
 }
 
-// testManager is a Manager over the given hosts with no plugin contributing.
-func testManager(hosts plugin.HostProvider) *Manager {
-	return testManagerWith(hosts, nil)
-}
-
-// testManagerWith is testManager with plugins that contribute to the overview.
-func testManagerWith(hosts plugin.HostProvider, contributors func() []plugin.Contributor) *Manager {
+// testPublisherWith is a Publisher over the given hosts and the plugins that contribute to the
+// overview (nil: none does).
+func testPublisherWith(hosts plugin.HostProvider, contributors func() []plugin.Contributor) *Publisher {
 	return New(Deps{Hosts: hosts, Contributors: contributors})
 }

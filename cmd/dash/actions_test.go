@@ -248,8 +248,8 @@ func TestInstanceConfigPolicyFollowsTheSection(t *testing.T) {
 	}
 }
 
-// The registry lists one plugin per id in display order, every plugin dash ships is in that order,
-// and a subset keeps it.
+// The registry lists one plugin per id, in the order the manifests and the plugin rows follow
+// (design A.1), whether or not it is given k8s: references.
 func TestRegistryOrder(t *testing.T) {
 	ids := func(fs []plugin.Factory) (out []plugin.ID) {
 		for _, f := range fs {
@@ -258,31 +258,27 @@ func TestRegistryOrder(t *testing.T) {
 		return out
 	}
 
-	if got := ids(registry(nil)); !slices.Equal(got, displayOrder) {
-		t.Fatalf("registry = %v, want %v", got, displayOrder)
+	want := ids(registry(nil))
+	if got := ids(registry(secret.NewK8sRefs(secret.NewRegistry()))); !slices.Equal(got, want) {
+		t.Errorf("registry with references = %v, want %v", got, want)
 	}
-	for id := range realPlugins {
-		if !slices.Contains(displayOrder, id) {
-			t.Errorf("real plugin %s is not in displayOrder", id)
-		}
+	var manifests []plugin.ID
+	for _, m := range builtinManifests() {
+		manifests = append(manifests, m.ID)
 	}
-
-	// A subset, given in any order, comes out in display order.
-	subset := map[plugin.ID]plugin.Factory{
-		"launcher": realPlugins["launcher"], "flux": realPlugins["flux"], "gatus": realPlugins["gatus"],
+	if !slices.Equal(manifests, want) {
+		t.Errorf("manifests = %v, want the registry's order %v", manifests, want)
 	}
-	want := []plugin.ID{"gatus", "flux", "launcher"}
-	if got := ids(registryOf(subset)); !slices.Equal(got, want) {
-		t.Errorf("registry of a subset = %v, want %v", got, want)
+	sorted := slices.Clone(want)
+	slices.Sort(sorted)
+	if len(slices.Compact(sorted)) != len(want) {
+		t.Errorf("registry lists a plugin twice: %v", want)
 	}
-	ms := manifestsOf(subset)
-	if len(ms) != len(want) {
-		t.Fatalf("%d manifests, want %d", len(ms), len(want))
+	if p, ok := builtinPlugin("flux"); !ok || p.Manifest().ID != "flux" {
+		t.Errorf("builtinPlugin(flux) = %v, %v", p, ok)
 	}
-	for i, m := range ms {
-		if m.ID != want[i] {
-			t.Errorf("manifest %d is %s, want %s", i, m.ID, want[i])
-		}
+	if _, ok := builtinPlugin("nosuch"); ok {
+		t.Error("builtinPlugin knows a plugin that does not exist")
 	}
 }
 

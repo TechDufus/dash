@@ -1,10 +1,9 @@
-// Package queries holds every PromQL expression dash sends to VictoriaMetrics, so the topics
-// (instant values) and /api/v1/series (ranges) share one definition.
+// Package queries holds the PromQL helpers the plugins share: the validated arguments of
+// /api/v1/series, the range table and the guards on names that reach an expression.
 package queries
 
 import (
 	"errors"
-	"fmt"
 	"regexp"
 	"time"
 )
@@ -30,12 +29,6 @@ func ValidVMID(s string) bool { return vmidRE.MatchString(s) }
 
 // ValidDNS reports whether s is an acceptable namespace or pod name argument.
 func ValidDNS(s string) bool { return dnsRE.MatchString(s) }
-
-// Series returns the PromQL expression of a named /api/v1/series that dash itself defines. The
-// series of the plugins come from their manifests (plugin.SeriesSpec), so none is built in.
-func Series(name string, _ Args) (string, error) {
-	return "", fmt.Errorf("%w: unknown series %q", ErrBadSeries, name)
-}
 
 // Range maps a range name to its window and step.
 func Range(name string) (window, step time.Duration, ok bool) {

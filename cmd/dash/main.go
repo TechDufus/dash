@@ -18,9 +18,9 @@ import (
 	"github.com/TechDufus/dash/internal/config"
 	"github.com/TechDufus/dash/internal/demo"
 	"github.com/TechDufus/dash/internal/obs"
+	"github.com/TechDufus/dash/internal/overview"
 	"github.com/TechDufus/dash/internal/plugin"
 	"github.com/TechDufus/dash/internal/secret"
-	"github.com/TechDufus/dash/internal/topics"
 )
 
 // version is set with -ldflags "-X main.version=...".
@@ -121,32 +121,21 @@ func run(reg *secret.Registry) error {
 	if cfg.Metrics {
 		metrics = obs.New(version, api.RoutePatterns(), sup.Infos)
 	}
-	var srv *api.Server
-	var handler http.Handler
+	// Demo and live share one path: the supervisor runs the plugins (their demo twins in demo
+	// mode), then the overview is composed from what they contribute. The supervisor starts
+	// before the publisher so that no first publish is dropped.
+	ov := overview.New(overview.Deps{Hosts: sup, Contributors: sup.Contributors})
+	if err := fw.start(ctx, registry(refs), func() { ov.Run(ctx) }); err != nil {
+		return err
+	}
+	srv := api.New(api.Deps{
+		Cfg: cfg, Version: version, Hub: h, Plugins: sup,
+		Health: sup, Metrics: metrics, Secrets: reg, Audit: alog,
+	})
+	handler := srv.Handler()
 	if cfg.Demo {
-		src := demo.New(cfg)
-		src.HasReal = hasRealPlugin
-		src.Attach(sup)
-		if err := fw.start(ctx, registry(refs), func() { src.Run(ctx) }); err != nil {
-			return err
-		}
-		srv = api.New(api.Deps{
-			Cfg: cfg, Version: version, Hub: h, Plugins: sup, Health: sup, Metrics: metrics, Secrets: reg, Audit: alog,
-		})
-		handler = demo.Wrap(srv.Handler())
+		handler = demo.SignIn(handler)
 		slog.Info("demo mode: serving fake data, no cluster or upstreams are contacted")
-	} else {
-		mgr := topics.New(topics.Deps{Hosts: sup, Contributors: sup.Contributors})
-		// The supervisor starts before the Manager so that no first publish is dropped.
-		if err := fw.start(ctx, registry(refs), func() { mgr.Run(ctx) }); err != nil {
-			return err
-		}
-
-		srv = api.New(api.Deps{
-			Cfg: cfg, Version: version, Hub: h, Plugins: sup,
-			Health: sup, Metrics: metrics, Secrets: reg, Audit: alog,
-		})
-		handler = srv.Handler()
 	}
 
 	// Long-lived SSE requests derive their context from baseCtx, cancelled on shutdown.

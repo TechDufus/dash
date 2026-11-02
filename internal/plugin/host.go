@@ -102,8 +102,8 @@ func (h *host) Service(id ID) (any, bool) {
 }
 
 // Service returns what the Provider instance id exports while that instance runs, without the
-// declared-dependency check of Host.Service: it is for the core's own code (the topic Manager,
-// the API), which is not a plugin and so declares no Requires or Uses.
+// declared-dependency check of Host.Service: it is for the core's own code (the API), which is
+// not a plugin and so declares no Requires or Uses.
 func (s *Supervisor) Service(id ID) (any, bool) { return s.service(id, s.log()) }
 
 func (s *Supervisor) service(id ID, log *slog.Logger) (any, bool) {

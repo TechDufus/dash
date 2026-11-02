@@ -1,4 +1,4 @@
-package topics
+package overview
 
 import (
 	"encoding/json"
@@ -61,11 +61,11 @@ func (goldenProxmoxLinks) Links(req plugin.LinkRequest) []model.Link {
 	return nil
 }
 
-// goldenManager is a Manager that has only what the overview needs.
-func goldenManager() *Manager {
-	m := New(Deps{})
-	m.now = func() time.Time { return testNow }
-	return m
+// goldenPublisher is a Publisher that has only what the overview needs.
+func goldenPublisher() *Publisher {
+	p := New(Deps{})
+	p.now = func() time.Time { return testNow }
+	return p
 }
 
 // goldenAlerts stands in for the running alertmanager plugin: the two firing alerts of the lab
@@ -238,7 +238,7 @@ func (goldenRustFS) Attention(time.Time) []model.AttentionItem {
 // pvc.worst, now in kpiList) and its topology groups from the kubernetes one (P3.8): each item
 // gained its ref, and nothing else changed against v0.8.1. The alerts arrive from the
 // alertmanager contribution, and Kpis.alertsFiring is gone (its tile is the plugin's KPI). The
-// last Manager rule left with flux (P3.11): its items carry the plugin's ids and its KPIs are
+// last rule of the legacy Manager left with flux (P3.11): its items carry the plugin's ids and its KPIs are
 // the plugin's four in kpiList, and the fixed `kpis` object is gone. The bucket item moved to the
 // rustfs plugin (P3.12): its plugin is rustfs and it has the ref rustfs:Bucket/backups. The whole
 // document is compared, kpiList and the order of the items included.
@@ -256,7 +256,7 @@ func TestOverviewOutputIsUnchanged(t *testing.T) {
 		{ID: "kubernetes", Attention: goldenKubernetes{}, KPIs: goldenKubernetes{}, Topology: goldenKubernetes{}},
 		{ID: "rustfs", Attention: goldenRustFS{}},
 	}
-	got, err := json.MarshalIndent(goldenManager().buildOverview(cs, testNow), "", "  ")
+	got, err := json.MarshalIndent(goldenPublisher().buildOverview(cs, testNow), "", "  ")
 	if err != nil {
 		t.Fatal(err)
 	}

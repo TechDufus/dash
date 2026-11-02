@@ -100,12 +100,6 @@ type instance struct {
 	statusPanicked atomic.Bool
 }
 
-func (in *instance) isLive() bool {
-	in.mu.RLock()
-	defer in.mu.RUnlock()
-	return in.live
-}
-
 func (in *instance) isRunning() bool {
 	in.mu.RLock()
 	defer in.mu.RUnlock()

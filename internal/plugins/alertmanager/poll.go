@@ -33,7 +33,7 @@ func (p *Plugin) run(ctx context.Context) {
 }
 
 // poll reads the alerts and then the silences, and publishes what it has: after a failure the
-// last good lists go out again with the failing source, as the Manager did.
+// last good lists go out again with the failing source.
 func (p *Plugin) poll(ctx context.Context) {
 	p.mu.RLock()
 	am, h, c := p.am, p.host, p.cfg

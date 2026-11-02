@@ -181,7 +181,6 @@ type TopicSpec struct {
 	Name   string // "vms" is published as SSE event "proxmox.vms"
 	Doc    string
 	Type   any    // zero value of the payload: Host.Publish drops another type, and OpenAPI types the envelope per topic (clients-and-ai.md L.3)
-	Legacy string // pre-namespace SSE name ("vms"); set only by the G2 legacy shims, deleted by the leaf that migrates the plugin (A.7)
 }
 
 type ActionSpec struct {
@@ -226,7 +225,6 @@ type Plugin interface {
 type Validator interface{ Validate(cfg any) error }   // cross-field rules; a failure makes the instance "unconfigured"
 type Configured interface{ Configured(cfg any) bool } // auto-enable: enabled unset + false -> "disabled"; enabled true + false -> "unconfigured"
 type Provider interface{ Service() any }              // what Host.Service(id) returns to a plugin that declares it in Requires/Uses (A.5)
-type RestartOnly interface{ RestartOnly() }           // cannot be stopped and started in-process: the G2 legacy shims, until G3
 type Actor interface {
 	Act(ctx context.Context, action string, p auth.Principal, input any) (any, error) // auth.Principal: clients-and-ai.md M.1
 }
@@ -275,7 +273,7 @@ Three interfaces of the first draft are not in G2 and arrive, additively, with t
 - `Options.Transport func(id, rt) http.RoundTripper` wraps every client `Host.HTTPClient` builds, after the dial guard and the credentials, so the upstream metrics record the real request. `Options.ScrubLog` is what `Host.ScrubLog(s)` calls: it removes every secret the core knows (the registry's `ScrubLogLine`, which also covers `dash_setup_` values that `Scrub` does not).
 - `Routes.Stream` and `RouteSpec.Namespace` (A.8), `plugin.Ref`/`ParseRef` and `plugintest.AssertRefs` (A.7), and `plugin.Outcome` (A.8).
 
-`internal/plugin.Supervisor` supervises each instance the way `topics.Manager` supervises pollers today (`manager.go:141-176`): a panic in `Start`, `Status`, `Act` or a `Host.Go` goroutine is recovered and the instance becomes `error` without taking the process down. It evaluates an instance in a fixed order: `enabled: false` → `disabled`; a section `type` that is not the instance, or a config of the wrong type → `error`; `Configured` false → `disabled` (auto) or `unconfigured` (explicitly enabled); `Validator` failure → `unconfigured`; a `Requires` instance that is unknown, not started or `unavailable` → `blocked`; `Start` failing → `error`; otherwise the plugin's own `Status()`. It starts instances in dependency order over `Requires` and `Uses` (ties by registration order) and stops them in reverse. On a config change (`config.Reloader` emits one `Change` per `plugins.<id>` section; `ReloadOptions.Live` keeps a live-applied change out of the "restart required" list) the changed instance and its dependents go through Stop (at most 10s) then Start. `RestartOnly` instances are never touched. Whenever any instance's state, message, topics, actions or nav changes, the supervisor publishes `core.plugins`, and when an instance stops it removes its topics from the hub.
+`internal/plugin.Supervisor` supervises each instance the way `topics.Manager` supervises pollers today (`manager.go:141-176`): a panic in `Start`, `Status`, `Act` or a `Host.Go` goroutine is recovered and the instance becomes `error` without taking the process down. It evaluates an instance in a fixed order: `enabled: false` → `disabled`; a section `type` that is not the instance, or a config of the wrong type → `error`; `Configured` false → `disabled` (auto) or `unconfigured` (explicitly enabled); `Validator` failure → `unconfigured`; a `Requires` instance that is unknown, not started or `unavailable` → `blocked`; `Start` failing → `error`; otherwise the plugin's own `Status()`. It starts instances in dependency order over `Requires` and `Uses` (ties by registration order) and stops them in reverse. On a config change (`config.Reloader` emits one `Change` per `plugins.<id>` section; `ReloadOptions.Live` keeps a live-applied change out of the "restart required" list) the changed instance and its dependents go through Stop (at most 10s) then Start. Whenever any instance's state, message, topics, actions or nav changes, the supervisor publishes `core.plugins`, and when an instance stops it removes its topics from the hub.
 
 `Host.HTTPClient` guards every dial, so a settings value cannot turn dash into a request proxy: the guard inspects the resolved address at dial time and always refuses link-local addresses (`169.254.0.0/16` and `fe80::/10`) and the cloud metadata address `fd00:ec2::254`, and it refuses loopback and the unspecified address when `HTTPConfig.FromUI` is set (clients-and-ai.md K.22). Redirects are re-checked and may not change host, and the client ignores `HTTP_PROXY` because a proxy would hide the real destination from the guard. `InsecureSkipVerify` logs a startup WARN; the "tls: verification disabled" source note comes with the first G3 plugin that builds a real client.
 
@@ -965,7 +963,7 @@ Everything above authenticates a browser. Non-browser clients (a native Android 
 | 8 | `kubernetes` | The largest piece: makes the cluster optional, adds discovery-gated informers, owns cluster, apps, PVC storage, restart and `k8s:` refs. It goes after the leaf plugins, so the old Manager shrinks to only Kubernetes-backed code before this cut |
 | 9 | `flux` | Requires kubernetes; reconcile action; removes the `flux-system` literals |
 | 10 | `cnpg`, `rustfs` | Storage packs that depend on kubernetes and/or prometheus |
-| 11 | cleanup | Delete `internal/topics` legacy code, `model.Topic` constants and legacy routes; `internal/demo` becomes per-plugin `Demo()` |
+| 11 | cleanup | Delete `internal/topics` (the overview composer moves to `internal/overview`) and the legacy routes; keep the `model.Topic` constants as the topic registry; `internal/demo` becomes per-plugin `Demo()` |
 
 During Phase 3 the not-yet-migrated code keeps running inside `topics.Manager`. It receives migrated services from the registry. Each migration PR deletes its code from the Manager, renames its topic, and keeps `DASH_DEMO=true` rendering. That is a staged cutover, not a shim: nothing old survives Phase 3. Every plugin that declares actions gets `actions.enabled`, default `false` (A.8, J.11).
 
@@ -1335,7 +1333,7 @@ Each phase maps 1:1 to an epic group in [`epic-draft.md`](epic-draft.md). Leaves
 | 0 | Decisions and ADR | e2b7f93 merged; decisions in J (all 19 decided on 2026-10-31) recorded as `docs/adr/0001-plugins-config-auth.md` (P0.2) | this proposal |
 | 1 | Config core and secrets | Typed config tree; file and env layers with provenance; legacy mapping; homelab defaults removed; `secret.Value`, refs, encryption, store, reload, audit log | 0 |
 | 2 | Plugin framework and SPA registry | `internal/plugin`; schemas; `/api/plugins`; namespaced topics; core overview composition; decoupled readiness; SPA registry, slots, generic panels | 1 |
-| 3 | Migrate integrations | 13 plugins in the order of F.0; Kubernetes optional; `internal/topics` legacy deleted; demo per plugin | 2 |
+| 3 | Migrate integrations | 13 plugins in the order of F.0; Kubernetes optional; `internal/topics` legacy deleted (the overview composer is `internal/overview`); demo per plugin | 2 |
 | 4 | Settings UI and auth | Auth modes (proxy with CIDRs, local, OIDC, none); roles; settings API; Settings pages; security headers | 1, 2 (UI forms need schemas); role enforcement on actions needs P2.3 and P3.3 |
 | 5 | Packaging and deployment targets | Dockerfile updates; healthcheck command; docker/compose/PaaS docs; Helm chart (default `settings.ui: editable`); manifests; CI smoke tests | 3 (plugin config paths); P4.1 and P4.3 (in-app auth before the `0.0.0.0` default) |
 | 6 | Open-source readiness and public CI | Fixtures scrubbed; denylist test; dev tooling; docs; MIT licence; community files; GitHub-hosted CI; GHCR release; repo settings; history scrub (needs the owner's explicit go-ahead); flip | Most leaves are independent. The CI move (P6.6) can start once Phase 0 and P6.1 (the denylist test) have landed. The flip (P6.10) depends on everything except phase 7 |

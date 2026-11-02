@@ -11,8 +11,8 @@
 // them: whatever half of the plugin cannot run says so in its sources and the rest goes on.
 //
 // Like every plugin it imports neither internal/config nor internal/api, and it cannot import
-// internal/topics, so the rules it shares with the topic Manager are copies (the Manager's
-// copies go when the Manager's host code does).
+// another plugin, so the rules it shares with the other plugins that read the same metrics are
+// copies.
 package hardware
 
 import (

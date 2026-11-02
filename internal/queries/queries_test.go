@@ -1,21 +1,9 @@
 package queries
 
 import (
-	"errors"
 	"testing"
 	"time"
 )
-
-// dash builds no series itself: the kubernetes plugin owns the node and pod series, and the
-// others belong to their plugins.
-func TestSeriesRejectsEveryName(t *testing.T) {
-	a := Args{VMID: "2020", Instance: "node-a", Namespace: "homepage", Pod: "homepage-abc"}
-	for _, name := range []string{"nope", "node.cpu", "node.mem", "pod.cpu", "pod.mem", "host.power", "host.cpu"} {
-		if _, err := Series(name, a); !errors.Is(err, ErrBadSeries) {
-			t.Errorf("%s: err = %v, want ErrBadSeries", name, err)
-		}
-	}
-}
 
 func TestRange(t *testing.T) {
 	tests := []struct {

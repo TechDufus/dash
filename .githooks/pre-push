@@ -76,7 +76,7 @@ while read -r f; do
 	tygo.yaml | internal/model/*.go | internal/plugins/*/model/*.go | web/src/api/types.ts | web/src/plugins/modules/*/model.gen.ts) tygo=1 ;;
 	esac
 	case "$f" in
-	docs/api/* | tools/* | cmd/dash/openapi.go | cmd/dash/plugins.go | internal/api/*.go | internal/plugin/*.go | internal/model/*.go | internal/jsonschema/*.go | internal/topics/*.go) openapi=1 ;;
+	docs/api/* | tools/* | cmd/dash/openapi.go | cmd/dash/plugins.go | internal/api/*.go | internal/plugin/*.go | internal/model/*.go | internal/jsonschema/*.go | internal/overview/*.go) openapi=1 ;;
 	esac
 	case "$f" in
 	go.mod | go.sum) go_all=1 ;;

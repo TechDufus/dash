@@ -1,4 +1,4 @@
-package topics
+package overview
 
 import "github.com/TechDufus/dash/internal/model"
 
@@ -14,8 +14,8 @@ func rank(h model.Health) int {
 	return 0
 }
 
-// Worst returns the most severe health; no arguments is ok.
-func Worst(hs ...model.Health) model.Health {
+// worst returns the most severe health; no arguments is ok.
+func worst(hs ...model.Health) model.Health {
 	w := model.HealthOK
 	for _, h := range hs {
 		if rank(h) > rank(w) {

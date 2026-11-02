@@ -36,7 +36,7 @@ func manifest() plugin.Manifest {
 // Plugin is the grafana plugin. It is a plugin.Configured and a plugin.LinkProvider.
 type Plugin struct {
 	// base is the configured URL without a trailing slash, nil until Start and again after Stop:
-	// Links is called by the topic Manager while it holds its own lock, so it only reads.
+	// Links is called while the supervisor resolves links, so it only reads.
 	base atomic.Pointer[string]
 }
 

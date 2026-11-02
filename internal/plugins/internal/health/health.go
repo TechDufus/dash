@@ -2,8 +2,7 @@
 // plan 3.5 for volumes and buckets, certificates, workloads and pods. Every badge and every
 // attention item of those plugins uses these functions only.
 //
-// It is a copy of the rules in internal/topics, which keep serving the Manager until their last
-// reader moves into a plugin; a plugin imports neither topics nor another plugin.
+// A plugin imports no other plugin, so this is where the Kubernetes-backed plugins share them.
 package health
 
 import (

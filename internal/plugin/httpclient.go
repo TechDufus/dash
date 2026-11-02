@@ -14,8 +14,8 @@ import (
 	"time"
 )
 
-// DefaultHTTPTimeout is HTTPConfig.Timeout when it is zero: the poll timeout of the legacy
-// manager.
+// DefaultHTTPTimeout is HTTPConfig.Timeout when it is zero: the poll timeout dash has always
+// used.
 const DefaultHTTPTimeout = 25 * time.Second
 
 // HTTPConfig is how a plugin wants its upstream client built (design A.3).

@@ -16,8 +16,8 @@ import (
 
 	"github.com/TechDufus/dash/internal/api"
 	"github.com/TechDufus/dash/internal/config"
+	"github.com/TechDufus/dash/internal/overview"
 	"github.com/TechDufus/dash/internal/secret"
-	"github.com/TechDufus/dash/internal/topics"
 )
 
 // lockedBuf is a log sink the test can read while the reloader writes to it.
@@ -127,9 +127,9 @@ func TestReloadedSecretReachesTheProxmoxPluginWhileReadinessHolds(t *testing.T) 
 	cfg := res.Config
 	fw := newFramework(res, store, config.ReloadOptions{Interval: time.Millisecond}, nil, nil, nil, false)
 	sup, reloader := fw.sup, fw.reloader
-	mgr := topics.New(topics.Deps{Hosts: sup, Contributors: sup.Contributors})
+	ov := overview.New(overview.Deps{Hosts: sup, Contributors: sup.Contributors})
 	ctx, cancel := context.WithCancel(context.Background())
-	if err := fw.start(ctx, registry(nil), func() { mgr.Run(ctx) }); err != nil {
+	if err := fw.start(ctx, registry(nil), func() { ov.Run(ctx) }); err != nil {
 		t.Fatal(err)
 	}
 	defer sup.Shutdown(context.Background())

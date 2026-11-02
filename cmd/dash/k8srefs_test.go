@@ -14,10 +14,9 @@ import (
 
 	"github.com/TechDufus/dash/internal/api"
 	"github.com/TechDufus/dash/internal/config"
-	"github.com/TechDufus/dash/internal/demo"
 	"github.com/TechDufus/dash/internal/model"
+	"github.com/TechDufus/dash/internal/overview"
 	"github.com/TechDufus/dash/internal/secret"
-	"github.com/TechDufus/dash/internal/topics"
 )
 
 // k8sCanary holds a quote and an ampersand: a leak through any escaping (JSON, URL, shell) still
@@ -75,18 +74,9 @@ func startK8sProcess(t *testing.T, cfgBody string, env ...string) *k8sProcess {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	p.cancel = cancel
-	if p.cfg.Demo {
-		src := demo.New(p.cfg)
-		src.HasReal = hasRealPlugin
-		src.Attach(p.fw.sup)
-		if err := p.fw.start(ctx, registry(p.refs), func() { src.Run(ctx) }); err != nil {
-			t.Fatal(err)
-		}
-	} else {
-		mgr := topics.New(topics.Deps{Hosts: p.fw.sup, Contributors: p.fw.sup.Contributors})
-		if err := p.fw.start(ctx, registry(p.refs), func() { mgr.Run(ctx) }); err != nil {
-			t.Fatal(err)
-		}
+	ov := overview.New(overview.Deps{Hosts: p.fw.sup, Contributors: p.fw.sup.Contributors})
+	if err := p.fw.start(ctx, registry(p.refs), func() { ov.Run(ctx) }); err != nil {
+		t.Fatal(err)
 	}
 	done := make(chan struct{})
 	go func() { defer close(done); p.fw.reloader.Run(ctx) }()

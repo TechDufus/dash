@@ -82,11 +82,12 @@ in them is made up.
 
 ## Try it with demo data
 
-`DASH_DEMO=true` runs dash without a cluster: `internal/demo` publishes a small, obviously fake
-homelab on every topic (with values that drift so the UI looks live) and answers the REST
-endpoints from the same fixtures. Nothing contacts Kubernetes, Proxmox or the monitoring
-services, the restart and reconcile actions answer 202 without doing anything, and every link
-points at `example.com`.
+`DASH_DEMO=true` runs dash without a cluster: every plugin runs its demo twin, which publishes a
+small, obviously fake homelab on its topics (with values that drift so the UI looks live) and
+answers its REST routes and actions from the same fixtures (`internal/demo/world`); the overview
+is composed from what the twins contribute, as in production. Nothing contacts Kubernetes,
+Proxmox or the monitoring services, the actions (restart, reconcile) answer 202 without doing
+anything, and every link points at `example.com`.
 
 ```sh
 cd web && npm ci && npm run build && cd ..   # the SPA is embedded at build time
@@ -605,18 +606,18 @@ name wins), with no `_FILE` form because it is another tool's variable.
 | `internal/config` | layered configuration: defaults, config file, environment (`DASH_*`) |
 | `internal/jsonschema` | JSON Schema from Go structs, for `dash config schema` and plugin config |
 | `internal/plugin` | the plugin contract, registry and supervisor; `plugintest` has the fakes |
-| `internal/plugins` | the plugins dash ships, one package per plugin ID (G3 moves each integration here): `proxmox`, `hardware`, `kubernetes`, `prometheus`, `alertmanager`, `gatus`, `victorialogs`, `grafana`, `headlamp` and `launcher` so far; `internal/plugins/<id>/model` holds the payload types only that plugin publishes |
+| `internal/plugins` | the plugins dash ships, one package per plugin ID: `proxmox`, `hardware`, `kubernetes`, `flux`, `cnpg`, `rustfs`, `prometheus`, `alertmanager`, `gatus`, `victorialogs`, `grafana`, `headlamp` and `launcher`; `internal/plugins/<id>/model` holds the payload types only that plugin publishes |
 | `internal/svc` | the interfaces plugins export to each other and to the core: `Querier`, `EndpointHealth`, `NodeName` (proxmox), `NodeIndex` and `Cluster` (the kubernetes plugin) |
 | `internal/pluginconf` | the configuration structs of the plugins, shared by `internal/config` and the plugins (which never import `internal/config`) |
 | `internal/secret` | secret values (`[redacted]` when printed), the `env:` and `file:` references, the scrub registry and `K8sRefs`, which hands the kubernetes plugin's `k8s:` references one holder each |
 | `internal/auth` | who a request acts as: role and principal |
 | `internal/kube` | the kubernetes plugin's client: informers, discovery and the patches |
 | `internal/upstream` | VictoriaMetrics, Alertmanager, VictoriaLogs, Gatus, Proxmox clients |
-| `internal/topics` | the overview's composer: `core.overview` is built from what the running plugins contribute (attention items, KPIs, topology) |
+| `internal/overview` | the overview's composer: `core.overview` is built from what the running plugins contribute (attention items, KPIs, topology), in live and demo mode alike |
 | `internal/hub`, `internal/api` | SSE hub, REST, middleware |
 | `internal/obs` | dash's own Prometheus metrics (`server.metrics`), in a private registry |
 | `internal/hygiene` | repository-wide guards that belong to no package (`TestNoHomelabLiterals`: no lab identifier in non-test code) |
-| `internal/demo` | fake data for `DASH_DEMO=true`; `internal/demo/world` is the fake homelab the plugins' demo twins publish from |
+| `internal/demo` | demo mode: the sign-in of the demo's viewer; `internal/demo/world` is the fake homelab the plugins' demo twins publish from |
 | `web/` | React 19, Vite, Tailwind v4, shadcn/ui and Magic UI |
 | `web/src/plugins` | the SPA's plugin modules, registry, slots and generic panels; a module's directory name is its plugin ID |
 
@@ -677,7 +678,7 @@ checks only what changed, usually in a few seconds:
 - `internal/model`, `tygo.yaml` or `web/src/api/types.ts`: the `make generate` drift check.
 - `docs/api/`, `tools/`, `cmd/dash/openapi.go`, `cmd/dash/plugins.go` or the Go files in
   `internal/api`, `internal/plugin`, `internal/model`, `internal/jsonschema` or
-  `internal/topics`: `docs/api/openapi.json` must equal `dash api openapi`, and vacuum must lint
+  `internal/overview`: `docs/api/openapi.json` must equal `dash api openapi`, and vacuum must lint
   it. `docs/configuration.md` has no step of its own: a Go change in `internal/config` runs its
   currency test.
 - `web/`: `tsc --noEmit`, Biome on the changed files (all of `web/` if its config, package or lock

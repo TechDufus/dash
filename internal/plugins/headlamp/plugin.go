@@ -57,8 +57,8 @@ type target struct{ base, cluster string }
 
 // Plugin is the headlamp plugin. It is a plugin.Configured and a plugin.LinkProvider.
 type Plugin struct {
-	// t is nil until Start and again after Stop. Links is called by the topic Manager while it
-	// holds its own lock, so it only reads.
+	// t is nil until Start and again after Stop. Links is called while the supervisor resolves
+	// links, so it only reads.
 	t atomic.Pointer[target]
 }
 

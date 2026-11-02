@@ -17,12 +17,12 @@ import (
 	"github.com/TechDufus/dash/internal/demo"
 	"github.com/TechDufus/dash/internal/demo/world"
 	"github.com/TechDufus/dash/internal/model"
+	"github.com/TechDufus/dash/internal/overview"
 	"github.com/TechDufus/dash/internal/plugin"
 	"github.com/TechDufus/dash/internal/plugin/plugintest"
 	"github.com/TechDufus/dash/internal/pluginconf"
 	"github.com/TechDufus/dash/internal/plugins/launcher"
 	"github.com/TechDufus/dash/internal/secret"
-	"github.com/TechDufus/dash/internal/topics"
 )
 
 // Every plugins.* section of the tree is an instance, of the type its plugin's Config returns.
@@ -80,17 +80,17 @@ func loadFramework(t *testing.T) (*framework, *config.Resolved) {
 	return newFramework(res, store, config.ReloadOptions{Interval: time.Millisecond}, nil, nil, nil, false), res
 }
 
-// The framework as run starts it: Supervisor.Run returns before Manager.Run starts, so the
-// Manager's first publishes find every Host running and none is dropped. The overview the Manager
-// composes from what a running plugin contributes arrives, and the plugin follows its section live.
+// The framework as run starts it: Supervisor.Run returns before the overview publisher runs, so
+// its first publishes find every Host running and none is dropped. The overview it composes from
+// what a running plugin contributes arrives, and the plugin follows its section live.
 func TestFrameworkStartOrderPublishesFirstPoll(t *testing.T) {
 	startEnv(t, t.TempDir())
 	fw, _ := loadFramework(t)
-	mgr := topics.New(topics.Deps{Hosts: fw.sup, Contributors: fw.sup.Contributors})
+	ov := overview.New(overview.Deps{Hosts: fw.sup, Contributors: fw.sup.Contributors})
 	fluxFake := plugintest.New("flux", plugintest.Config(func() any { return &pluginconf.Flux{} }))
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	if err := fw.start(ctx, []plugin.Factory{fluxFake.Factory()}, func() { mgr.Run(ctx) }); err != nil {
+	if err := fw.start(ctx, []plugin.Factory{fluxFake.Factory()}, func() { ov.Run(ctx) }); err != nil {
 		t.Fatal(err)
 	}
 	defer fw.sup.Shutdown(context.Background())
@@ -164,32 +164,14 @@ func TestFrameworkAppliesLiveSectionsAndReportsTheRest(t *testing.T) {
 
 // Demo mode answers /api/v1/series through the prometheus plugin's demo twin and the series the
 // hardware twin registers: the handler asks the running plugin for its Querier and for the
-// series, and the demo source serves neither.
+// series.
 func TestDemoSeriesComeFromThePrometheusTwin(t *testing.T) {
-	startEnv(t, t.TempDir(), "DASH_DEMO=true")
-	res, store, err := loadConfig(secret.NewRegistry(), nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if store != nil {
-		t.Cleanup(func() { _ = store.Close() })
-	}
-	cfg := res.Config
-	fw := newFramework(res, store, config.ReloadOptions{}, nil, nil, nil, true)
-	src := demo.New(cfg)
-	src.HasReal = hasRealPlugin
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	src.Attach(fw.sup)
-	if err := fw.start(ctx, registry(nil), func() { src.Run(ctx) }); err != nil {
-		t.Fatal(err)
-	}
-	defer fw.sup.Shutdown(context.Background())
+	fw, cfg := startDemo(t)
 
 	srv := api.New(api.Deps{Cfg: cfg, Hub: fw.hub, Plugins: fw.sup, Health: fw.sup})
 	r := httptest.NewRequest(http.MethodGet, cfg.PublicURL+"/api/v1/series?name=host.cpu&range=1h", nil)
 	rec := httptest.NewRecorder()
-	demo.Wrap(srv.Handler()).ServeHTTP(rec, r)
+	demo.SignIn(srv.Handler()).ServeHTTP(rec, r)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("series = %d %s", rec.Code, rec.Body)
 	}
@@ -200,44 +182,12 @@ func TestDemoSeriesComeFromThePrometheusTwin(t *testing.T) {
 }
 
 // Demo mode publishes the launcher's links through the launcher plugin's demo twin, after every
-// other topic (the launcher comes last in the display order); the flux, cnpg and rustfs twins' topics are flux.objects, cnpg.clusters and rustfs.usage.
+// other topic (the launcher comes last in the display order); the flux, cnpg and rustfs twins'
+// topics are flux.objects, cnpg.clusters and rustfs.usage.
 func TestDemoPublishesTheLauncherLinksLast(t *testing.T) {
-	startEnv(t, t.TempDir(), "DASH_DEMO=true")
-	res, store, err := loadConfig(secret.NewRegistry(), nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if store != nil {
-		t.Cleanup(func() { _ = store.Close() })
-	}
-	fw := newFramework(res, store, config.ReloadOptions{}, nil, nil, nil, true)
-	src := demo.New(res.Config)
-	src.HasReal = hasRealPlugin
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	src.Attach(fw.sup)
-	if err := fw.start(ctx, registry(nil), func() { src.Run(ctx) }); err != nil {
-		t.Fatal(err)
-	}
-	defer fw.sup.Shutdown(context.Background())
+	fw, _ := startDemo(t)
+	awaitDemoTopics(t, fw) // exactly demoTopics, in this order
 
-	want := []string{"core.plugins", "core.overview", "alertmanager.alerts", "gatus.status", "proxmox.vms", "proxmox.node", "proxmox.storage", "hardware.hosts", "hardware.machines", "kubernetes.cluster", "kubernetes.storage", "kubernetes.apps", "flux.objects", "cnpg.clusters", "rustfs.usage", "launcher.links"}
-	deadline := time.Now().Add(5 * time.Second)
-	for {
-		snap, _, cancelSub := fw.hub.Subscribe("", nil)
-		cancelSub()
-		var got []string
-		for _, ev := range snap {
-			got = append(got, ev.Topic)
-		}
-		if slices.Equal(got, want) {
-			break
-		}
-		if time.Now().After(deadline) {
-			t.Fatalf("topics = %v, want %v (in this order)", got, want)
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
 	env, ok := fw.hub.Latest("", model.TopicLauncherLinks)
 	if !ok {
 		t.Fatal("launcher.links has no snapshot")
@@ -310,8 +260,10 @@ func TestUnreadableLauncherFileMakesTheRowErrorAndNotTheStartup(t *testing.T) {
 // Every plugin says which setting turns it on, so its "not configured" row
 // reads "not configured: set plugins.<id>.…".
 func TestEveryRealPluginSaysWhatToSet(t *testing.T) {
-	for id, f := range realPlugins {
-		h, ok := f().(plugin.ConfigHinter)
+	for _, f := range registry(nil) {
+		p := f()
+		id := p.Manifest().ID
+		h, ok := p.(plugin.ConfigHinter)
 		if !ok {
 			t.Errorf("%s: no ConfigHint", id)
 			continue

@@ -1,4 +1,4 @@
-package topics
+package overview
 
 import (
 	"context"
@@ -14,11 +14,11 @@ import (
 	"github.com/TechDufus/dash/internal/plugins/headlamp"
 )
 
-// linkRig is a Manager over a real supervisor that runs the real grafana, headlamp and alertmanager
-// plugins next to a plugin that always contributes (so the overview is recomposed every round, as
-// it is on a dash with a cluster), as cmd/dash registers them.
+// linkRig is a Publisher over a real supervisor that runs the real grafana, headlamp and
+// alertmanager plugins next to a plugin that always contributes (so the overview is recomposed
+// every round, as it is on a dash with a cluster), as cmd/dash registers them.
 type linkRig struct {
-	m   *Manager
+	p   *Publisher
 	sup *plugin.Supervisor
 	set *plugintest.Settings
 	h   *hub.Hub
@@ -32,7 +32,7 @@ func newLinkRig(t *testing.T, lab ...plugin.InstanceConfig) *linkRig {
 	for _, ic := range lab {
 		r.set.Set(ic)
 	}
-	r.m = New(Deps{Hosts: r.sup, Contributors: r.sup.Contributors})
+	r.p = New(Deps{Hosts: r.sup, Contributors: r.sup.Contributors})
 	if err := r.sup.Add(plugintest.New("steady").Factory(), grafana.New, headlamp.New, alertmanager.New); err != nil {
 		t.Fatal(err)
 	}
@@ -42,7 +42,7 @@ func newLinkRig(t *testing.T, lab ...plugin.InstanceConfig) *linkRig {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { r.sup.Shutdown(context.Background()) })
-	r.m.Run(ctx)
+	r.p.Run(ctx)
 	return r
 }
 

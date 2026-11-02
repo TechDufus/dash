@@ -29,22 +29,21 @@ func testWorld() *World {
 }
 
 // Every topic builder yields the same payload for the same clock reading, in every call: the
-// twins and the legacy source rebuild on each tick and must not disagree with one another.
+// twins rebuild on each tick and must not disagree with one another.
 func TestBuildersAreDeterministic(t *testing.T) {
 	builders := map[string]func(w *World) any{
-		"alerts":   func(w *World) any { return w.Alerts() },
-		"status":   func(w *World) any { return w.Status() },
-		"host":     func(w *World) any { return w.Host() },
-		"vms":      func(w *World) any { return w.VMs() },
-		"cluster":  func(w *World) any { return w.Cluster() },
-		"storage":  func(w *World) any { return w.Storage() },
-		"cnpg":     func(w *World) any { return w.CNPG() },
-		"rustfs":   func(w *World) any { return w.RustFS() },
-		"apps":     func(w *World) any { return w.Apps() },
-		"flux":     func(w *World) any { return w.Flux() },
-		"overview": func(w *World) any { return w.Overview() },
-		"logs":     func(w *World) any { return w.Logs("web-1", "app") },
-		"build":    func(w *World) any { return w.Build() },
+		"alerts":  func(w *World) any { return w.Alerts() },
+		"status":  func(w *World) any { return w.Status() },
+		"host":    func(w *World) any { return w.Host() },
+		"vms":     func(w *World) any { return w.VMs() },
+		"cluster": func(w *World) any { return w.Cluster() },
+		"storage": func(w *World) any { return w.Storage() },
+		"cnpg":    func(w *World) any { return w.CNPG() },
+		"rustfs":  func(w *World) any { return w.RustFS() },
+		"apps":    func(w *World) any { return w.Apps() },
+		"flux":    func(w *World) any { return w.Flux() },
+		"logs":    func(w *World) any { return w.Logs("web-1", "app") },
+		"build":   func(w *World) any { return w.Build() },
 	}
 	for name, build := range builders {
 		t.Run(name, func(t *testing.T) {
@@ -60,14 +59,6 @@ func TestBuildersAreDeterministic(t *testing.T) {
 	from, to := testNow.Add(-time.Hour), testNow
 	if a, b := Series("ipmi_fan_speed_rpm", from, to, time.Minute), Series("ipmi_fan_speed_rpm", from, to, time.Minute); !reflect.DeepEqual(a, b) {
 		t.Error("series differs between calls")
-	}
-}
-
-// The overview summarises the other topics, so a snapshot's overview equals the one built alone.
-func TestOverviewAgreesWithSnapshot(t *testing.T) {
-	w := testWorld()
-	if got, want := w.Overview(), w.Build().Overview; !reflect.DeepEqual(got, want) {
-		t.Fatalf("overview alone differs from the snapshot's:\n%+v\n%+v", got, want)
 	}
 }
 
@@ -126,9 +117,6 @@ func TestWorldIsCoherent(t *testing.T) {
 	if !found {
 		t.Errorf("crash-looping pod %q is not in the cluster payload", crash)
 	}
-	if len(s.Overview.Attention) == 0 || !strings.Contains(s.Overview.Attention[0].ID, crash) {
-		t.Error("the overview does not report the crash-looping pod")
-	}
 	if s.Host.Name != HostName {
 		t.Errorf("host name = %q, want %q", s.Host.Name, HostName)
 	}
@@ -162,33 +150,6 @@ func TestSplitPartsAreWellFormed(t *testing.T) {
 	}
 }
 
-// The overview's proxmox KPIs count the guests of the VMs payload, as the plugin's KPIs do.
-func TestOverviewVMKPIsAgreeWithTheGuests(t *testing.T) {
-	s := testWorld().Build()
-	running, total := 0, 0
-	for _, vm := range s.VMs.VMs {
-		if vm.Template {
-			continue
-		}
-		total++
-		if vm.Status == "running" {
-			running++
-		}
-	}
-	got := map[string]float64{}
-	for _, k := range s.Overview.KPIList {
-		if k.Plugin == "proxmox" {
-			got[k.Key] = k.Value
-		}
-	}
-	if got["vms.running"] != float64(running) || got["vms.total"] != float64(total) || total == 0 {
-		t.Errorf("proxmox KPIs %v, guests %d running of %d", got, running, total)
-	}
-	if len(s.Overview.Topology.VMs) != total {
-		t.Errorf("topology has %d VMs, want %d", len(s.Overview.Topology.VMs), total)
-	}
-}
-
 // Every ref of the parts is a well-formed ref of its plugin, with the id of its object.
 func TestSplitPartsCarryRefs(t *testing.T) {
 	w := testWorld()
@@ -215,7 +176,7 @@ func TestFixtureNamesAreNeutral(t *testing.T) {
 		t.Fatal(err)
 	}
 	body := strings.ToLower(string(b))
-	for _, lab := range []string{"talos", "rpi-control", "mac-mini"} {
+	for _, lab := range []string{"talos", "rpi-control", "mac-mini", "2020 && vmid", "flux-system", "gateway/home"} {
 		if strings.Contains(body, lab) {
 			t.Errorf("the world still names %q", lab)
 		}

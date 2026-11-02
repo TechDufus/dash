@@ -167,10 +167,10 @@ export interface AttentionItem {
   route: string;
   links: Link[];
   /**
-   * Ref is the plugin:Kind/id reference of the object the item points at (design L.6); empty
-   * for items of code that has not migrated to plugins yet.
+   * Ref is the plugin:Kind/id reference of the object the item points at (design L.6); always
+   * set, and its plugin is the item's Plugin.
    */
-  ref?: string;
+  ref: string;
 }
 export interface TopologyHost {
   name: string;

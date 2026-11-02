@@ -1,4 +1,4 @@
-package topics
+package overview
 
 import (
 	"context"
@@ -85,7 +85,7 @@ func ids(items []model.AttentionItem) string {
 func TestOverviewPublishesWithOneContributor(t *testing.T) {
 	h := hub.New()
 	src := &source{items: []model.AttentionItem{{ID: "fake:1", Severity: model.SeverityWarn, Source: "Fake", Title: "something"}}}
-	m := testManagerWith(plugintest.AllRunning(h), contributing("fake", src))
+	m := testPublisherWith(plugintest.AllRunning(h), contributing("fake", src))
 	m.rebuild()
 
 	ov := overviewOf(t, h)
@@ -102,7 +102,7 @@ func TestOverviewPublishesWithOneContributor(t *testing.T) {
 func TestOverviewNeedsAContributor(t *testing.T) {
 	h := hub.New()
 	var cs []plugin.Contributor
-	m := testManagerWith(plugintest.AllRunning(h), func() []plugin.Contributor { return cs })
+	m := testPublisherWith(plugintest.AllRunning(h), func() []plugin.Contributor { return cs })
 	m.rebuild()
 	if _, ok := h.Latest("", model.TopicOverview); ok {
 		t.Fatal("an overview from nothing")
@@ -118,7 +118,7 @@ func TestOverviewNeedsAContributor(t *testing.T) {
 // empty topology, every collection empty and never null.
 func TestOverviewOfAnIdleContributorIsEmpty(t *testing.T) {
 	h := hub.New()
-	m := testManagerWith(plugintest.AllRunning(h), contributing("fake", &source{}))
+	m := testPublisherWith(plugintest.AllRunning(h), contributing("fake", &source{}))
 	m.rebuild()
 	ov := overviewOf(t, h)
 	if ov.Status != model.HealthOK || len(ov.Attention) != 0 || len(ov.KPIList) != 0 || ov.Topology.Host.Name != "" || len(ov.Topology.Groups) != 0 || len(ov.Topology.VMs) != 0 {
@@ -132,7 +132,7 @@ func TestOverviewOfAnIdleContributorIsEmpty(t *testing.T) {
 // The overview is published as core.overview through the core host, and under no other name.
 func TestCoreOverviewPublishesThroughCoreHost(t *testing.T) {
 	rec := &plugintest.Hub{}
-	m := testManagerWith(plugintest.AllRunning(rec), contributing("fake", &source{}))
+	m := testPublisherWith(plugintest.AllRunning(rec), contributing("fake", &source{}))
 	m.rebuild()
 
 	var names []string
@@ -153,7 +153,7 @@ func TestCoreOverviewPublishesThroughCoreHost(t *testing.T) {
 func TestOverviewFollowsAContributorChange(t *testing.T) {
 	h := hub.New()
 	src := &source{}
-	m := testManagerWith(plugintest.AllRunning(h), contributing("fake", src))
+	m := testPublisherWith(plugintest.AllRunning(h), contributing("fake", src))
 	m.rebuild()
 	if ov := overviewOf(t, h); len(ov.Attention) != 0 || ov.Status != model.HealthOK {
 		t.Fatalf("before: %+v", ov)
@@ -180,7 +180,7 @@ func TestOverviewFollowsAContributorChange(t *testing.T) {
 func TestOverviewIsPublishedByTheRebuildLoop(t *testing.T) {
 	h := hub.New()
 	src := &source{items: []model.AttentionItem{{ID: "x", Severity: model.SeverityWarn}}}
-	m := testManagerWith(plugintest.AllRunning(h), contributing("fake", src))
+	m := testPublisherWith(plugintest.AllRunning(h), contributing("fake", src))
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	m.Run(ctx)
@@ -195,7 +195,7 @@ func TestPanickingContributorDoesNotStopTheOverview(t *testing.T) {
 	h := hub.New()
 	bad := &source{panics: true}
 	good := &source{items: []model.AttentionItem{{ID: "ok", Severity: model.SeverityWarn}}}
-	m := testManagerWith(plugintest.AllRunning(h), func() []plugin.Contributor {
+	m := testPublisherWith(plugintest.AllRunning(h), func() []plugin.Contributor {
 		return []plugin.Contributor{{ID: "bad", Attention: bad}, {ID: "good", Attention: good}}
 	})
 	m.rebuild()

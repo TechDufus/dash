@@ -110,9 +110,9 @@ type AttentionItem struct {
 	// Route is an in-app path, e.g. /cluster/pods/<ns>/<name>.
 	Route string `json:"route"`
 	Links []Link `json:"links"`
-	// Ref is the plugin:Kind/id reference of the object the item points at (design L.6); empty
-	// for items of code that has not migrated to plugins yet.
-	Ref string `json:"ref,omitempty"`
+	// Ref is the plugin:Kind/id reference of the object the item points at (design L.6); always
+	// set, and its plugin is the item's Plugin.
+	Ref string `json:"ref"`
 }
 
 type TopologyHost struct {

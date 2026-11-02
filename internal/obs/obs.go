@@ -301,9 +301,8 @@ func (m *Metrics) AuthFailure(reason AuthReason) {
 	m.authFails.WithLabelValues(reason.String()).Inc()
 }
 
-// Action counts an action request. The plugin and action must be one that exists (a mounted
-// action of a plugin instance, or a legacy one) or both are "other"; an outcome outside
-// ActionOutcomes is counted as ActionError.
+// Action counts an action request. The plugin and action must be a mounted action of a plugin
+// instance or both are "other"; an outcome outside ActionOutcomes is counted as ActionError.
 func (m *Metrics) Action(plugin, action, outcome string) {
 	if m == nil {
 		return

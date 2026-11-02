@@ -165,7 +165,11 @@ func TestEnabledDocStatesTheRustFSException(t *testing.T) {
 	if rustfsManifest == nil {
 		t.Fatal("rustfs is not a builtin plugin")
 	}
-	p, ok := realPlugins["rustfs"]().(plugin.Configured)
+	rustfs, ok := builtinPlugin("rustfs")
+	if !ok {
+		t.Fatal("rustfs is not a builtin plugin")
+	}
+	p, ok := rustfs.(plugin.Configured)
 	if !ok {
 		t.Fatal("the rustfs plugin does not say whether it is configured")
 	}

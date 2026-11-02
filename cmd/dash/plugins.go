@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"maps"
 	"net/http"
 	"strings"
 
@@ -66,77 +65,35 @@ func instanceConfig(sec config.PluginSection) plugin.InstanceConfig {
 	return ic
 }
 
-// displayOrder is the order plugins are listed in (design A.1).
-var displayOrder = []plugin.ID{
-	"prometheus", "alertmanager", "gatus", "victorialogs", "proxmox", "hardware", "kubernetes", "flux",
-	"cnpg", "rustfs", "grafana", "headlamp", "launcher",
-}
-
-// realPlugins are the plugins that run, by id. The kubernetes entry reads no k8s: reference
-// (manifests, routes, settings): registry swaps in the one that does.
-var realPlugins = map[plugin.ID]plugin.Factory{
-	"prometheus":   prometheus.New,
-	"alertmanager": alertmanager.New,
-	"gatus":        gatus.New,
-	"victorialogs": victorialogs.New,
-	"proxmox":      proxmox.New,
-	"hardware":     hardware.New,
-	"kubernetes":   kubernetes.New,
-	"flux":         flux.New,
-	"cnpg":         cnpg.New,
-	"rustfs":       rustfs.New,
-	"grafana":      grafana.New,
-	"headlamp":     headlamp.New,
-	"launcher":     launcher.New,
-}
-
-// hasRealPlugin reports whether id runs as a plugin of its own, so demo mode registers its twin
-// (the plugin's Demo).
-func hasRealPlugin(id plugin.ID) bool {
-	_, ok := realPlugins[id]
-	return ok
+// registry is every plugin dash ships, to Add to the supervisor, in display order (design A.1):
+// the one table of what exists and the order the plugins are listed in. refs are the k8s:
+// references the kubernetes plugin reads (nil: it reads none, which is what the manifests, the
+// routes and the settings need).
+func registry(refs *secret.K8sRefs) []plugin.Factory {
+	return []plugin.Factory{
+		prometheus.New, alertmanager.New, gatus.New, victorialogs.New, proxmox.New, hardware.New,
+		kubernetes.Factory(refs), flux.New, cnpg.New, rustfs.New, grafana.New, headlamp.New, launcher.New,
+	}
 }
 
 // builtinManifests are the manifests of every plugin dash ships, in display order, without
 // starting any of them.
-func builtinManifests() []plugin.Manifest { return manifestsOf(realPlugins) }
-
-// manifestsOf is builtinManifests for a given set of plugins.
-func manifestsOf(impl map[plugin.ID]plugin.Factory) []plugin.Manifest {
+func builtinManifests() []plugin.Manifest {
 	var out []plugin.Manifest
-	for _, id := range inDisplayOrder(impl) {
-		out = append(out, impl[id]().Manifest())
+	for _, f := range registry(nil) {
+		out = append(out, f().Manifest())
 	}
 	return out
 }
 
-// registry is the plugins to Add to the supervisor, in display order. refs are the k8s:
-// references the kubernetes plugin reads (nil: it reads none).
-func registry(refs *secret.K8sRefs) []plugin.Factory {
-	impl := maps.Clone(realPlugins)
-	impl[kubernetes.ID] = kubernetes.Factory(refs)
-	return registryOf(impl)
-}
-
-// registryOf is registry for a given set of plugins.
-func registryOf(impl map[plugin.ID]plugin.Factory) []plugin.Factory {
-	var out []plugin.Factory
-	for _, id := range inDisplayOrder(impl) {
-		out = append(out, impl[id])
-	}
-	return out
-}
-
-// inDisplayOrder lists the ids of impl that displayOrder names, in that order. A plugin outside
-// displayOrder is a bug a test catches, so it is not placed here.
-func inDisplayOrder(impl map[plugin.ID]plugin.Factory) []plugin.ID {
-	var out []plugin.ID
-	for _, id := range displayOrder {
-		if _, ok := impl[id]; ok {
-			out = append(out, id)
+// builtinPlugin is a new instance of the shipped plugin id, not started.
+func builtinPlugin(id plugin.ID) (plugin.Plugin, bool) {
+	for _, f := range registry(nil) {
+		if p := f(); p.Manifest().ID == id {
+			return p, true
 		}
 	}
-	return out
+	return nil, false
 }
 
 // framework is the plugin side of run: the hub every topic goes to, the supervisor that runs
@@ -186,8 +143,8 @@ func newFramework(res *config.Resolved, store *settings.Store, opts config.Reloa
 }
 
 // start adds the plugins, runs the supervisor, and only then runs source, the code that
-// publishes for them (the topic Manager, or demo mode's source): its first publishes find every
-// Host running, so none is dropped.
+// publishes for them (the overview publisher, in production and in demo mode): its first
+// publishes find every Host running, so none is dropped.
 func (f *framework) start(ctx context.Context, plugins []plugin.Factory, source func()) error {
 	if err := f.sup.Add(plugins...); err != nil {
 		return err

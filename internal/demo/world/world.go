@@ -1,6 +1,6 @@
 // Package world is the fake homelab behind demo mode: one coherent, invented set of payloads (a
-// Proxmox host, three Kubernetes nodes, a few namespaces, alerts, checks) that every demo plugin twin
-// and the legacy demo source build their topics from. Nothing here talks to a network.
+// Proxmox host, three Kubernetes nodes, a few namespaces, alerts, checks) that every demo plugin
+// twin builds its topics, and so the overview's contributions, from. Nothing here talks to a network.
 //
 // Every name, address and serial is invented. Addresses come from the documentation ranges
 // (192.0.2.0/24, 198.51.100.0/24) and every link points at example.com.
@@ -43,22 +43,20 @@ func New(clock func() time.Time, start time.Time, links LinkSource) *World {
 
 // Snapshot is every topic payload of the world at one instant.
 type Snapshot struct {
-	Overview model.OverviewData
-	Host     model.HostData
-	VMs      model.VMsData
-	Cluster  model.ClusterData
-	Flux     model.FluxData
-	Storage  model.StorageData
-	Alerts   model.AlertsData
-	Status   model.StatusData
-	Apps     model.AppsData
+	Host    model.HostData
+	VMs     model.VMsData
+	Cluster model.ClusterData
+	Flux    model.FluxData
+	Storage model.StorageData
+	Alerts  model.AlertsData
+	Status  model.StatusData
+	Apps    model.AppsData
 }
 
-// Build returns every payload at one clock reading, so the overview agrees with the topics it
-// summarises.
+// Build returns every payload at one clock reading.
 func (w *World) Build() Snapshot {
 	now := w.clock()
-	s := Snapshot{
+	return Snapshot{
 		Host:    w.host(now),
 		VMs:     w.vms(now),
 		Cluster: w.cluster(now),
@@ -68,8 +66,6 @@ func (w *World) Build() Snapshot {
 		Status:  w.status(now),
 		Apps:    w.Apps(),
 	}
-	s.Overview = w.overviewOf(now, s)
-	return s
 }
 
 // Wave is a smooth, repeatable drift in [-1, 1] for a key at time t.

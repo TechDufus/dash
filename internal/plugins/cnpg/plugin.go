@@ -8,7 +8,7 @@
 // itself on, so a cluster that installs the CRD later gets its panel.
 //
 // Like every plugin it imports neither internal/config nor internal/api, and it cannot import
-// internal/topics, so the rules it took over from the kubernetes plugin's storage topic are
+// another plugin, so the rules it took over from the kubernetes plugin's storage topic are
 // copies.
 package cnpg
 

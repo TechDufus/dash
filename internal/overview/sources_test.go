@@ -1,4 +1,4 @@
-package topics
+package overview
 
 import (
 	"testing"
@@ -53,7 +53,7 @@ func TestOverviewCarriesContributorSources(t *testing.T) {
 	h := hub.New()
 	src := &source{items: []model.AttentionItem{{ID: "fake:1", Severity: model.SeverityWarn}}}
 	failing := true
-	m := testManagerWith(plugintest.AllRunning(h), func() []plugin.Contributor {
+	m := testPublisherWith(plugintest.AllRunning(h), func() []plugin.Contributor {
 		return []plugin.Contributor{{ID: "fake", Attention: src, Sources: func() []model.SourceStatus {
 			if failing {
 				return []model.SourceStatus{{Name: "fakeupstream", Error: "unreachable"}}
@@ -70,7 +70,7 @@ func TestOverviewCarriesContributorSources(t *testing.T) {
 		t.Fatalf("sources = %+v", env.Sources)
 	}
 	if len(env.Sources) != 1 {
-		t.Errorf("only what the plugins report is on the overview, no chip of the Manager's own: %+v", env.Sources)
+		t.Errorf("only what the plugins report is on the overview, no chip of the publisher's own: %+v", env.Sources)
 	}
 
 	failing = false

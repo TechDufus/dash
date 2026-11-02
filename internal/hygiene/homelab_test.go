@@ -12,18 +12,17 @@ import (
 )
 
 // denylist is the epic's list of literals that name one lab and so must not be in code that ships.
-// A term scans only while active; the leaf that removes a literal switches its flag on, so it
-// cannot come back.
+// Every term scans everywhere: there is no allowlist and no switch, so a literal that a leaf
+// removed cannot come back. (fluxcd.io is not on the list: the Flux API groups are public names.)
 var denylist = []struct {
-	term   string
-	active bool
-	owner  string
+	term  string
+	owner string // the leaf that removed it
 }{
-	{"mac-mini", true, "P3.7"},
-	{"rpi-control", true, "P3.7"},
-	{"2020 && vmid", true, "P3.7"}, // the old "critical VM" rule: vmid >= 2020 && vmid <= 2022
-	{"flux-system", true, "P3.11"},
-	{"gateway/home", true, "P3.9"},
+	{"mac-mini", "P3.7"},
+	{"rpi-control", "P3.7"},
+	{"2020 && vmid", "P3.7"}, // the old "critical VM" rule: vmid >= 2020 && vmid <= 2022
+	{"flux-system", "P3.11"},
+	{"gateway/home", "P3.9"},
 }
 
 // hit is one occurrence of a denied term.
@@ -85,7 +84,7 @@ func scan(root string) ([]hit, error) {
 		}
 		for i, line := range strings.Split(string(b), "\n") {
 			for _, d := range denylist {
-				if d.active && strings.Contains(line, d.term) {
+				if strings.Contains(line, d.term) {
 					hits = append(hits, hit{rel, i + 1, d.term})
 				}
 			}
@@ -148,7 +147,7 @@ func TestHomelabScanCatchesALeakAndSkipsWhatDoesNotShip(t *testing.T) {
 	write("web/src/test/shims.ts", "const n = 'rpi-control';\n")
 	write("web/node_modules/m/index.js", "mac-mini\n")
 	write("docs/notes.md", "mac-mini and rpi-control\n")
-	write("internal/flux/f.go", "package flux\n\nconst ns = \"flux-system\"\nconst gw = \"gateway/home\"\n")
+	write("internal/flux/f.go", "package flux\n\nconst ns = \"flux-system\"\nconst gw = \"gateway/home\"\nconst group = \"kustomize.toolkit.fluxcd.io\"\n")
 
 	hits, err := scan(root)
 	if err != nil {

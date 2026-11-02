@@ -1,4 +1,4 @@
-package topics
+package overview
 
 import (
 	"testing"
@@ -10,11 +10,11 @@ import (
 	"github.com/TechDufus/dash/internal/plugin/plugintest"
 )
 
-// outageRig is a Manager over a kubernetes plugin that keeps running while its cluster is
+// outageRig is a Publisher over a kubernetes plugin that keeps running while its cluster is
 // unreachable (its Start succeeded) and another plugin. A plugin that is unavailable has no
 // opinion: its contributor returns nothing while it is, and says why through its own source.
 type outageRig struct {
-	m     *Manager
+	p     *Publisher
 	h     *hub.Hub
 	up    bool
 	kube  *source
@@ -69,7 +69,7 @@ func newOutageRig(t *testing.T) *outageRig {
 		return []model.SourceStatus{{Name: "kubernetes", Error: "unreachable"}}
 	}
 	w := withdrawn{r, r.kube}
-	r.m = New(Deps{
+	r.p = New(Deps{
 		Hosts: plugintest.AllRunning(r.h),
 		Contributors: func() []plugin.Contributor {
 			return []plugin.Contributor{
@@ -83,7 +83,7 @@ func newOutageRig(t *testing.T) *outageRig {
 
 func (r *outageRig) overview(t *testing.T) model.OverviewData {
 	t.Helper()
-	r.m.rebuild()
+	r.p.rebuild()
 	return overviewOf(t, r.h)
 }
 
@@ -160,10 +160,10 @@ func TestOverviewDuringAKubernetesOutage(t *testing.T) {
 // "kubernetes: not_configured" of its own for a cluster nobody configured.
 func TestOverviewWithoutAKubernetesPluginHasNoKubernetesSource(t *testing.T) {
 	r := newOutageRig(t)
-	r.m.d.Contributors = func() []plugin.Contributor {
+	r.p.d.Contributors = func() []plugin.Contributor {
 		return []plugin.Contributor{{ID: "other", Attention: r.other}}
 	}
-	r.m.rebuild()
+	r.p.rebuild()
 	if s, found := sourceNamed(mustEnvelope(t, r.h, model.TopicOverview).Sources, "kubernetes"); found {
 		t.Errorf("kubernetes source = %+v, want none", s)
 	}

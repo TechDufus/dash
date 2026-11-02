@@ -59,7 +59,7 @@ export interface PluginModule<Id extends string = string, T extends TopicMap = T
   id: Id;
   /** Rail position. Default: after every numbered entry, in registry order. */
   order?: number;
-  /** The topics the module's pages read, typed. Names are the published names (legacy ones until their G3 leaf). */
+  /** The topics the module's pages read, typed. Names are the published names. */
   topics: T;
   routes?: readonly ModuleRoute[];
   /** A badge component per nav path, drawn on the rail entry (alertmanager: the firing count). */
