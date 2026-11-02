@@ -63,9 +63,9 @@ func TestDemoManifestMatchesThePluginAndStopEndsTheTicker(t *testing.T) {
 	if err := tw.Stop(ctx); err != nil {
 		t.Errorf("Stop: %v", err)
 	}
-	if h.live.Load() != 0 {
-		t.Errorf("%d goroutines outlive Stop", h.live.Load())
-	}
+	// Stop returns when the twin's function has ended, which is before this host has counted the
+	// goroutine out: the count settles.
+	eventually(t, "the twin's goroutine to end after Stop", func() bool { return h.live.Load() == 0 })
 }
 
 // stubHost runs the twin without a supervisor: it counts publishes and the goroutines it started.
