@@ -6,42 +6,13 @@ import (
 	"time"
 )
 
-func TestSeries(t *testing.T) {
-	a := Args{VMID: "2020", Instance: "10.0.20.20:9100", Namespace: "homepage", Pod: "homepage-abc"}
-	tests := []struct {
-		name string
-		args Args
-		want string
-	}{
-		{"node.cpu", a, `1 - avg by (instance)(rate(node_cpu_seconds_total{job="node-exporter",instance="10.0.20.20:9100",mode="idle"}[2m]))`},
-		{"node.mem", a, `1 - node_memory_MemAvailable_bytes{job="node-exporter",instance="10.0.20.20:9100"} / node_memory_MemTotal_bytes{job="node-exporter",instance="10.0.20.20:9100"}`},
-		{"pod.cpu", a, `sum(rate(container_cpu_usage_seconds_total{metrics_path="/metrics/cadvisor",container!="",container!="POD",namespace="homepage",pod="homepage-abc"}[2m]))`},
-		{"pod.mem", a, `sum(container_memory_working_set_bytes{metrics_path="/metrics/cadvisor",container!="",container!="POD",namespace="homepage",pod="homepage-abc"})`},
-	}
-	for _, tc := range tests {
-		got, err := Series(tc.name, tc.args)
-		if err != nil || got != tc.want {
-			t.Errorf("%s:\n got %q (err %v)\nwant %q", tc.name, got, err, tc.want)
-		}
-	}
-}
-
-func TestSeriesRejectsBadInput(t *testing.T) {
-	tests := []struct {
-		name string
-		args Args
-	}{
-		{"nope", Args{}},
-		{"node.cpu", Args{}},
-		{"pod.cpu", Args{Namespace: "ok"}},
-		{"pod.mem", Args{Namespace: "Bad", Pod: "p"}},
-		{"pod.mem", Args{Namespace: "ns", Pod: `p"}`}},
-		{"host.power", Args{}}, // the host series belong to the hardware plugin
-		{"host.cpu", Args{}},
-	}
-	for _, tc := range tests {
-		if _, err := Series(tc.name, tc.args); !errors.Is(err, ErrBadSeries) {
-			t.Errorf("%s %+v: err = %v, want ErrBadSeries", tc.name, tc.args, err)
+// dash builds no series itself: the kubernetes plugin owns the node and pod series, and the
+// others belong to their plugins.
+func TestSeriesRejectsEveryName(t *testing.T) {
+	a := Args{VMID: "2020", Instance: "node-a", Namespace: "homepage", Pod: "homepage-abc"}
+	for _, name := range []string{"nope", "node.cpu", "node.mem", "pod.cpu", "pod.mem", "host.power", "host.cpu"} {
+		if _, err := Series(name, a); !errors.Is(err, ErrBadSeries) {
+			t.Errorf("%s: err = %v, want ErrBadSeries", name, err)
 		}
 	}
 }

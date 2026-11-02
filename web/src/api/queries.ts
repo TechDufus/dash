@@ -73,7 +73,7 @@ export function usePodDetail(ns: string | undefined, name: string | undefined) {
     queryKey: ["pod", ns, name],
     queryFn: () =>
       api.get<PodDetail>(
-        `/api/pods/${encodeURIComponent(ns ?? "")}/${encodeURIComponent(name ?? "")}`,
+        `/api/v1/plugins/kubernetes/pods/${encodeURIComponent(ns ?? "")}/${encodeURIComponent(name ?? "")}`,
       ),
     enabled: !!ns && !!name,
     staleTime: 0,

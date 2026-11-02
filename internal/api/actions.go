@@ -7,16 +7,13 @@ import (
 	"time"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
-	"k8s.io/apimachinery/pkg/types"
 
 	"github.com/TechDufus/dash/internal/audit"
 	"github.com/TechDufus/dash/internal/model"
 	"github.com/TechDufus/dash/internal/queries"
+	"github.com/TechDufus/dash/internal/svc"
 )
-
-const fieldManager = "dash"
 
 // fluxResources maps the reconcilable Flux kinds to their resources.
 var fluxResources = map[model.FluxKind]schema.GroupVersionResource{
@@ -60,64 +57,6 @@ func accepted(w http.ResponseWriter) {
 	writeJSON(w, http.StatusAccepted, map[string]string{"status": "accepted"})
 }
 
-func (s *Server) restart(w http.ResponseWriter, r *http.Request) {
-	w, done := s.d.Metrics.TrackAction(w, "kubernetes", "restart")
-	defer done()
-	var req model.RestartRequest
-	if !s.decodeBody(w, r, &req) {
-		return
-	}
-	switch req.Kind {
-	case model.WorkloadKindDeployment, model.WorkloadKindStatefulSet, model.WorkloadKindDaemonSet:
-	default:
-		writeErr(w, http.StatusBadRequest, model.ErrCodeInvalidInput, "unsupported kind")
-		return
-	}
-	if !queries.ValidDNS(req.Namespace) || !queries.ValidDNS(req.Name) {
-		writeErr(w, http.StatusBadRequest, model.ErrCodeInvalidInput, "invalid namespace or name")
-		return
-	}
-	kind := string(req.Kind)
-	pending, ok := s.begin(w, r, "restart", audit.Target{Kind: kind, Namespace: req.Namespace, Name: req.Name})
-	if !ok {
-		return
-	}
-	ctx := r.Context()
-
-	ns, err := s.d.Kube.CoreV1().Namespaces().Get(ctx, req.Namespace, metav1.GetOptions{})
-	if err != nil {
-		pending.Outcome(err)
-		s.writeKubeErr(w, err)
-		return
-	}
-	// An unconfigured label never matches: without a protected label no namespace asks for the name.
-	if label := s.d.Cfg.Conventions.ProtectedLabel; label != "" && ns.Labels[label] == "true" && req.Confirm != req.Name {
-		err := errors.New("type the workload name to confirm")
-		pending.Outcome(err)
-		writeErr(w, http.StatusBadRequest, model.ErrCodeInvalidInput, err.Error())
-		return
-	}
-
-	patch, _ := json.Marshal(map[string]any{"spec": map[string]any{"template": map[string]any{"metadata": map[string]any{
-		"annotations": map[string]string{"kubectl.kubernetes.io/restartedAt": s.now().UTC().Format(time.RFC3339)},
-	}}}})
-	opts := metav1.PatchOptions{FieldManager: fieldManager}
-	switch req.Kind {
-	case model.WorkloadKindDeployment:
-		_, err = s.d.Kube.AppsV1().Deployments(req.Namespace).Patch(ctx, req.Name, types.StrategicMergePatchType, patch, opts)
-	case model.WorkloadKindStatefulSet:
-		_, err = s.d.Kube.AppsV1().StatefulSets(req.Namespace).Patch(ctx, req.Name, types.StrategicMergePatchType, patch, opts)
-	default:
-		_, err = s.d.Kube.AppsV1().DaemonSets(req.Namespace).Patch(ctx, req.Name, types.StrategicMergePatchType, patch, opts)
-	}
-	pending.Outcome(err)
-	if err != nil {
-		s.writeKubeErr(w, err)
-		return
-	}
-	accepted(w)
-}
-
 func (s *Server) reconcile(w http.ResponseWriter, r *http.Request) {
 	w, done := s.d.Metrics.TrackAction(w, "flux", "reconcile")
 	defer done()
@@ -141,12 +80,28 @@ func (s *Server) reconcile(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	_, err := s.d.Dyn.Resource(gvr).Namespace(req.Namespace).Patch(r.Context(), req.Name, types.MergePatchType, patch,
-		metav1.PatchOptions{FieldManager: fieldManager})
+	c, ok := s.cluster()
+	if !ok {
+		err := errors.New("the kubernetes plugin is not running")
+		pending.Outcome(err)
+		writeErr(w, http.StatusServiceUnavailable, model.ErrCodeUpstreamUnavailable, "kubernetes is not available")
+		return
+	}
+	err := c.Patch(r.Context(), gvr, req.Namespace, req.Name, patch)
 	pending.Outcome(err)
 	if err != nil {
 		s.writeKubeErr(w, err)
 		return
 	}
 	accepted(w)
+}
+
+// cluster is the kubernetes plugin's svc.Cluster while the plugin runs. It is looked up per
+// request: the plugin restarts on a reload and its service changes with it.
+func (s *Server) cluster() (svc.Cluster, bool) {
+	if s.d.Cluster == nil {
+		return nil, false
+	}
+	c, ok := s.d.Cluster()
+	return c, ok && c != nil
 }

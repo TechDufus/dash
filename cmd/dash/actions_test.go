@@ -158,23 +158,16 @@ func TestVictoriaLogsDenyNamespacesReachTheRoutes(t *testing.T) {
 	}
 }
 
-// denyingSection is a section with an action policy that has a deny list, as plugins.kubernetes
-// will have: no section of this commit does.
-type denyingSection struct {
-	pluginconf.PluginBase
-	Policy pluginconf.Actions
-}
-
-func (s denyingSection) ActionsConfig() pluginconf.Actions { return s.Policy }
-
+// plugins.kubernetes.actions reaches the instance's policy, and its deny list arrives in the
+// action ref the supervisor hands the API.
 func TestActionPolicyOfASectionReachesTheActionRef(t *testing.T) {
-	section := &denyingSection{Policy: pluginconf.Actions{Enabled: true, DenyNamespaces: []string{"kube-system"}}}
+	section := &pluginconf.Kubernetes{Actions: pluginconf.Actions{Enabled: true, DenyNamespaces: []string{"kube-system"}}}
 	ic := instanceConfig(config.PluginSection{Name: "kubernetes", Type: "kubernetes", Value: section})
 	if !ic.ActionsEnabled || !slices.Equal(ic.DenyNamespaces, []string{"kube-system"}) || ic.ReadDenyNamespaces != nil {
 		t.Fatalf("instance = %+v", ic)
 	}
 
-	f := plugintest.New("kubernetes", plugintest.Config(func() any { return &denyingSection{} }))
+	f := plugintest.New("kubernetes", plugintest.Config(func() any { return &pluginconf.Kubernetes{} }))
 	f.M.Actions = []plugin.ActionSpec{{Name: "restart", Title: "Restart"}}
 	f.ActionFn = func(context.Context, string, auth.Principal, any) (any, error) { return nil, nil }
 	set := &plugintest.Settings{}

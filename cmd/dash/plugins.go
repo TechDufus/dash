@@ -15,6 +15,7 @@ import (
 	"github.com/TechDufus/dash/internal/plugins/grafana"
 	"github.com/TechDufus/dash/internal/plugins/hardware"
 	"github.com/TechDufus/dash/internal/plugins/headlamp"
+	"github.com/TechDufus/dash/internal/plugins/kubernetes"
 	"github.com/TechDufus/dash/internal/plugins/launcher"
 	"github.com/TechDufus/dash/internal/plugins/prometheus"
 	"github.com/TechDufus/dash/internal/plugins/proxmox"
@@ -80,6 +81,7 @@ var realPlugins = map[plugin.ID]plugin.Factory{
 	"victorialogs": victorialogs.New,
 	"proxmox":      proxmox.New,
 	"hardware":     hardware.New,
+	"kubernetes":   kubernetes.New,
 	"grafana":      grafana.New,
 	"headlamp":     headlamp.New,
 	"launcher":     launcher.New,

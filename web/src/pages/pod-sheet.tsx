@@ -32,6 +32,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { formatBytes, formatDateTime, formatRelative, shortImage } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { usePluginVisible } from "@/plugins/state";
+import { useActionAvailable } from "@/plugins/use-action-available";
 import { filterSearch, formatCores } from "./cluster/common";
 import { PodLogs } from "./cluster/pod-logs";
 
@@ -91,7 +92,7 @@ function PodBody({ ns, name, open }: { ns: string; name: string; open: boolean }
   const tabs = logsOn ? TABS : TABS.filter((t) => t.value !== "logs");
   const tab = tabs.some((t) => t.value === chosen) ? chosen : "overview";
   const detail = usePodDetail(ns, name);
-  const cluster = useTopicData("cluster");
+  const cluster = useTopicData("kubernetes.cluster");
   const livePod = cluster?.pods.find((p) => p.namespace === ns && p.name === name);
   const pod: Pod | undefined = livePod ?? detail.data?.pod;
 
@@ -286,6 +287,9 @@ function Overview({
   cluster,
   gone,
 }: OverviewProps) {
+  // The control exists while the kubernetes plugin lists restart (actions.enabled) and the role
+  // may run it.
+  const canRestart = useActionAvailable("kubernetes", "restart");
   // Restart acts on the top-most restartable workload of the chain.
   const target = useMemo(() => {
     for (let i = ownerChain.length - 1; i >= 0; i--) {
@@ -391,7 +395,7 @@ function Overview({
             </span>
           )}
         </div>
-        {target && (
+        {target && canRestart && (
           <Button
             type="button"
             variant="outline"

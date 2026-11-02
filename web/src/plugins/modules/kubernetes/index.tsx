@@ -12,19 +12,22 @@ export default definePlugin({
   id: "kubernetes",
   order: 20,
   topics: {
-    cluster: topic<ClusterData>(),
-    storage: topic<StorageData>(),
-    apps: topic<AppsData>(),
+    "kubernetes.cluster": topic<ClusterData>(),
+    "kubernetes.storage": topic<StorageData>(),
+    "kubernetes.apps": topic<AppsData>(),
   },
   routes: [{ path: "/cluster/*?", page: ClusterPage }],
   palette: (ctx): readonly PaletteGroup[] => {
-    const cluster = ctx.topic("cluster");
-    const apps = ctx.topic("apps");
+    const cluster = ctx.topic("kubernetes.cluster");
+    const apps = ctx.topic("kubernetes.apps");
+    // Restart is a framework action: it is offered while the plugin lists it (actions.enabled) and
+    // the role meets its minRole, so the group is empty (and hidden) otherwise.
+    const canRestart = ctx.actionAvailable("kubernetes", "restart");
     return [
       {
         id: "actions",
         heading: "Actions",
-        items: (cluster?.workloads ?? [])
+        items: (canRestart ? (cluster?.workloads ?? []) : [])
           .filter((w) => w.restartable)
           .map((w) => ({
             id: `restart:${w.kind}/${w.namespace}/${w.name}`,

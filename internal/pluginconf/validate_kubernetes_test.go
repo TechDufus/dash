@@ -6,10 +6,14 @@ import (
 	"testing"
 )
 
-// The backup job rules moved here from internal/config with the section: at most one entry,
-// each with both fields, reported at the same path with the same words.
+// The backup job rules: up to eight entries, each with a namespace and a cronjob, and a row name
+// that is not repeated within a namespace. The paths and the words of the old rules are kept.
 func TestKubernetesBackupJobRules(t *testing.T) {
 	job := BackupJob{Namespace: "backup", CronJob: "nightly"}
+	many := make([]BackupJob, MaxBackupJobs+1)
+	for i := range many {
+		many[i] = BackupJob{Namespace: "backup", CronJob: "job", Label: string(rune('a' + i))}
+	}
 	for _, tc := range []struct {
 		name string
 		k    Kubernetes
@@ -18,10 +22,18 @@ func TestKubernetesBackupJobRules(t *testing.T) {
 	}{
 		{"nothing set is fine", Kubernetes{}, nil, ""},
 		{"one complete job", Kubernetes{BackupJobs: []BackupJob{job}}, nil, ""},
-		{"two jobs", Kubernetes{BackupJobs: []BackupJob{job, job}}, []string{"backupJobs"}, "has 2 entries; one job is supported until G3"},
+		{"two jobs are fine now", Kubernetes{BackupJobs: []BackupJob{job, {Namespace: "backup", CronJob: "weekly", Label: "weekly"}}}, nil, ""},
+		{"eight jobs", Kubernetes{BackupJobs: many[:MaxBackupJobs]}, nil, ""},
+		{"nine jobs", Kubernetes{BackupJobs: many}, []string{"backupJobs"}, "has 9 entries; at most 8 are supported"},
 		{"no cronjob", Kubernetes{BackupJobs: []BackupJob{{Namespace: "backup"}}}, []string{"backupJobs"}, "entry 1 needs both namespace and cronjob"},
 		{"no namespace", Kubernetes{BackupJobs: []BackupJob{{CronJob: "nightly"}}}, []string{"backupJobs"}, "entry 1 needs both namespace and cronjob"},
-		{"two incomplete jobs report each rule", Kubernetes{BackupJobs: []BackupJob{{}, {}}}, []string{"backupJobs", "backupJobs", "backupJobs"}, ""},
+		{"two incomplete jobs report each rule", Kubernetes{BackupJobs: []BackupJob{{}, {}}}, []string{"backupJobs", "backupJobs"}, ""},
+		{"a row name repeated in one namespace", Kubernetes{BackupJobs: []BackupJob{
+			{Namespace: "backup", CronJob: "a", Label: "nas"}, {Namespace: "backup", CronJob: "b", Label: "nas"},
+		}}, []string{"backupJobs"}, "entry 2 repeats the row backup/nas"},
+		{"the same row name in two namespaces", Kubernetes{BackupJobs: []BackupJob{
+			{Namespace: "a", CronJob: "x", Label: "nas"}, {Namespace: "b", CronJob: "x", Label: "nas"},
+		}}, nil, ""},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			err := tc.k.Validate()
@@ -32,5 +44,62 @@ func TestKubernetesBackupJobRules(t *testing.T) {
 				t.Errorf("error = %v, want %q", err, tc.msg)
 			}
 		})
+	}
+}
+
+func TestKubernetesDefaultsAreValidAndEqualToday(t *testing.T) {
+	d := DefaultKubernetes()
+	if err := d.Validate(); err != nil {
+		t.Fatalf("the defaults are invalid: %v", err)
+	}
+	if d.ConnectionMode() != KubernetesModeAuto || d.EffectiveQPS() != 20 || d.EffectiveBurst() != 40 || d.EtcdJob() != "etcd" {
+		t.Errorf("defaults = %+v", d)
+	}
+	var zero Kubernetes
+	if zero.ConnectionMode() != KubernetesModeAuto || zero.EffectiveQPS() != 20 || zero.EffectiveBurst() != 40 || zero.EtcdJob() != "etcd" {
+		t.Errorf("an unset section reads as the defaults: %+v", zero)
+	}
+}
+
+func TestKubernetesSettingRules(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		k    Kubernetes
+		want []string
+	}{
+		{"mode auto", Kubernetes{Mode: "auto"}, nil},
+		{"mode inCluster", Kubernetes{Mode: "inCluster"}, nil},
+		{"mode kubeconfig", Kubernetes{Mode: "kubeconfig"}, nil},
+		{"unknown mode", Kubernetes{Mode: "remote"}, []string{"mode"}},
+		{"qps and burst", Kubernetes{QPS: 50, Burst: 50}, nil},
+		{"burst below qps", Kubernetes{QPS: 50, Burst: 10}, []string{"burst"}},
+		{"only qps above the default burst", Kubernetes{QPS: 100}, []string{"burst"}},
+		{"negative qps", Kubernetes{QPS: -1}, []string{"qps"}},
+		{"negative burst", Kubernetes{Burst: -5}, []string{"burst"}},
+		{"an etcd job", Kubernetes{Etcd: KubernetesEtcd{Job: "kube-etcd"}}, nil},
+		{"an etcd job that breaks out of the query", Kubernetes{Etcd: KubernetesEtcd{Job: `etcd"}or{job=~".*`}}, []string{"etcd.job"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			err := tc.k.Validate()
+			if got := paths(err); !slices.Equal(got, tc.want) {
+				t.Fatalf("paths = %v, want %v (%v)", got, tc.want, err)
+			}
+		})
+	}
+}
+
+// TestBurstBelowQPSIsInvalid names the rule of the settings table: burst is at least qps.
+func TestBurstBelowQPSIsInvalid(t *testing.T) {
+	err := Kubernetes{QPS: 40, Burst: 20}.Validate()
+	if err == nil || !strings.Contains(err.Error(), "burst: is 20, below qps (40)") {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestKubernetesActionsConfigIsTheSection(t *testing.T) {
+	k := Kubernetes{Actions: Actions{Enabled: true, DenyNamespaces: []string{"kube-system"}}}
+	got := k.ActionsConfig()
+	if !got.Enabled || !slices.Equal(got.DenyNamespaces, []string{"kube-system"}) {
+		t.Errorf("ActionsConfig = %+v", got)
 	}
 }

@@ -117,6 +117,7 @@ func defaults(dev, demo bool) Tree {
 			Proxmox:      pluginconf.DefaultProxmox(),
 			Hardware:     pluginconf.DefaultHardware(),
 			Headlamp:     pluginconf.DefaultHeadlamp(),
+			Kubernetes:   pluginconf.DefaultKubernetes(),
 		},
 	}
 	if dev || demo {
@@ -169,17 +170,7 @@ func (t Tree) config(dev, demo bool) Config {
 		DataDir:     t.DataDir,
 		SettingsUI:  t.Settings.UI,
 		IconBaseURL: t.UI.IconBaseURL,
-		Kubeconfig:  p.Kubernetes.Kubeconfig,
-		Conventions: Conventions{
-			ProtectedLabel:          p.Kubernetes.Conventions.ProtectedLabel,
-			TenantLabel:             p.Kubernetes.Conventions.TenantLabel,
-			SuspendReasonAnnotation: p.Flux.SuspendReasonAnnotation,
-			AppsFluxPrefix:          p.Kubernetes.Conventions.AppsFluxPrefix,
-		},
-	}
-	if len(p.Kubernetes.BackupJobs) > 0 {
-		c.Conventions.NASBackupNamespace = p.Kubernetes.BackupJobs[0].Namespace
-		c.Conventions.NASBackupCronJob = p.Kubernetes.BackupJobs[0].CronJob
+		Conventions: Conventions{SuspendReasonAnnotation: p.Flux.SuspendReasonAnnotation},
 	}
 	return c
 }

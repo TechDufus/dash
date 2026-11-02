@@ -7,13 +7,6 @@ import (
 	"testing"
 	"time"
 
-	corev1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/apimachinery/pkg/runtime/schema"
-	dynfake "k8s.io/client-go/dynamic/fake"
-	kubefake "k8s.io/client-go/kubernetes/fake"
-
 	"github.com/TechDufus/dash/internal/config"
 	"github.com/TechDufus/dash/internal/hub"
 	"github.com/TechDufus/dash/internal/kube"
@@ -26,23 +19,12 @@ import (
 	"github.com/TechDufus/dash/internal/plugins/headlamp"
 )
 
-// podCluster is a cluster of two running pods whose informers sync at once.
-func podCluster() *kube.Cluster {
-	listKinds := map[schema.GroupVersionResource]string{}
-	for _, gvr := range []schema.GroupVersionResource{
-		kube.GVRKustomizations, kube.GVRHelmReleases, kube.GVRGitRepositories, kube.GVROCIRepositories, kube.GVRHelmRepositories,
-		kube.GVRCNPGClusters, kube.GVRCertificates, kube.GVRExternalSecrets, kube.GVRHTTPRoutes,
-	} {
-		listKinds[gvr] = gvr.Resource + "List"
-	}
-	pod := func(name string) *corev1.Pod {
-		return &corev1.Pod{
-			ObjectMeta: metav1.ObjectMeta{Namespace: "media", Name: name, CreationTimestamp: metav1.NewTime(time.Now().Add(-time.Hour))},
-			Status:     corev1.PodStatus{Phase: corev1.PodRunning},
-		}
-	}
-	return kube.NewFromClients(kubefake.NewClientset(pod("app-0"), pod("app-1")),
-		dynfake.NewSimpleDynamicClientWithCustomListKinds(runtime.NewScheme(), listKinds))
+// fluxKube is a synced cluster holding two Kustomizations.
+func fluxKube() *fakeKube {
+	f := newFakeKube()
+	f.add(kube.GVRKustomizations, kustomization("apps", true))
+	f.add(kube.GVRKustomizations, kustomization("infra", true))
+	return f
 }
 
 // linkRig is a Manager over a real supervisor that runs the real grafana and headlamp plugins
@@ -65,7 +47,7 @@ func newLinkRig(t *testing.T, cfg config.Config, lab ...plugin.InstanceConfig) *
 		r.set.Set(ic)
 	}
 	r.m = New(Deps{
-		Cfg: cfg, Cluster: podCluster(), Hosts: r.sup, Contributors: r.sup.Contributors,
+		Cfg: cfg, Cluster: kubeOf(fluxKube()), Hosts: r.sup, Contributors: r.sup.Contributors,
 		LinkProviders: func() plugin.LinkResolver { r.providerReads.Add(1); return r.sup.Links() },
 	})
 	if err := r.sup.Add(append(r.m.Plugins(), grafana.New, headlamp.New, alertmanager.New)...); err != nil {
@@ -99,23 +81,23 @@ func grafanaOff() plugin.InstanceConfig {
 	return plugin.InstanceConfig{Name: "grafana", Enabled: &off, Config: &pluginconf.Grafana{URL: "https://gf.example.com"}}
 }
 
-// kinds of the links of every pod of the cluster topic.
-func (r *linkRig) podLinks(t *testing.T) (pods int, kinds []model.LinkKind) {
+// fluxLinks is the number of Kustomizations of the flux topic and the kinds of their links.
+func (r *linkRig) fluxLinks(t *testing.T) (objs int, kinds []model.LinkKind) {
 	t.Helper()
-	env, ok := latest(r.h, model.TopicCluster)
+	env, ok := latest(r.h, model.TopicFlux)
 	if !ok {
 		return 0, nil
 	}
-	var d model.ClusterData
+	var d model.FluxData
 	if err := json.Unmarshal(env.Data, &d); err != nil {
 		t.Fatal(err)
 	}
-	for _, p := range d.Pods {
-		for _, l := range p.Links {
+	for _, o := range d.Kustomizations {
+		for _, l := range o.Links {
 			kinds = append(kinds, l.Kind)
 		}
 	}
-	return len(d.Pods), kinds
+	return len(d.Kustomizations), kinds
 }
 
 func hasKind(kinds []model.LinkKind, k model.LinkKind) bool {
@@ -127,15 +109,15 @@ func hasKind(kinds []model.LinkKind, k model.LinkKind) bool {
 	return false
 }
 
-// With headlamp running a pod's payload carries its "Open in Headlamp" link; with headlamp
+// With headlamp running a Flux object's payload carries its "Open in Headlamp" link; with headlamp
 // disabled it carries none. The Manager reads the providers through Supervisor.Links, so a change
 // of the rows reaches the next rebuild without a restart. (The host's Grafana link is the
 // hardware plugin's.)
 func TestLinksFollowTheHeadlampRow(t *testing.T) {
 	r := newLinkRig(t, config.Defaults(), headlampOn("https://hl.example.com"), grafanaOn("https://gf.example.com"))
 
-	eventually(t, "headlamp links on the pods", func() bool {
-		n, kinds := r.podLinks(t)
+	eventually(t, "headlamp links on the Flux objects", func() bool {
+		n, kinds := r.fluxLinks(t)
 		return n == 2 && hasKind(kinds, model.LinkKindHeadlamp)
 	})
 
@@ -149,9 +131,9 @@ func TestLinksFollowTheHeadlampRow(t *testing.T) {
 		}
 		return states["headlamp"] == model.PluginDisabled && states["grafana"] == model.PluginDisabled
 	})
-	r.m.mark(model.TopicCluster)
-	eventually(t, "the pods to lose their headlamp links", func() bool {
-		n, kinds := r.podLinks(t)
+	r.m.mark(model.TopicFlux)
+	eventually(t, "the objects to lose their headlamp links", func() bool {
+		n, kinds := r.fluxLinks(t)
 		return n == 2 && !hasKind(kinds, model.LinkKindHeadlamp)
 	})
 
@@ -160,33 +142,28 @@ func TestLinksFollowTheHeadlampRow(t *testing.T) {
 	r.set.Set(grafanaOn("https://gf.example.com"))
 	r.sup.Reload()
 	eventually(t, "headlamp to run again", func() bool { return r.sup.Running("headlamp") && r.sup.Running("grafana") })
-	r.m.mark(model.TopicCluster)
+	r.m.mark(model.TopicFlux)
 	eventually(t, "the links to return", func() bool {
-		_, kinds := r.podLinks(t)
+		_, kinds := r.fluxLinks(t)
 		return hasKind(kinds, model.LinkKindHeadlamp)
 	})
 }
 
-// The providers are read once per rebuild: two pods and the overview are linked from
-// one snapshot, and the next rebuild reads them again.
+// The providers are read once per rebuild: two objects and the overview are linked from one
+// snapshot, and the next rebuild reads them again.
 func TestProvidersAreReadOncePerRebuild(t *testing.T) {
-	cfg := config.Defaults()
 	var reads atomic.Int32
 	m := New(Deps{
-		Cfg: cfg, Cluster: podCluster(),
+		Cfg: config.Defaults(), Cluster: kubeOf(fluxKube()),
 		Hosts:         plugintest.AllRunning(hub.New(), LegacyManifests()...),
 		LinkProviders: func() plugin.LinkResolver { reads.Add(1); return plugin.NoLinks },
 	})
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	m.d.Cluster.Start(ctx)
-	eventually(t, "the informers to sync", m.d.Cluster.HasSynced)
-	m.mark(model.TopicCluster, model.TopicFlux, model.TopicStorage)
+	m.mark(model.TopicFlux)
 	m.rebuild()
 	if n := reads.Load(); n != 1 {
-		t.Errorf("providers read %d times for a rebuild of three topics and the overview, want once", n)
+		t.Errorf("providers read %d times for a rebuild of flux and the overview, want once", n)
 	}
-	m.mark(model.TopicCluster)
+	m.mark(model.TopicFlux)
 	m.rebuild()
 	if n := reads.Load(); n != 2 {
 		t.Errorf("providers read %d times after two rebuilds, want 2", n)
@@ -199,15 +176,15 @@ func TestProvidersAreReadOncePerRebuild(t *testing.T) {
 // A Manager with no supervisor (tests, tools) builds every link-bearing payload with empty,
 // non-nil link lists instead of panicking.
 func TestManagerWithoutProvidersBuildsEmptyLinks(t *testing.T) {
-	cfg := config.Defaults()
-	m := New(Deps{Cfg: cfg, Cluster: podCluster()})
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	m.d.Cluster.Start(ctx)
-	eventually(t, "the informers to sync", m.d.Cluster.HasSynced)
-	for _, p := range m.buildCluster(time.Now()).Pods {
-		if p.Links == nil || len(p.Links) != 0 {
-			t.Errorf("%s: links = %#v, want an empty non-nil slice", p.Name, p.Links)
+	f := fluxKube()
+	m := New(Deps{Cfg: config.Defaults(), Cluster: kubeOf(f)})
+	d := m.buildFlux(f)
+	if len(d.Kustomizations) != 2 {
+		t.Fatalf("flux = %+v", d)
+	}
+	for _, o := range d.Kustomizations {
+		if o.Links == nil || len(o.Links) != 0 {
+			t.Errorf("%s: links = %#v, want an empty non-nil slice", o.Name, o.Links)
 		}
 	}
 }

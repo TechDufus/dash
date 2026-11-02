@@ -1,6 +1,7 @@
 import { Navigation } from "lucide-react";
 import { Fragment, useEffect } from "react";
 import { useLocation } from "wouter";
+import { useMe } from "@/api/queries";
 import { getEnvelope, useStreamVersion } from "@/api/stream";
 import type { TopicData } from "@/api/topics";
 import type { Topic } from "@/api/types";
@@ -19,6 +20,7 @@ import { cn } from "@/lib/utils";
 import { MODULES, moduleOrder } from "@/plugins/registry";
 import { isVisible, useNavEntries, usePluginsState } from "@/plugins/state";
 import type { PaletteCtx, PaletteGroup, PaletteItem } from "@/plugins/types";
+import { actionAvailable } from "@/plugins/use-action-available";
 
 /**
  * The groups of every visible module, merged by id (the first heading wins) in module order.
@@ -54,6 +56,7 @@ function PaletteBody() {
   const [, navigate] = useLocation();
   const { entries } = useNavEntries();
   const { byId } = usePluginsState();
+  const role = useMe().data?.role;
 
   const ctx: PaletteCtx = {
     topic: <T extends Topic>(name: T) => getEnvelope(name)?.data as TopicData[T] | undefined,
@@ -61,6 +64,7 @@ function PaletteBody() {
       ui.setPalette(false);
       navigate(to);
     },
+    actionAvailable: (pluginId, action) => actionAvailable(byId.get(pluginId), action, role),
     close: () => ui.setPalette(false),
   };
   const groups = moduleGroups(ctx, (id) => {

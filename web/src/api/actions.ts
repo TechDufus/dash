@@ -11,7 +11,7 @@ import type {
 /** Rolling restart; the server message is shown verbatim on failure. Returns true on success. */
 export async function restartWorkload(req: RestartRequest): Promise<boolean> {
   try {
-    await api.post("/api/actions/restart", req);
+    await api.post("/api/v1/plugins/kubernetes/actions/restart", req);
     toast.success(`Restart requested: ${req.kind} ${req.namespace}/${req.name}`);
     return true;
   } catch (e) {

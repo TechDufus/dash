@@ -121,20 +121,21 @@ func TestReloadedSecretReachesTheProxmoxPluginWhileReadinessHolds(t *testing.T) 
 		t.Fatal(err)
 	}
 	defer store.Close()
-	// Readiness as main wires it: the supervisor, waiting for the informers of the topic manager
-	// (server.readyRequires = [kubernetes]), not the reloader.
+	// Readiness as main wires it: the supervisor, waiting for the kubernetes plugin to settle
+	// (server.readyRequires = [kubernetes]; here it has no cluster and is unavailable), not the
+	// reloader.
 	cfg := res.Config
 	fw := newFramework(res, store, config.ReloadOptions{Interval: time.Millisecond}, nil, nil, false)
 	sup, reloader := fw.sup, fw.reloader
 	mgr := topics.New(topics.Deps{
-		Cfg: cfg, Cluster: testCluster(), Hosts: sup, Services: sup.Service, LinkProviders: sup.Links, Secrets: reg,
+		Cfg: cfg, Cluster: kubernetesCluster(sup), Hosts: sup, LinkProviders: sup.Links,
 	})
 	ctx, cancel := context.WithCancel(context.Background())
 	if err := fw.start(ctx, registry(mgr.Plugins()), func() { mgr.Run(ctx) }); err != nil {
 		t.Fatal(err)
 	}
 	defer sup.Shutdown(context.Background())
-	srv := api.New(api.Deps{Cfg: cfg, Hub: fw.hub, Secrets: reg, Health: sup, Plugins: sup, Data: mgr})
+	srv := api.New(api.Deps{Cfg: cfg, Hub: fw.hub, Secrets: reg, Health: sup, Plugins: sup})
 	srv.MarkServing()
 	health := srv.HealthHandler()
 	ready := func() int {

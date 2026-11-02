@@ -180,7 +180,7 @@ interface SectionsProps {
 
 /** The Kubernetes apps, grouped Platform/Apps/Tenants (then any other group), filtered by `query`. */
 export function AppsSection({ query, compact }: SectionsProps) {
-  const env = useTopic("apps");
+  const env = useTopic("kubernetes.apps");
   const apps = env?.data.apps;
   if (!apps) return <LauncherSkeleton />;
 
@@ -264,7 +264,7 @@ export type LauncherStatus = "loading" | "shown" | "off";
  */
 export function useLauncherStatus(): LauncherStatus {
   const { ready } = usePluginsState();
-  const apps = useTopicAvailable("apps");
+  const apps = useTopicAvailable("kubernetes.apps");
   const launcher = usePluginVisible("launcher");
   const infra = useInfraLinks();
   if (apps === true || (launcher === true && infra.links.length > 0)) return "shown";
@@ -284,9 +284,9 @@ export function useLauncherShown(): boolean {
  * room.
  */
 export function NoMatches({ query }: { query: string }) {
-  const appsOn = useTopicAvailable("apps") === true;
+  const appsOn = useTopicAvailable("kubernetes.apps") === true;
   const launcherOn = usePluginVisible("launcher") === true;
-  const apps = useTopic("apps")?.data.apps;
+  const apps = useTopic("kubernetes.apps")?.data.apps;
   const infra = useInfraLinks();
   const loading = (appsOn && apps === undefined) || (launcherOn && infra.pending);
   const listedApps = appsOn ? (apps ?? []) : [];

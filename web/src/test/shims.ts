@@ -1,10 +1,21 @@
 // Plugin rows for tests: the eleven shims as /api/v1/plugins reports them (internal/topics/legacy.go).
-import type { PluginInfo } from "@/api/types";
+import type { ActionInfo, PluginInfo } from "@/api/types";
 import { pluginInfo } from "./harness";
 
 const nav = (path: string, label: string, title: string, icon: string) => [
   { path, label, title, icon },
 ];
+
+/** A framework action row as /api/v1/plugins lists it. */
+const action = (name: string, minRole: string): ActionInfo => ({
+  name,
+  title: name[0].toUpperCase() + name.slice(1),
+  destructive: true,
+  idempotent: false,
+  confirm: "none",
+  minRole,
+  inputSchema: null,
+});
 
 /** The shim rows in display order, all healthy. */
 export function shimRows(): PluginInfo[] {
@@ -38,8 +49,9 @@ export function shimRows(): PluginInfo[] {
     pluginInfo({
       id: "kubernetes",
       name: "Kubernetes",
-      topics: ["cluster", "storage", "apps"],
+      topics: ["kubernetes.cluster", "kubernetes.storage", "kubernetes.apps"],
       nav: nav("/cluster", "Cluster", "Kubernetes cluster", "Boxes"),
+      actions: [action("restart", "admin")],
     }),
     pluginInfo({
       id: "flux",

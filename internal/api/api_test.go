@@ -21,7 +21,6 @@ import (
 	"github.com/TechDufus/dash/internal/plugin/plugintest"
 	"github.com/TechDufus/dash/internal/queries"
 	"github.com/TechDufus/dash/internal/svc"
-	"github.com/TechDufus/dash/internal/topics"
 )
 
 const testOrigin = "https://dash.example.com"
@@ -46,23 +45,6 @@ func (f *fakeProm) Range(_ context.Context, expr string, start, end time.Time, s
 	f.calls++
 	f.expr, f.start, f.end, f.step = expr, start, end, step
 	return nil, f.err
-}
-
-type fakeData struct {
-	nodes  map[string]string
-	podErr error
-}
-
-func (f fakeData) PodDetail(_ context.Context, ns, name string) (model.PodDetail, error) {
-	if name == "missing" {
-		return model.PodDetail{}, topics.ErrNotFound
-	}
-	return model.PodDetail{}, f.podErr
-}
-
-func (f fakeData) NodeIP(name string) (string, bool) {
-	ip, ok := f.nodes[name]
-	return ip, ok
 }
 
 // promPlugin is a running supervisor with two fake plugins: "prometheus", whose service is q (the
@@ -90,6 +72,16 @@ func seriesFake() *plugintest.Fake {
 			}
 			return `sr_pod{namespace="` + a.Namespace + `",pod="` + a.Pod + `"}`, nil
 		}},
+		// sr.node takes the node by name and resolves it, as the kubernetes plugin's do.
+		{Name: "sr.node", Expr: func(a plugin.SeriesArgs) (string, error) {
+			switch a.Instance {
+			case "":
+				return "", fmt.Errorf("%w: node required", queries.ErrBadSeries)
+			case "cp1":
+				return `sr_node{instance="10.0.0.5:9100"}`, nil
+			}
+			return "", plugin.NotFound("unknown node")
+		}},
 	}
 	return f
 }
@@ -116,10 +108,9 @@ func runSup(fakes ...*plugintest.Fake) PluginsAPI {
 // newServer builds a Server with fakes; mod may adjust the deps before construction.
 func newServer(mod func(*Deps)) *Server {
 	d := Deps{
-		Cfg:     config.Config{PublicURL: testOrigin + "/", Limits: config.Defaults().Limits, Conventions: config.Conventions{ProtectedLabel: protectedLabel}},
+		Cfg:     config.Config{PublicURL: testOrigin + "/", Limits: config.Defaults().Limits},
 		Version: "test",
 		Hub:     hub.New(),
-		Data:    fakeData{nodes: map[string]string{"cp1": "10.0.0.5"}},
 	}
 	if mod != nil {
 		mod(&d)
@@ -329,30 +320,29 @@ func TestSeriesArgs(t *testing.T) {
 	})
 }
 
-// The node argument is resolved by the core (DataAPI.NodeIP) and node.* are built-in series
-// until the kubernetes plugin owns both; the plugin's leaf replaces this test.
+// The node argument is validated by the core and passed by name: the series that reads it (the
+// kubernetes plugin's, here sr.node) resolves it and says plugin.NotFound for a node it does not
+// know, which the API answers 404 with the plugin's own words.
 func TestSeriesNodeArgument(t *testing.T) {
 	runSeriesCases(t, []seriesCase{
-		{"unknown node", "name=node.cpu&range=1h&node=ghost", 404, ""},
-		{"missing node", "name=node.cpu&range=1h", 400, ""},
-		{"node ok", "name=node.cpu&range=1h&node=cp1", 200, `instance="10.0.0.5:9100"`},
+		{"unknown node", "name=sr.node&range=1h&node=ghost", 404, ""},
+		{"missing node", "name=sr.node&range=1h", 400, ""},
+		{"malformed node is 400 before the plugin is asked", "name=sr.node&range=1h&node=Bad_Node", 400, ""},
+		{"node ok", "name=sr.node&range=1h&node=cp1", 200, `instance="10.0.0.5:9100"`},
+	})
+
+	t.Run("the 404 body is the plugin's message alone", func(t *testing.T) {
+		s := newServer(nil)
+		w := req{path: "/api/v1/series?name=sr.node&range=1h&node=ghost"}.do(s.Handler())
+		if got := apiError(t, w); w.Code != http.StatusNotFound || got.Code != model.ErrCodeNotFound || got.Error != "unknown node" {
+			t.Errorf("= %d %s, want 404 not_found %q", w.Code, w.Body, "unknown node")
+		}
 	})
 }
 
-func TestDetails(t *testing.T) {
+func TestMe(t *testing.T) {
 	h := newServer(nil).Handler()
-
-	for _, tc := range []struct {
-		path string
-		code int
-	}{
-		{"/api/pods/media/plex-0", 200},
-		{"/api/pods/media/missing", 404},
-		{"/api/pods/Bad_NS/x", 400},
-		{"/api/v1/me", 200},
-	} {
-		if w := (req{path: tc.path}).do(h); w.Code != tc.code {
-			t.Errorf("%s: code = %d, want %d", tc.path, w.Code, tc.code)
-		}
+	if w := (req{path: "/api/v1/me"}).do(h); w.Code != 200 {
+		t.Errorf("/api/v1/me: code = %d, want 200", w.Code)
 	}
 }

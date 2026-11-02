@@ -9,6 +9,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/TechDufus/dash/internal/pluginconf"
 )
 
 // logBuf captures what Resolve warns about.
@@ -62,15 +64,16 @@ func TestFileLoadsIntoConfig(t *testing.T) {
 		Listen: "0.0.0.0:9090", HealthListen: "127.0.0.1:9091", PublicURL: "https://dash.example.com",
 		AllowedHosts: []string{"media.example.com", "192.0.2.10"}, ReadyRequires: []string{"kubernetes", "flux"}, ReadyTimeout: 2 * time.Minute,
 		DataDir: "/var/lib/dash", SettingsUI: SettingsReadOnly, Limits: defaultLimits,
-		Kubeconfig: "/etc/dash/kubeconfig",
-		Conventions: Conventions{
-			ProtectedLabel: "example.com/protected", TenantLabel: "example.com/tenant",
-			SuspendReasonAnnotation: "example.com/suspended", AppsFluxPrefix: "apps-",
-			NASBackupNamespace: "backup", NASBackupCronJob: "nightly",
-		},
+		Conventions: Conventions{SuspendReasonAnnotation: "example.com/suspended"},
 	}
 	if !reflect.DeepEqual(res.Config, want) {
 		t.Errorf("Config =\n%+v\nwant\n%+v", res.Config, want)
+	}
+	// The kubernetes plugin reads its own section: the flat view has no field for it.
+	if k := res.Tree.Plugins.Kubernetes; k.Kubeconfig != "/etc/dash/kubeconfig" || k.Conventions.ProtectedLabel != "example.com/protected" ||
+		k.Conventions.TenantLabel != "example.com/tenant" || k.Conventions.AppsFluxPrefix != "apps-" ||
+		!reflect.DeepEqual(k.BackupJobs, []pluginconf.BackupJob{{Namespace: "backup", CronJob: "nightly"}}) {
+		t.Errorf("plugins.kubernetes = %+v", k)
 	}
 	if p := res.Tree.Plugins.Proxmox; p.URL != "https://pve.example.com:8006" || p.Node != "pve" || p.TokenID != "dash@pve!dash" || p.TokenSecret.Reveal() != "s3cret" {
 		t.Errorf("plugins.proxmox = %+v", p)

@@ -17,12 +17,10 @@ import (
 	"github.com/TechDufus/dash/internal/api"
 	"github.com/TechDufus/dash/internal/config"
 	"github.com/TechDufus/dash/internal/demo"
-	"github.com/TechDufus/dash/internal/kube"
 	"github.com/TechDufus/dash/internal/obs"
 	"github.com/TechDufus/dash/internal/plugin"
 	"github.com/TechDufus/dash/internal/secret"
 	"github.com/TechDufus/dash/internal/topics"
-	"github.com/TechDufus/dash/internal/upstream"
 )
 
 // version is set with -ldflags "-X main.version=...".
@@ -91,16 +89,16 @@ func run(reg *secret.Registry) error {
 	// Rotated secret files reach the running credentials, and a changed plugins.* section reaches
 	// the plugin supervisor (newFramework). The reloader's loop ends with ctx and is awaited
 	// before the audit log and the store close.
-	// metrics and devWrap are set below, before any plugin starts, and read by the transport hook
-	// when a plugin builds its HTTP client: the hook is what puts the upstream metrics (and, on a
-	// laptop, the API server proxy for in-cluster services) under every plugin's client.
+	// metrics and supervisor are set below, before any plugin starts, and read by the transport
+	// hook when a plugin builds its HTTP client: the hook is what puts the upstream metrics (and,
+	// on a laptop, the API server proxy for in-cluster services) under every plugin's client.
 	var (
 		metrics *obs.Metrics
-		devWrap func(http.RoundTripper) http.RoundTripper
+		sup     *plugin.Supervisor
 	)
 	transport := func(id plugin.ID, rt http.RoundTripper) http.RoundTripper {
-		if devWrap != nil {
-			rt = devWrap(rt)
+		if id != "kubernetes" { // the plugin's own client talks to the API server directly
+			rt = viaAPIServer{next: rt, service: func(id plugin.ID) (any, bool) { return sup.Service(id) }}
 		}
 		return metrics.Upstream(string(id), rt)
 	}
@@ -129,30 +127,13 @@ func run(reg *secret.Registry) error {
 			return err
 		}
 		srv = api.New(api.Deps{
-			Cfg: cfg, Version: version, Hub: h, Plugins: sup, Data: src, Health: sup, Metrics: metrics, Secrets: reg, Audit: alog,
+			Cfg: cfg, Version: version, Hub: h, Plugins: sup, Health: sup, Metrics: metrics, Secrets: reg, Audit: alog,
 		})
 		handler = demo.Wrap(srv.Handler())
 		slog.Info("demo mode: serving fake data, no cluster or upstreams are contacted")
 	} else {
-		rc, err := kube.LoadConfig(cfg)
-		if err != nil {
-			return err
-		}
-		cluster, err := kube.New(rc)
-		if err != nil {
-			return err
-		}
-
-		// Outside the cluster the monitoring services are reached through the API server proxy,
-		// through the transport hook of the framework.
-		if cfg.Dev {
-			if devWrap, err = upstream.DevWrap(rc); err != nil {
-				return err
-			}
-		}
 		mgr := topics.New(topics.Deps{
-			Cfg: cfg, Cluster: cluster, Hosts: sup, Contributors: sup.Contributors,
-			Services: sup.Service, LinkProviders: sup.Links, Secrets: reg,
+			Cfg: cfg, Cluster: kubernetesCluster(sup), Hosts: sup, Contributors: sup.Contributors, LinkProviders: sup.Links,
 		})
 		// The supervisor starts before the Manager so that no first publish is dropped.
 		if err := fw.start(ctx, registry(mgr.Plugins()), func() { mgr.Run(ctx) }); err != nil {
@@ -160,8 +141,8 @@ func run(reg *secret.Registry) error {
 		}
 
 		srv = api.New(api.Deps{
-			Cfg: cfg, Version: version, Hub: h, Plugins: sup, Kube: cluster.Client, Dyn: cluster.Dynamic,
-			Data: mgr, Health: sup, Metrics: metrics, Secrets: reg, Audit: alog,
+			Cfg: cfg, Version: version, Hub: h, Plugins: sup, Cluster: kubernetesCluster(sup),
+			Health: sup, Metrics: metrics, Secrets: reg, Audit: alog,
 		})
 		handler = srv.Handler()
 	}

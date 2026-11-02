@@ -1,18 +1,29 @@
 // Package kube owns the Kubernetes clients and the shared informers dash builds its topics from.
+//
+// The typed informers (nodes, namespaces, pods, PVCs, the workload controllers and the warning
+// events) are registered when the Cluster is built and gate HasSynced: the kubernetes plugin
+// reports itself starting until they have synced. A custom resource is different: its CRD may
+// not exist, and an informer for a resource the API server does not serve never syncs. So the
+// dynamic informers are discovery-gated (discovery.go): they start when discovery says the
+// resource is served, they never gate HasSynced, and Listed says when one has finished its
+// first list (or will never have one).
 package kube
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
+	"sync/atomic"
 
 	appsv1 "k8s.io/api/apps/v1"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/discovery"
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/dynamic/dynamicinformer"
 	"k8s.io/client-go/informers"
@@ -23,9 +34,10 @@ import (
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/client-go/tools/clientcmd"
-
-	"github.com/TechDufus/dash/internal/config"
 )
+
+// FieldManager is the field manager of every write dash makes to the cluster.
+const FieldManager = "dash"
 
 // GVRs of the custom resources dash watches.
 var (
@@ -38,9 +50,10 @@ var (
 	GVRCertificates     = schema.GroupVersionResource{Group: "cert-manager.io", Version: "v1", Resource: "certificates"}
 	GVRExternalSecrets  = schema.GroupVersionResource{Group: "external-secrets.io", Version: "v1", Resource: "externalsecrets"}
 	GVRHTTPRoutes       = schema.GroupVersionResource{Group: "gateway.networking.k8s.io", Version: "v1", Resource: "httproutes"}
+	GVRIngresses        = schema.GroupVersionResource{Group: "networking.k8s.io", Version: "v1", Resource: "ingresses"}
 )
 
-// Kind names what changed, so topics can mark the right dependents dirty.
+// Kind names what changed, so a consumer can mark the right dependents dirty.
 type Kind string
 
 const (
@@ -55,21 +68,64 @@ const (
 	KindCertificates Kind = "certificates"
 	KindExtSecrets   Kind = "externalsecrets"
 	KindHTTPRoutes   Kind = "httproutes"
+	KindIngresses    Kind = "ingresses"
+	// KindCRDs is a custom resource that appeared in or vanished from the served set.
+	KindCRDs Kind = "crds"
+	// KindOther is a resource watched on behalf of a caller that named no kind.
+	KindOther Kind = "other"
 )
 
-// LoadConfig returns the in-cluster config, or the kubeconfig at cfg.Kubeconfig in dev.
-func LoadConfig(cfg config.Config) (*rest.Config, error) {
+// defaultKinds is the kind of a GVR that Watch registers without one.
+var defaultKinds = map[schema.GroupVersionResource]Kind{
+	GVRKustomizations: KindFlux, GVRHelmReleases: KindFlux, GVRGitRepositories: KindFlux,
+	GVROCIRepositories: KindFlux, GVRHelmRepositories: KindFlux,
+	GVRCNPGClusters: KindCNPG, GVRCertificates: KindCertificates,
+	GVRExternalSecrets: KindExtSecrets, GVRHTTPRoutes: KindHTTPRoutes, GVRIngresses: KindIngresses,
+}
+
+// Connection modes, as plugins.kubernetes.mode spells them.
+const (
+	ModeAuto       = "auto"
+	ModeInCluster  = "inCluster"
+	ModeKubeconfig = "kubeconfig"
+)
+
+// ErrNoCluster is what LoadConfig returns in auto mode when there is neither a kubeconfig nor an
+// in-cluster environment: dash runs without a cluster.
+var ErrNoCluster = errors.New("no cluster configuration")
+
+// LoadConfig returns the REST config of a mode: kubeconfig (a path, with an optional context) for
+// ModeKubeconfig, the in-cluster service account for ModeInCluster, and for ModeAuto the
+// kubeconfig when a path is given, else the in-cluster one, else ErrNoCluster. qps and burst are
+// the client's rate limits. It reads no environment variable: the caller resolves KUBECONFIG.
+func LoadConfig(mode, kubeconfig, kubeContext string, qps float32, burst int) (*rest.Config, error) {
 	var rc *rest.Config
 	var err error
-	if cfg.Kubeconfig != "" {
-		rc, err = clientcmd.BuildConfigFromFlags("", cfg.Kubeconfig)
-	} else {
+	switch {
+	case mode == ModeKubeconfig || (mode == ModeAuto && kubeconfig != ""):
+		if kubeconfig == "" {
+			return nil, errors.New("mode kubeconfig needs plugins.kubernetes.kubeconfig (or KUBECONFIG)")
+		}
+		rules := &clientcmd.ClientConfigLoadingRules{ExplicitPath: kubeconfig}
+		rc, err = clientcmd.NewNonInteractiveDeferredLoadingClientConfig(rules, &clientcmd.ConfigOverrides{CurrentContext: kubeContext}).ClientConfig()
+		if err != nil {
+			return nil, fmt.Errorf("kubeconfig: %w", err)
+		}
+	case mode == ModeInCluster || mode == ModeAuto:
 		rc, err = rest.InClusterConfig()
+		if errors.Is(err, rest.ErrNotInCluster) {
+			if mode == ModeAuto {
+				return nil, ErrNoCluster
+			}
+			return nil, fmt.Errorf("mode inCluster outside a cluster: %w", err)
+		}
+		if err != nil {
+			return nil, fmt.Errorf("in-cluster config: %w", err)
+		}
+	default:
+		return nil, fmt.Errorf("unknown mode %q", mode)
 	}
-	if err != nil {
-		return nil, fmt.Errorf("kubernetes config: %w", err)
-	}
-	rc.QPS, rc.Burst = 20, 40
+	rc.QPS, rc.Burst = qps, burst
 	return rc, nil
 }
 
@@ -90,16 +146,21 @@ type Cluster struct {
 	PVCs         corelisters.PersistentVolumeClaimLister
 	Events       corelisters.EventLister // Warning events only
 
-	typed   informers.SharedInformerFactory
-	events  informers.SharedInformerFactory
-	dyn     dynamicinformer.DynamicSharedInformerFactory
-	generic map[schema.GroupVersionResource]cache.GenericLister
-	kinds   map[schema.GroupVersionResource]Kind
+	typed  informers.SharedInformerFactory
+	events informers.SharedInformerFactory
+	dyn    dynamicinformer.DynamicSharedInformerFactory
+	disc   discovery.ServerResourcesInterface
 
-	synced []cache.InformerSynced
-
-	mu       sync.RWMutex
+	synced   []cache.InformerSynced // the typed informers: the readiness gate
+	syncErr  atomic.Pointer[error]  // the last watch error of a typed informer
+	wake     chan struct{}          // a request for an immediate discovery (coalesced)
+	mu       sync.RWMutex           // guards what follows
 	onChange []func(Kind)
+	ctx      context.Context // set by Start
+	dynamics map[schema.GroupVersionResource]*dynamicState
+	// discovered is set by the first discovery that returned an answer; discoverFailed by a
+	// discovery that failed altogether before any answer.
+	discovered, discoverFailed bool
 }
 
 // New builds clients and (unstarted) informers from a REST config.
@@ -115,9 +176,11 @@ func New(rc *rest.Config) (*Cluster, error) {
 	return NewFromClients(client, dyn), nil
 }
 
-// NewFromClients builds informers over existing clients (fakes in tests).
+// NewFromClients builds informers over existing clients (fakes in tests). Only the typed
+// informers exist yet: a custom resource is added with AddDynamic, Watch or Discover.
 func NewFromClients(client kubernetes.Interface, dyn dynamic.Interface) *Cluster {
-	c := &Cluster{Client: client, Dynamic: dyn}
+	c := &Cluster{Client: client, Dynamic: dyn, wake: make(chan struct{}, 1), dynamics: map[schema.GroupVersionResource]*dynamicState{}}
+	c.disc = client.Discovery()
 	c.typed = informers.NewSharedInformerFactory(client, 0)
 	c.events = informers.NewSharedInformerFactoryWithOptions(client, 0, informers.WithTweakListOptions(func(o *metav1.ListOptions) {
 		o.FieldSelector = "type=Warning"
@@ -147,37 +210,30 @@ func NewFromClients(client kubernetes.Interface, dyn dynamic.Interface) *Cluster
 		{c.events.Core().V1().Events().Informer(), KindEvents},
 	}
 	for _, t := range typed {
-		c.watch(t.inf, t.kind)
-	}
-
-	c.generic = map[schema.GroupVersionResource]cache.GenericLister{}
-	c.kinds = map[schema.GroupVersionResource]Kind{
-		GVRKustomizations: KindFlux, GVRHelmReleases: KindFlux, GVRGitRepositories: KindFlux,
-		GVROCIRepositories: KindFlux, GVRHelmRepositories: KindFlux,
-		GVRCNPGClusters: KindCNPG, GVRCertificates: KindCertificates,
-		GVRExternalSecrets: KindExtSecrets, GVRHTTPRoutes: KindHTTPRoutes,
-	}
-	for gvr, kind := range c.kinds {
-		inf := c.dyn.ForResource(gvr)
-		c.generic[gvr] = inf.Lister()
-		c.watch(inf.Informer(), kind)
+		c.watchTyped(t.inf, t.kind)
 	}
 	return c
 }
 
-func (c *Cluster) watch(inf cache.SharedIndexInformer, kind Kind) {
+// watchTyped adds a typed informer to the readiness gate and the change notifications.
+func (c *Cluster) watchTyped(inf cache.SharedIndexInformer, kind Kind) {
 	c.synced = append(c.synced, inf.HasSynced)
 	notify := func() { c.notify(kind) }
-	// The handler registration itself cannot fail for a not-yet-started informer.
+	// Registering a handler or an error handler on a not-yet-started informer cannot fail.
 	_, _ = inf.AddEventHandler(cache.ResourceEventHandlerFuncs{
 		AddFunc:    func(any) { notify() },
 		UpdateFunc: func(_, _ any) { notify() },
 		DeleteFunc: func(any) { notify() },
 	})
+	_ = inf.SetWatchErrorHandlerWithContext(func(ctx context.Context, r *cache.Reflector, err error) {
+		c.syncErr.Store(&err)
+		cache.DefaultWatchErrorHandler(ctx, r, err)
+	})
 }
 
 // OnChange registers fn to be called (on the informer goroutines; keep it cheap) for every
-// add, update or delete. Register before Start.
+// add, update or delete of a watched resource, and with KindCRDs when the served set changes.
+// Register before Start.
 func (c *Cluster) OnChange(fn func(Kind)) {
 	c.mu.Lock()
 	c.onChange = append(c.onChange, fn)
@@ -193,14 +249,19 @@ func (c *Cluster) notify(kind Kind) {
 	}
 }
 
-// Start launches every informer; it does not block.
+// Start launches every informer registered so far; it does not block. A dynamic informer added
+// later starts when it is added.
 func (c *Cluster) Start(ctx context.Context) {
+	c.mu.Lock()
+	c.ctx = ctx
+	c.mu.Unlock()
 	c.typed.Start(ctx.Done())
 	c.events.Start(ctx.Done())
 	c.dyn.Start(ctx.Done())
 }
 
-// HasSynced is true once every informer has completed its first list.
+// HasSynced is true once every typed informer has completed its first list. A dynamic informer
+// never gates it (see Listed).
 func (c *Cluster) HasSynced() bool {
 	for _, s := range c.synced {
 		if !s() {
@@ -215,23 +276,27 @@ func (c *Cluster) WaitForSync(ctx context.Context) bool {
 	return cache.WaitForCacheSync(ctx.Done(), c.synced...)
 }
 
-// List returns the cached objects of a custom resource (all namespaces).
-func (c *Cluster) List(gvr schema.GroupVersionResource) []*unstructured.Unstructured {
-	l, ok := c.generic[gvr]
-	if !ok {
-		return nil
+// SyncError is the last error a typed informer's watch reported, nil when none has. It is what
+// explains a sync that does not complete: a forbidden list, an unreachable API server.
+func (c *Cluster) SyncError() error {
+	if p := c.syncErr.Load(); p != nil {
+		return *p
 	}
-	objs, err := l.List(labels.Everything())
-	if err != nil {
-		return nil
+	return nil
+}
+
+// Patch sends a JSON merge patch to one object through the dynamic client, under the field
+// manager "dash". namespace is empty for a cluster-scoped resource. The error is the API
+// server's, unwrapped.
+func (c *Cluster) Patch(ctx context.Context, gvr schema.GroupVersionResource, namespace, name string, merge []byte) error {
+	r := c.Dynamic.Resource(gvr)
+	var err error
+	if namespace == "" {
+		_, err = r.Patch(ctx, name, types.MergePatchType, merge, metav1.PatchOptions{FieldManager: FieldManager})
+	} else {
+		_, err = r.Namespace(namespace).Patch(ctx, name, types.MergePatchType, merge, metav1.PatchOptions{FieldManager: FieldManager})
 	}
-	out := make([]*unstructured.Unstructured, 0, len(objs))
-	for _, o := range objs {
-		if u, ok := o.(*unstructured.Unstructured); ok {
-			out = append(out, u)
-		}
-	}
-	return out
+	return err
 }
 
 // ListNodes, ListPods etc. are shorthands that hide the lister error (an informer cache read

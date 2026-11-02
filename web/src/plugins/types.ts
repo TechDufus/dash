@@ -49,6 +49,8 @@ export interface PaletteCtx {
   topic<T extends Topic>(name: T): TopicData[T] | undefined;
   /** Navigates and closes the palette. */
   go(to: string): void;
+  /** Whether the actions controls of `pluginId`'s `action` may be offered (useActionAvailable's rule). */
+  actionAvailable(pluginId: string, action: string): boolean;
   close(): void;
 }
 
@@ -79,7 +81,7 @@ export type SlotId = "overview.kpis" | "storage" | "apps.sources" | "hardware.fa
 
 export interface SlotProps {
   "overview.kpis": { data: OverviewData };
-  storage: { env: TypedEnvelope<"storage"> | undefined };
+  storage: { env: TypedEnvelope<"kubernetes.storage"> | undefined };
   "apps.sources": { query: string; compact?: boolean };
   /** Facts about the host that other plugins know (the Proxmox node), drawn on the Hardware page. */
   "hardware.facts": { host?: HostData };

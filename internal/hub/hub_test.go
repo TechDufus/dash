@@ -42,7 +42,7 @@ func TestPublishDedupe(t *testing.T) {
 		t.Fatal("no latest event")
 	}
 	var env model.Envelope
-	if err := json.Unmarshal(ev.Data, &env); err != nil || env.Topic != "cluster" || string(env.Data) != `{"a":2}` || len(env.Sources) != 1 || env.Sources[0].OK {
+	if err := json.Unmarshal(ev.Data, &env); err != nil || env.Topic != string(model.TopicCluster) || string(env.Data) != `{"a":2}` || len(env.Sources) != 1 || env.Sources[0].OK {
 		t.Errorf("envelope = %+v err=%v", env, err)
 	}
 }
@@ -54,13 +54,13 @@ func TestSubscribeSnapshotAndLive(t *testing.T) {
 	h.Publish(model.TopicOverview, 2, nil)
 	snap, ch, cancel := h.Subscribe("", nil)
 	defer cancel()
-	if len(snap) != 2 || snap[0].Topic != "core.overview" || snap[1].Topic != "apps" {
+	if len(snap) != 2 || snap[0].Topic != "core.overview" || snap[1].Topic != string(model.TopicApps) {
 		t.Fatalf("snapshot must follow topic order, got %+v", snap)
 	}
 	h.Publish(model.TopicCluster, 3, nil)
 	select {
 	case ev := <-ch:
-		if ev.Topic != "cluster" {
+		if ev.Topic != string(model.TopicCluster) {
 			t.Errorf("live topic = %s", ev.Topic)
 		}
 	case <-time.After(time.Second):

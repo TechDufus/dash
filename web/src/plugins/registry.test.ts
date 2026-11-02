@@ -22,17 +22,17 @@ describe("module registry", () => {
     }
     expect([...seen.keys()].sort()).toEqual([
       "alertmanager.alerts",
-      "apps",
-      "cluster",
       "flux",
       "gatus.status",
       "hardware.hosts",
       "hardware.machines",
+      "kubernetes.apps",
+      "kubernetes.cluster",
+      "kubernetes.storage",
       "launcher.links",
       "proxmox.node",
       "proxmox.storage",
       "proxmox.vms",
-      "storage",
     ]);
   });
 

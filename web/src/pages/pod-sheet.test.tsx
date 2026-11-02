@@ -1,7 +1,7 @@
-import { screen, waitFor } from "@testing-library/react";
+import { act, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import type { PodDetail } from "@/api/types";
+import type { ActionInfo, PluginInfo, PodDetail } from "@/api/types";
 import { connectStream, type TestStream } from "@/plugins/test-util";
 import { FakeEventSource, pluginInfo, renderApp, stubFetch } from "@/test/harness";
 import { PodSheet } from "./pod-sheet";
@@ -42,7 +42,7 @@ const logsRow = (state: string = "healthy") =>
 describe("the pod sheet's Logs tab", () => {
   let stream: TestStream;
   beforeEach(() => {
-    stubFetch({ "GET /api/pods/media/plex-0": detail });
+    stubFetch({ "GET /api/v1/plugins/kubernetes/pods/media/plex-0": detail });
     stream = connectStream();
   });
   afterEach(() => stream.close());
@@ -95,5 +95,77 @@ describe("the pod sheet's Logs tab", () => {
 
     const tail = FakeEventSource.instances.find((es) => es.url.includes("/logs/tail"));
     expect(tail?.url).toBe("/api/v1/plugins/victorialogs/logs/tail?ns=media&pod=plex-0");
+  });
+});
+
+describe("the pod sheet's Restart control", () => {
+  let stream: TestStream;
+  afterEach(() => stream.close());
+
+  const restartAction = (minRole = "admin"): ActionInfo => ({
+    name: "restart",
+    title: "Restart",
+    destructive: true,
+    idempotent: false,
+    confirm: "none",
+    minRole,
+    inputSchema: null,
+  });
+  const kubernetes = (actions: ActionInfo[], state = "healthy") =>
+    pluginInfo({
+      id: "kubernetes",
+      name: "Kubernetes",
+      state: state as never,
+      topics: ["kubernetes.cluster"],
+      actions,
+    });
+  const owned = { ...detail, ownerChain: [{ kind: "Deployment", name: "plex" }] } as PodDetail;
+  const button = () => screen.queryByRole("button", { name: "Restart Deployment plex" });
+
+  async function show(role: string, row: PluginInfo) {
+    const me = stubFetch({
+      "GET /api/v1/plugins/kubernetes/pods/media/plex-0": owned,
+      "GET /api/v1/me": { user: "u", role, scopes: ["read"], ui: { iconBaseUrl: "" } },
+    });
+    stream = connectStream();
+    renderApp(<PodSheet ns="media" name="plex-0" />);
+    stream.plugins([row]);
+    await screen.findByText("Owner");
+    await waitFor(() => expect(me.callsTo("GET /api/v1/me")).toHaveLength(1));
+    await act(async () => {}); // /me has been read into the query cache
+  }
+
+  it("is offered to an admin while the row lists the action", async () => {
+    await show("admin", kubernetes([restartAction()]));
+    await waitFor(() => expect(button()).not.toBeNull());
+  });
+
+  it("is not offered to a viewer, though the row lists the action", async () => {
+    await show("viewer", kubernetes([restartAction()]));
+    expect(button()).toBeNull();
+  });
+
+  it("is offered to a viewer when the action's minRole is viewer", async () => {
+    await show("viewer", kubernetes([restartAction("viewer")]));
+    await waitFor(() => expect(button()).not.toBeNull());
+  });
+
+  it("is not offered while the row lists no action (actions.enabled is off)", async () => {
+    await show("admin", kubernetes([]));
+    expect(button()).toBeNull();
+  });
+
+  it("is not offered while the plugin is not visible", async () => {
+    await show("admin", kubernetes([restartAction()], "unavailable"));
+    expect(button()).toBeNull();
+  });
+
+  it("follows a live switch of actions.enabled", async () => {
+    await show("admin", kubernetes([]));
+    expect(button()).toBeNull();
+    stream.plugins([kubernetes([restartAction()])]);
+    await waitFor(() => expect(button()).not.toBeNull());
+    stream.plugins([kubernetes([])]);
+    await waitFor(() => expect(button()).toBeNull());
   });
 });

@@ -48,7 +48,7 @@ func (w *World) storage(now time.Time) model.StorageData {
 	d.CNPG = []model.CNPGCluster{{Namespace: "acme", Name: "acme-db", Instances: 2, ReadyInstances: 2,
 		Phase: "Cluster in healthy state", LastBackupAgeSeconds: new(Around("cnpgbk", now, 5.2*3600, 1800)),
 		Links: w.links.Headlamp("Cluster", "acme", "acme-db")}}
-	d.NASBackups = []model.NASBackup{{Name: "nas-backup", LastSuccessAgeSeconds: new(7.5 * 3600)}}
+	d.BackupJobs = []model.BackupJob{{Name: "nas-backup", LastSuccessAgeSeconds: new(7.5 * 3600)}}
 	d.Etcd = model.Etcd{DBBytes: 92 << 20, QuotaBytes: 2 << 30}
 	return d
 }

@@ -32,7 +32,7 @@ interface SheetTarget {
 }
 
 export function ClusterPage() {
-  const env = useTopic("cluster");
+  const env = useTopic("kubernetes.cluster");
   const data = env?.data;
   const [rawTab, setTab] = useQueryParam("tab", "nodes");
   const [sheetOpen, sheetParams] = useRoute("/cluster/pods/:ns/:name");

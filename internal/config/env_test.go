@@ -194,15 +194,15 @@ func TestKubeconfigStillHonoured(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := res.Config.Kubeconfig; got != "/home/dev/.kube/config" {
+	if got := res.Tree.Plugins.Kubernetes.Kubeconfig; got != "/home/dev/.kube/config" {
 		t.Errorf("Kubeconfig = %q", got)
 	}
 	if strings.Contains(log, "WARN") {
 		t.Errorf("unexpected warning:\n%s", log)
 	}
 	res, _, err = resolveEnv(t, "KUBECONFIG=/a", "DASH_PLUGINS_KUBERNETES_KUBECONFIG=/b")
-	if err != nil || res.Config.Kubeconfig != "/b" {
-		t.Errorf("generated name must win: %q, %v", res.Config.Kubeconfig, err)
+	if kc := res.Tree.Plugins.Kubernetes.Kubeconfig; err != nil || kc != "/b" {
+		t.Errorf("generated name must win: %q, %v", kc, err)
 	}
 }
 
@@ -210,12 +210,12 @@ func TestKubeconfigStillHonoured(t *testing.T) {
 // not ours to interpret, alone or next to KUBECONFIG.
 func TestKubeconfigHasNoFileForm(t *testing.T) {
 	res, log, err := resolveEnv(t, "KUBECONFIG=/a", "KUBECONFIG_FILE=/never/read")
-	if err != nil || res.Config.Kubeconfig != "/a" {
-		t.Errorf("both set: kubeconfig %q, err %v", res.Config.Kubeconfig, err)
+	if kc := res.Tree.Plugins.Kubernetes.Kubeconfig; err != nil || kc != "/a" {
+		t.Errorf("both set: kubeconfig %q, err %v", kc, err)
 	}
 	res, _, err = resolveEnv(t, "KUBECONFIG_FILE=/never/read")
-	if err != nil || res.Config.Kubeconfig != "" {
-		t.Errorf("KUBECONFIG_FILE alone: kubeconfig %q, err %v", res.Config.Kubeconfig, err)
+	if kc := res.Tree.Plugins.Kubernetes.Kubeconfig; err != nil || kc != "" {
+		t.Errorf("KUBECONFIG_FILE alone: kubeconfig %q, err %v", kc, err)
 	}
 	if strings.Contains(log, "WARN") {
 		t.Errorf("unexpected warning:\n%s", log)
@@ -336,8 +336,9 @@ func TestEnvSetsFieldsWithJSONForLists(t *testing.T) {
 	}
 	c := res.Config
 	hw := res.Tree.Plugins.Hardware
+	bj := res.Tree.Plugins.Kubernetes.BackupJobs
 	if !slices.Equal(c.AllowedHosts, []string{"media.example.com", "192.0.2.10"}) || len(hw.Hosts) != 1 || hw.Hosts[0].Nodename != "box" || hw.Hosts[0].Model != "Dell R730" ||
-		res.Tree.Plugins.Proxmox.Node != "pve" || c.Conventions.NASBackupNamespace != "backup" || c.Conventions.NASBackupCronJob != "nightly" {
+		res.Tree.Plugins.Proxmox.Node != "pve" || len(bj) != 1 || bj[0].Namespace != "backup" || bj[0].CronJob != "nightly" {
 		t.Errorf("config = %+v", c)
 	}
 	if strings.Contains(log, "WARN") {
@@ -552,7 +553,7 @@ func TestEnvTable(t *testing.T) {
 	if v := byPath["settings.ui"]; !v.Restart {
 		t.Errorf("settings.ui is read once at startup: %+v", v)
 	}
-	for _, want := range []string{"PATH", "DASH_PLUGINS_PROXMOX_TOKEN_SECRET", "DASH_DATA_DIR", "KUBECONFIG", "_FILE", "applies live for prometheus", "plugins that use or require it", "a grafana change restarts alertmanager", "a gatus change restarts hardware", "A change to kubernetes or flux"} {
+	for _, want := range []string{"PATH", "DASH_PLUGINS_PROXMOX_TOKEN_SECRET", "DASH_DATA_DIR", "KUBECONFIG", "_FILE", "applies live for prometheus", "plugins that use or require it", "a grafana change restarts alertmanager", "a gatus change restarts hardware", "a kubernetes change restarts proxmox", "A change to flux, or to any section"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("table lacks %q:\n%s", want, out)
 		}

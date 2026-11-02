@@ -123,12 +123,21 @@ type SeriesSpec struct {
 	Expr func(a SeriesArgs) (string, error)
 }
 
-// ErrNotFound is what a SeriesSpec.Expr returns, wrapped with a message for the client
-// (fmt.Errorf("%w: unknown node %q", plugin.ErrNotFound, n)), for a resource that does not
+// ErrNotFound is what a SeriesSpec.Expr reports, through NotFound, for a resource that does not
 // exist. The series route answers it 404 not_found with the error's text; any other Expr error
 // is 400 invalid_input. Argument validation still comes first: a malformed argument is a 400
 // before an Expr runs.
 var ErrNotFound = errors.New("not found")
+
+// missingError is an error whose text is the client's message and that is ErrNotFound.
+type missingError string
+
+func (e missingError) Error() string        { return string(e) }
+func (e missingError) Is(target error) bool { return target == ErrNotFound }
+
+// NotFound is the error of a missing resource: Error() is msg alone (it is the 404 body, so it
+// carries no "not found:" prefix) and errors.Is(err, ErrNotFound) holds.
+func NotFound(msg string) error { return missingError(msg) }
 
 // UISpec is what a plugin adds to the SPA.
 type UISpec struct {

@@ -1,4 +1,4 @@
-import { act, screen, within } from "@testing-library/react";
+import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { startStream, stopStream } from "@/api/stream";
@@ -7,6 +7,7 @@ import { moduleById } from "@/plugins/registry";
 import {
   envelope,
   type FakeEventSource,
+  type FetchStub,
   installEventSource,
   pluginsEnvelope,
   renderApp,
@@ -16,10 +17,14 @@ import { shimRows, withState } from "@/test/shims";
 import { CommandPalette } from "./command-palette";
 
 let ES: typeof FakeEventSource;
+let me: FetchStub;
 
 beforeEach(() => {
   ES = installEventSource();
-  stubFetch({ "GET /api/v1/plugins": () => new Promise(() => {}) });
+  me = stubFetch({
+    "GET /api/v1/plugins": () => new Promise(() => {}),
+    "GET /api/v1/me": { user: "u", role: "admin", scopes: ["read"], ui: { iconBaseUrl: "" } },
+  });
 });
 
 afterEach(() => {
@@ -43,8 +48,8 @@ function connect(rows = shimRows()): FakeEventSource {
     }),
   );
   es.emit(
-    "cluster",
-    envelope("cluster", {
+    "kubernetes.cluster",
+    envelope("kubernetes.cluster", {
       nodes: [{ name: "node-a", ip: "192.0.2.10" }],
       workloads: [
         {
@@ -66,8 +71,10 @@ function connect(rows = shimRows()): FakeEventSource {
     }),
   );
   es.emit(
-    "apps",
-    envelope("apps", { apps: [{ name: "Wiki", href: "https://wiki.example.com", group: "docs" }] }),
+    "kubernetes.apps",
+    envelope("kubernetes.apps", {
+      apps: [{ name: "Wiki", href: "https://wiki.example.com", group: "docs" }],
+    }),
   );
   es.emit(
     "flux",
@@ -79,9 +86,13 @@ function connect(rows = shimRows()): FakeEventSource {
   return es;
 }
 
-function open() {
+async function open() {
   act(() => ui.setPalette(true));
-  return screen.findByRole("dialog");
+  const dialog = await screen.findByRole("dialog");
+  // The palette gates Restart on the role, so /me is read into the query cache first.
+  await waitFor(() => expect(me.callsTo("GET /api/v1/me")).toHaveLength(1));
+  await act(async () => {});
+  return dialog;
 }
 
 function headings(dialog: HTMLElement): string[] {
@@ -139,8 +150,8 @@ describe("command palette", () => {
   it("keeps module order between items of the same rank", async () => {
     const es = connect();
     es.emit(
-      "cluster",
-      envelope("cluster", {
+      "kubernetes.cluster",
+      envelope("kubernetes.cluster", {
         nodes: [],
         workloads: ["a", "b", "c"].map((name) => ({
           kind: "Deployment",

@@ -10,15 +10,18 @@ import (
 	"github.com/TechDufus/dash/internal/pluginconf"
 )
 
-// DeploymentEnvFile is the environment of the homelab deployment at v0.8.0, relative to this
-// package: testdata/deployment-v0.8.0.env, the one list TestDeploymentEnvV08 and cmd/dash's
-// TestDeploymentEnvReachesThePlugins both read.
-const deploymentEnvFile = "testdata/deployment-v0.8.0.env"
+// The environment of the homelab deployment, one file per release, relative to this package: the
+// lists TestDeploymentEnvV08 and TestDeploymentEnvV09 load and cmd/dash's
+// TestDeploymentEnvReachesThePlugins reads too.
+const (
+	deploymentEnvFileV08 = "testdata/deployment-v0.8.0.env"
+	deploymentEnvFileV09 = "testdata/deployment-v0.9.0.env"
+)
 
 // deploymentEnv reads NAME=value lines (blank lines and # comments skipped, the value verbatim).
-func deploymentEnv(t *testing.T) []string {
+func deploymentEnv(t *testing.T, file string) []string {
 	t.Helper()
-	b, err := os.ReadFile(filepath.FromSlash(deploymentEnvFile))
+	b, err := os.ReadFile(filepath.FromSlash(file))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -29,7 +32,7 @@ func deploymentEnv(t *testing.T) []string {
 		}
 	}
 	if len(out) == 0 {
-		t.Fatalf("%s lists no variable", deploymentEnvFile)
+		t.Fatalf("%s lists no variable", file)
 	}
 	return out
 }
@@ -40,11 +43,51 @@ func deploymentEnv(t *testing.T) []string {
 // layer does not know, or a value the validators refuse, fails here and not as a crash loop after
 // the deploy.
 func TestDeploymentEnvV08(t *testing.T) {
-	env := deploymentEnv(t)
-	res, err := Resolve(Sources{Environ: env})
+	res, err := Resolve(Sources{Environ: deploymentEnv(t, deploymentEnvFileV08)})
 	if err != nil {
 		t.Fatalf("the v0.8.0 environment does not load: %v", err)
 	}
+	assertHomelabEnvV08(t, res)
+}
+
+// TestDeploymentEnvV09 is the v0.8.0 environment plus what v0.9.0 adds (contract 10.3), loaded the
+// same way: everything v0.8.0 resolved to still holds, and each new variable has its pinned value.
+func TestDeploymentEnvV09(t *testing.T) {
+	res, err := Resolve(Sources{Environ: deploymentEnv(t, deploymentEnvFileV09)})
+	if err != nil {
+		t.Fatalf("the v0.9.0 environment does not load: %v", err)
+	}
+	assertHomelabEnvV08(t, res)
+
+	k := res.Tree.Plugins.Kubernetes
+	// One row per variable v0.9.0 adds, with the value the deployment's behaviour needs. The two
+	// rows of the apps list (plugins.kubernetes.apps.gateways = [{namespace: gateway, name: home}]
+	// and plugins.kubernetes.apps.excludeNamespaces = [dash]) join with P3.9's keys.
+	for _, row := range []struct {
+		path      string
+		got, want any
+	}{
+		{"plugins.kubernetes.actions.enabled", k.Actions.Enabled, true},
+		// What the deployment leaves alone stays at the defaults: in-cluster, no dev proxy, no
+		// denied namespace, the client's rates and etcd's job.
+		{"plugins.kubernetes.mode", k.Mode, "auto"},
+		{"plugins.kubernetes.kubeconfig", k.Kubeconfig, ""},
+		{"plugins.kubernetes.upstreamViaAPIServer", k.UpstreamViaAPIServer, false},
+		{"plugins.kubernetes.actions.denyNamespaces", len(k.Actions.DenyNamespaces), 0},
+		{"plugins.kubernetes.qps", k.QPS, 20},
+		{"plugins.kubernetes.burst", k.Burst, 40},
+		{"plugins.kubernetes.etcd.job", k.Etcd.Job, "etcd"},
+	} {
+		if !reflect.DeepEqual(row.got, row.want) {
+			t.Errorf("%s = %#v, want %#v", row.path, row.got, row.want)
+		}
+	}
+}
+
+// assertHomelabEnvV08 asserts what the v0.8.0 environment resolves to; the v0.9.0 environment
+// keeps all of it.
+func assertHomelabEnvV08(t *testing.T, res *Resolved) {
+	t.Helper()
 	p := res.Tree.Plugins
 
 	if got := res.Config.PublicURL; got != "https://dash.example.com" {
@@ -90,10 +133,12 @@ func TestDeploymentEnvV08(t *testing.T) {
 	if got := res.Tree.UI.IconBaseURL; got != "https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/png" {
 		t.Errorf("ui.iconBaseURL = %q", got)
 	}
-	// The sections that have no hosts or machines of their own keep what v0.7.0 set.
-	if c := res.Config.Conventions; c.ProtectedLabel != "example.com/protected" || c.TenantLabel != "example.com/tenant" ||
-		c.AppsFluxPrefix != "apps-" || c.SuspendReasonAnnotation != "example.com/suspended" ||
-		c.NASBackupNamespace != "backup" || c.NASBackupCronJob != "nightly" {
-		t.Errorf("conventions = %+v", c)
+	// The sections that have no hosts or machines of their own keep what v0.7.0 set; the
+	// kubernetes conventions and backup CronJob moved onto the plugin's keys.
+	k := p.Kubernetes
+	if k.Conventions.ProtectedLabel != "example.com/protected" || k.Conventions.TenantLabel != "example.com/tenant" ||
+		k.Conventions.AppsFluxPrefix != "apps-" || res.Config.Conventions.SuspendReasonAnnotation != "example.com/suspended" ||
+		len(k.BackupJobs) != 1 || k.BackupJobs[0].Namespace != "backup" || k.BackupJobs[0].CronJob != "nightly" {
+		t.Errorf("conventions = %+v, backup jobs = %+v", k.Conventions, k.BackupJobs)
 	}
 }

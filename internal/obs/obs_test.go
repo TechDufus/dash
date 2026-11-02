@@ -390,20 +390,19 @@ func TestActionLabels(t *testing.T) {
 		return []model.PluginInfo{{ID: "aa", Actions: []model.ActionInfo{{Name: "restart"}}}, {ID: "bb"}}
 	})
 	m.Action("aa", "restart", ActionOK)
-	m.Action("aa", "restart", "weird")      // outcome outside the set
-	m.Action("aa", "drop table", ActionOK)  // not an action of aa
-	m.Action("bb", "restart", ActionDenied) // bb has no actions
-	m.Action("alice", "restart", ActionOK)  // not a plugin
-	m.Action("kubernetes", "restart", ActionOK)
+	m.Action("aa", "restart", "weird")          // outcome outside the set
+	m.Action("aa", "drop table", ActionOK)      // not an action of aa
+	m.Action("bb", "restart", ActionDenied)     // bb has no actions
+	m.Action("alice", "restart", ActionOK)      // not a plugin
+	m.Action("kubernetes", "restart", ActionOK) // no longer a legacy action: without a plugin row it is "other"
 	m.Action("alertmanager", "silence.expire", ActionInvalid)
 
 	ss := scrape(t, m)
 	for want, n := range map[[3]string]float64{
 		{"aa", "restart", ActionOK}:                       1,
 		{"aa", "restart", ActionError}:                    1,
-		{"other", "other", ActionOK}:                      2,
+		{"other", "other", ActionOK}:                      3,
 		{"other", "other", ActionDenied}:                  1,
-		{"kubernetes", "restart", ActionOK}:               1,
 		{"alertmanager", "silence.expire", ActionInvalid}: 1,
 	} {
 		if got := value(t, ss, "dash_actions_total", map[string]string{"plugin": want[0], "action": want[1], "outcome": want[2]}); got != n {
@@ -423,15 +422,15 @@ func TestTrackActionOutcomeFromStatus(t *testing.T) {
 		}
 	}
 	rec := httptest.NewRecorder()
-	w, done := m.TrackAction(rec, "kubernetes", "restart")
+	w, done := m.TrackAction(rec, "flux", "reconcile")
 	w.WriteHeader(http.StatusTooManyRequests)
 	done()
-	w, done = m.TrackAction(httptest.NewRecorder(), "flux", "reconcile")
+	w, done = m.TrackAction(httptest.NewRecorder(), "alertmanager", "silence.create")
 	_, _ = w.Write([]byte("{}")) // no explicit status: 200
 	done()
 	ss := scrape(t, m)
-	if value(t, ss, "dash_actions_total", map[string]string{"plugin": "kubernetes", "action": "restart", "outcome": ActionRateLimited}) != 1 ||
-		value(t, ss, "dash_actions_total", map[string]string{"plugin": "flux", "action": "reconcile", "outcome": ActionOK}) != 1 {
+	if value(t, ss, "dash_actions_total", map[string]string{"plugin": "flux", "action": "reconcile", "outcome": ActionRateLimited}) != 1 ||
+		value(t, ss, "dash_actions_total", map[string]string{"plugin": "alertmanager", "action": "silence.create", "outcome": ActionOK}) != 1 {
 		t.Errorf("series: %v", ss)
 	}
 	if rec.Code != http.StatusTooManyRequests {

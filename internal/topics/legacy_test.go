@@ -3,19 +3,11 @@ package topics
 import (
 	"context"
 	"encoding/json"
-	"net/http"
-	"net/http/httptest"
 	"reflect"
 	"slices"
 	"strings"
-	"sync"
 	"testing"
 	"time"
-
-	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/apimachinery/pkg/runtime/schema"
-	dynfake "k8s.io/client-go/dynamic/fake"
-	kubefake "k8s.io/client-go/kubernetes/fake"
 
 	"github.com/TechDufus/dash/internal/config"
 	"github.com/TechDufus/dash/internal/hub"
@@ -23,82 +15,21 @@ import (
 	"github.com/TechDufus/dash/internal/model"
 	"github.com/TechDufus/dash/internal/plugin"
 	"github.com/TechDufus/dash/internal/plugin/plugintest"
-	"github.com/TechDufus/dash/internal/pluginconf"
-	"github.com/TechDufus/dash/internal/queries"
-	"github.com/TechDufus/dash/internal/upstream"
 )
 
-// eventually polls cond until it holds or five seconds pass.
-func eventually(t *testing.T, what string, cond func() bool) {
-	t.Helper()
-	deadline := time.Now().Add(5 * time.Second)
-	for !cond() {
-		if time.Now().After(deadline) {
-			t.Fatalf("timed out waiting for %s", what)
-		}
-		time.Sleep(5 * time.Millisecond)
-	}
-}
-
-// fakeCluster is an empty cluster whose informers sync at once.
-func fakeCluster() *kube.Cluster {
-	listKinds := map[schema.GroupVersionResource]string{}
-	for _, gvr := range []schema.GroupVersionResource{
-		kube.GVRKustomizations, kube.GVRHelmReleases, kube.GVRGitRepositories, kube.GVROCIRepositories, kube.GVRHelmRepositories,
-		kube.GVRCNPGClusters, kube.GVRCertificates, kube.GVRExternalSecrets, kube.GVRHTTPRoutes,
-	} {
-		listKinds[gvr] = gvr.Resource + "List"
-	}
-	return kube.NewFromClients(kubefake.NewClientset(), dynfake.NewSimpleDynamicClientWithCustomListKinds(runtime.NewScheme(), listKinds))
-}
-
-// testManager is a Manager over an empty cluster and the given hosts; the Proxmox upstream is the
-// one cfg configures, and no plugin exports a service.
-func testManager(cfg config.Config, hosts plugin.HostProvider) *Manager {
-	return testManagerWith(cfg, hosts, nil)
-}
-
-// testManagerWith is testManager with plugins that contribute to the overview.
-func testManagerWith(cfg config.Config, hosts plugin.HostProvider, contributors func() []plugin.Contributor) *Manager {
-	return New(Deps{
-		Cfg: cfg, Cluster: fakeCluster(), Hosts: hosts, Contributors: contributors,
-	})
-}
-
-// promServices is Deps.Services as the supervisor gives it while the prometheus plugin runs
-// with the client p as its service; no other plugin exports anything.
-func promServices(p *upstream.Prom) func(plugin.ID) (any, bool) {
-	return func(id plugin.ID) (any, bool) { return p, id == "prometheus" }
-}
-
-// latest is the decoded envelope of topic, or ok=false.
-func latest(h *hub.Hub, topic model.Topic) (model.Envelope, bool) {
-	ev, ok := h.Latest("", topic)
-	if !ok {
-		return model.Envelope{}, false
-	}
-	var env model.Envelope
-	if json.Unmarshal(ev.Data, &env) != nil {
-		return model.Envelope{}, false
-	}
-	return env, true
-}
-
-var legacyTopics = []model.Topic{
-	model.TopicCluster, model.TopicFlux, model.TopicStorage, model.TopicApps,
-}
-
-// The Manager publishes through the Host of each topic's owner, and the SSE names stay the ones
-// the SPA reads: "cluster", …. The payloads are what the Manager builds.
-func TestManagerPublishesLegacyTopicsThroughHosts(t *testing.T) {
+// The Manager publishes through the Host of each topic's owner, and the SSE name stays the one
+// the SPA reads: "flux". The payload is what the Manager builds from the kubernetes service.
+func TestManagerPublishesFluxThroughItsHost(t *testing.T) {
 	h := hub.New()
-	m := testManager(config.Defaults(), plugintest.AllRunning(h, LegacyManifests()...))
+	f := newFakeKube()
+	f.add(kube.GVRKustomizations, kustomization("apps", false))
+	m := New(Deps{Cfg: config.Defaults(), Cluster: kubeOf(f), Hosts: plugintest.AllRunning(h, LegacyManifests()...)})
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	m.Run(ctx)
 
 	eventually(t, "every topic", func() bool {
-		for _, topic := range append([]model.Topic{model.TopicOverview}, legacyTopics...) {
+		for _, topic := range []model.Topic{model.TopicOverview, model.TopicFlux} {
 			if _, ok := h.Latest("", topic); !ok {
 				return false
 			}
@@ -112,146 +43,49 @@ func TestManagerPublishesLegacyTopicsThroughHosts(t *testing.T) {
 		got = append(got, ev.Topic)
 	}
 	slices.Sort(got)
-	want := []string{"apps", "cluster", "core.overview", "flux", "storage"}
-	if !slices.Equal(got, want) {
+	if want := []string{"core.overview", "flux"}; !slices.Equal(got, want) {
 		t.Fatalf("published %v, want exactly %v", got, want)
 	}
 
-	builds := map[model.Topic]any{
-		model.TopicCluster: m.buildCluster(m.now()),
-		model.TopicFlux:    m.buildFlux(), model.TopicStorage: m.buildStorage(m.now()),
-		model.TopicApps: m.buildApps(),
+	env, _ := latest(h, model.TopicFlux)
+	wantJSON, err := json.Marshal(m.buildFlux(f))
+	if err != nil {
+		t.Fatal(err)
 	}
-	for topic, data := range builds {
-		env, _ := latest(h, topic)
-		wantJSON, err := json.Marshal(data)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if string(env.Data) != string(wantJSON) {
-			t.Errorf("%s payload differs from the Manager's build:\n got %s\nwant %s", topic, env.Data, wantJSON)
-		}
-		if env.Topic != string(topic) {
-			t.Errorf("%s envelope is named %q", topic, env.Topic)
-		}
+	if string(env.Data) != string(wantJSON) {
+		t.Errorf("flux payload differs from the Manager's build:\n got %s\nwant %s", env.Data, wantJSON)
+	}
+	if env.Topic != string(model.TopicFlux) {
+		t.Errorf("flux envelope is named %q", env.Topic)
+	}
+	if s, ok := sourceNamed(env.Sources, "kubernetes"); !ok || !s.OK {
+		t.Errorf("flux sources = %+v, want kubernetes ok", env.Sources)
 	}
 }
 
-// promRecorder is a Prometheus that answers every query with an empty vector and counts the
-// queries by expression.
-type promRecorder struct {
-	mu sync.Mutex
-	n  map[string]int
-}
+// A flux that is switched off publishes nothing, and the overview does not wait for it.
+func TestDisabledFluxPublishesNothing(t *testing.T) {
+	h := hub.New()
+	hp := plugintest.Without(plugintest.AllRunning(h, LegacyManifests()...), "flux")
+	f := newFakeKube()
+	f.add(kube.GVRKustomizations, kustomization("apps", false))
+	m := New(Deps{Cfg: config.Defaults(), Cluster: kubeOf(f), Hosts: hp})
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	m.Run(ctx)
 
-func (p *promRecorder) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	p.mu.Lock()
-	if p.n == nil {
-		p.n = map[string]int{}
-	}
-	p.n[r.FormValue("query")]++
-	p.mu.Unlock()
-	_, _ = w.Write([]byte(`{"status":"success","data":{"resultType":"vector","result":[]}}`))
-}
-
-func (p *promRecorder) count(expr string) int {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	return p.n[expr]
-}
-
-// The same mechanism on the kubernetes shim, the only reader of the usage and storage pollers:
-// with it running the pollers query and the topics come from its Host; with it off nothing is
-// polled, nothing is published for it, and the overview does not wait.
-func TestDisabledKubernetesPublishesNothingAndItsPollersAreSkipped(t *testing.T) {
-	rec := &promRecorder{}
-	prom := httptest.NewServer(rec)
-	defer prom.Close()
-
-	run := func(off ...plugin.ID) (*hub.Hub, *Manager, *plugintest.Partial) {
-		h := hub.New()
-		hp := plugintest.Without(plugintest.AllRunning(h, LegacyManifests()...), off...)
-		cfg := config.Defaults()
-		m := New(Deps{
-			Cfg: cfg, Cluster: fakeCluster(), Hosts: hp,
-			Services: promServices(upstream.NewProm(prom.URL, nil)),
-		})
-		ctx, cancel := context.WithCancel(context.Background())
-		t.Cleanup(cancel)
-		m.Run(ctx)
-		return h, m, hp
-	}
-
-	// Kubernetes on: both pollers query and the cluster topic is published.
-	h, _, hp := run()
-	eventually(t, "the cluster topic", func() bool { _, ok := h.Latest("", model.TopicCluster); return ok })
-	eventually(t, "the usage and storage queries", func() bool {
-		return rec.count(queries.PodCPU) > 0 && rec.count(queries.PVCUsed) > 0
-	})
-	if hp.Publishes("kubernetes") == 0 {
-		t.Fatal("the recording host saw no publish for a running kubernetes")
-	}
-
-	// Off: not polled, nothing published for it, and the overview still comes.
-	rec.mu.Lock()
-	rec.n = map[string]int{}
-	rec.mu.Unlock()
-	h, m, hp := run("kubernetes")
 	eventually(t, "the overview", func() bool { _, ok := h.Latest("", model.TopicOverview); return ok })
-	eventually(t, "the usage and storage pollers' first round", func() bool { return m.pollDone("usage", "storage") })
-	if n := rec.count(queries.PodCPU) + rec.count(queries.PVCUsed); n != 0 {
-		t.Errorf("a disabled kubernetes was polled %d times", n)
+	time.Sleep(2 * rebuildEvery) // the flux build would have happened by now
+	if n := hp.Publishes("flux"); n != 0 {
+		t.Errorf("the Manager called the disabled flux' Host %d times", n)
 	}
-	if n := hp.Publishes("kubernetes"); n != 0 {
-		t.Errorf("the Manager called the disabled kubernetes' Host %d times", n)
-	}
-	if _, ok := h.Latest("", model.TopicCluster); ok {
-		t.Error("the cluster topic is published although kubernetes does not run")
+	if _, ok := h.Latest("", model.TopicFlux); ok {
+		t.Error("the flux topic is published although flux does not run")
 	}
 }
 
-// The source keys of the usage and storage pollers on the kubernetes shim: with kubernetes off
-// they are left out of every source list and the shims' status (they would read "not polled yet"
-// forever), while the informers' key stays; with it on, an unpolled key reads "not polled yet".
-func TestSkippedKubernetesPollersLeaveTheirSourcesOut(t *testing.T) {
-	at := time.Unix(100, 0)
-	okSrc := srcState{ok: true, at: at}
-	keys := []string{"kubernetes", "cluster:victoriametrics", "storage:victoriametrics"}
-
-	hp := plugintest.Without(plugintest.AllRunning(hub.New(), LegacyManifests()...), "kubernetes")
-	m := New(Deps{Cfg: config.Defaults(), Cluster: fakeCluster(), Hosts: hp})
-	got := m.sources(keys...)
-	if len(got) != 1 || got[0].Name != "kubernetes" {
-		t.Errorf("sources of a disabled kubernetes = %+v, want only the informers", got)
-	}
-	for _, id := range []plugin.ID{"kubernetes", "flux"} {
-		st := m.legacyStatus()
-		if st.State != plugin.StateStarting {
-			t.Errorf("%s before the informers sync = %s, want starting", id, st.State)
-		}
-		for _, s := range st.Sources {
-			if s.Error == "not polled yet" {
-				t.Errorf("%s: source %q is reported as not polled", id, s.Name)
-			}
-		}
-	}
-
-	// A key of a running poller still counts: not polled yet, then its state.
-	hp = plugintest.Without(plugintest.AllRunning(hub.New(), LegacyManifests()...))
-	m = New(Deps{Cfg: config.Defaults(), Cluster: fakeCluster(), Hosts: hp})
-	got = m.sources(keys[1:]...)
-	if len(got) != 1 || got[0].OK || got[0].Error != "not polled yet" {
-		t.Errorf("sources before the first poll = %+v, want one not polled yet", got)
-	}
-	m.srcs["cluster:victoriametrics"], m.srcs["storage:victoriametrics"] = okSrc, okSrc
-	got = m.sources(keys[1:]...)
-	if len(got) != 1 || !got[0].OK {
-		t.Errorf("sources after the first poll = %+v, want one ok", got)
-	}
-}
-
-// The shims, the supervisor, the Manager and the hub together: an explicitly disabled plugin
-// shows as disabled in core.plugins and its topic never reaches a viewer, while the others run.
+// The shim, the supervisor, the Manager and the hub together: an explicitly disabled plugin shows
+// as disabled in core.plugins and its topic never reaches a viewer, while the overview still comes.
 func TestExplicitDisableRemovesShimTopics(t *testing.T) {
 	h := hub.New()
 	off := false
@@ -260,6 +94,7 @@ func TestExplicitDisableRemovesShimTopics(t *testing.T) {
 	sup := plugin.NewSupervisor(plugin.Options{Publisher: h, Settings: set, StatusEvery: 10 * time.Millisecond})
 	h.SetOrder(sup.TopicOrder)
 	m := testManager(config.Defaults(), sup)
+	m.mark(model.TopicFlux) // no kubernetes service runs: the overview is what a dirty round publishes
 	if err := sup.Add(m.Plugins()...); err != nil {
 		t.Fatal(err)
 	}
@@ -271,7 +106,6 @@ func TestExplicitDisableRemovesShimTopics(t *testing.T) {
 	defer sup.Shutdown(context.Background())
 	m.Run(ctx)
 
-	eventually(t, "the cluster topic", func() bool { _, ok := h.Latest("", model.TopicCluster); return ok })
 	eventually(t, "the overview", func() bool { _, ok := h.Latest("", model.TopicOverview); return ok })
 	if _, ok := h.Latest("", model.TopicFlux); ok {
 		t.Error("flux is disabled but its topic is still served")
@@ -291,63 +125,8 @@ func TestExplicitDisableRemovesShimTopics(t *testing.T) {
 	if states["flux"].State != model.PluginDisabled || !slices.Equal(states["flux"].Topics, []string{"flux"}) {
 		t.Errorf("flux = %+v, want disabled with the topic flux", states["flux"])
 	}
-	if states["kubernetes"].State == model.PluginDisabled || len(pd.Plugins) != 2 {
-		t.Errorf("kubernetes = %s of %d plugins", states["kubernetes"].State, len(pd.Plugins))
-	}
-}
-
-// The explicit-disable path on the kubernetes shim, the owner of the usage and storage pollers:
-// disabled in the settings it shows as disabled in core.plugins, its topics never reach a viewer,
-// and its pollers make no Prometheus request.
-func TestExplicitDisableOfKubernetesStopsItsPollers(t *testing.T) {
-	rec := &promRecorder{}
-	prom := httptest.NewServer(rec)
-	defer prom.Close()
-
-	h := hub.New()
-	off := false
-	set := &plugintest.Settings{}
-	set.Set(plugin.InstanceConfig{Name: "kubernetes", Enabled: &off, Config: &pluginconf.Kubernetes{}})
-	sup := plugin.NewSupervisor(plugin.Options{Publisher: h, Settings: set, StatusEvery: 10 * time.Millisecond})
-	h.SetOrder(sup.TopicOrder)
-	cfg := config.Defaults()
-	m := New(Deps{
-		Cfg: cfg, Cluster: fakeCluster(), Hosts: sup,
-		Services: promServices(upstream.NewProm(prom.URL, nil)),
-	})
-	if err := sup.Add(m.Plugins()...); err != nil {
-		t.Fatal(err)
-	}
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	if err := sup.Run(ctx); err != nil {
-		t.Fatal(err)
-	}
-	defer sup.Shutdown(context.Background())
-	m.Run(ctx)
-
-	eventually(t, "the overview", func() bool { _, ok := h.Latest("", model.TopicOverview); return ok })
-	eventually(t, "the usage and storage pollers' first round", func() bool { return m.pollDone("usage", "storage") })
-	if n := rec.count(queries.PodCPU) + rec.count(queries.PVCUsed); n != 0 {
-		t.Errorf("a disabled kubernetes was polled %d times", n)
-	}
-	for _, topic := range []model.Topic{model.TopicCluster, model.TopicStorage, model.TopicApps} {
-		if _, ok := h.Latest("", topic); ok {
-			t.Errorf("kubernetes is disabled but its topic %s is still served", topic)
-		}
-	}
-	env, ok := latest(h, model.TopicPlugins)
-	if !ok {
-		t.Fatal("core.plugins is not published")
-	}
-	var pd model.PluginsData
-	if err := json.Unmarshal(env.Data, &pd); err != nil {
-		t.Fatal(err)
-	}
-	for _, in := range pd.Plugins {
-		if in.ID == "kubernetes" && in.State != model.PluginDisabled {
-			t.Errorf("kubernetes = %s, want disabled", in.State)
-		}
+	if len(pd.Plugins) != 1 {
+		t.Errorf("%d plugins, want only flux", len(pd.Plugins))
 	}
 }
 
@@ -362,7 +141,7 @@ func TestLegacyManifestsMatchConfigSections(t *testing.T) {
 	}
 	// The sections of the integrations that moved out of the Manager have no shim: each runs as
 	// the plugin of internal/plugins/<id>.
-	for _, moved := range []string{"prometheus", "alertmanager", "gatus", "victorialogs", "proxmox", "hardware", "grafana", "headlamp", "launcher"} {
+	for _, moved := range []string{"prometheus", "alertmanager", "gatus", "victorialogs", "proxmox", "hardware", "grafana", "headlamp", "launcher", "kubernetes"} {
 		delete(sections, moved)
 	}
 	ms := LegacyManifests()
@@ -397,23 +176,289 @@ func TestLegacyShimsAreRestartOnly(t *testing.T) {
 	}
 }
 
-// The status of a shim follows the informers: starting until they sync, healthy after.
-func TestLegacyStatusFollowsTheInformers(t *testing.T) {
-	m := New(Deps{Cfg: config.Defaults(), Cluster: fakeCluster()})
+// The status of the flux shim follows the kubernetes service: unavailable without it, starting
+// until its informers sync, healthy after.
+func TestLegacyStatusFollowsTheKubernetesService(t *testing.T) {
+	f := newFakeKube()
+	holder := &kubeHolder{}
+	m := New(Deps{Cfg: config.Defaults(), Cluster: holder.get})
+	if got := m.legacyStatus(); got.State != plugin.StateUnavailable {
+		t.Errorf("without the kubernetes service: %s, want unavailable", got.State)
+	}
+	f.set(func(f *fakeKube) { f.synced = false })
+	holder.cur.Store(f)
 	if got := m.legacyStatus(); got.State != plugin.StateStarting || got.Message != "informers syncing" {
 		t.Errorf("before the informers sync: %s %q", got.State, got.Message)
 	}
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	m.d.Cluster.Start(ctx)
-	eventually(t, "the informers to sync", func() bool { return m.d.Cluster.HasSynced() })
+	f.set(func(f *fakeKube) { f.synced = true })
 	if got := m.legacyStatus(); got.State != plugin.StateHealthy {
 		t.Errorf("after sync: %s", got.State)
 	}
 	// A viewer never reads a URL or host out of a plugin's status: the shims name no upstream.
 	for _, s := range m.legacyStatus().Sources {
-		if s.Name != "kubernetes" {
-			t.Errorf("source %q on a shim's status", s.Name)
+		if s.Name != "kubernetes" || !s.OK {
+			t.Errorf("source %+v on a shim's status", s)
 		}
+	}
+	holder.cur.Store(nil)
+	if s := m.legacyStatus().Sources; len(s) != 1 || s[0].OK || s[0].Error != "not_configured" {
+		t.Errorf("sources without the service = %+v, want one not_configured", s)
+	}
+}
+
+// owners is keyed by the wire name of each topic: today's legacy names stay exactly as they
+// were (nothing observable moves), and a topic without one is "<plugin>.<name>", so a shim topic
+// that has no legacy name still has an owner. The kubernetes plugin's topics are its own: the
+// Manager owns none of them.
+func TestOwnersAreKeyedByWireName(t *testing.T) {
+	want := map[model.Topic]owner{"flux": {"flux", "objects"}}
+	if len(owners) != len(want) {
+		t.Errorf("owners has %d entries, want %d: %v", len(owners), len(want), owners)
+	}
+	for topic, o := range want {
+		if owners[topic] != o {
+			t.Errorf("owners[%q] = %+v, want %+v", topic, owners[topic], o)
+		}
+		if id, local, ok := Owner(topic); !ok || id != o.plugin || local != o.local {
+			t.Errorf("Owner(%q) = %s %s %v", topic, id, local, ok)
+		}
+	}
+	if _, _, ok := Owner(model.TopicOverview); ok {
+		t.Error("the overview has an owner")
+	}
+	for _, gone := range []model.Topic{"host", model.TopicHost, model.TopicHardwareMachines, model.TopicCluster, model.TopicStorage, model.TopicApps} {
+		if _, _, ok := Owner(gone); ok {
+			t.Errorf("%s has an owner in the Manager: its plugin publishes it", gone)
+		}
+	}
+
+	got := ownersOf([]plugin.Manifest{{ID: "aa", Topics: []plugin.TopicSpec{
+		{Name: "rows", Legacy: "old"}, {Name: "plain"},
+	}}})
+	keys := make([]string, 0, len(got))
+	for k := range got {
+		keys = append(keys, string(k))
+	}
+	slices.Sort(keys)
+	if !slices.Equal(keys, []string{"aa.plain", "old"}) {
+		t.Fatalf("keys = %v", keys)
+	}
+	if got["aa.plain"] != (owner{"aa", "plain"}) {
+		t.Errorf("aa.plain owner = %+v", got["aa.plain"])
+	}
+}
+
+// watchRig is a Manager over a kubernetes service the test swaps and a hub that records flux.
+type watchRig struct {
+	m      *Manager
+	h      *hub.Hub
+	holder *kubeHolder
+}
+
+func newWatchRig(t *testing.T, f *fakeKube) *watchRig {
+	t.Helper()
+	h := hub.New()
+	holder := &kubeHolder{}
+	if f != nil {
+		holder.cur.Store(f)
+	}
+	return &watchRig{
+		m:      New(Deps{Cfg: config.Defaults(), Cluster: holder.get, Hosts: plugintest.AllRunning(h, LegacyManifests()...)}),
+		h:      h,
+		holder: holder,
+	}
+}
+
+// flux is the decoded flux topic, or ok=false while none is published.
+func (r *watchRig) flux(t *testing.T) (model.FluxData, bool) {
+	t.Helper()
+	env, ok := latest(r.h, model.TopicFlux)
+	if !ok {
+		return model.FluxData{}, false
+	}
+	var d model.FluxData
+	if err := json.Unmarshal(env.Data, &d); err != nil {
+		t.Fatal(err)
+	}
+	return d, true
+}
+
+// The Manager asks each kubernetes service to watch the five flux resources once, follows its
+// revision and its sync, and starts over with a restarted service.
+func TestWatchClusterFollowsTheService(t *testing.T) {
+	f := newFakeKube()
+	f.add(kube.GVRKustomizations, kustomization("apps", true))
+	r := newWatchRig(t, f)
+
+	r.m.rebuild()
+	r.m.rebuild()
+	if n := f.watchCalls(); n != 1 {
+		t.Fatalf("Watch called %d times for one service over two rounds, want once", n)
+	}
+	if !reflect.DeepEqual(f.watched[0], fluxGVRs) || len(fluxGVRs) != 5 {
+		t.Errorf("watched %v, want the five flux resources %v", f.watched[0], fluxGVRs)
+	}
+	d, ok := r.flux(t)
+	if !ok || len(d.Kustomizations) != 1 {
+		t.Fatalf("flux = %+v, %v; want the one kustomization", d, ok)
+	}
+
+	// An informer event moves the revision: the next round republishes without anything marking.
+	f.add(kube.GVRKustomizations, kustomization("infra", false))
+	r.m.rebuild()
+	if d, _ := r.flux(t); len(d.Kustomizations) != 2 {
+		t.Errorf("after an event flux holds %d kustomizations, want 2", len(d.Kustomizations))
+	}
+	if n := f.watchCalls(); n != 1 {
+		t.Errorf("Watch called %d times after an event, want once", n)
+	}
+
+	// A restart hands out a new service: it gets its own Watch and flux is built from it.
+	g := newFakeKube()
+	g.add(kube.GVRKustomizations, kustomization("only", true))
+	r.holder.cur.Store(g)
+	r.m.rebuild()
+	if n := g.watchCalls(); n != 1 {
+		t.Errorf("the new service's Watch called %d times, want once", n)
+	}
+	if d, _ := r.flux(t); len(d.Kustomizations) != 1 || d.Kustomizations[0].Name != "only" {
+		t.Errorf("after the restart flux = %+v, want the new service's kustomization", d.Kustomizations)
+	}
+
+	// A service that has not synced publishes nothing new; its sync republishes.
+	h := newFakeKube()
+	h.set(func(h *fakeKube) { h.synced = false })
+	h.add(kube.GVRKustomizations, kustomization("late", true))
+	r.holder.cur.Store(h)
+	r.m.rebuild()
+	if d, _ := r.flux(t); len(d.Kustomizations) != 1 || d.Kustomizations[0].Name != "only" {
+		t.Errorf("an unsynced service was built from: %+v", d.Kustomizations)
+	}
+	h.set(func(h *fakeKube) { h.synced = true })
+	r.m.rebuild()
+	if d, _ := r.flux(t); len(d.Kustomizations) != 1 || d.Kustomizations[0].Name != "late" {
+		t.Errorf("after the sync flux = %+v, want the late kustomization", d.Kustomizations)
+	}
+}
+
+// Without the kubernetes service the Manager has nothing to read: flux is not published, and when
+// the service appears it is.
+func TestFluxFollowsTheServiceAppearing(t *testing.T) {
+	r := newWatchRig(t, nil)
+	r.m.rebuild()
+	if _, ok := r.flux(t); ok {
+		t.Fatal("flux is published without the kubernetes service")
+	}
+	if _, ok := latest(r.h, model.TopicOverview); ok {
+		if s, found := sourceNamed(mustEnvelope(t, r.h, model.TopicOverview).Sources, "kubernetes"); !found || s.OK || s.Error != "not_configured" {
+			t.Errorf("overview kubernetes source = %+v, want not_configured", s)
+		}
+	}
+	f := newFakeKube()
+	f.add(kube.GVRHelmReleases, fluxObject("HelmRelease", "apps", "web", "True"))
+	r.holder.cur.Store(f)
+	r.m.rebuild()
+	if d, ok := r.flux(t); !ok || len(d.HelmReleases) != 1 {
+		t.Errorf("flux = %+v, %v after the service appeared, want the helm release", d, ok)
+	}
+}
+
+func mustEnvelope(t *testing.T, h *hub.Hub, topic model.Topic) model.Envelope {
+	t.Helper()
+	env, ok := latest(h, topic)
+	if !ok {
+		t.Fatalf("%s is not published", topic)
+	}
+	return env
+}
+
+// The flux build never computes from a partial list: sourceVerified comes from the GitRepository
+// flux-system, so while any of the five resources has not completed its first list nothing is
+// published for flux and the overview carries no unverified-source alarm; a resource the cluster
+// does not serve counts as listed; the round after the last one lists, flux and the overview
+// are built from the whole.
+func TestManagerFluxWaitsForItsGVRs(t *testing.T) {
+	f := newFakeKube()
+	repo := fluxObject("GitRepository", "flux-system", "flux-system", "True")
+	repo.Object["status"].(map[string]any)["conditions"] = append(
+		repo.Object["status"].(map[string]any)["conditions"].([]any),
+		map[string]any{"type": "SourceVerified", "status": "True"})
+	f.add(kube.GVRGitRepositories, repo)
+	f.add(kube.GVRKustomizations, kustomization("apps", true))
+	// Everything but the kustomizations' neighbours is pending: nothing has listed yet, except
+	// that the cluster serves no OCI repositories.
+	f.set(func(f *fakeKube) {
+		for _, gvr := range fluxGVRs {
+			f.pending[gvr] = true
+		}
+		f.absent[kube.GVROCIRepositories] = true
+	})
+	r := newWatchRig(t, f)
+
+	unverified := func() bool {
+		env, ok := latest(r.h, model.TopicOverview)
+		if !ok {
+			return false
+		}
+		var ov model.OverviewData
+		if err := json.Unmarshal(env.Data, &ov); err != nil {
+			t.Fatal(err)
+		}
+		for _, it := range ov.Attention {
+			if it.ID == "flux:source-unverified" {
+				return true
+			}
+		}
+		return false
+	}
+	// list completes the first list of gvr and moves the revision, as the informer does.
+	list := func(gvr ...schemaGVR) {
+		f.set(func(f *fakeKube) {
+			for _, g := range gvr {
+				delete(f.pending, g)
+			}
+			f.rev++
+		})
+	}
+
+	r.m.rebuild()
+	if _, ok := r.flux(t); ok {
+		t.Fatal("flux published with nothing listed")
+	}
+	steps := [][]schemaGVR{
+		{kube.GVRKustomizations},
+		{kube.GVRHelmReleases},
+		{kube.GVRHelmRepositories},
+	}
+	for _, gvrs := range steps {
+		list(gvrs...)
+		r.m.rebuild()
+		if _, ok := r.flux(t); ok {
+			t.Fatalf("flux published while %v is not listed", kube.GVRGitRepositories)
+		}
+		if unverified() {
+			t.Fatal("the overview raised the unverified-source alarm from a partial list")
+		}
+	}
+
+	list(kube.GVRGitRepositories) // the last resource: the OCI repositories are absent, which is listed
+	r.m.rebuild()
+	d, ok := r.flux(t)
+	if !ok {
+		t.Fatal("flux was not published once every resource was listed or absent")
+	}
+	if len(d.Sources) != 1 || d.Sources[0].Verified == nil || !*d.Sources[0].Verified || len(d.Kustomizations) != 1 {
+		t.Errorf("flux = %+v, want the verified repository and the kustomization", d)
+	}
+	if unverified() {
+		t.Error("a verified source raised the alarm")
+	}
+	env := mustEnvelope(t, r.h, model.TopicOverview)
+	var ov model.OverviewData
+	if err := json.Unmarshal(env.Data, &ov); err != nil {
+		t.Fatal(err)
+	}
+	if !ov.Kpis.SourceVerified {
+		t.Errorf("kpis = %+v, want sourceVerified once the repository is listed", ov.Kpis)
 	}
 }

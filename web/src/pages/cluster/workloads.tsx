@@ -16,6 +16,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { shortImage } from "@/lib/format";
+import { useActionAvailable } from "@/plugins/use-action-available";
 import { compareHealth, matchesQuery, ROW_CAP } from "./common";
 import { FilterBar, ShowAll, useClusterFilters } from "./filters";
 
@@ -31,6 +32,8 @@ export function WorkloadsTab({
 }) {
   const filters = useClusterFilters();
   const [all, setAll] = useState(false);
+  // Restart is offered while the kubernetes plugin lists it (actions.enabled) and the role may run it.
+  const canRestart = useActionAvailable("kubernetes", "restart");
   const { ns, needle, health } = filters;
 
   const namespaces = useMemo(
@@ -117,7 +120,7 @@ export function WorkloadsTab({
                   </TableCell>
                   <TableCell className={`${TD} text-right`}>
                     <div className="flex items-center justify-end gap-1">
-                      {w.restartable && (
+                      {w.restartable && canRestart && (
                         <Button
                           variant="ghost"
                           size="xs"

@@ -213,12 +213,12 @@ func seriesGet(h http.Handler, query string) *httptest.ResponseRecorder {
 	return req{path: "/api/v1/series?" + query}.do(h)
 }
 
-// The prometheus plugin's querier answers every series, and a series a plugin registers beats
-// the built-in one of the same name only while that plugin runs.
-func TestSeriesFromPluginBeatsLegacy(t *testing.T) {
+// The prometheus plugin's querier answers every series, and a series a plugin registers is
+// answered only while that plugin runs: the node is passed by name, for the plugin to resolve.
+func TestSeriesFromPluginIsAnsweredWhileItRuns(t *testing.T) {
 	f := plugintest.New("hw")
 	f.M.Series = []plugin.SeriesSpec{
-		{Name: "node.cpu", Expr: func(a plugin.SeriesArgs) (string, error) { return `plugin_cpu{instance="` + a.Instance + `"}`, nil }},
+		{Name: "node.cpu", Expr: func(a plugin.SeriesArgs) (string, error) { return `plugin_cpu{node="` + a.Instance + `"}`, nil }},
 		{Name: "hw.broken", Expr: func(plugin.SeriesArgs) (string, error) { return "", context.Canceled }},
 	}
 	prom := &fakeProm{}
@@ -230,23 +230,23 @@ func TestSeriesFromPluginBeatsLegacy(t *testing.T) {
 	if w := seriesGet(h, "name=node.cpu&range=1h&node=cp1"); w.Code != http.StatusOK {
 		t.Fatalf("series = %d %s", w.Code, w.Body)
 	}
-	if want := `plugin_cpu{instance="10.0.0.5:9100"}`; prom.expr != want {
-		t.Errorf("expr = %q, want the plugin's %q", prom.expr, want)
+	if want := `plugin_cpu{node="cp1"}`; prom.expr != want {
+		t.Errorf("expr = %q, want the plugin's %q (the node by name)", prom.expr, want)
 	}
 	if w := seriesGet(h, "name=hw.broken&range=1h"); w.Code != http.StatusBadRequest {
 		t.Errorf("a plugin's series error = %d, want 400", w.Code)
 	}
 
-	// Stopped, the plugin's series is gone and the built-in one answers again.
+	// Stopped, the plugin's series is gone and dash has none of its own to answer with.
 	e.set.Set(plugin.InstanceConfig{Name: "hw", Enabled: new(false)})
 	e.sup.Reload()
 	e.eventually(t, "the instance to stop", func() bool { return !e.sup.Running("hw") })
 	prom.expr = ""
-	if w := seriesGet(h, "name=node.cpu&range=1h&node=cp1"); w.Code != http.StatusOK {
-		t.Fatalf("series = %d %s", w.Code, w.Body)
+	if w := seriesGet(h, "name=node.cpu&range=1h&node=cp1"); w.Code != http.StatusBadRequest {
+		t.Errorf("series of a stopped plugin = %d %s, want 400", w.Code, w.Body)
 	}
-	if prom.expr == "" || strings.HasPrefix(prom.expr, "plugin_cpu") {
-		t.Errorf("expr = %q, want the built-in query", prom.expr)
+	if prom.expr != "" {
+		t.Errorf("the querier ran %q for a series nobody serves", prom.expr)
 	}
 }
 
@@ -279,7 +279,7 @@ func TestSeriesWithoutPrometheus(t *testing.T) {
 	}
 }
 
-// An Expr that wraps plugin.ErrNotFound answers 404 not_found with its message; any other Expr
+// An Expr that answers plugin.NotFound gives 404 not_found with its message alone; any other Expr
 // error stays a 400. Argument validation still comes first (a bad node is 400 before any Expr
 // runs) and the Expr still runs before the "is prometheus running" check, so the 404 is the
 // plugin's own words, never "unknown series".
@@ -289,7 +289,7 @@ func TestSeriesExprNotFoundIs404(t *testing.T) {
 	f.M.Series = []plugin.SeriesSpec{
 		{Name: "hw.ghost", Expr: func(a plugin.SeriesArgs) (string, error) {
 			calls++
-			return "", fmt.Errorf("%w: unknown disk %q", plugin.ErrNotFound, a.Pod)
+			return "", plugin.NotFound(fmt.Sprintf("unknown disk %q", a.Pod))
 		}},
 		{Name: "hw.broken", Expr: func(plugin.SeriesArgs) (string, error) { calls++; return "", errors.New("broken") }},
 	}
@@ -306,7 +306,7 @@ func TestSeriesExprNotFoundIs404(t *testing.T) {
 			t.Errorf("%s = %d %s, want %d %s %q", query, w.Code, w.Body, code, errCode, msg)
 		}
 	}
-	check("name=hw.ghost&range=1h&pod=sda", http.StatusNotFound, model.ErrCodeNotFound, `not found: unknown disk "sda"`)
+	check("name=hw.ghost&range=1h&pod=sda", http.StatusNotFound, model.ErrCodeNotFound, `unknown disk "sda"`)
 	check("name=hw.broken&range=1h", http.StatusBadRequest, model.ErrCodeInvalidInput, "broken")
 	calls = 0
 	check("name=hw.ghost&range=1h&node=Bad_Node", http.StatusBadRequest, model.ErrCodeInvalidInput, "invalid node")
@@ -322,7 +322,7 @@ func TestSeriesExprNotFoundIs404(t *testing.T) {
 	e.set.Set(plugin.InstanceConfig{Name: "prometheus", Enabled: new(false)})
 	e.sup.Reload()
 	e.eventually(t, "prometheus to stop", func() bool { return !e.sup.Running("prometheus") })
-	check("name=hw.ghost&range=1h&pod=sda", http.StatusNotFound, model.ErrCodeNotFound, `not found: unknown disk "sda"`)
+	check("name=hw.ghost&range=1h&pod=sda", http.StatusNotFound, model.ErrCodeNotFound, `unknown disk "sda"`)
 }
 
 // A row turning visible changes core.plugins and the series route starts answering, without a

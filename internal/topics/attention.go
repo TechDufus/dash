@@ -2,7 +2,6 @@ package topics
 
 import (
 	"fmt"
-	"math"
 	"sort"
 	"strings"
 	"sync"
@@ -12,12 +11,9 @@ import (
 	"github.com/TechDufus/dash/internal/plugin"
 )
 
-// AttentionInput is everything the rule table reads. Every field is the typed data of a topic
-// (the health fields in it were set with the functions in health.go).
+// AttentionInput is everything the rule table reads. Every field is the typed data of a topic.
 type AttentionInput struct {
-	Flux    model.FluxData
-	Cluster model.ClusterData
-	Storage model.StorageData
+	Flux model.FluxData
 	// Resolver resolves the links of the rules' objects (Grafana, Headlamp, the Proxmox UI and
 	// shell); nil means none.
 	Resolver plugin.LinkResolver
@@ -48,8 +44,6 @@ var legacyRules = []struct {
 	run    func(AttentionInput, addFn)
 }{
 	{"flux", attentionFlux},
-	{"kubernetes", attentionCluster},
-	{"kubernetes", attentionStorage},
 }
 
 // legacyAttention applies the rule table and returns the items in rule order, each stamped with
@@ -154,64 +148,6 @@ func attentionFlux(in AttentionInput, add addFn) {
 	all(in.Flux.Sources)
 	all(in.Flux.Kustomizations)
 	all(in.Flux.HelmReleases)
-}
-
-func attentionCluster(in AttentionInput, add addFn) {
-	for _, n := range in.Cluster.Nodes {
-		if !n.Ready {
-			add("node:"+n.Name, model.HealthCrit, "kubernetes", "Node "+n.Name+" not ready", n.IP, time.Time{}, "/cluster", n.Links)
-		}
-	}
-	for _, p := range in.Cluster.Pods {
-		if p.Health != model.HealthWarn && p.Health != model.HealthCrit {
-			continue
-		}
-		detail := p.Reason
-		if p.Health == model.HealthWarn && detail == "" {
-			detail = "Pending for over 5 minutes"
-		}
-		add("pod:"+p.Namespace+"/"+p.Name, p.Health, "kubernetes", fmt.Sprintf("Pod %s/%s %s", p.Namespace, p.Name, podProblem(p)),
-			detail, p.CreatedAt, "/cluster/pods/"+p.Namespace+"/"+p.Name, p.Links)
-	}
-	for _, w := range in.Cluster.Workloads {
-		add("workload:"+string(w.Kind)+"/"+w.Namespace+"/"+w.Name, w.Health, "kubernetes",
-			fmt.Sprintf("%s %s/%s not ready", w.Kind, w.Namespace, w.Name),
-			fmt.Sprintf("%d of %d ready", w.Ready, w.Desired), time.Time{}, "/cluster", w.Links)
-	}
-	for _, c := range in.Cluster.Certificates {
-		if c.NotAfter == nil {
-			continue
-		}
-		h := CertHealth(*c.NotAfter, in.Now)
-		add("cert:"+c.Namespace+"/"+c.Name, h, "cert-manager", fmt.Sprintf("Certificate %s/%s expires soon", c.Namespace, c.Name),
-			"expires "+c.NotAfter.UTC().Format("2006-01-02")+" ("+fmt.Sprintf("%.0f", math.Floor(c.NotAfter.Sub(in.Now).Hours()/24))+" days)",
-			time.Time{}, "/cluster", c.Links)
-	}
-}
-
-func podProblem(p model.Pod) string {
-	if p.Health == model.HealthCrit {
-		return "is failing"
-	}
-	return "is stuck pending"
-}
-
-func attentionStorage(in AttentionInput, add addFn) {
-	for _, p := range in.Storage.PVCs {
-		if p.UsedRatio == nil {
-			continue
-		}
-		add("pvc:"+p.Namespace+"/"+p.Name, RatioHealth(*p.UsedRatio), "storage",
-			fmt.Sprintf("PVC %s/%s is %.0f%% full", p.Namespace, p.Name, *p.UsedRatio*100), "", time.Time{}, "/storage", p.Links)
-	}
-	for _, b := range in.Storage.Buckets {
-		if b.QuotaBytes <= 0 {
-			continue
-		}
-		r := float64(b.UsedBytes) / float64(b.QuotaBytes)
-		add("bucket:"+b.Name, RatioHealth(r), "storage", fmt.Sprintf("Bucket %s is %.0f%% of its quota", b.Name, r*100),
-			"", time.Time{}, "/storage", nil)
-	}
 }
 
 func firstLine(s string) string {

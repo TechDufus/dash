@@ -1,6 +1,6 @@
 import { Archive, Boxes, Database, HardDrive, Search, Waypoints } from "lucide-react";
 import { useMemo } from "react";
-import type { CNPGCluster, Health, NASBackup, PVC, StorageData } from "@/api/types";
+import type { BackupJob, CNPGCluster, Health, PVC, StorageData } from "@/api/types";
 import { BytesBar } from "@/components/bytes-bar";
 import { HeadlampIcon } from "@/components/links";
 import { Empty, Panel, PanelHeader, PanelSkeleton } from "@/components/panel";
@@ -274,7 +274,7 @@ function CnpgRow({ c }: { c: CNPGCluster }) {
   );
 }
 
-function NasRow({ b }: { b: NASBackup }) {
+function BackupRow({ b }: { b: BackupJob }) {
   return (
     <div className="flex flex-wrap items-center justify-between gap-2 py-3">
       <span className="truncate text-sm text-fg">{b.name}</span>
@@ -350,18 +350,19 @@ export function CnpgPanel({ env }: PanelProps) {
   );
 }
 
-/** NAS backups and the etcd database share one cell of the storage grid. */
-export function NasEtcdPanel({ env }: PanelProps) {
+/** The backup jobs and the etcd database share one cell of the storage grid. */
+export function BackupEtcdPanel({ env }: PanelProps) {
   if (!env) return <PanelSkeleton lines={2} />;
   const { data } = env;
+  const jobs = data.backupJobs ?? [];
   return (
     <div className="space-y-4">
       <Panel>
-        <PanelHeader title="NAS backups" icon={<Archive />} />
+        <PanelHeader title="Backup jobs" icon={<Archive />} />
         <div className="divide-y divide-line px-4 pb-2">
-          {data.nasBackups.length === 0 && <Empty className="py-4">No NAS backups.</Empty>}
-          {data.nasBackups.map((b) => (
-            <NasRow key={b.name} b={b} />
+          {jobs.length === 0 && <Empty className="py-4">No backup jobs.</Empty>}
+          {jobs.map((b) => (
+            <BackupRow key={b.ref || b.name} b={b} />
           ))}
         </div>
       </Panel>

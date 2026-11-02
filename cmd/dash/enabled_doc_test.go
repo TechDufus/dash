@@ -62,8 +62,11 @@ func TestEnabledDocNamesTheUsers(t *testing.T) {
 	}
 	restarts := "(" + strings.Join(pairs, "; ") + ")"
 	// The sentence about the shims follows the restart list directly, so that a plugin that has
-	// moved cannot hide in front of the others ("hardware, kubernetes and flux have not moved").
-	shimSentence := restarts + ". " + joinWith(shims, "and") + " have not moved to plugins of their own yet"
+	// moved cannot hide in front of the others ("kubernetes and flux have not moved").
+	shimSentence := restarts + ". " + joinWith(shims, "and") + " has not moved to a plugin of its own yet"
+	if len(shims) > 1 {
+		shimSentence = restarts + ". " + joinWith(shims, "and") + " have not moved to plugins of their own yet"
+	}
 
 	field, _ := reflect.TypeFor[pluginconf.PluginBase]().FieldByName("Enabled")
 	var table, page bytes.Buffer
@@ -110,9 +113,9 @@ func TestEnabledDocNamesTheUsers(t *testing.T) {
 	// The check itself: each stale form of the sentence is caught.
 	tag := squash(field.Tag.Get("doc"))
 	for name, stale := range map[string]string{
-		"a restart pair is missing":                    strings.Replace(tag, " a gatus change restarts hardware;", "", 1),
-		"a moved plugin is listed as one that has not": strings.Replace(tag, ". kubernetes and flux have not moved", ". hardware, kubernetes and flux have not moved", 1),
-		"a live plugin is missing":                     strings.Replace(tag, "proxmox, hardware, grafana", "proxmox, grafana", 1),
+		"a restart pair is missing":                    strings.Replace(tag, " a gatus change restarts hardware and kubernetes;", "", 1),
+		"a moved plugin is listed as one that has not": strings.Replace(tag, ". flux has not moved to a plugin", ". kubernetes and flux have not moved to plugins", 1),
+		"a live plugin is missing":                     strings.Replace(tag, "proxmox, hardware, kubernetes, grafana", "proxmox, hardware, grafana", 1),
 	} {
 		if stale == tag {
 			t.Fatalf("%s: the doc has no text to damage", name)

@@ -9,6 +9,8 @@ import (
 	"github.com/TechDufus/dash/internal/plugin"
 )
 
+var attentionItem = reflect.TypeFor[model.AttentionItem]()
+
 // Links is LinksFn, so a Fake is a plugin.LinkProvider that offers nothing until LinksFn is set.
 func (f *Fake) Links(req plugin.LinkRequest) []model.Link {
 	if f.LinksFn == nil {
@@ -34,7 +36,8 @@ func WithDemo(f *Fake, twin plugin.Plugin) plugin.Factory {
 // AssertRefs walks payload and checks every object reference in it (design L.6): each struct with
 // a `Ref string` field has it non-empty, plugin.ParseRef accepts it, its plugin is pluginID,
 // which must be registered in sup (nil skips that check), and no two objects of the payload share
-// one (an error names both). mustHave lists a zero value of every
+// one (an error names both; a model.AttentionItem is exempt from that last rule, since it names
+// the object it is about by that object's ref). mustHave lists a zero value of every
 // type the leaf's payload is expected to carry refs on: each must declare a Ref field and occur
 // in the payload at least once, so a type that forgot its field, or a payload that does not
 // reach it, fails instead of being skipped.
@@ -78,6 +81,10 @@ func AssertRefs(t testing.TB, sup *plugin.Supervisor, pluginID plugin.ID, payloa
 					t.Errorf("%s (%s): %q is not a valid ref", path, v.Type(), ref)
 				case p != pluginID:
 					t.Errorf("%s (%s): ref %q belongs to plugin %q, not %q", path, v.Type(), ref, p, pluginID)
+				case v.Type() == attentionItem:
+					// An attention item carries the ref of the object it is about, which is also
+					// the ref of that object in the payload: it is checked for form, not for
+					// uniqueness.
 				case owners[ref] != "":
 					t.Errorf("%s (%s): ref %q is also the ref of %s", path, v.Type(), ref, owners[ref])
 				default:

@@ -10,8 +10,8 @@ import { usePluginsState, useTopicAvailable } from "@/plugins/state";
  * plugin alone.
  */
 export function StoragePage() {
-  const env = useTopic("storage");
-  const available = useTopicAvailable("storage");
+  const env = useTopic("kubernetes.storage");
+  const available = useTopicAvailable("kubernetes.storage");
   const proxmoxAvailable = useTopicAvailable("proxmox.storage");
   const { byId } = usePluginsState();
 

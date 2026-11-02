@@ -18,17 +18,21 @@ import (
 	"github.com/TechDufus/dash/internal/pluginconf"
 	"github.com/TechDufus/dash/internal/plugins/hardware"
 	hwmodel "github.com/TechDufus/dash/internal/plugins/hardware/model"
+	"github.com/TechDufus/dash/internal/plugins/kubernetes"
 	"github.com/TechDufus/dash/internal/plugins/prometheus"
 	"github.com/TechDufus/dash/internal/plugins/proxmox"
 )
 
-// deploymentEnvFile is the environment of the homelab deployment at v0.8.0: the one list that
-// internal/config's TestDeploymentEnvV08 and this test read.
-var deploymentEnvFile = filepath.Join("..", "..", "internal", "config", "testdata", "deployment-v0.8.0.env")
+// The environment of the homelab deployment, one file per release: the lists that internal/config's
+// TestDeploymentEnvV08 and TestDeploymentEnvV09 and this test read.
+var (
+	deploymentEnvV08 = filepath.Join("..", "..", "internal", "config", "testdata", "deployment-v0.8.0.env")
+	deploymentEnvV09 = filepath.Join("..", "..", "internal", "config", "testdata", "deployment-v0.9.0.env")
+)
 
-func deploymentEnv(t *testing.T) []string {
+func deploymentEnv(t *testing.T, file string) []string {
 	t.Helper()
-	b, err := os.ReadFile(deploymentEnvFile)
+	b, err := os.ReadFile(file)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -39,17 +43,24 @@ func deploymentEnv(t *testing.T) []string {
 		}
 	}
 	if len(out) == 0 {
-		t.Fatalf("%s lists no variable", deploymentEnvFile)
+		t.Fatalf("%s lists no variable", file)
 	}
 	return out
 }
 
-// The v0.8.0 deployment environment (contract 10.2) reaches both plugins as the deploy needs it:
-// the configuration each is started with carries the four changed settings and the ones that
-// stayed, and the running hardware plugin publishes the host with its layout and the two machines.
+// The deployment environments (contract 10.2 and 10.3) reach the plugins as the deploy needs it:
+// the configuration each is started with carries the settings that changed and the ones that
+// stayed, the running hardware plugin publishes the host with its layout and the two machines,
+// and the kubernetes plugin gets its conventions and backup CronJob, and the Restart action only
+// from v0.9.0 on.
 func TestDeploymentEnvReachesThePlugins(t *testing.T) {
+	t.Run("v0.8.0", func(t *testing.T) { deploymentEnvReachesThePlugins(t, deploymentEnvV08, false) })
+	t.Run("v0.9.0", func(t *testing.T) { deploymentEnvReachesThePlugins(t, deploymentEnvV09, true) })
+}
+
+func deploymentEnvReachesThePlugins(t *testing.T, file string, wantRestart bool) {
 	// What the environment must resolve to, pinned here and not read back from the file it
-	// checks (internal/config's TestDeploymentEnvV08 pins the same values).
+	// checks (internal/config's TestDeploymentEnvV08 and V09 pin the same values).
 	wantMachines := []pluginconf.HardwareMachine{
 		{Name: "mac-mini", NodeExporterNodename: "mac-mini"},
 		{Name: "rpi-control", GatusEndpoint: "rpi-control SSH"},
@@ -66,7 +77,7 @@ func TestDeploymentEnvReachesThePlugins(t *testing.T) {
 	defer prom.Close()
 	pve := newFakePVEFor(t, "pve-730")
 	// The deployment's own hosts are not reachable here: the two upstreams are local fakes.
-	env := append(deploymentEnv(t), "DASH_PLUGINS_PROMETHEUS_URL="+prom.URL, "DASH_PLUGINS_PROXMOX_URL="+pve.URL)
+	env := append(deploymentEnv(t, file), "DASH_PLUGINS_PROMETHEUS_URL="+prom.URL, "DASH_PLUGINS_PROXMOX_URL="+pve.URL)
 
 	// The configuration of each plugin as the supervisor starts it.
 	t.Run("start config", func(t *testing.T) {
@@ -74,7 +85,7 @@ func TestDeploymentEnvReachesThePlugins(t *testing.T) {
 		fw, res := loadFramework(t)
 		seen := map[plugin.ID]*plugintest.Fake{}
 		var facts []plugin.Factory
-		for _, real := range []plugin.Plugin{proxmox.New(), hardware.New()} {
+		for _, real := range []plugin.Plugin{proxmox.New(), hardware.New(), kubernetes.New()} {
 			m := real.Manifest()
 			f := plugintest.New(m.ID, plugintest.Config(m.Config))
 			seen[m.ID] = f
@@ -86,7 +97,7 @@ func TestDeploymentEnvReachesThePlugins(t *testing.T) {
 			t.Fatal(err)
 		}
 		defer fw.sup.Shutdown(context.Background())
-		waitFor(t, func() bool { return seen["proxmox"].Starts() == 1 && seen["hardware"].Starts() == 1 })
+		waitFor(t, func() bool { return seen["proxmox"].Starts() == 1 && seen["hardware"].Starts() == 1 && seen["kubernetes"].Starts() == 1 })
 		px, ok := seen["proxmox"].Config().(*pluginconf.Proxmox)
 		if !ok {
 			t.Fatalf("proxmox is started with %T", seen["proxmox"].Config())
@@ -104,6 +115,18 @@ func TestDeploymentEnvReachesThePlugins(t *testing.T) {
 		}
 		if res.Tree.Plugins.Proxmox.Node != px.Node {
 			t.Errorf("the tree and the plugin disagree on the node: %q and %q", res.Tree.Plugins.Proxmox.Node, px.Node)
+		}
+		k8s, ok := seen["kubernetes"].Config().(*pluginconf.Kubernetes)
+		if !ok {
+			t.Fatalf("kubernetes is started with %T", seen["kubernetes"].Config())
+		}
+		wantConventions := pluginconf.KubernetesConventions{ProtectedLabel: "example.com/protected", TenantLabel: "example.com/tenant", AppsFluxPrefix: "apps-"}
+		wantJobs := []pluginconf.BackupJob{{Namespace: "backup", CronJob: "nightly"}}
+		if k8s.Conventions != wantConventions || !slices.Equal(k8s.BackupJobs, wantJobs) {
+			t.Errorf("kubernetes start config: conventions %+v, backup jobs %+v", k8s.Conventions, k8s.BackupJobs)
+		}
+		if k8s.Actions.Enabled != wantRestart || len(k8s.Actions.DenyNamespaces) != 0 {
+			t.Errorf("kubernetes start config: actions %+v, want enabled=%v and no denied namespace", k8s.Actions, wantRestart)
 		}
 	})
 

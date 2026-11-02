@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/TechDufus/dash/internal/model"
 	"github.com/TechDufus/dash/internal/plugin"
 )
 
@@ -59,6 +60,38 @@ func TestAssertRefs(t *testing.T) {
 			t.Errorf("%s: unexpected errors %v", c.name, r.errs)
 		case c.wantErr != "" && (len(r.errs) == 0 || !contains(r.errs[0], c.wantErr)):
 			t.Errorf("%s: errors %v, want one with %q", c.name, r.errs, c.wantErr)
+		}
+	}
+}
+
+type withAttention struct {
+	Items     []obj
+	Attention []model.AttentionItem
+}
+
+// An attention item carries the ref of the object it is about, so sharing it with that object is
+// not a duplicate; the item's ref is still checked for form and plugin, and two objects sharing
+// one are still caught.
+func TestAssertRefsLetsAttentionItemsShareTheirObjectsRef(t *testing.T) {
+	shared := withAttention{
+		Items:     []obj{{Ref: "aa:Item/1"}},
+		Attention: []model.AttentionItem{{ID: "x", Ref: "aa:Item/1"}, {ID: "y", Ref: "aa:Item/1"}},
+	}
+	r := &recorder{}
+	AssertRefs(r, nil, "aa", shared, obj{}, model.AttentionItem{})
+	if len(r.errs) != 0 {
+		t.Errorf("attention items sharing their object's ref: %v", r.errs)
+	}
+
+	for name, bad := range map[string]withAttention{
+		"an attention item of another plugin": {Items: []obj{{Ref: "aa:Item/1"}}, Attention: []model.AttentionItem{{Ref: "bb:Item/1"}}},
+		"an attention item with no ref":       {Items: []obj{{Ref: "aa:Item/1"}}, Attention: []model.AttentionItem{{ID: "x"}}},
+		"two objects sharing a ref":           {Items: []obj{{Ref: "aa:Item/1"}, {Ref: "aa:Item/1"}}},
+	} {
+		r := &recorder{}
+		AssertRefs(r, nil, "aa", bad)
+		if len(r.errs) == 0 {
+			t.Errorf("%s: no error", name)
 		}
 	}
 }

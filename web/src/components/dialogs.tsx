@@ -32,10 +32,14 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
+import { useActionAvailable } from "@/plugins/use-action-available";
 
 /** Restart confirmation; in a protected namespace the workload name must be typed. */
 function RestartDialog() {
   const { restart } = useUi();
+  // The action can go away while the dialog is open (actions.enabled switched off): then there is
+  // nothing to confirm.
+  const available = useActionAvailable("kubernetes", "restart");
   const [typed, setTyped] = useState("");
   const [busy, setBusy] = useState(false);
   // Reset the typed text whenever a different target opens.
@@ -43,7 +47,7 @@ function RestartDialog() {
   // biome-ignore lint/correctness/useExhaustiveDependencies: reset on target change only
   useEffect(() => setTyped(""), [targetKey]);
   const needsConfirm = restart?.protected === true;
-  const canGo = !!restart && (!needsConfirm || typed === restart.name) && !busy;
+  const canGo = !!restart && available && (!needsConfirm || typed === restart.name) && !busy;
   return (
     <AlertDialog open={!!restart} onOpenChange={(o) => !o && !busy && ui.closeRestart()}>
       <AlertDialogContent className="data-[size=default]:sm:max-w-md">
@@ -57,6 +61,9 @@ function RestartDialog() {
             workloads.
           </AlertDialogDescription>
         </AlertDialogHeader>
+        {restart && !available && (
+          <p className="text-xs text-warn">Restart is not available right now.</p>
+        )}
         {needsConfirm && restart && (
           <div className="space-y-2">
             <p className="text-xs text-warn">{restart.namespace} is a protected namespace.</p>

@@ -98,17 +98,40 @@ func (w *World) overviewOf(now time.Time, s Snapshot) model.OverviewData {
 	if running < total {
 		vmHealth = model.HealthWarn
 	}
+	// The kubernetes plugin's three, as its kpisOf computes them: nodes ready, nodes, and the
+	// fullest PVC that reports a usage ratio.
+	nodesReady := 0
+	for _, n := range s.Cluster.Nodes {
+		if n.Ready {
+			nodesReady++
+		}
+	}
+	nodesHealth := model.HealthOK
+	if nodesReady < len(s.Cluster.Nodes) {
+		nodesHealth = model.HealthCrit
+	}
+	var fullest *model.PVC
+	for i, p := range s.Storage.PVCs {
+		if p.UsedRatio != nil && (fullest == nil || *p.UsedRatio > *fullest.UsedRatio) {
+			fullest = &s.Storage.PVCs[i]
+		}
+	}
+	pvcHealth := model.HealthOK
+	if r := *fullest.UsedRatio; r >= 0.90 {
+		pvcHealth = model.HealthCrit
+	} else if r >= 0.80 {
+		pvcHealth = model.HealthWarn
+	}
 	o.KPIList = []model.KPI{
 		{Key: "firing", Plugin: "alertmanager", Label: "Alerts firing", Value: float64(firing), Health: alertHealth},
 		{Key: "power", Plugin: "hardware", Label: "Power", Unit: "W", Value: s.Host.PowerWatts, Health: model.HealthOK},
 		{Key: "cpuTemp", Plugin: "hardware", Label: "CPU temp", Unit: "°C", Value: cpuTemp, Health: model.HealthOK},
+		{Key: "nodes.ready", Plugin: "kubernetes", Label: "Nodes ready", Value: float64(nodesReady), Health: nodesHealth},
+		{Key: "nodes.total", Plugin: "kubernetes", Label: "Nodes", Value: float64(len(s.Cluster.Nodes)), Health: model.HealthOK},
+		{Key: "pvc.worst", Plugin: "kubernetes", Label: fullest.Namespace + "/" + fullest.Name, Value: *fullest.UsedRatio, Health: pvcHealth},
 		{Key: "vms.running", Plugin: "proxmox", Label: "VMs running", Value: float64(running), Health: vmHealth},
 		{Key: "vms.total", Plugin: "proxmox", Label: "VMs", Value: float64(total), Health: model.HealthOK},
 	}
-	o.Kpis = model.Kpis{
-		FluxReady: fluxTotal, FluxTotal: fluxTotal, FluxSuspended: 1, SourceVerified: true,
-		NodesReady: len(nodeNames), NodesTotal: len(nodeNames),
-		WorstPVC: &model.WorstPVC{Namespace: worst.Namespace, Name: worst.Name, UsedRatio: *worst.UsedRatio},
-	}
+	o.Kpis = model.Kpis{FluxReady: fluxTotal, FluxTotal: fluxTotal, FluxSuspended: 1, SourceVerified: true}
 	return o
 }

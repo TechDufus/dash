@@ -1,14 +1,14 @@
 import { HardDrive, LayoutGrid } from "lucide-react";
 import { Link } from "wouter";
 import { useTopic } from "@/api/stream";
-import type { Kpis, OverviewData } from "@/api/types";
+import type { OverviewData } from "@/api/types";
 import { Kpi } from "@/components/kpi";
 import { useLauncherShown } from "@/components/launcher";
 import { Page, Reveal } from "@/components/page";
 import { PanelSkeleton, SourceChips } from "@/components/panel";
 import { Skeleton } from "@/components/ui/skeleton";
 import { formatPercent } from "@/lib/format";
-import { HEALTH_TEXT, ratioHealth } from "@/lib/health";
+import { HEALTH_TEXT } from "@/lib/health";
 import { cn } from "@/lib/utils";
 import { contributesPanel, Slot } from "@/plugins/slots";
 import { isVisible, usePluginsState } from "@/plugins/state";
@@ -43,19 +43,25 @@ function PublishedKpis({ data }: { data: OverviewData }) {
     ));
 }
 
-function WorstPvc({ pvc }: { pvc: NonNullable<Kpis["worstPvc"]> }) {
-  const health = ratioHealth(pvc.usedRatio);
+/**
+ * The fullest volume, from the kubernetes plugin's `pvc.worst` KPI (value is the used ratio, label
+ * is `<namespace>/<name>`). The plugin's tile owns its other KPIs; this line is the page's own, and
+ * goes with the plugin.
+ */
+function WorstPvc({ data }: { data: OverviewData }) {
+  const { byId } = usePluginsState();
+  const info = byId.get("kubernetes");
+  const pvc = data.kpiList.find((k) => k.plugin === "kubernetes" && k.key === "pvc.worst");
+  if (!pvc || !info || !isVisible(info.state)) return null;
   return (
     <Link
       href="/storage"
       className="inline-flex max-w-full items-center gap-2 rounded-lg px-1 py-0.5 text-xs text-muted hover:text-fg"
     >
       <HardDrive className="size-3.5 shrink-0" aria-hidden="true" />
-      <span className="truncate">
-        Fullest volume: {pvc.namespace}/{pvc.name}
-      </span>
-      <span className={cn("num shrink-0 font-medium", HEALTH_TEXT[health])}>
-        {formatPercent(pvc.usedRatio)}
+      <span className="truncate">Fullest volume: {pvc.label}</span>
+      <span className={cn("num shrink-0 font-medium", HEALTH_TEXT[pvc.health])}>
+        {formatPercent(pvc.value)}
       </span>
     </Link>
   );
@@ -82,7 +88,7 @@ export function OverviewPage() {
   const overview = useTopic("core.overview");
   const data = overview?.data;
   const launcherShown = useLauncherShown();
-  const appSources = useTopic("apps")?.sources;
+  const appSources = useTopic("kubernetes.apps")?.sources;
   return (
     <Page>
       {data ? (
@@ -92,7 +98,7 @@ export function OverviewPage() {
               <Slot id="overview.kpis" data={data} />
               <PublishedKpis data={data} />
             </div>
-            {data.kpis.worstPvc && <WorstPvc pvc={data.kpis.worstPvc} />}
+            <WorstPvc data={data} />
           </Reveal>
           <Reveal index={1} className="grid gap-4 lg:grid-cols-12">
             <TopologyPanel

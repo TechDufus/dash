@@ -1,21 +1,26 @@
 import { Boxes } from "lucide-react";
-import type { Health } from "@/api/types";
 import { Kpi } from "@/components/kpi";
 import { AppsSection } from "@/components/launcher";
 import { KPI_TILE, KpiLink } from "../../kpi-link";
 import type { ModulePanels, SlotProps } from "../../types";
-import { CnpgPanel, NasEtcdPanel, ObjectStoragePanel, PvcPanel } from "./storage-panels";
+import { BackupEtcdPanel, CnpgPanel, ObjectStoragePanel, PvcPanel } from "./storage-panels";
 
+/**
+ * The plugin's one tile. It owns the presentation of every KPI the plugin publishes (the overview
+ * draws no generic tile for a plugin that contributes one) and takes its health from the
+ * ready-nodes KPI. The worst volume (`pvc.worst`) is the overview page's own line.
+ */
 function NodesTile({ data }: SlotProps["overview.kpis"]) {
-  const k = data.kpis;
-  const nodes: Health = k.nodesReady < k.nodesTotal ? "crit" : "ok";
+  const ready = data.kpiList.find((x) => x.plugin === "kubernetes" && x.key === "nodes.ready");
+  const total = data.kpiList.find((x) => x.plugin === "kubernetes" && x.key === "nodes.total");
+  if (!ready || !total) return null;
   return (
-    <KpiLink href="/cluster" label={`Nodes ${k.nodesReady} of ${k.nodesTotal} ready. Open cluster`}>
+    <KpiLink href="/cluster" label={`Nodes ${ready.value} of ${total.value} ready. Open cluster`}>
       <Kpi
         label="Nodes"
-        value={k.nodesReady}
-        suffix={`/ ${k.nodesTotal}`}
-        health={nodes}
+        value={ready.value}
+        suffix={`/ ${total.value}`}
+        health={ready.health}
         icon={<Boxes aria-hidden="true" />}
         className={KPI_TILE}
       />
@@ -26,10 +31,15 @@ function NodesTile({ data }: SlotProps["overview.kpis"]) {
 export const panels: ModulePanels = {
   "overview.kpis": [{ id: "nodes", order: 30, reads: ["core.overview"], component: NodesTile }],
   storage: [
-    { id: "pvcs", order: 10, span: "full", reads: ["storage"], component: PvcPanel },
-    { id: "object-storage", order: 20, reads: ["storage"], component: ObjectStoragePanel },
-    { id: "cnpg", order: 40, reads: ["storage"], component: CnpgPanel },
-    { id: "nas-etcd", order: 50, reads: ["storage"], component: NasEtcdPanel },
+    { id: "pvcs", order: 10, span: "full", reads: ["kubernetes.storage"], component: PvcPanel },
+    {
+      id: "object-storage",
+      order: 20,
+      reads: ["kubernetes.storage"],
+      component: ObjectStoragePanel,
+    },
+    { id: "cnpg", order: 40, reads: ["kubernetes.storage"], component: CnpgPanel },
+    { id: "backups-etcd", order: 50, reads: ["kubernetes.storage"], component: BackupEtcdPanel },
   ],
-  "apps.sources": [{ id: "apps", order: 10, reads: ["apps"], component: AppsSection }],
+  "apps.sources": [{ id: "apps", order: 10, reads: ["kubernetes.apps"], component: AppsSection }],
 };

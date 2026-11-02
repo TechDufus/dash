@@ -97,12 +97,12 @@ func TestSeriesComeFromTheDemoTwin(t *testing.T) {
 	}
 }
 
-// plugin.ErrNotFound survives the wrapping an Expr gives it and is not confused with the
-// "bad series" class the other Expr errors belong to.
+// plugin.ErrNotFound is what plugin.NotFound is, with the message alone as its text (it is the
+// 404 body), and is not confused with the "bad series" class the other Expr errors belong to.
 func TestSeriesExprCanSayNotFound(t *testing.T) {
 	f := plugintest.New("aa", func(f *plugintest.Fake) {
 		f.M.Series = []plugin.SeriesSpec{{Name: "vm.cpu", Expr: func(a plugin.SeriesArgs) (string, error) {
-			return "", fmt.Errorf("%w: unknown node %q", plugin.ErrNotFound, a.Instance)
+			return "", plugin.NotFound("unknown node")
 		}}}
 	})
 	e := start(t, f.Factory())
@@ -111,7 +111,10 @@ func TestSeriesExprCanSayNotFound(t *testing.T) {
 		t.Fatal("series not found")
 	}
 	_, err := sp.Expr(plugin.SeriesArgs{Instance: "n1"})
-	if !errors.Is(err, plugin.ErrNotFound) || errors.Is(err, queries.ErrBadSeries) || err.Error() != `not found: unknown node "n1"` {
+	if !errors.Is(err, plugin.ErrNotFound) || errors.Is(err, queries.ErrBadSeries) || err.Error() != "unknown node" {
 		t.Errorf("err = %v", err)
+	}
+	if wrapped := fmt.Errorf("lookup: %w", err); !errors.Is(wrapped, plugin.ErrNotFound) {
+		t.Errorf("a wrapped NotFound is not ErrNotFound: %v", wrapped)
 	}
 }

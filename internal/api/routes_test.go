@@ -18,8 +18,6 @@ import (
 // to this list (a decision), and each plugin migration deletes its entries together with the
 // route. P3.13 deletes the Legacy flag and this list.
 var legacyRoutes = []string{
-	"GET /api/pods/{ns}/{name}",
-	"POST /api/actions/restart",
 	"POST /api/actions/reconcile",
 }
 
@@ -200,14 +198,8 @@ func TestLegacyRoutesKeepTheirPathsAndGetTheEnvelope(t *testing.T) {
 		}
 	}
 
-	// The ones that read answer where they always did.
-	for _, path := range []string{"/api/pods/media/plex-0", "/api/pods/apps/web"} {
-		if w := (req{path: path}.do(h)); w.Code != http.StatusOK {
-			t.Errorf("GET %s = %d %s", path, w.Code, w.Body)
-		}
-	}
-	// And a failing one carries a code and its request id.
-	w := req{path: "/api/pods/Bad_NS/x"}.do(h)
+	// A failing one carries a code and its request id.
+	w := req{method: "POST", path: "/api/actions/reconcile", body: model.ReconcileRequest{Kind: "Pod", Namespace: "flux-system", Name: "app"}}.do(h)
 	e := wantError(t, w, http.StatusBadRequest, model.ErrCodeInvalidInput)
 	if e.RequestID == "" || e.RequestID != w.Header().Get("X-Request-Id") {
 		t.Errorf("requestId %q, header %q", e.RequestID, w.Header().Get("X-Request-Id"))
@@ -224,7 +216,9 @@ func TestMovedCorePathsAre404WithCode(t *testing.T) {
 		{"GET", "/api/topics/cluster"}, {"GET", "/api/plugins"}, {"GET", "/api/config"},
 		{"GET", "/api/logs?ns=media&pod=web"}, {"GET", "/api/logs/tail?ns=media&pod=web"},
 		{"POST", "/api/silences"}, {"DELETE", "/api/silences/00000000-0000-4000-8000-000000000001"},
-		{"GET", "/api/vms/100"}, // the proxmox plugin's route (P3.6): /api/v1/plugins/proxmox/vms/{vmid}
+		{"GET", "/api/vms/100"},           // the proxmox plugin's route (P3.6): /api/v1/plugins/proxmox/vms/{vmid}
+		{"GET", "/api/pods/media/plex-0"}, // the kubernetes plugin's route (P3.8): /api/v1/plugins/kubernetes/pods/{ns}/{name}
+		{"POST", "/api/actions/restart"},  // the kubernetes plugin's action (P3.8): /api/v1/plugins/kubernetes/actions/restart
 	} {
 		path := c.path
 		w := req{method: c.method, path: path}.do(h)

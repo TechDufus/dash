@@ -9,7 +9,6 @@ import (
 	"github.com/TechDufus/dash/internal/auth"
 	"github.com/TechDufus/dash/internal/model"
 	"github.com/TechDufus/dash/internal/plugin"
-	"github.com/TechDufus/dash/internal/topics"
 	"github.com/TechDufus/dash/internal/upstream"
 )
 
@@ -26,7 +25,7 @@ var statusCodes = map[int][]string{
 	http.StatusTooManyRequests:     {model.ErrCodeRateLimited, model.ErrCodeTooManyStreams},
 	http.StatusInternalServerError: {model.ErrCodeInternal},
 	http.StatusBadGateway:          {model.ErrCodeUpstreamUnavailable},
-	http.StatusServiceUnavailable:  {model.ErrCodeAuditUnavailable, model.ErrCodeTooManyStreams},
+	http.StatusServiceUnavailable:  {model.ErrCodeAuditUnavailable, model.ErrCodeTooManyStreams, model.ErrCodeUpstreamUnavailable},
 }
 
 // Every error answer of the API names its reason, and the reason belongs to its status.
@@ -34,7 +33,6 @@ func TestEveryErrorPathHasACodeThatMatchesItsStatus(t *testing.T) {
 	capped := func(s *Server) { s.events, s.tails = newStreamLimiter(0, 10), newStreamLimiter(0, 10) }
 	full := func(s *Server) { s.events = newStreamLimiter(10, 0) }
 	failProm := func(d *Deps) { d.Plugins = promPlugin(&fakeProm{err: context.DeadlineExceeded}) }
-	podErr := func(err error) func(*Deps) { return func(d *Deps) { d.Data = fakeData{podErr: err} } }
 	noHook := func(*harness) {}
 	fullTails := func(s *Server) { s.tails = newStreamLimiter(10, 0) }
 
@@ -51,12 +49,8 @@ func TestEveryErrorPathHasACodeThatMatchesItsStatus(t *testing.T) {
 		{name: "unknown series range", req: req{path: "/api/v1/series?name=sr.cpu&range=bad"}, status: 400, code: "invalid_input"},
 		{name: "unknown series name", req: req{path: "/api/v1/series?name=nope&range=1h"}, status: 400, code: "invalid_input"},
 		{name: "invalid series node", req: req{path: "/api/v1/series?name=sr.cpu&range=1h&node=BAD_"}, status: 400, code: "invalid_input"},
-		{name: "unknown series node", req: req{path: "/api/v1/series?name=node.cpu&range=1h&node=ghost"}, status: 404, code: "not_found"},
+		{name: "unknown series node", req: req{path: "/api/v1/series?name=sr.node&range=1h&node=ghost"}, status: 404, code: "not_found"},
 		{name: "series upstream failure", req: req{path: "/api/v1/series?name=sr.cpu&range=1h"}, mod: failProm, status: 502, code: "upstream_unavailable"},
-		{name: "invalid pod name", req: req{path: "/api/pods/apps/BAD_"}, status: 400, code: "invalid_input"},
-		{name: "pod not found", req: req{path: "/api/pods/apps/missing"}, status: 404, code: "not_found"},
-		{name: "pod not found upstream", req: req{path: "/api/pods/apps/web"}, mod: podErr(topics.ErrNotFound), status: 404, code: "not_found"},
-		{name: "pod upstream failure", req: req{path: "/api/pods/apps/web"}, mod: podErr(context.DeadlineExceeded), status: 502, code: "upstream_unavailable"},
 		{name: "plugin route input error", req: req{path: "/api/v1/plugins/rt/items?ns=media"}, plug: func(h *harness) {
 			h.items = func(*http.Request) (any, error) { return nil, upstream.ErrInvalid }
 		}, status: 400, code: "invalid_input"},
@@ -78,11 +72,8 @@ func TestEveryErrorPathHasACodeThatMatchesItsStatus(t *testing.T) {
 		{name: "invalid stream filter", req: req{path: "/api/v1/stream?topics=BAD!"}, status: 400, code: "invalid_input"},
 		{name: "stream cap per user", req: req{path: "/api/v1/stream"}, srv: capped, status: 429, code: "too_many_streams"},
 		{name: "stream cap overall", req: req{path: "/api/v1/stream"}, srv: full, status: 503, code: "too_many_streams"},
-		{name: "restart body", req: req{method: "POST", path: "/api/actions/restart", body: "{"}, status: 400, code: "invalid_input"},
-		{name: "restart kind", req: req{method: "POST", path: "/api/actions/restart", body: model.RestartRequest{Kind: "Pod", Namespace: "apps", Name: "web"}}, status: 400, code: "invalid_input"},
-		{name: "restart name", req: req{method: "POST", path: "/api/actions/restart", body: model.RestartRequest{Kind: "Deployment", Namespace: "apps", Name: "BAD_"}}, status: 400, code: "invalid_input"},
-		{name: "restart in a missing namespace", req: req{method: "POST", path: "/api/actions/restart", body: model.RestartRequest{Kind: "Deployment", Namespace: "nope", Name: "web"}}, status: 404, code: "not_found"},
-		{name: "restart without the name typed", req: req{method: "POST", path: "/api/actions/restart", body: model.RestartRequest{Kind: "Deployment", Namespace: "platform", Name: "web"}}, status: 400, code: "invalid_input"},
+		{name: "reconcile without the kubernetes service", req: req{method: "POST", path: "/api/actions/reconcile", body: model.ReconcileRequest{Kind: "Kustomization", Namespace: "flux-system", Name: "app"}},
+			mod: func(d *Deps) { d.Cluster = nil }, status: 503, code: "upstream_unavailable"},
 		{name: "reconcile kind", req: req{method: "POST", path: "/api/actions/reconcile", body: model.ReconcileRequest{Kind: "Pod", Namespace: "flux-system", Name: "app"}}, status: 400, code: "invalid_input"},
 		{name: "plugin action input", req: req{method: "POST", path: "/api/v1/plugins/aa/actions/restart", body: map[string]string{"namespace": "apps"}}, plug: noHook, status: 400, code: "invalid_input"},
 		{name: "plugin action refusal", req: req{method: "POST", path: "/api/v1/plugins/aa/actions/silence.expire", body: expireIn{ID: "bad"}}, plug: func(h *harness) {
@@ -108,7 +99,7 @@ func TestEveryErrorPathHasACodeThatMatchesItsStatus(t *testing.T) {
 				tc.plug(h)
 				s = h.Server
 			} else {
-				s, _, _ = serverWithFakes(tc.mod)
+				s, _ = serverWithFakes(tc.mod)
 			}
 			if tc.srv != nil {
 				tc.srv(s)

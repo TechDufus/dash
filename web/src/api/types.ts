@@ -89,15 +89,19 @@ export const TopicVMs = "proxmox.vms";
 export const TopicProxmoxNode = "proxmox.node";
 export const TopicProxmoxStorage = "proxmox.storage";
 export const TopicHardwareMachines = "hardware.machines";
-export const TopicCluster = "cluster";
+/**
+ * TopicCluster, TopicStorage and TopicApps are the kubernetes plugin's topics (ClusterData,
+ * StorageData, AppsData).
+ */
+export const TopicCluster = "kubernetes.cluster";
 export const TopicFlux = "flux";
-export const TopicStorage = "storage";
+export const TopicStorage = "kubernetes.storage";
 /**
  * TopicAlerts is the alerts and silences (AlertsData), published by the alertmanager plugin.
  */
 export const TopicAlerts = "alertmanager.alerts";
 export const TopicStatus = "gatus.status";
-export const TopicApps = "apps";
+export const TopicApps = "kubernetes.apps";
 /**
  * TopicLauncherLinks is the launcher's infrastructure links (LauncherData), published by the
  * launcher plugin.
@@ -157,19 +161,11 @@ export interface AttentionItem {
    */
   ref?: string;
 }
-export interface WorstPVC {
-  namespace: string;
-  name: string;
-  usedRatio: number /* float64 */;
-}
 export interface Kpis {
   fluxReady: number /* int */;
   fluxTotal: number /* int */;
   fluxSuspended: number /* int */;
   sourceVerified: boolean;
-  nodesReady: number /* int */;
-  nodesTotal: number /* int */;
-  worstPvc?: WorstPVC;
 }
 export interface TopologyHost {
   name: string;
@@ -611,13 +607,8 @@ export interface CNPGCluster {
   lastBackupAgeSeconds?: number /* float64 */;
   links: Link[];
 }
-export interface NASBackup {
-  name: string;
-  lastSuccessAgeSeconds?: number /* float64 */;
-}
 /**
- * BackupJob is the age of the last successful run of a backup CronJob, the kubernetes plugin's
- * generalisation of NASBackup.
+ * BackupJob is the age of the last successful run of a backup CronJob.
  */
 export interface BackupJob {
   /**
@@ -636,10 +627,6 @@ export interface StorageData {
   buckets: Bucket[];
   rustfs: UsedSize;
   cnpg: CNPGCluster[];
-  nasBackups: NASBackup[];
-  /**
-   * BackupJobs replaces NASBackups under the kubernetes plugin (design L.6).
-   */
   backupJobs: BackupJob[];
   etcd: Etcd;
 }
@@ -811,7 +798,7 @@ export interface LauncherLink {
   description: string;
 }
 /**
- * RestartRequest is the body of POST /api/actions/restart.
+ * RestartRequest is the body of POST /api/v1/plugins/kubernetes/actions/restart.
  */
 export interface RestartRequest {
   /**

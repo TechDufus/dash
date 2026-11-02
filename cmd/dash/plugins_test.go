@@ -12,22 +12,20 @@ import (
 	"testing"
 	"time"
 
-	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
-	dynfake "k8s.io/client-go/dynamic/fake"
-	kubefake "k8s.io/client-go/kubernetes/fake"
 
 	"github.com/TechDufus/dash/internal/api"
 	"github.com/TechDufus/dash/internal/config"
 	"github.com/TechDufus/dash/internal/demo"
 	"github.com/TechDufus/dash/internal/demo/world"
-	"github.com/TechDufus/dash/internal/kube"
 	"github.com/TechDufus/dash/internal/model"
 	"github.com/TechDufus/dash/internal/plugin"
 	"github.com/TechDufus/dash/internal/plugin/plugintest"
 	"github.com/TechDufus/dash/internal/pluginconf"
 	"github.com/TechDufus/dash/internal/plugins/launcher"
 	"github.com/TechDufus/dash/internal/secret"
+	"github.com/TechDufus/dash/internal/svc"
 	"github.com/TechDufus/dash/internal/topics"
 )
 
@@ -74,16 +72,27 @@ func TestBuiltinManifestsAreTheElevenInDisplayOrder(t *testing.T) {
 	}
 }
 
-// testCluster is an empty cluster whose informers sync at once.
-func testCluster() *kube.Cluster {
-	listKinds := map[schema.GroupVersionResource]string{}
-	for _, gvr := range []schema.GroupVersionResource{
-		kube.GVRKustomizations, kube.GVRHelmReleases, kube.GVRGitRepositories, kube.GVROCIRepositories, kube.GVRHelmRepositories,
-		kube.GVRCNPGClusters, kube.GVRCertificates, kube.GVRExternalSecrets, kube.GVRHTTPRoutes,
-	} {
-		listKinds[gvr] = gvr.Resource + "List"
-	}
-	return kube.NewFromClients(kubefake.NewClientset(), dynfake.NewSimpleDynamicClientWithCustomListKinds(runtime.NewScheme(), listKinds))
+// emptyCluster is a svc.Cluster with nothing in it, every resource listed at once.
+type emptyCluster struct{}
+
+func (*emptyCluster) Synced() bool                                  { return true }
+func (*emptyCluster) Has(schema.GroupVersionResource) bool          { return true }
+func (*emptyCluster) Listed(schema.GroupVersionResource) bool       { return true }
+func (*emptyCluster) Watch(...schema.GroupVersionResource)          {}
+func (*emptyCluster) GVRRevision(...schema.GroupVersionResource) uint64 { return 1 }
+func (*emptyCluster) List(schema.GroupVersionResource) []*unstructured.Unstructured {
+	return nil
+}
+func (*emptyCluster) Patch(context.Context, schema.GroupVersionResource, string, string, []byte) error {
+	return nil
+}
+
+var _ svc.Cluster = (*emptyCluster)(nil)
+
+// testCluster is the accessor of an empty cluster that is always there.
+func testCluster() func() (svc.Cluster, bool) {
+	c := &emptyCluster{}
+	return func() (svc.Cluster, bool) { return c, true }
 }
 
 // loadFramework loads the configuration of the environment the way run does and builds the
@@ -107,7 +116,6 @@ func TestFrameworkStartOrderPublishesFirstPoll(t *testing.T) {
 	cfg := res.Config
 	mgr := topics.New(topics.Deps{
 		Cfg: cfg, Cluster: testCluster(), Hosts: fw.sup, Contributors: fw.sup.Contributors,
-		Services: fw.sup.Service,
 	})
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -116,7 +124,7 @@ func TestFrameworkStartOrderPublishesFirstPoll(t *testing.T) {
 	}
 	defer fw.sup.Shutdown(context.Background())
 
-	want := []string{"core.plugins", "core.overview", "cluster", "storage", "apps", "flux"}
+	want := []string{"core.plugins", "core.overview", "flux"}
 	deadline := time.Now().Add(5 * time.Second)
 	for {
 		snap, _, cancelSub := fw.hub.Subscribe("", nil)
@@ -134,8 +142,8 @@ func TestFrameworkStartOrderPublishesFirstPoll(t *testing.T) {
 		time.Sleep(10 * time.Millisecond)
 	}
 
-	if fw.sup.Live("plugins.kubernetes") {
-		t.Error("a legacy plugin's section applies live, but only a restart can change the Manager")
+	if fw.sup.Live("plugins.flux") {
+		t.Error("the flux shim's section applies live, but only a restart can change the Manager")
 	}
 	for _, in := range fw.sup.Infos() {
 		if in.State == model.PluginDisabled || in.State == model.PluginError || in.State == model.PluginBlocked {
@@ -203,7 +211,7 @@ func TestDemoSeriesComeFromThePrometheusTwin(t *testing.T) {
 	}
 	defer fw.sup.Shutdown(context.Background())
 
-	srv := api.New(api.Deps{Cfg: cfg, Hub: fw.hub, Plugins: fw.sup, Data: src, Health: fw.sup})
+	srv := api.New(api.Deps{Cfg: cfg, Hub: fw.hub, Plugins: fw.sup, Health: fw.sup})
 	r := httptest.NewRequest(http.MethodGet, cfg.PublicURL+"/api/v1/series?name=host.cpu&range=1h", nil)
 	rec := httptest.NewRecorder()
 	demo.Wrap(srv.Handler()).ServeHTTP(rec, r)
@@ -238,7 +246,7 @@ func TestDemoPublishesTheLauncherLinksLast(t *testing.T) {
 	}
 	defer fw.sup.Shutdown(context.Background())
 
-	want := []string{"core.plugins", "core.overview", "alertmanager.alerts", "gatus.status", "proxmox.vms", "proxmox.node", "proxmox.storage", "hardware.hosts", "hardware.machines", "cluster", "storage", "apps", "flux", "launcher.links"}
+	want := []string{"core.plugins", "core.overview", "alertmanager.alerts", "gatus.status", "proxmox.vms", "proxmox.node", "proxmox.storage", "hardware.hosts", "hardware.machines", "kubernetes.cluster", "kubernetes.storage", "kubernetes.apps", "flux", "launcher.links"}
 	deadline := time.Now().Add(5 * time.Second)
 	for {
 		snap, _, cancelSub := fw.hub.Subscribe("", nil)

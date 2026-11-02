@@ -186,7 +186,7 @@ func TestMetricsOnHasEverySeries(t *testing.T) {
 	}
 }
 
-// The two legacy Kubernetes actions are counted under the plugin and action they will have, a
+// The legacy Flux action is counted under the plugin and action it will have, a
 // plugin action under its own, and a plugin stream has the tail gauge: with metrics on each
 // shows up under the name and outcome of what happened.
 func TestLegacyActionsAndTailAreCountedWithMetricsOn(t *testing.T) {
@@ -194,7 +194,7 @@ func TestLegacyActionsAndTailAreCountedWithMetricsOn(t *testing.T) {
 	pl := newHarness(t)
 	m := obs.New("test", RoutePatterns(), pl.sup.Infos)
 	pl.act = func(string, any) (any, error) { return nil, fail }
-	s, _, _ := serverWithFakes(func(d *Deps) { pl.attach(d); d.Audit, d.Metrics = openAudit(t, "", nil), m })
+	s, _ := serverWithFakes(func(d *Deps) { pl.attach(d); d.Audit, d.Metrics = openAudit(t, "", nil), m })
 	h := s.Handler()
 	type call struct {
 		plugin, action string
@@ -203,7 +203,6 @@ func TestLegacyActionsAndTailAreCountedWithMetricsOn(t *testing.T) {
 	}
 	var want []struct{ plugin, action, outcome string }
 	for _, c := range []call{
-		{"kubernetes", "restart", req{method: "POST", path: "/api/actions/restart", body: model.RestartRequest{Kind: "Deployment", Namespace: "apps", Name: "web"}}, false},
 		{"flux", "reconcile", req{method: "POST", path: "/api/actions/reconcile", body: model.ReconcileRequest{Kind: "Kustomization", Namespace: "flux-system", Name: "ghost"}}, false},
 		{"aa", "silence.create", req{method: "POST", path: "/api/v1/plugins/aa/actions/silence.create", body: silenceIn{Alertname: "HighTemp"}}, false},
 		{"aa", "silence.expire", req{method: "POST", path: "/api/v1/plugins/aa/actions/silence.expire", body: expireIn{ID: "abc"}}, true},
@@ -253,7 +252,7 @@ func (f fakeRT) RoundTrip(*http.Request) (*http.Response, error) {
 // legacyActionPairs are the (plugin, action) pairs of the integration routes that are not plugin
 // actions yet. It is written out here on purpose: the test checks obs against the contract.
 var legacyActionPairs = [][2]string{
-	{"kubernetes", "restart"}, {"flux", "reconcile"}, {"alertmanager", "silence.create"}, {"alertmanager", "silence.expire"},
+	{"flux", "reconcile"}, {"alertmanager", "silence.create"}, {"alertmanager", "silence.expire"},
 }
 
 func TestMetricLabelValuesComeFromFixedSets(t *testing.T) {

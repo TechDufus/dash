@@ -1,23 +1,20 @@
-package topics
+package kubernetes
 
 import (
-	"context"
 	"fmt"
-	"net"
 	"sort"
-	"strconv"
 	"strings"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 
-	"github.com/TechDufus/dash/internal/config"
 	"github.com/TechDufus/dash/internal/kube"
 	"github.com/TechDufus/dash/internal/model"
-	"github.com/TechDufus/dash/internal/queries"
-	"github.com/TechDufus/dash/internal/svc"
+	"github.com/TechDufus/dash/internal/plugin"
+	"github.com/TechDufus/dash/internal/pluginconf"
+	"github.com/TechDufus/dash/internal/plugins/internal/cond"
+	"github.com/TechDufus/dash/internal/plugins/internal/health"
 )
 
 const (
@@ -25,87 +22,6 @@ const (
 	labelPSAEnforce = "pod-security.kubernetes.io/enforce"
 	maxEvents       = 100
 )
-
-type usageSnap struct {
-	podCPU, podMem   map[string]float64 // "<ns>/<pod>"
-	nodeCPU, nodeMem map[string]float64 // instance "<ip>:9100"
-}
-
-func (m *Manager) pollUsage(ctx context.Context) {
-	res := m.queryAll(ctx, map[string]string{
-		"podCPU": queries.PodCPU, "podMem": queries.PodMem, "nodeCPU": queries.NodeCPU, "nodeMem": queries.NodeMem,
-	})
-	m.setSource("cluster:victoriametrics", firstErr(res))
-	m.mu.Lock()
-	if res["podCPU"].err == nil {
-		m.usage.podCPU = byLabels(res["podCPU"].samples, "namespace", "pod")
-	}
-	if res["podMem"].err == nil {
-		m.usage.podMem = byLabels(res["podMem"].samples, "namespace", "pod")
-	}
-	if res["nodeCPU"].err == nil {
-		m.usage.nodeCPU = byLabel(res["nodeCPU"].samples, "instance")
-	}
-	if res["nodeMem"].err == nil {
-		m.usage.nodeMem = byLabel(res["nodeMem"].samples, "instance")
-	}
-	m.mu.Unlock()
-	m.mark(model.TopicCluster)
-}
-
-func nodeReady(conds []corev1.NodeCondition) bool {
-	for _, c := range conds {
-		if c.Type == corev1.NodeReady {
-			return c.Status == corev1.ConditionTrue
-		}
-	}
-	return false
-}
-
-func nodeIP(n *corev1.Node) string {
-	for _, a := range n.Status.Addresses {
-		if a.Type == corev1.NodeInternalIP {
-			return a.Address
-		}
-	}
-	return ""
-}
-
-// NodeIP returns a Kubernetes node's InternalIP.
-func (m *Manager) NodeIP(name string) (string, bool) {
-	n, err := m.d.Cluster.Nodes.Get(name)
-	if err != nil {
-		return "", false
-	}
-	ip := nodeIP(n)
-	return ip, ip != ""
-}
-
-// The Manager is the cluster's svc.NodeIndex until the kubernetes plugin replaces it (D14); the
-// kubernetes shim exports it, and NodeIP above is its third method.
-var _ svc.NodeIndex = (*Manager)(nil)
-
-// K8sNode maps a VM name to the cluster node of the same name and says whether it is Ready.
-// Before the informers have synced it answers ok=false for every name, which is the gate the VMs
-// build always had (a VM is linked to its node only once the nodes are known).
-func (m *Manager) K8sNode(vmName string) (node string, ready, ok bool) {
-	if !m.d.Cluster.HasSynced() {
-		return "", false, false
-	}
-	n, err := m.d.Cluster.Nodes.Get(vmName)
-	if err != nil {
-		return "", false, false
-	}
-	return n.Name, nodeReady(n.Status.Conditions), true
-}
-
-// Synced reports that the informers have synced.
-func (m *Manager) Synced() bool { return m.d.Cluster.HasSynced() }
-
-// Revision changes whenever the set of nodes or a node's state changes (every node event bumps
-// it, which is a superset of readiness changes: a consumer that republishes on a change it
-// cannot see is merely early).
-func (m *Manager) Revision() uint64 { return m.nodeRev.Load() }
 
 // nsInfo is the classification of a namespace.
 type nsInfo struct {
@@ -115,15 +31,17 @@ type nsInfo struct {
 	privileged bool
 }
 
-func classifyNamespace(labels map[string]string, conv config.Conventions) nsInfo {
+func classifyNamespace(labels map[string]string, conv pluginconf.KubernetesConventions) nsInfo {
 	info := nsInfo{
 		group:      model.GroupPlatform,
 		protected:  conv.ProtectedLabel != "" && labels[conv.ProtectedLabel] == "true",
-		tenant:     labels[conv.TenantLabel],
 		privileged: labels[labelPSAEnforce] == "privileged",
 	}
+	if conv.TenantLabel != "" {
+		info.tenant = labels[conv.TenantLabel]
+	}
 	switch _, isTenant := labels[conv.TenantLabel]; {
-	case isTenant:
+	case conv.TenantLabel != "" && isTenant:
 		info.group = model.GroupTenants
 	case conv.AppsFluxPrefix != "" && strings.HasPrefix(labels[labelFluxName], conv.AppsFluxPrefix):
 		info.group = model.GroupApps
@@ -131,16 +49,44 @@ func classifyNamespace(labels map[string]string, conv config.Conventions) nsInfo
 	return info
 }
 
-func (m *Manager) namespaceInfos() map[string]nsInfo {
-	return namespaceInfosOf(m.d.Cluster.ListNamespaces(), m.d.Cfg.Conventions)
-}
-
-func namespaceInfosOf(list []*corev1.Namespace, conv config.Conventions) map[string]nsInfo {
+func namespaceInfosOf(list []*corev1.Namespace, conv pluginconf.KubernetesConventions) map[string]nsInfo {
 	out := make(map[string]nsInfo, len(list))
 	for _, ns := range list {
 		out[ns.Name] = classifyNamespace(ns.Labels, conv)
 	}
 	return out
+}
+
+// clusterInput is everything buildCluster and the pod detail read.
+type clusterInput struct {
+	c     *kube.Cluster
+	conv  pluginconf.KubernetesConventions
+	usage usageSnap
+	links plugin.LinkResolver
+	now   time.Time
+}
+
+// worst is the most severe of the healths (crit, then warn, then unknown); no argument is ok.
+func worst(hs ...model.Health) model.Health {
+	w := model.HealthOK
+	for _, h := range hs {
+		if healthRank(h) > healthRank(w) {
+			w = h
+		}
+	}
+	return w
+}
+
+func healthRank(h model.Health) int {
+	switch h {
+	case model.HealthCrit:
+		return 3
+	case model.HealthWarn:
+		return 2
+	case model.HealthUnknown:
+		return 1
+	}
+	return 0
 }
 
 // waitingReasons lists the waiting reasons of a pod's containers (init containers included).
@@ -156,6 +102,8 @@ func waitingReasons(p *corev1.Pod) []string {
 	return out
 }
 
+// podReason is why a pod is not (fully) running: the first waiting reason, the reason a container
+// ended in a pod that is neither running nor done, the pod's own reason, or Completed.
 func podReason(p *corev1.Pod) string {
 	if w := waitingReasons(p); len(w) > 0 {
 		return w[0]
@@ -174,7 +122,9 @@ func podReason(p *corev1.Pod) string {
 	return ""
 }
 
-func (m *Manager) buildPod(p *corev1.Pod, usage usageSnap, res kube.Resolver, now time.Time) model.Pod {
+// buildPod is one pod row: containers ready, restarts, the top of the owner chain and the usage
+// the last poll found.
+func buildPod(p *corev1.Pod, in clusterInput, res kube.Resolver) model.Pod {
 	var ready, restarts int
 	for _, cs := range p.Status.ContainerStatuses {
 		if cs.Ready {
@@ -186,17 +136,18 @@ func (m *Manager) buildPod(p *corev1.Pod, usage usageSnap, res kube.Resolver, no
 		restarts += int(cs.RestartCount)
 	}
 	pod := model.Pod{
+		Ref:       plugin.Ref(ID, "Pod", p.Namespace, p.Name),
 		Namespace: p.Namespace, Name: p.Name, Phase: string(p.Status.Phase), Reason: podReason(p),
 		ReadyContainers: ready, TotalContainers: len(p.Spec.Containers), Restarts: restarts, Node: p.Spec.NodeName,
 		CreatedAt: p.CreationTimestamp.UTC(),
-		Health:    PodHealth(string(p.Status.Phase), waitingReasons(p), p.CreationTimestamp.Time, now),
-		Links:     m.link("Pod", p.Namespace, p.Name),
+		Health:    health.PodHealth(string(p.Status.Phase), waitingReasons(p), p.CreationTimestamp.Time, in.now),
+		Links:     linksOf(in.links, "Pod", p.Namespace, p.Name),
 	}
 	key := p.Namespace + "/" + p.Name
-	if v, ok := usage.podCPU[key]; ok {
+	if v, ok := in.usage.podCPU[key]; ok {
 		pod.CPUCores = new(v)
 	}
-	if v, ok := usage.podMem[key]; ok {
+	if v, ok := in.usage.podMem[key]; ok {
 		pod.MemBytes = new(v)
 	}
 	if top, ok := res.Top(p); ok {
@@ -205,14 +156,12 @@ func (m *Manager) buildPod(p *corev1.Pod, usage usageSnap, res kube.Resolver, no
 	return pod
 }
 
-func (m *Manager) buildCluster(now time.Time) model.ClusterData {
-	m.mu.RLock()
-	usage := m.usage
-	m.mu.RUnlock()
-	c := m.d.Cluster
+// buildCluster is the kubernetes.cluster payload.
+func buildCluster(in clusterInput) model.ClusterData {
+	c := in.c
 	res := c.Resolver()
 	nsList := c.ListNamespaces() // listed once: the classification and the namespace rows must agree
-	infos := namespaceInfosOf(nsList, m.d.Cfg.Conventions)
+	infos := namespaceInfosOf(nsList, in.conv)
 
 	out := model.ClusterData{
 		Nodes: []model.Node{}, Namespaces: []model.Namespace{}, Workloads: []model.Workload{}, Pods: []model.Pod{},
@@ -222,7 +171,7 @@ func (m *Manager) buildCluster(now time.Time) model.ClusterData {
 	podsPerNode := map[string]int{}
 	nsPods := map[string][]model.Pod{}
 	for _, p := range c.ListPods() {
-		pod := m.buildPod(p, usage, res, now)
+		pod := buildPod(p, in, res)
 		out.Pods = append(out.Pods, pod)
 		nsPods[p.Namespace] = append(nsPods[p.Namespace], pod)
 		if p.Spec.NodeName != "" && (p.Status.Phase == corev1.PodRunning || p.Status.Phase == corev1.PodPending) {
@@ -238,26 +187,30 @@ func (m *Manager) buildCluster(now time.Time) model.ClusterData {
 
 	for _, n := range c.ListNodes() {
 		ip := nodeIP(n)
-		inst := net.JoinHostPort(ip, strconv.Itoa(queries.NodeExporterPort))
+		inst := kube.InstanceOf(ip)
 		out.Nodes = append(out.Nodes, model.Node{
+			Ref:  plugin.Ref(ID, "Node", n.Name),
 			Name: n.Name, IP: ip, Ready: nodeReady(n.Status.Conditions), KubeletVersion: n.Status.NodeInfo.KubeletVersion,
-			CPURatio: usage.nodeCPU[inst], MemRatio: usage.nodeMem[inst], Pods: podsPerNode[n.Name],
-			Links: m.link("Node", "", n.Name),
+			CPURatio: in.usage.nodeCPU[inst], MemRatio: in.usage.nodeMem[inst], Pods: podsPerNode[n.Name],
+			Links: linksOf(in.links, "Node", "", n.Name),
 		})
 	}
 	sort.Slice(out.Nodes, func(i, j int) bool { return out.Nodes[i].Name < out.Nodes[j].Name })
 
-	out.Workloads = m.buildWorkloads(infos)
+	out.Workloads = buildWorkloads(in, infos)
 
 	notReady := map[string]int{}
+	workloadHealth := map[string]model.Health{}
 	for _, w := range out.Workloads {
 		if w.Health != model.HealthOK {
 			notReady[w.Namespace]++
 		}
+		workloadHealth[w.Namespace] = worst(workloadHealth[w.Namespace], w.Health)
 	}
 	for _, ns := range nsList {
 		info := infos[ns.Name]
 		n := model.Namespace{
+			Ref:  plugin.Ref(ID, "Namespace", ns.Name),
 			Name: ns.Name, Group: info.group, Protected: info.protected, Tenant: info.tenant, Privileged: info.privileged,
 			WorkloadsNotReady: notReady[ns.Name], Health: model.HealthOK,
 		}
@@ -269,33 +222,19 @@ func (m *Manager) buildCluster(now time.Time) model.ClusterData {
 			if p.Phase == string(corev1.PodRunning) {
 				n.PodsRunning++
 			}
-			n.Health = Worst(n.Health, p.Health)
+			n.Health = worst(n.Health, p.Health)
 		}
-		for _, w := range out.Workloads {
-			if w.Namespace == ns.Name {
-				n.Health = Worst(n.Health, w.Health)
-			}
-		}
+		n.Health = worst(n.Health, workloadHealth[ns.Name])
 		out.Namespaces = append(out.Namespaces, n)
 	}
 	sort.Slice(out.Namespaces, func(i, j int) bool { return out.Namespaces[i].Name < out.Namespaces[j].Name })
 
 	for _, e := range c.ListEvents() {
-		last := e.LastTimestamp.Time
-		if last.IsZero() {
-			last = e.EventTime.Time
-		}
-		if last.IsZero() {
-			last = e.CreationTimestamp.Time
-		}
 		count := int(e.Count)
 		if e.Series != nil && int(e.Series.Count) > count {
 			count = int(e.Series.Count)
 		}
-		out.Events = append(out.Events, model.Event{
-			Namespace: e.Namespace, Object: e.InvolvedObject.Kind + "/" + e.InvolvedObject.Name, Reason: e.Reason,
-			Message: e.Message, Count: max(count, 1), LastSeen: last.UTC(),
-		})
+		out.Events = append(out.Events, eventOf(e, count))
 	}
 	sort.Slice(out.Events, func(i, j int) bool { return out.Events[i].LastSeen.After(out.Events[j].LastSeen) })
 	if len(out.Events) > maxEvents {
@@ -303,8 +242,11 @@ func (m *Manager) buildCluster(now time.Time) model.ClusterData {
 	}
 
 	for _, u := range c.List(kube.GVRCertificates) {
-		cert := model.Cert{Namespace: u.GetNamespace(), Name: u.GetName(), Ready: conditionTrue(u, "Ready"),
-			Links: m.link("Certificate", u.GetNamespace(), u.GetName())}
+		cert := model.Cert{
+			Ref:       plugin.Ref(ID, "Certificate", u.GetNamespace(), u.GetName()),
+			Namespace: u.GetNamespace(), Name: u.GetName(), Ready: cond.True(u, "Ready"),
+			Links: linksOf(in.links, "Certificate", u.GetNamespace(), u.GetName()),
+		}
 		if s, ok, _ := unstructured.NestedString(u.Object, "status", "notAfter"); ok {
 			if t, err := time.Parse(time.RFC3339, s); err == nil {
 				cert.NotAfter = new(t.UTC())
@@ -317,9 +259,10 @@ func (m *Manager) buildCluster(now time.Time) model.ClusterData {
 	})
 
 	for _, u := range c.List(kube.GVRExternalSecrets) {
-		_, msg := conditionOf(u, "Ready")
+		_, msg := cond.Of(u, "Ready")
 		out.ExternalSecrets = append(out.ExternalSecrets, model.ExtSecret{
-			Namespace: u.GetNamespace(), Name: u.GetName(), Ready: conditionTrue(u, "Ready"), Message: msg,
+			Ref:       plugin.Ref(ID, "ExternalSecret", u.GetNamespace(), u.GetName()),
+			Namespace: u.GetNamespace(), Name: u.GetName(), Ready: cond.True(u, "Ready"), Message: msg,
 		})
 	}
 	sort.Slice(out.ExternalSecrets, func(i, j int) bool {
@@ -328,9 +271,27 @@ func (m *Manager) buildCluster(now time.Time) model.ClusterData {
 	return out
 }
 
-func (m *Manager) buildWorkloads(infos map[string]nsInfo) []model.Workload {
-	c := m.d.Cluster
-	var out []model.Workload
+// eventOf is one event row; the time is the last time it happened, from whichever field the
+// cluster filled.
+func eventOf(e *corev1.Event, count int) model.Event {
+	last := e.LastTimestamp.Time
+	if last.IsZero() {
+		last = e.EventTime.Time
+	}
+	if last.IsZero() {
+		last = e.CreationTimestamp.Time
+	}
+	return model.Event{
+		Namespace: e.Namespace, Object: e.InvolvedObject.Kind + "/" + e.InvolvedObject.Name, Reason: e.Reason,
+		Message: e.Message, Count: max(count, 1), LastSeen: last.UTC(),
+	}
+}
+
+// buildWorkloads lists the cluster's controllers; only Deployments, StatefulSets and DaemonSets
+// are restartable and carry a health.
+func buildWorkloads(in clusterInput, infos map[string]nsInfo) []model.Workload {
+	c := in.c
+	out := []model.Workload{}
 	add := func(kind model.WorkloadKind, ns, name string, ready, desired int, spec corev1.PodSpec, restartable bool) {
 		images := make([]string, 0, len(spec.Containers))
 		for _, ct := range spec.Containers {
@@ -338,11 +299,12 @@ func (m *Manager) buildWorkloads(infos map[string]nsInfo) []model.Workload {
 		}
 		h := model.HealthOK
 		if restartable {
-			h = WorkloadHealth(ready, desired)
+			h = health.WorkloadHealth(ready, desired)
 		}
 		out = append(out, model.Workload{
+			Ref:  plugin.Ref(ID, "Workload", string(kind), ns, name),
 			Kind: kind, Namespace: ns, Name: name, Ready: ready, Desired: desired, Images: images, Health: h,
-			Restartable: restartable, Protected: infos[ns].protected, Links: m.link(string(kind), ns, name),
+			Restartable: restartable, Protected: infos[ns].protected, Links: linksOf(in.links, string(kind), ns, name),
 		})
 	}
 	for _, d := range c.ListDeployments() {
@@ -370,7 +332,7 @@ func (m *Manager) buildWorkloads(infos map[string]nsInfo) []model.Workload {
 		add(model.WorkloadKindJob, j.Namespace, j.Name, int(j.Status.Succeeded), desired, j.Spec.Template.Spec, false)
 	}
 	for _, j := range c.ListCronJobs() {
-		add(model.WorkloadKindCronJob, j.Namespace, j.Name, int(len(j.Status.Active)), 0, j.Spec.JobTemplate.Spec.Template.Spec, false)
+		add(model.WorkloadKindCronJob, j.Namespace, j.Name, len(j.Status.Active), 0, j.Spec.JobTemplate.Spec.Template.Spec, false)
 	}
 	sort.Slice(out, func(i, j int) bool {
 		a, b := out[i], out[j]
@@ -382,62 +344,10 @@ func (m *Manager) buildWorkloads(infos map[string]nsInfo) []model.Workload {
 		}
 		return a.Name < b.Name
 	})
-	if out == nil {
-		return []model.Workload{}
-	}
 	return out
 }
 
-// PodDetail describes one pod; events come live from the API (Normal ones included).
-func (m *Manager) PodDetail(ctx context.Context, ns, name string) (model.PodDetail, error) {
-	p, err := m.d.Cluster.Pods.Pods(ns).Get(name)
-	if err != nil {
-		return model.PodDetail{}, ErrNotFound
-	}
-	m.mu.RLock()
-	usage := m.usage
-	m.mu.RUnlock()
-	res := m.d.Cluster.Resolver()
-	d := model.PodDetail{
-		Pod: m.buildPod(p, usage, res, m.now()), IPs: []string{}, Conditions: []model.Condition{},
-		Containers: []model.Container{}, OwnerChain: []model.OwnerRef{}, Events: []model.Event{},
-	}
-	for _, ip := range p.Status.PodIPs {
-		d.IPs = append(d.IPs, ip.IP)
-	}
-	if len(d.IPs) == 0 && p.Status.PodIP != "" {
-		d.IPs = append(d.IPs, p.Status.PodIP)
-	}
-	for _, c := range p.Status.Conditions {
-		d.Conditions = append(d.Conditions, model.Condition{Type: string(c.Type), Status: string(c.Status)})
-	}
-	d.Containers = podContainers(p)
-	for _, o := range res.Chain(p) {
-		d.OwnerChain = append(d.OwnerChain, model.OwnerRef{Kind: o.Kind, Name: o.Name})
-	}
-
-	list, err := m.d.Cluster.Client.CoreV1().Events(ns).List(ctx, metav1.ListOptions{
-		FieldSelector: "involvedObject.kind=Pod,involvedObject.name=" + name,
-	})
-	if err == nil {
-		for _, e := range list.Items {
-			last := e.LastTimestamp.Time
-			if last.IsZero() {
-				last = e.EventTime.Time
-			}
-			if last.IsZero() {
-				last = e.CreationTimestamp.Time
-			}
-			d.Events = append(d.Events, model.Event{
-				Namespace: e.Namespace, Object: e.InvolvedObject.Kind + "/" + e.InvolvedObject.Name, Reason: e.Reason,
-				Message: e.Message, Count: max(int(e.Count), 1), LastSeen: last.UTC(),
-			})
-		}
-		sort.Slice(d.Events, func(i, j int) bool { return d.Events[i].LastSeen.After(d.Events[j].LastSeen) })
-	}
-	return d, nil
-}
-
+// podContainers is the containers of a pod spec with the state their status reports.
 func podContainers(p *corev1.Pod) []model.Container {
 	status := map[string]corev1.ContainerStatus{}
 	for _, cs := range p.Status.ContainerStatuses {
@@ -469,41 +379,4 @@ func podContainers(p *corev1.Pod) []model.Container {
 		out = append(out, ct)
 	}
 	return out
-}
-
-// conditionOf returns the status and message of a named status.condition of an unstructured object.
-func conditionOf(u *unstructured.Unstructured, typ string) (status, message string) {
-	conds, _, _ := unstructured.NestedSlice(u.Object, "status", "conditions")
-	for _, c := range conds {
-		cm, ok := c.(map[string]any)
-		if !ok || cm["type"] != typ {
-			continue
-		}
-		status, _ = cm["status"].(string)
-		message, _ = cm["message"].(string)
-		return status, message
-	}
-	return "", ""
-}
-
-func conditionTrue(u *unstructured.Unstructured, typ string) bool {
-	s, _ := conditionOf(u, typ)
-	return s == "True"
-}
-
-// conditionTime returns the lastTransitionTime of a status condition.
-func conditionTime(u *unstructured.Unstructured, typ string) *time.Time {
-	conds, _, _ := unstructured.NestedSlice(u.Object, "status", "conditions")
-	for _, c := range conds {
-		cm, ok := c.(map[string]any)
-		if !ok || cm["type"] != typ {
-			continue
-		}
-		if s, _ := cm["lastTransitionTime"].(string); s != "" {
-			if t, err := time.Parse(time.RFC3339, s); err == nil {
-				return new(t.UTC())
-			}
-		}
-	}
-	return nil
 }

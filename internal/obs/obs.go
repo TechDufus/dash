@@ -102,7 +102,7 @@ var (
 	// legacyActions are the actions of the integration routes that are not plugin actions yet
 	// (plugin, action); they leave the set when their plugin takes them over (G3).
 	legacyActions = [][2]string{
-		{"kubernetes", "restart"}, {"flux", "reconcile"},
+		{"flux", "reconcile"},
 		{"alertmanager", "silence.create"}, {"alertmanager", "silence.expire"},
 	}
 )

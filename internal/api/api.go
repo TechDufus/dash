@@ -2,7 +2,6 @@
 package api
 
 import (
-	"context"
 	"encoding/json"
 	"errors"
 	"io"
@@ -13,9 +12,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	"k8s.io/client-go/dynamic"
-	"k8s.io/client-go/kubernetes"
-
 	"github.com/TechDufus/dash/internal/audit"
 	"github.com/TechDufus/dash/internal/auth"
 	"github.com/TechDufus/dash/internal/config"
@@ -24,15 +20,10 @@ import (
 	"github.com/TechDufus/dash/internal/obs"
 	"github.com/TechDufus/dash/internal/plugin"
 	"github.com/TechDufus/dash/internal/secret"
+	"github.com/TechDufus/dash/internal/svc"
 	"github.com/TechDufus/dash/internal/upstream"
 	"github.com/TechDufus/dash/web"
 )
-
-// DataAPI is the slice of topics.Manager the API uses.
-type DataAPI interface {
-	PodDetail(ctx context.Context, ns, name string) (model.PodDetail, error)
-	NodeIP(name string) (string, bool)
-}
 
 // PluginsAPI is the slice of plugin.Supervisor the API uses.
 type PluginsAPI interface {
@@ -54,9 +45,10 @@ type Deps struct {
 	Cfg     config.Config
 	Version string
 	Hub     *hub.Hub
-	Kube    kubernetes.Interface
-	Dyn     dynamic.Interface
-	Data    DataAPI
+	// Cluster is the kubernetes plugin's svc.Cluster while the plugin runs, else false: the Flux
+	// reconcile route patches through it and answers 503 upstream_unavailable without it. nil
+	// means no cluster.
+	Cluster func() (svc.Cluster, bool)
 	Plugins PluginsAPI   // nil = no plugins
 	Health  HealthSource // readiness; see health.go
 	Metrics *obs.Metrics // nil = metrics off; every method is nil-safe

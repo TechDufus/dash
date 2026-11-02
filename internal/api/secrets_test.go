@@ -16,7 +16,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
-	"k8s.io/client-go/kubernetes/fake"
+	dynfake "k8s.io/client-go/dynamic/fake"
 	k8stesting "k8s.io/client-go/testing"
 
 	"github.com/TechDufus/dash/internal/auth"
@@ -73,7 +73,6 @@ func TestUpstreamErrorsReachClientsAsCategoryOnly(t *testing.T) {
 		want string
 	}{
 		{name: "series", req: req{path: "/api/v1/series?name=sr.cpu&range=1h"}, mod: func(d *Deps) { d.Plugins = promPlugin(&fakeProm{err: refused}) }, want: "metrics unavailable: unreachable"},
-		{name: "pod detail", req: req{path: "/api/pods/media/plex-0"}, mod: func(d *Deps) { d.Data = fakeData{podErr: unavailable} }, want: "pod details unavailable: http_503"},
 		{name: "plugin route", req: req{path: "/api/v1/plugins/rt/items?ns=media"}, plug: func(h *harness) {
 			h.items = func(*http.Request) (any, error) { return nil, denied }
 		}, want: "rt: auth"},
@@ -162,18 +161,20 @@ func TestKubeErrorsKeepPolicyMessagesAndCategoriseTheRest(t *testing.T) {
 
 // The four Kubernetes codes that keep their message are the one error path that passes upstream
 // text to the browser; the scrubbing there is what stops a credential an admission webhook
-// echoes (P1.4 acceptance). Through the real restart action, so removing the Scrub fails it.
+// echoes (P1.4 acceptance). Through the real reconcile action, so removing the Scrub fails it.
 func TestKubePolicyMessagesAreScrubbedOnTheWayOut(t *testing.T) {
 	const pat = "dash_pat_abcdefghij0123456789ABCDEFGHIJ0123456789abc"
 	msg := "homelab guardrail: denied; webhook echoed " + strings.Join(canaryForms(), " ") + " and " + pat
+	gvr := schema.GroupVersionResource{Group: "kustomize.toolkit.fluxcd.io", Version: "v1", Resource: "kustomizations"}
 	for _, code := range []int32{403, 404, 409, 422} {
 		t.Run(fmt.Sprint(code), func(t *testing.T) {
 			reg := canaryRegistry()
-			kc := fake.NewClientset(workloadObjects()...)
+			dyn := dynfake.NewSimpleDynamicClientWithCustomListKinds(runtime.NewScheme(), map[schema.GroupVersionResource]string{gvr: "KustomizationList"},
+				fluxObject(gvr, "Kustomization"))
 			kerr := &apierrors.StatusError{ErrStatus: metav1.Status{Status: metav1.StatusFailure, Code: code, Message: msg}}
-			kc.PrependReactor("patch", "deployments", func(k8stesting.Action) (bool, runtime.Object, error) { return true, nil, kerr })
-			s := newServer(func(d *Deps) { d.Kube = kc; d.Secrets = reg })
-			w := req{method: "POST", path: "/api/actions/restart", body: model.RestartRequest{Kind: "Deployment", Namespace: "apps", Name: "web"}}.do(s.Handler())
+			dyn.PrependReactor("patch", "kustomizations", func(k8stesting.Action) (bool, runtime.Object, error) { return true, nil, kerr })
+			s := newServer(func(d *Deps) { withCluster(dyn)(d); d.Secrets = reg })
+			w := req{method: "POST", path: "/api/actions/reconcile", body: model.ReconcileRequest{Kind: "Kustomization", Namespace: "flux-system", Name: "app"}}.do(s.Handler())
 			if w.Code != int(code) {
 				t.Fatalf("code = %d, want %d (%s)", w.Code, code, w.Body)
 			}

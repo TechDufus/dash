@@ -412,6 +412,42 @@
         },
         "type": "object"
       },
+      "Condition": {
+        "additionalProperties": false,
+        "properties": {
+          "status": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "Container": {
+        "additionalProperties": false,
+        "properties": {
+          "image": {
+            "type": "string"
+          },
+          "lastTerminationReason": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "ready": {
+            "type": "boolean"
+          },
+          "restarts": {
+            "type": "integer"
+          },
+          "state": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
       "Disk": {
         "additionalProperties": false,
         "properties": {
@@ -484,64 +520,6 @@
           },
           "topic": {
             "const": "alertmanager.alerts"
-          },
-          "updatedAt": {
-            "format": "date-time",
-            "type": "string"
-          }
-        },
-        "required": [
-          "data",
-          "sources",
-          "topic",
-          "updatedAt"
-        ],
-        "type": "object"
-      },
-      "Envelope.apps": {
-        "additionalProperties": false,
-        "description": "The envelope of the apps topic.",
-        "properties": {
-          "data": {
-            "$ref": "#/components/schemas/AppsData"
-          },
-          "sources": {
-            "items": {
-              "$ref": "#/components/schemas/SourceStatus"
-            },
-            "type": "array"
-          },
-          "topic": {
-            "const": "apps"
-          },
-          "updatedAt": {
-            "format": "date-time",
-            "type": "string"
-          }
-        },
-        "required": [
-          "data",
-          "sources",
-          "topic",
-          "updatedAt"
-        ],
-        "type": "object"
-      },
-      "Envelope.cluster": {
-        "additionalProperties": false,
-        "description": "The envelope of the cluster topic.",
-        "properties": {
-          "data": {
-            "$ref": "#/components/schemas/ClusterData"
-          },
-          "sources": {
-            "items": {
-              "$ref": "#/components/schemas/SourceStatus"
-            },
-            "type": "array"
-          },
-          "topic": {
-            "const": "cluster"
           },
           "updatedAt": {
             "format": "date-time",
@@ -730,6 +708,93 @@
         ],
         "type": "object"
       },
+      "Envelope.kubernetes.apps": {
+        "additionalProperties": false,
+        "description": "The envelope of the kubernetes.apps topic.",
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/AppsData"
+          },
+          "sources": {
+            "items": {
+              "$ref": "#/components/schemas/SourceStatus"
+            },
+            "type": "array"
+          },
+          "topic": {
+            "const": "kubernetes.apps"
+          },
+          "updatedAt": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "data",
+          "sources",
+          "topic",
+          "updatedAt"
+        ],
+        "type": "object"
+      },
+      "Envelope.kubernetes.cluster": {
+        "additionalProperties": false,
+        "description": "The envelope of the kubernetes.cluster topic.",
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/ClusterData"
+          },
+          "sources": {
+            "items": {
+              "$ref": "#/components/schemas/SourceStatus"
+            },
+            "type": "array"
+          },
+          "topic": {
+            "const": "kubernetes.cluster"
+          },
+          "updatedAt": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "data",
+          "sources",
+          "topic",
+          "updatedAt"
+        ],
+        "type": "object"
+      },
+      "Envelope.kubernetes.storage": {
+        "additionalProperties": false,
+        "description": "The envelope of the kubernetes.storage topic.",
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/StorageData"
+          },
+          "sources": {
+            "items": {
+              "$ref": "#/components/schemas/SourceStatus"
+            },
+            "type": "array"
+          },
+          "topic": {
+            "const": "kubernetes.storage"
+          },
+          "updatedAt": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "data",
+          "sources",
+          "topic",
+          "updatedAt"
+        ],
+        "type": "object"
+      },
       "Envelope.launcher.links": {
         "additionalProperties": false,
         "description": "The envelope of the launcher.links topic.",
@@ -832,35 +897,6 @@
           },
           "topic": {
             "const": "proxmox.vms"
-          },
-          "updatedAt": {
-            "format": "date-time",
-            "type": "string"
-          }
-        },
-        "required": [
-          "data",
-          "sources",
-          "topic",
-          "updatedAt"
-        ],
-        "type": "object"
-      },
-      "Envelope.storage": {
-        "additionalProperties": false,
-        "description": "The envelope of the storage topic.",
-        "properties": {
-          "data": {
-            "$ref": "#/components/schemas/StorageData"
-          },
-          "sources": {
-            "items": {
-              "$ref": "#/components/schemas/SourceStatus"
-            },
-            "type": "array"
-          },
-          "topic": {
-            "const": "storage"
           },
           "updatedAt": {
             "format": "date-time",
@@ -1228,17 +1264,8 @@
           "fluxTotal": {
             "type": "integer"
           },
-          "nodesReady": {
-            "type": "integer"
-          },
-          "nodesTotal": {
-            "type": "integer"
-          },
           "sourceVerified": {
             "type": "boolean"
-          },
-          "worstPvc": {
-            "$ref": "#/components/schemas/WorstPVC"
           }
         },
         "type": "object"
@@ -1410,18 +1437,6 @@
         "additionalProperties": false,
         "properties": {
           "iconBaseUrl": {
-            "type": "string"
-          }
-        },
-        "type": "object"
-      },
-      "NASBackup": {
-        "additionalProperties": false,
-        "properties": {
-          "lastSuccessAgeSeconds": {
-            "type": "number"
-          },
-          "name": {
             "type": "string"
           }
         },
@@ -1814,6 +1829,45 @@
         },
         "type": "object"
       },
+      "PodDetail": {
+        "additionalProperties": false,
+        "properties": {
+          "conditions": {
+            "items": {
+              "$ref": "#/components/schemas/Condition"
+            },
+            "type": "array"
+          },
+          "containers": {
+            "items": {
+              "$ref": "#/components/schemas/Container"
+            },
+            "type": "array"
+          },
+          "events": {
+            "items": {
+              "$ref": "#/components/schemas/Event"
+            },
+            "type": "array"
+          },
+          "ips": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "ownerChain": {
+            "items": {
+              "$ref": "#/components/schemas/OwnerRef"
+            },
+            "type": "array"
+          },
+          "pod": {
+            "$ref": "#/components/schemas/Pod"
+          }
+        },
+        "type": "object"
+      },
       "Pool": {
         "additionalProperties": false,
         "properties": {
@@ -2031,12 +2085,6 @@
           },
           "etcd": {
             "$ref": "#/components/schemas/Etcd"
-          },
-          "nasBackups": {
-            "items": {
-              "$ref": "#/components/schemas/NASBackup"
-            },
-            "type": "array"
           },
           "pvcs": {
             "items": {
@@ -2362,17 +2410,20 @@
         },
         "type": "object"
       },
-      "WorstPVC": {
+      "restartInput": {
         "additionalProperties": false,
         "properties": {
+          "confirm": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
           "name": {
             "type": "string"
           },
           "namespace": {
             "type": "string"
-          },
-          "usedRatio": {
-            "type": "number"
           }
         },
         "type": "object"
@@ -2628,6 +2679,122 @@
         "x-dash-idempotent": true,
         "x-dash-min-role": "admin",
         "x-dash-scope": "actions:alertmanager"
+      }
+    },
+    "/api/v1/plugins/kubernetes/actions/restart": {
+      "post": {
+        "description": "Runs only while the instance is running with actions.enabled set; otherwise 404. A call that passes the role, rate-limit, input and namespace checks is recorded in the audit log before it runs and again with its outcome. A refusal for role, rate limit or denied namespace is recorded as a denial (at most one per peer and reason a minute); a request with an invalid body (400) or for an unknown or unavailable action (404) is not recorded. Every call by a principal with the required role counts against the principal's action rate limit.",
+        "operationId": "kubernetes_restart",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/restartInput"
+              }
+            }
+          },
+          "description": "The action's input.",
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "The action's result.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/XRequestId"
+              }
+            }
+          },
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "status": {
+                      "const": "accepted"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The action was accepted and has no result.",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/XRequestId"
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "summary": "Restart",
+        "tags": [
+          "kubernetes"
+        ],
+        "x-dash-confirm": "dialog",
+        "x-dash-destructive": true,
+        "x-dash-idempotent": false,
+        "x-dash-min-role": "admin",
+        "x-dash-scope": "actions:kubernetes"
+      }
+    },
+    "/api/v1/plugins/kubernetes/pods/{ns}/{name}": {
+      "get": {
+        "operationId": "kubernetes_get_pods_ns_name",
+        "parameters": [
+          {
+            "description": "The {ns} segment of the request path.",
+            "in": "path",
+            "name": "ns",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The {name} segment of the request path.",
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PodDetail"
+                }
+              }
+            },
+            "description": "The detail of one pod: containers, conditions, owner chain and events",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/XRequestId"
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "summary": "The detail of one pod: containers, conditions, owner chain and events",
+        "tags": [
+          "kubernetes"
+        ],
+        "x-dash-min-role": "viewer",
+        "x-dash-scope": "read"
       }
     },
     "/api/v1/plugins/proxmox/vms/{vmid}": {
@@ -2977,12 +3144,6 @@
                       "$ref": "#/components/schemas/Envelope.alertmanager.alerts"
                     },
                     {
-                      "$ref": "#/components/schemas/Envelope.apps"
-                    },
-                    {
-                      "$ref": "#/components/schemas/Envelope.cluster"
-                    },
-                    {
                       "$ref": "#/components/schemas/Envelope.core.overview"
                     },
                     {
@@ -3001,6 +3162,15 @@
                       "$ref": "#/components/schemas/Envelope.hardware.machines"
                     },
                     {
+                      "$ref": "#/components/schemas/Envelope.kubernetes.apps"
+                    },
+                    {
+                      "$ref": "#/components/schemas/Envelope.kubernetes.cluster"
+                    },
+                    {
+                      "$ref": "#/components/schemas/Envelope.kubernetes.storage"
+                    },
+                    {
                       "$ref": "#/components/schemas/Envelope.launcher.links"
                     },
                     {
@@ -3011,9 +3181,6 @@
                     },
                     {
                       "$ref": "#/components/schemas/Envelope.proxmox.vms"
-                    },
-                    {
-                      "$ref": "#/components/schemas/Envelope.storage"
                     }
                   ]
                 }
@@ -3084,6 +3251,10 @@
     {
       "description": "Alertmanager: Alerts and silences.",
       "name": "alertmanager"
+    },
+    {
+      "description": "Kubernetes: How dash reaches and reads the cluster.",
+      "name": "kubernetes"
     },
     {
       "description": "Proxmox VE: Virtual machines, containers and the hypervisor.",

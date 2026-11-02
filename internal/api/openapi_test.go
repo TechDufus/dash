@@ -133,7 +133,7 @@ func TestOpenAPIDocumentsErrorEnvelopeAndEnvelopesPerTopic(t *testing.T) {
 
 	// One envelope per topic: the core topics, and the plugin's own with its type.
 	schemas := dig(t, doc, "components", "schemas").(map[string]any)
-	for _, name := range []string{"core.plugins", "core.overview", "cluster", "apps", "aa.items"} {
+	for _, name := range []string{"core.plugins", "core.overview", "kubernetes.cluster", "kubernetes.apps", "aa.items"} {
 		env := dig(t, schemas, "Envelope."+name)
 		if c := dig(t, env, "properties", "topic", "const"); c != name {
 			t.Errorf("Envelope.%s topic const = %v", name, c)

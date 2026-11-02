@@ -106,7 +106,12 @@ describe("Slot", () => {
   it("hides a panel whose topic no visible plugin publishes, but never one that reads core.*", () => {
     mocked.PANELS.proxmox = {
       "overview.kpis": [
-        { id: "needs-storage", order: 1, reads: ["storage"], component: label("needs storage") },
+        {
+          id: "needs-storage",
+          order: 1,
+          reads: ["kubernetes.storage"],
+          component: label("needs storage"),
+        },
         { id: "core", order: 2, reads: ["core.overview"], component: label("core") },
       ],
     };

@@ -109,8 +109,6 @@ func (s *Server) routeTable() []Route {
 
 		// The unversioned integration routes the SPA still calls. Each disappears with the
 		// plugin that takes it over (design A.7); routes_test.go pins the list.
-		{Method: "GET", Path: "/api/pods/{ns}/{name}", Legacy: true, Handler: s.podDetail},
-		{Method: "POST", Path: "/api/actions/restart", Legacy: true, Handler: s.restart},
 		{Method: "POST", Path: "/api/actions/reconcile", Legacy: true, Handler: s.reconcile},
 
 		{Path: "/api/", Infra: true, Handler: func(w http.ResponseWriter, _ *http.Request) {

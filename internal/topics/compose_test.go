@@ -118,13 +118,12 @@ func TestOverviewNeedsADirtyTopicOrAContributor(t *testing.T) {
 	}
 }
 
-// The overview comes at once, with nothing built: it waits for no topic (it used to wait for all
-// eight), and a topic whose prerequisites are not ready (the informers have not synced) is not
-// published yet.
+// The overview comes at once, with nothing built: it waits for no topic, and a topic whose
+// prerequisites are not ready (no kubernetes service) is not published yet.
 func TestOverviewDoesNotWaitForAllTopics(t *testing.T) {
 	h := hub.New()
 	m := testManager(config.Defaults(), plugintest.AllRunning(h, LegacyManifests()...))
-	m.markAll()
+	m.mark(model.TopicFlux)
 	m.rebuild()
 
 	for _, topic := range legacyTopics {
@@ -133,7 +132,7 @@ func TestOverviewDoesNotWaitForAllTopics(t *testing.T) {
 		}
 	}
 	ov := overviewOf(t, h)
-	if ov.Topology.Host.Name != "" || len(ov.Topology.Groups) != 3 {
+	if ov.Topology.Host.Name != "" || len(ov.Topology.Groups) != 0 {
 		t.Errorf("the early overview should be the zero-valued one: %+v", ov.Topology)
 	}
 }
@@ -223,14 +222,12 @@ func TestPanickingContributorDoesNotStopTheOverview(t *testing.T) {
 	}
 }
 
-// Each legacy rule's items name the plugin that owns the source (design A.7).
+// The legacy rule's items name the plugin that owns the source (design A.7).
 func TestAttentionItemsCarryPlugin(t *testing.T) {
 	m := goldenManager(t)
 	items := m.buildOverview(goldenSnapshots(), nil, testNow).Attention
 	want := map[string]string{
 		"flux:source-unverified": "flux", "flux:Kustomization/flux-system/apps": "flux",
-		"node:cp-2": "kubernetes", "pod:media/app-0": "kubernetes", "workload:Deployment/media/app": "kubernetes",
-		"cert:media/tls": "kubernetes", "pvc:media/data": "kubernetes", "bucket:backups": "kubernetes",
 	}
 	got := map[string]string{}
 	for _, it := range items {
@@ -259,7 +256,7 @@ func TestComposeOrdersAndStampsAttention(t *testing.T) {
 			{ID: "b-warn-new", Severity: model.SeverityWarn, Since: at(time.Minute), Plugin: "liar"},
 			{ID: "crit-new", Severity: model.SeverityCrit, Since: at(time.Second)},
 		}},
-	}, legacyOverview{kpis: model.Kpis{NodesTotal: 4}})
+	}, legacyOverview{kpis: model.Kpis{FluxTotal: 4}})
 
 	if got, want := ids(ov.Attention), "crit-new legacy-crit-old b-warn-new legacy-warn-new"; got != want {
 		t.Errorf("order = %q, want %q", got, want)
@@ -272,7 +269,7 @@ func TestComposeOrdersAndStampsAttention(t *testing.T) {
 			t.Errorf("%s: nil links", it.ID)
 		}
 	}
-	if ov.Status != model.HealthCrit || ov.Kpis.NodesTotal != 4 || ov.KPIList == nil {
+	if ov.Status != model.HealthCrit || ov.Kpis.FluxTotal != 4 || ov.KPIList == nil {
 		t.Errorf("status %s, kpis %+v, kpiList %v", ov.Status, ov.Kpis, ov.KPIList)
 	}
 }

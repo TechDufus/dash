@@ -22,34 +22,6 @@ func goldenSnapshots() built {
 	ago := func(d time.Duration) time.Time { return testNow.Add(-d) }
 	agoP := func(d time.Duration) *time.Time { return new(ago(d)) }
 	return built{
-		cluster: &model.ClusterData{
-			Nodes: []model.Node{{Name: "cp-1", IP: "192.0.2.11", Ready: true}, {Name: "cp-2", IP: "192.0.2.12", Ready: false}},
-			Namespaces: []model.Namespace{
-				{Name: "flux-system", Group: model.GroupPlatform, PodsTotal: 4, Health: model.HealthOK},
-				{Name: "monitoring", Group: model.GroupPlatform, PodsTotal: 6, Health: model.HealthWarn},
-				{Name: "media", Group: model.GroupApps, PodsTotal: 3, Health: model.HealthCrit},
-				{Name: "acme", Group: model.GroupTenants, PodsTotal: 2, Health: model.HealthOK},
-				{Name: "stray", Group: "", PodsTotal: 1, Health: model.HealthCrit},
-			},
-			Pods: []model.Pod{
-				{Namespace: "media", Name: "app-0", Phase: "Running", Node: "cp-1", Health: model.HealthCrit, Reason: "CrashLoopBackOff", CreatedAt: ago(47 * time.Minute)},
-				{Namespace: "media", Name: "app-1", Phase: "Pending", Node: "cp-2", Health: model.HealthWarn, CreatedAt: ago(20 * time.Minute)},
-				{Namespace: "monitoring", Name: "prom-0", Phase: "Running", Node: "cp-1", Health: model.HealthOK},
-				{Namespace: "monitoring", Name: "prom-1", Phase: "Running", Node: "cp-1", Health: model.HealthOK},
-				{Namespace: "acme", Name: "web-0", Phase: "Running", Node: "cp-2", Health: model.HealthOK},
-				{Namespace: "acme", Name: "job-x", Phase: "Succeeded", Node: "cp-2", Health: model.HealthOK},
-				{Namespace: "flux-system", Name: "source-0", Phase: "Running", Node: "", Health: model.HealthOK},
-			},
-			Workloads: []model.Workload{
-				{Kind: "Deployment", Namespace: "media", Name: "app", Ready: 0, Desired: 2, Health: model.HealthCrit},
-				{Kind: "StatefulSet", Namespace: "monitoring", Name: "prom", Ready: 2, Desired: 2, Health: model.HealthOK},
-			},
-			Certificates: []model.Cert{
-				{Namespace: "media", Name: "tls", NotAfter: agoP(-5 * 24 * time.Hour)},
-				{Namespace: "acme", Name: "tls", NotAfter: agoP(-90 * 24 * time.Hour)},
-				{Namespace: "acme", Name: "pending"},
-			},
-		},
 		flux: &model.FluxData{
 			Sources: []model.FluxObj{{Kind: model.FluxKindGitRepository, Namespace: "flux-system", Name: "flux-system", Ready: true, Verified: new(false), LastTransition: agoP(time.Hour)},
 				{Kind: model.FluxKindOCIRepository, Namespace: "flux-system", Name: "charts", Ready: true, Verified: new(true)}},
@@ -60,16 +32,6 @@ func goldenSnapshots() built {
 			},
 			HelmReleases: []model.FluxObj{{Kind: model.FluxKindHelmRelease, Namespace: "monitoring", Name: "prom", Ready: true}},
 		},
-		storage: &model.StorageData{
-			PVCs: []model.PVC{
-				{Namespace: "media", Name: "data", UsedRatio: new(0.93)},
-				{Namespace: "monitoring", Name: "tsdb", UsedRatio: new(0.82)},
-				{Namespace: "acme", Name: "db", UsedRatio: new(0.2)},
-				{Namespace: "acme", Name: "new"},
-			},
-			Buckets: []model.Bucket{{Name: "backups", UsedBytes: 95, QuotaBytes: 100}, {Name: "scratch", UsedBytes: 5}},
-		},
-		apps: &model.AppsData{},
 	}
 }
 

@@ -2,28 +2,6 @@
   "status": "crit",
   "attention": [
     {
-      "id": "bucket:backups",
-      "severity": "crit",
-      "source": "storage",
-      "plugin": "kubernetes",
-      "title": "Bucket backups is 95% of its quota",
-      "detail": "",
-      "since": "2026-10-30T12:00:00Z",
-      "route": "/storage",
-      "links": []
-    },
-    {
-      "id": "cert:media/tls",
-      "severity": "crit",
-      "source": "cert-manager",
-      "plugin": "kubernetes",
-      "title": "Certificate media/tls expires soon",
-      "detail": "expires 2026-11-04 (5 days)",
-      "since": "2026-10-30T12:00:00Z",
-      "route": "/cluster",
-      "links": []
-    },
-    {
       "id": "host:cpu-temp",
       "severity": "crit",
       "source": "hardware",
@@ -47,28 +25,6 @@
       "ref": "hardware:Host/pve-demo"
     },
     {
-      "id": "node:cp-2",
-      "severity": "crit",
-      "source": "kubernetes",
-      "plugin": "kubernetes",
-      "title": "Node cp-2 not ready",
-      "detail": "192.0.2.12",
-      "since": "2026-10-30T12:00:00Z",
-      "route": "/cluster",
-      "links": []
-    },
-    {
-      "id": "pvc:media/data",
-      "severity": "crit",
-      "source": "storage",
-      "plugin": "kubernetes",
-      "title": "PVC media/data is 93% full",
-      "detail": "",
-      "since": "2026-10-30T12:00:00Z",
-      "route": "/storage",
-      "links": []
-    },
-    {
       "id": "smart:4",
       "severity": "crit",
       "source": "smart",
@@ -90,17 +46,6 @@
         }
       ],
       "ref": "hardware:Disk/pve-demo/S1"
-    },
-    {
-      "id": "workload:Deployment/media/app",
-      "severity": "crit",
-      "source": "kubernetes",
-      "plugin": "kubernetes",
-      "title": "Deployment media/app not ready",
-      "detail": "0 of 2 ready",
-      "since": "2026-10-30T12:00:00Z",
-      "route": "/cluster",
-      "links": []
     },
     {
       "id": "zfs:pool:bulk",
@@ -138,17 +83,6 @@
       "ref": "gatus:Endpoint/infrastructure_unifi"
     },
     {
-      "id": "pod:media/app-0",
-      "severity": "crit",
-      "source": "kubernetes",
-      "plugin": "kubernetes",
-      "title": "Pod media/app-0 is failing",
-      "detail": "CrashLoopBackOff",
-      "since": "2026-10-30T11:13:00Z",
-      "route": "/cluster/pods/media/app-0",
-      "links": []
-    },
-    {
       "id": "alert:f1",
       "severity": "crit",
       "source": "alertmanager",
@@ -184,17 +118,6 @@
       ]
     },
     {
-      "id": "pvc:monitoring/tsdb",
-      "severity": "warn",
-      "source": "storage",
-      "plugin": "kubernetes",
-      "title": "PVC monitoring/tsdb is 82% full",
-      "detail": "",
-      "since": "2026-10-30T12:00:00Z",
-      "route": "/storage",
-      "links": []
-    },
-    {
       "id": "vm:3000",
       "severity": "warn",
       "source": "proxmox",
@@ -217,17 +140,6 @@
       "route": "/status",
       "links": [],
       "ref": "gatus:Endpoint/apps_grafana"
-    },
-    {
-      "id": "pod:media/app-1",
-      "severity": "warn",
-      "source": "kubernetes",
-      "plugin": "kubernetes",
-      "title": "Pod media/app-1 is stuck pending",
-      "detail": "Pending for over 5 minutes",
-      "since": "2026-10-30T11:40:00Z",
-      "route": "/cluster/pods/media/app-1",
-      "links": []
     },
     {
       "id": "flux:Kustomization/flux-system/apps",
@@ -292,14 +204,7 @@
     "fluxReady": 2,
     "fluxTotal": 4,
     "fluxSuspended": 1,
-    "sourceVerified": false,
-    "nodesReady": 1,
-    "nodesTotal": 2,
-    "worstPvc": {
-      "namespace": "media",
-      "name": "data",
-      "usedRatio": 0.93
-    }
+    "sourceVerified": false
   },
   "kpiList": [
     {
@@ -373,55 +278,6 @@
         "running": false
       }
     ],
-    "groups": [
-      {
-        "name": "Platform",
-        "health": "warn",
-        "namespaces": [
-          {
-            "name": "flux-system",
-            "health": "ok",
-            "pods": 4
-          },
-          {
-            "name": "monitoring",
-            "health": "warn",
-            "pods": 6
-          }
-        ],
-        "podsByNode": {
-          "cp-1": 2
-        }
-      },
-      {
-        "name": "Apps",
-        "health": "crit",
-        "namespaces": [
-          {
-            "name": "media",
-            "health": "crit",
-            "pods": 3
-          }
-        ],
-        "podsByNode": {
-          "cp-1": 1,
-          "cp-2": 1
-        }
-      },
-      {
-        "name": "Tenants",
-        "health": "ok",
-        "namespaces": [
-          {
-            "name": "acme",
-            "health": "ok",
-            "pods": 2
-          }
-        ],
-        "podsByNode": {
-          "cp-2": 1
-        }
-      }
-    ]
+    "groups": []
   }
 }

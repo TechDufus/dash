@@ -3,7 +3,6 @@ package demo
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -34,10 +33,7 @@ func published(t *testing.T) *hub.Hub {
 
 func TestPublishesEveryTopic(t *testing.T) {
 	h := published(t)
-	for _, topic := range []model.Topic{
-		model.TopicOverview, model.TopicCluster, model.TopicFlux,
-		model.TopicStorage, model.TopicApps,
-	} {
+	for _, topic := range []model.Topic{model.TopicOverview, model.TopicFlux} {
 		ev, ok := h.Latest("", topic)
 		if !ok {
 			t.Fatalf("topic %s not published", topic)
@@ -63,22 +59,6 @@ func TestFixturesStayFake(t *testing.T) {
 	}
 }
 
-func TestDetailsResolve(t *testing.T) {
-	s := New(config.Defaults())
-	ctx := context.Background()
-	w := s.build()
-	p := w.cluster.Pods[0]
-	if _, err := s.PodDetail(ctx, p.Namespace, p.Name); err != nil {
-		t.Fatalf("pod detail: %v", err)
-	}
-	if _, err := s.PodDetail(ctx, "nope", "nope"); !errors.Is(err, topics.ErrNotFound) {
-		t.Fatalf("missing pod: %v", err)
-	}
-	if _, ok := s.NodeIP(w.cluster.Nodes[0].Name); !ok {
-		t.Fatal("node ip not found")
-	}
-}
-
 func TestWrapAnswersActionsAndSignsIn(t *testing.T) {
 	var user string
 	next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -90,8 +70,9 @@ func TestWrapAnswersActionsAndSignsIn(t *testing.T) {
 	if rec.Code != http.StatusAccepted {
 		t.Fatalf("a legacy action: got %d, want 202", rec.Code)
 	}
-	// The silence routes are gone: nothing answers for them here any more, the request goes on.
-	for _, c := range []struct{ method, path string }{{http.MethodPost, "/api/silences"}, {http.MethodDelete, "/api/silences/abc"}} {
+	// The silence routes and the retired restart route are gone: nothing answers for them here, the
+	// request goes on.
+	for _, c := range []struct{ method, path string }{{http.MethodPost, "/api/silences"}, {http.MethodDelete, "/api/silences/abc"}, {http.MethodPost, "/api/actions/restart"}} {
 		rec = httptest.NewRecorder()
 		Wrap(next).ServeHTTP(rec, httptest.NewRequest(c.method, c.path, nil))
 		if rec.Code != http.StatusTeapot {
@@ -136,9 +117,9 @@ func TestDemoPublishesLegacyTopicsAndCorePlugins(t *testing.T) {
 	for _, ev := range snap {
 		got = append(got, ev.Topic)
 	}
-	// core.plugins first, then the overview, then the integrations' topics under the names
-	// they keep until their plugin migrates (the alertmanager twin is registered by cmd/dash).
-	want := []string{"core.plugins", "core.overview", "cluster", "storage", "apps", "flux"}
+	// core.plugins first, then the overview, then the flux shim's topic under the name it keeps
+	// until its plugin migrates (the real plugins' twins are registered by cmd/dash).
+	want := []string{"core.plugins", "core.overview", "flux"}
 	if strings.Join(got, " ") != strings.Join(want, " ") {
 		t.Fatalf("topics = %v, want %v", got, want)
 	}
@@ -150,16 +131,16 @@ func TestDemoPublishesLegacyTopicsAndCorePlugins(t *testing.T) {
 	if err := json.Unmarshal(env.Data, &pd); err != nil {
 		t.Fatal(err)
 	}
-	if len(pd.Plugins) != 2 { // the shims; the real plugins' twins (prometheus, alertmanager, gatus, victorialogs, proxmox, hardware, grafana, headlamp, launcher) are registered by cmd/dash
-		t.Fatalf("core.plugins lists %d plugins, want 2", len(pd.Plugins))
+	if len(pd.Plugins) != 1 { // the flux shim; the real plugins' twins (prometheus, alertmanager, gatus, victorialogs, proxmox, hardware, kubernetes, grafana, headlamp, launcher) are registered by cmd/dash
+		t.Fatalf("core.plugins lists %d plugins, want 1", len(pd.Plugins))
 	}
 }
 
 func TestDemoPluginsAreHealthy(t *testing.T) {
 	_, sup, _ := demoSupervisor(t, nil)
 	infos := sup.Infos()
-	if len(infos) != 2 {
-		t.Fatalf("%d plugins, want 2", len(infos))
+	if len(infos) != 1 {
+		t.Fatalf("%d plugins, want 1", len(infos))
 	}
 	for _, in := range infos {
 		if in.State != model.PluginHealthy || in.Message != "" {
@@ -199,12 +180,12 @@ func TestDemoOverviewHasTheAlertmanagerKPIOnlyWhileItRuns(t *testing.T) {
 	}
 
 	h := hub.New()
-	d, srcs := overview(plugintest.Without(plugintest.AllRunning(h, append(topics.LegacyManifests(), alertmanager.New().Manifest())...), "proxmox", "hardware"), h)
+	d, srcs := overview(plugintest.Without(plugintest.AllRunning(h, append(topics.LegacyManifests(), alertmanager.New().Manifest())...), "proxmox", "hardware", "kubernetes"), h)
 	if len(d.KPIList) != 1 || d.KPIList[0].Plugin != "alertmanager" || d.KPIList[0].Key != "firing" || d.KPIList[0].Value != 2 || !hasChip(srcs) {
 		t.Errorf("with alertmanager running: kpiList %+v, sources %+v", d.KPIList, srcs)
 	}
 	h = hub.New()
-	d, srcs = overview(plugintest.Without(plugintest.AllRunning(h, topics.LegacyManifests()...), "alertmanager", "proxmox", "hardware"), h)
+	d, srcs = overview(plugintest.Without(plugintest.AllRunning(h, topics.LegacyManifests()...), "alertmanager", "proxmox", "hardware", "kubernetes"), h)
 	if len(d.KPIList) != 0 || hasChip(srcs) {
 		t.Errorf("without alertmanager: kpiList %+v, sources %+v", d.KPIList, srcs)
 	}
@@ -303,6 +284,73 @@ func TestDemoOverviewHasTheHardwareKPIsOnlyWhileItRuns(t *testing.T) {
 	}
 }
 
+// The overview's node and PVC tiles, the cluster groups in its topology, the kubernetes attention
+// items and the kubernetes source chip are the kubernetes plugin's: the demo adds them while its
+// twin runs, each KPI once, and leaves them out when the plugin does not run.
+func TestDemoOverviewHasTheKubernetesKPIsOnlyWhileItRuns(t *testing.T) {
+	overview := func(hp plugin.HostProvider, h *hub.Hub) (model.OverviewData, []model.SourceStatus) {
+		s := New(config.Defaults())
+		s.Plugins(hp)
+		s.publish()
+		ev, ok := h.Latest("", model.TopicOverview)
+		if !ok {
+			t.Fatal("no overview")
+		}
+		var env model.Envelope
+		var d model.OverviewData
+		if err := json.Unmarshal(ev.Data, &env); err != nil || json.Unmarshal(env.Data, &d) != nil {
+			t.Fatalf("bad overview envelope (%v)", err)
+		}
+		return d, env.Sources
+	}
+	kpis := func(d model.OverviewData) (keys []string) {
+		for _, k := range d.KPIList {
+			if k.Plugin == "kubernetes" {
+				keys = append(keys, k.Key)
+			}
+		}
+		return keys
+	}
+	hasChip := func(srcs []model.SourceStatus) bool {
+		for _, s := range srcs {
+			if s.Name == "kubernetes" {
+				return true
+			}
+		}
+		return false
+	}
+	kubeItems := func(d model.OverviewData) (n int) {
+		for _, a := range d.Attention {
+			if a.Plugin == "kubernetes" {
+				n++
+			}
+		}
+		return n
+	}
+
+	h := hub.New()
+	d, srcs := overview(plugintest.AllRunning(h, topics.LegacyManifests()...), h)
+	if got := strings.Join(kpis(d), " "); got != "nodes.ready nodes.total pvc.worst" {
+		t.Errorf("with kubernetes running: kubernetes KPIs %q, want each once", got)
+	}
+	for _, k := range d.KPIList {
+		if k.Key == "nodes.ready" && (k.Value != 3 || k.Health != model.HealthOK) {
+			t.Errorf("nodes.ready = %+v", k)
+		}
+		if k.Key == "pvc.worst" && (k.Label != "monitoring/vmsingle-data" || k.Health != model.HealthWarn) {
+			t.Errorf("pvc.worst = %+v", k)
+		}
+	}
+	if len(d.Topology.Groups) != 3 || kubeItems(d) == 0 || !hasChip(srcs) {
+		t.Errorf("with kubernetes running: topology groups %d, attention %d, sources %+v", len(d.Topology.Groups), kubeItems(d), srcs)
+	}
+	h = hub.New()
+	d, srcs = overview(plugintest.Without(plugintest.AllRunning(h, topics.LegacyManifests()...), "kubernetes"), h)
+	if len(kpis(d)) != 0 || len(d.Topology.Groups) != 0 || d.Topology.Groups == nil || kubeItems(d) != 0 || hasChip(srcs) {
+		t.Errorf("without kubernetes: kpiList %+v, topology groups %v, attention %+v, sources %+v", d.KPIList, d.Topology.Groups, d.Attention, srcs)
+	}
+}
+
 // A plugin disabled in demo mode publishes nothing: its topic is absent and its page goes.
 func TestDemoDisabledPluginPublishesNothing(t *testing.T) {
 	off := false
@@ -313,8 +361,8 @@ func TestDemoDisabledPluginPublishesNothing(t *testing.T) {
 	if _, ok := h.Latest("", model.TopicFlux); ok {
 		t.Error("the flux topic is published although flux is disabled")
 	}
-	if _, ok := h.Latest("", model.TopicCluster); !ok {
-		t.Error("the cluster topic is missing")
+	if _, ok := h.Latest("", model.TopicOverview); !ok {
+		t.Error("the overview is missing")
 	}
 }
 
@@ -354,8 +402,8 @@ func TestDemoPluginSwitchesOffAndOnWithoutRestart(t *testing.T) {
 	if _, ok := h.Latest("", model.TopicFlux); ok {
 		t.Error("the flux topic is published although flux is disabled")
 	}
-	if _, ok := h.Latest("", model.TopicCluster); !ok {
-		t.Error("another plugin's topic went with it")
+	if _, ok := h.Latest("", model.TopicOverview); !ok {
+		t.Error("the overview went with flux")
 	}
 
 	on := true
@@ -379,8 +427,8 @@ func TestDemoSkipsOwnersThatAreNotRunning(t *testing.T) {
 	if n := hp.Publishes("flux"); n != 0 {
 		t.Errorf("demo called a stopped flux's Host %d times", n)
 	}
-	if hp.Publishes("kubernetes") == 0 {
-		t.Error("demo did not publish the topics of a running plugin")
+	if hp.Publishes(plugin.Core) == 0 {
+		t.Error("demo did not publish the core topics")
 	}
 	if _, ok := h.Latest("", model.TopicOverview); !ok {
 		t.Error("the overview is missing")

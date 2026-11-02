@@ -28,6 +28,22 @@ const overview = (extra: Partial<OverviewData> = {}): OverviewData =>
     attention: [],
     kpiList: [
       {
+        key: "nodes.ready",
+        plugin: "kubernetes",
+        label: "Nodes ready",
+        unit: "",
+        value: 3,
+        health: "ok",
+      },
+      {
+        key: "nodes.total",
+        plugin: "kubernetes",
+        label: "Nodes",
+        unit: "",
+        value: 3,
+        health: "ok",
+      },
+      {
         key: "firing",
         plugin: "alertmanager",
         label: "Alerts firing",
@@ -74,8 +90,6 @@ const overview = (extra: Partial<OverviewData> = {}): OverviewData =>
       fluxTotal: 9,
       fluxSuspended: 0,
       sourceVerified: true,
-      nodesReady: 3,
-      nodesTotal: 3,
     },
     ...extra,
   }) as unknown as OverviewData;
@@ -211,7 +225,8 @@ describe("pages built from slots", () => {
 
       stream.plugins(rows);
       // The VM tile draws from its own KPIs: only the alerts KPI goes.
-      stream.send("core.overview", overview({ kpiList: overview().kpiList.slice(1) }));
+      const noAlerts = overview().kpiList.filter((k) => k.key !== "firing");
+      stream.send("core.overview", overview({ kpiList: noAlerts }));
       expect(tileLabels()).toEqual(tiles.slice(1));
     });
 
@@ -260,6 +275,8 @@ describe("pages built from slots", () => {
             entry("alertmanager", "firing", "Published alerts", 2),
             entry("hardware", "power", "Published power", 240),
             entry("hardware", "cpuTemp", "Published temperature", 62),
+            entry("kubernetes", "nodes.ready", "Published ready nodes", 3),
+            entry("kubernetes", "nodes.total", "Published nodes", 3),
             entry("proxmox", "vms.running", "Published running VMs", 5),
             entry("proxmox", "vms.total", "Published VMs", 6),
             entry("queue", "depth", "Queue depth", 42),
@@ -283,7 +300,7 @@ describe("pages built from slots", () => {
       renderApp(<OverviewPage />);
       stream.plugins(shimRows());
       stream.send("core.overview", overview());
-      stream.send("apps", apps());
+      stream.send("kubernetes.apps", apps());
 
       sendLauncher(inlineList);
       const infra = () => screen.getByRole("heading", { name: /^Infrastructure/ });
@@ -315,7 +332,7 @@ describe("pages built from slots", () => {
       renderApp(<OverviewPage />);
       stream.plugins(shimRows());
       stream.send("core.overview", overview());
-      stream.send("apps", apps());
+      stream.send("kubernetes.apps", apps());
       sendLauncher();
 
       expect(screen.getByRole("heading", { name: "Launcher" })).toBeInTheDocument();
@@ -329,7 +346,7 @@ describe("pages built from slots", () => {
       const rows = shimRows();
       stream.plugins(rows);
       stream.send("core.overview", overview());
-      stream.send("apps", apps());
+      stream.send("kubernetes.apps", apps());
       sendLauncher();
       expect(screen.getByRole("heading", { name: "Launcher" })).toBeInTheDocument();
 
@@ -345,7 +362,7 @@ describe("pages built from slots", () => {
       renderApp(<OverviewPage />);
       stream.plugins(shimRows());
       stream.send("core.overview", overview());
-      stream.send("apps", apps(), [DOWN]);
+      stream.send("kubernetes.apps", apps(), [DOWN]);
       sendLauncher();
 
       const heading = screen.getByRole("heading", { name: "Launcher" });
@@ -368,7 +385,7 @@ describe("pages built from slots", () => {
     it("lists the launcher's links from an inline list and from a file list", () => {
       renderApp(<AppsPage />);
       stream.plugins(shimRows());
-      stream.send("apps", apps());
+      stream.send("kubernetes.apps", apps());
 
       sendLauncher(inlineList);
       const infra = () =>
@@ -397,7 +414,7 @@ describe("pages built from slots", () => {
     it("announces each section's count in its own polite live region", () => {
       renderApp(<AppsPage />);
       stream.plugins(shimRows());
-      stream.send("apps", apps());
+      stream.send("kubernetes.apps", apps());
       sendLauncher();
 
       // The page-level line is gone; one live region per section.
@@ -416,7 +433,7 @@ describe("pages built from slots", () => {
       const user = userEvent.setup();
       renderApp(<AppsPage />);
       stream.plugins(shimRows());
-      stream.send("apps", apps());
+      stream.send("kubernetes.apps", apps());
       sendLauncher();
       await screen.findByRole("heading", { name: /^Infrastructure/ });
 
@@ -444,7 +461,7 @@ describe("pages built from slots", () => {
       renderApp(<AppsPage />);
       const rows = shimRows();
       stream.plugins(rows);
-      stream.send("apps", apps());
+      stream.send("kubernetes.apps", apps());
       sendLauncher();
 
       // launcher off: the infrastructure section and its live region go.
@@ -473,7 +490,7 @@ describe("pages built from slots", () => {
         const user = userEvent.setup();
         renderApp(<AppsPage />);
         stream.plugins(shimRows());
-        stream.send("apps", apps());
+        stream.send("kubernetes.apps", apps());
         sendLauncher();
         await screen.findByRole("heading", { name: /^Infrastructure/ });
         return user;
@@ -558,7 +575,7 @@ describe("pages built from slots", () => {
         const user = userEvent.setup();
         renderApp(<AppsPage />);
         stream.plugins(shimRows());
-        stream.send("apps", { apps: [] });
+        stream.send("kubernetes.apps", { apps: [] });
         sendLauncher({ links: [] });
         await user.type(screen.getByRole("searchbox"), "zzz");
         expect(screen.queryByText(/No apps match/)).toBeNull();
@@ -571,7 +588,7 @@ describe("pages built from slots", () => {
         await user.type(screen.getByRole("searchbox"), "zzz"); // matches no infrastructure link
         expect(screen.queryByText(/No apps match/)).toBeNull();
 
-        stream.send("apps", apps());
+        stream.send("kubernetes.apps", apps());
         expect(screen.getByText("No apps match “zzz”.")).toBeInTheDocument();
       });
 
@@ -579,7 +596,7 @@ describe("pages built from slots", () => {
         const user = userEvent.setup();
         renderApp(<AppsPage />);
         stream.plugins(shimRows());
-        stream.send("apps", apps());
+        stream.send("kubernetes.apps", apps());
         await user.type(screen.getByRole("searchbox"), "zzz");
         expect(screen.queryByText(/No apps match/)).toBeNull(); // the links are not known yet
 
@@ -632,7 +649,7 @@ describe("pages built from slots", () => {
         const user = userEvent.setup();
         renderApp(<AppsPage />);
         stream.plugins(withState(shimRows(), "launcher", "error"));
-        stream.send("apps", apps());
+        stream.send("kubernetes.apps", apps());
         await user.type(screen.getByRole("searchbox"), "zzz");
         expect(screen.getByText("No apps match “zzz”.")).toBeInTheDocument();
       });
@@ -657,7 +674,7 @@ describe("pages built from slots", () => {
     it("shows the apps' source chips once, above the sections", () => {
       renderApp(<AppsPage />);
       stream.plugins(shimRows());
-      stream.send("apps", apps(), [DOWN]);
+      stream.send("kubernetes.apps", apps(), [DOWN]);
       expect(screen.getAllByText(/source unreachable: kubernetes/)).toHaveLength(1);
     });
   });

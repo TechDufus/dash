@@ -16,7 +16,6 @@ import (
 
 	"k8s.io/apimachinery/pkg/runtime"
 	dynfake "k8s.io/client-go/dynamic/fake"
-	"k8s.io/client-go/kubernetes/fake"
 
 	"github.com/TechDufus/dash/internal/audit"
 	"github.com/TechDufus/dash/internal/model"
@@ -131,18 +130,17 @@ func actionCases() []actionCase {
 	}
 }
 
-// serverWithFakes returns a server whose Kubernetes and Flux clients record every call, so a
-// test can assert none happened.
-func serverWithFakes(mod func(*Deps)) (*Server, *fake.Clientset, *dynfake.FakeDynamicClient) {
-	kc := fake.NewClientset(workloadObjects()...)
+// serverWithFakes returns a server whose Flux client (the kubernetes plugin's svc.Cluster) records
+// every call, so a test can assert none happened.
+func serverWithFakes(mod func(*Deps)) (*Server, *dynfake.FakeDynamicClient) {
 	dyn := dynfake.NewSimpleDynamicClientWithCustomListKinds(runtime.NewScheme(), nil)
 	s := newServer(func(d *Deps) {
-		d.Kube, d.Dyn = kc, dyn
+		withCluster(dyn)(d)
 		if mod != nil {
 			mod(d)
 		}
 	})
-	return s, kc, dyn
+	return s, dyn
 }
 
 func TestActionsWriteIntentThenOutcome(t *testing.T) {
@@ -154,7 +152,7 @@ func TestActionsWriteIntentThenOutcome(t *testing.T) {
 			dir := t.TempDir()
 			al := openAudit(t, dir, newAuditClock().now)
 			pl := newHarness(t)
-			s, _, _ := serverWithFakes(func(d *Deps) {
+			s, _ := serverWithFakes(func(d *Deps) {
 				pl.attach(d)
 				d.Audit = al
 				d.Cfg.Dev, d.Cfg.Demo = mode.dev, mode.demo
@@ -227,7 +225,7 @@ func TestAuditSlogMatchesLegacyHelper(t *testing.T) {
 				}
 				return nil, nil
 			}
-			s, _, _ := serverWithFakes(func(d *Deps) { pl.attach(d); d.Audit = al })
+			s, _ := serverWithFakes(func(d *Deps) { pl.attach(d); d.Audit = al })
 			h := s.Handler()
 			boom := errors.New("boom")
 
@@ -247,19 +245,6 @@ func TestAuditSlogMatchesLegacyHelper(t *testing.T) {
 			}
 
 			do := func(r req) *httptest.ResponseRecorder { return r.do(h) }
-			do(req{method: "POST", path: "/api/actions/restart", body: model.RestartRequest{Kind: "Deployment", Namespace: "apps", Name: "web"}})
-			replay(func() { legacyAudit("alice", "restart", "Deployment", "apps", "web", nil) })
-
-			do(req{method: "POST", path: "/api/actions/restart", body: model.RestartRequest{Kind: "Deployment", Namespace: "ghost", Name: "web"}})
-			replay(func() {
-				legacyAudit("alice", "restart", "Deployment", "ghost", "web", errors.New(`namespaces "ghost" not found`))
-			})
-
-			do(req{method: "POST", path: "/api/actions/restart", body: model.RestartRequest{Kind: "Deployment", Namespace: "platform", Name: "web"}})
-			replay(func() {
-				legacyAudit("alice", "restart", "Deployment", "platform", "web", errors.New("type the workload name to confirm"))
-			})
-
 			w := do(req{method: "POST", path: "/api/actions/reconcile", body: model.ReconcileRequest{Kind: "Kustomization", Namespace: "flux-system", Name: "ghost"}})
 			replay(func() {
 				legacyAudit("alice", "reconcile", "Kustomization", "flux-system", "ghost", errors.New(decodeErr(t, w)))
@@ -322,13 +307,13 @@ func TestIntentWriteFailureBlocksTheAction(t *testing.T) {
 			}
 
 			pl := newHarness(t)
-			s, kc, dyn := serverWithFakes(func(d *Deps) { pl.attach(d); d.Audit = al })
+			s, dyn := serverWithFakes(func(d *Deps) { pl.attach(d); d.Audit = al })
 			w := req{method: tc.method, path: tc.path, body: tc.body}.do(s.Handler())
 			if w.Code != http.StatusServiceUnavailable || decodeErr(t, w) != "audit log unavailable" {
 				t.Fatalf("code = %d body = %s, want 503 audit log unavailable", w.Code, w.Body)
 			}
-			if n := len(kc.Actions()) + len(dyn.Actions()) + len(pl.acts()); n != 0 {
-				t.Errorf("upstream called: kube %d, flux %d, plugin actions %d", len(kc.Actions()), len(dyn.Actions()), len(pl.acts()))
+			if n := len(dyn.Actions()) + len(pl.acts()); n != 0 {
+				t.Errorf("upstream called: flux %d, plugin actions %d", len(dyn.Actions()), len(pl.acts()))
 			}
 		})
 	}
@@ -363,7 +348,7 @@ func TestDenialsAreAuditedOncePerPeerAndMinute(t *testing.T) {
 			dir := t.TempDir()
 			clk := newAuditClock()
 			pl := newHarness(t, harnessRT(plugin.InstanceConfig{ReadDenyNamespaces: []string{"kube-system"}}))
-			s, _, _ := serverWithFakes(func(d *Deps) { pl.attach(d); d.Audit = openAudit(t, dir, clk.now) })
+			s, _ := serverWithFakes(func(d *Deps) { pl.attach(d); d.Audit = openAudit(t, dir, clk.now) })
 			if tc.mod != nil {
 				tc.mod(s)
 			}
@@ -397,7 +382,7 @@ func TestDenialsAreAuditedOncePerPeerAndMinute(t *testing.T) {
 // A path the client chooses must not let one denial write an unbounded record.
 func TestDenialRecordCapsTheRequestLine(t *testing.T) {
 	dir := t.TempDir()
-	s, _, _ := serverWithFakes(func(d *Deps) { d.Audit = openAudit(t, dir, newAuditClock().now) })
+	s, _ := serverWithFakes(func(d *Deps) { d.Audit = openAudit(t, dir, newAuditClock().now) })
 	long := "/api/" + string(bytes.Repeat([]byte("a"), 5000))
 	req{method: "POST", path: long, header: map[string]string{"X-Dash-Csrf": ""}}.do(s.Handler())
 	recs := auditRecords(t, dir)

@@ -5,7 +5,6 @@ package demo
 
 import (
 	"context"
-	"fmt"
 	"net/http"
 	"slices"
 	"strings"
@@ -90,26 +89,31 @@ func (s *Source) publish() {
 		}
 		return out
 	}
-	// The alertmanager, hardware and proxmox plugins' KPIs are on the overview while their twins
-	// run, and so are the proxmox VMs and the hardware host in its topology. Their source chips
-	// are the twin's own, except hardware's: the fake host's series come from the victoriametrics
-	// chip above.
-	ov, ovSrcs := w.overview, src("kubernetes", "victoriametrics")
+	// The alertmanager, hardware, kubernetes and proxmox plugins' KPIs are on the overview while
+	// their twins run, and so are the proxmox VMs, the hardware host and the kubernetes groups in
+	// its topology (and the kubernetes attention items). Their source chips are the twin's own,
+	// except hardware's: the fake host's series come from the victoriametrics chip every overview
+	// has. The cluster, storage and apps topics are the kubernetes twin's to publish.
+	ov, ovSrcs := w.overview, src("victoriametrics")
 	for _, twin := range []struct {
 		id    plugin.ID
 		chips []string
-		drop  func(*model.Topology)
+		drop  func(*model.OverviewData)
 	}{
-		{"proxmox", []string{"proxmox"}, func(t *model.Topology) { t.VMs = []model.TopologyVM{} }},
-		{"alertmanager", []string{"alertmanager"}, func(*model.Topology) {}},
-		{"hardware", nil, func(t *model.Topology) { t.Host = model.TopologyHost{} }},
+		{"proxmox", []string{"proxmox"}, func(o *model.OverviewData) { o.Topology.VMs = []model.TopologyVM{} }},
+		{"alertmanager", []string{"alertmanager"}, func(*model.OverviewData) {}},
+		{"hardware", nil, func(o *model.OverviewData) { o.Topology.Host = model.TopologyHost{} }},
+		{"kubernetes", []string{"kubernetes"}, func(o *model.OverviewData) {
+			o.Topology.Groups = []model.TopologyGroup{}
+			o.Attention = slices.DeleteFunc(slices.Clone(o.Attention), func(a model.AttentionItem) bool { return a.Plugin == "kubernetes" })
+		}},
 	} {
 		if s.hosts.Running(twin.id) {
 			ovSrcs = append(ovSrcs, src(twin.chips...)...)
 			continue
 		}
 		ov.KPIList = slices.DeleteFunc(slices.Clone(ov.KPIList), func(k model.KPI) bool { return k.Plugin == string(twin.id) })
-		twin.drop(&ov.Topology)
+		twin.drop(&ov)
 	}
 	for _, p := range []struct {
 		topic model.Topic
@@ -117,10 +121,7 @@ func (s *Source) publish() {
 		srcs  []model.SourceStatus
 	}{
 		{model.TopicOverview, ov, ovSrcs},
-		{model.TopicCluster, w.cluster, src("kubernetes", "victoriametrics")},
 		{model.TopicFlux, w.flux, src("kubernetes")},
-		{model.TopicStorage, w.storage, src("kubernetes", "victoriametrics")},
-		{model.TopicApps, w.apps, src("kubernetes", "gatus")},
 	} {
 		if id, local, ok := topics.Owner(p.topic); ok {
 			if s.hosts.Running(id) && !s.real(id) { // a disabled plugin publishes nothing; a twin publishes for itself
@@ -132,87 +133,15 @@ func (s *Source) publish() {
 	}
 }
 
-// ---- REST: details ----
-
-// PodDetail answers /api/pods/{ns}/{name} from the cluster fixtures.
-func (s *Source) PodDetail(_ context.Context, ns, name string) (model.PodDetail, error) {
-	w := s.build()
-	for _, p := range w.cluster.Pods {
-		if p.Namespace != ns || p.Name != name {
-			continue
-		}
-		var chain []model.OwnerRef
-		if p.Owner != nil {
-			if p.Owner.Kind == string(model.WorkloadKindDeployment) {
-				chain = append(chain, model.OwnerRef{Kind: "ReplicaSet", Name: p.Owner.Name + "-7d9c5b8f4"})
-			}
-			chain = append(chain, *p.Owner)
-		}
-		state, ready := "running", p.ReadyContainers == p.TotalContainers
-		if !ready {
-			state = "waiting: " + p.Reason
-		}
-		var events []model.Event
-		for _, e := range w.cluster.Events {
-			if e.Namespace == ns && strings.HasSuffix(e.Object, "/"+name) {
-				events = append(events, e)
-			}
-		}
-		return model.PodDetail{
-			Pod: p,
-			IPs: []string{fmt.Sprintf("198.51.100.%d", 10+len(name)%200)},
-			Conditions: []model.Condition{
-				{Type: "PodScheduled", Status: "True"},
-				{Type: "Initialized", Status: "True"},
-				{Type: "ContainersReady", Status: boolStatus(ready)},
-				{Type: "Ready", Status: boolStatus(ready)},
-			},
-			Containers: []model.Container{{
-				Name: "app", Image: imageOf(w.cluster.Workloads, p), State: state, Ready: ready,
-				Restarts: p.Restarts,
-			}},
-			OwnerChain: chain,
-			Events:     events,
-		}, nil
-	}
-	return model.PodDetail{}, topics.ErrNotFound
-}
-
-func boolStatus(b bool) string {
-	if b {
-		return "True"
-	}
-	return "False"
-}
-
-func imageOf(ws []model.Workload, p model.Pod) string {
-	for _, w := range ws {
-		if p.Owner != nil && w.Namespace == p.Namespace && w.Name == p.Owner.Name && len(w.Images) > 0 {
-			return w.Images[0]
-		}
-	}
-	return "ghcr.io/example/app:1.0.0"
-}
-
-// NodeIP resolves a demo node for the node series.
-func (s *Source) NodeIP(name string) (string, bool) {
-	for _, n := range s.build().cluster.Nodes {
-		if n.Name == name {
-			return n.IP, true
-		}
-	}
-	return "", false
-}
-
-// Wrap signs every request in as the user "demo" and answers the Kubernetes actions with 202
-// without doing anything, since demo mode has no cluster to patch. The silence actions are the
-// alertmanager twin's.
+// Wrap signs every request in as the user "demo" and answers the legacy flux reconcile route with
+// 202 without doing anything, since demo mode has no cluster to patch. The restart action is the
+// kubernetes twin's (a framework action), and the retired /api/actions/restart is not answered here.
 func Wrap(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("X-Forwarded-User") == "" {
 			r.Header.Set("X-Forwarded-User", "demo")
 		}
-		if r.Method == http.MethodPost && strings.HasPrefix(r.URL.Path, "/api/actions/") {
+		if r.Method == http.MethodPost && r.URL.Path == "/api/actions/reconcile" {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusAccepted)
 			_, _ = w.Write([]byte(`{"status":"accepted"}` + "\n"))

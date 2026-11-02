@@ -6,21 +6,15 @@ import (
 	"github.com/TechDufus/dash/internal/config"
 	"github.com/TechDufus/dash/internal/model"
 	"github.com/TechDufus/dash/internal/plugin"
-	"github.com/TechDufus/dash/internal/pluginconf"
-	"github.com/TechDufus/dash/internal/svc"
 )
 
 // Legacy is the plugin identity of an integration that still runs inside Manager until its G3
 // leaf moves the code into a plugin of its own. It starts and stops nothing (the Manager already
-// runs), reports the state of the sources the Manager polls for it, and cannot be reconfigured
-// in-process: a change of its section needs a restart.
+// runs), reports the state of the kubernetes service the Manager reads for it, and cannot be
+// reconfigured in-process: a change of its section needs a restart.
 type Legacy struct {
 	M      plugin.Manifest
 	status func() plugin.Status
-	// Provide is what the shim exports to the plugins that use it (plugin.Provider): nil for a
-	// shim that exports nothing. It is read on every Service call, so it can answer from
-	// state that is built later.
-	Provide func() any
 }
 
 // NewLegacy returns the shim of manifest m whose Status is status.
@@ -33,15 +27,6 @@ func (l *Legacy) Start(context.Context, plugin.Host, any) error { return nil }
 func (l *Legacy) Stop(context.Context) error                    { return nil }
 func (l *Legacy) Status() plugin.Status                         { return l.status() }
 func (l *Legacy) RestartOnly()                                  {}
-
-// Service is what the shim exports: an untyped nil unless Provide is set, which the supervisor
-// reads as "no service".
-func (l *Legacy) Service() any {
-	if l.Provide == nil {
-		return nil
-	}
-	return l.Provide()
-}
 
 // owner is the plugin that publishes a topic, and the topic's name inside the plugin.
 type owner struct {
@@ -72,30 +57,14 @@ func Owner(topic model.Topic) (id plugin.ID, local string, ok bool) {
 	return o.plugin, o.local, ok
 }
 
-// pollUsers lists the plugins that read each poller's source. A poller runs while at least one of
-// them does, so a disabled integration costs no upstream request.
-var pollUsers = map[string][]plugin.ID{
-	"usage":   {"kubernetes"},
-	"storage": {"kubernetes"},
-}
-
-// legacyManifests are the shims in display order: design A.1 without cnpg and rustfs, which have
-// no shim until G3. Nothing here is a hard dependency (Requires): a missing source keeps its
-// page, which says "source not configured".
+// legacyManifests are the shims in display order: flux, the only integration that still runs inside
+// the Manager. Nothing here is a hard dependency (Requires): a missing source keeps its page,
+// which says "source not configured".
 func legacyManifests() []plugin.Manifest {
 	nav := func(path, label, title, icon string) plugin.UISpec {
 		return plugin.UISpec{Nav: []model.NavItem{{Path: path, Label: label, Title: title, Icon: icon}}}
 	}
 	return []plugin.Manifest{
-		{ID: "kubernetes", Name: "Kubernetes", Description: "How dash reaches and reads the cluster.", Version: "1.0.0",
-			Uses:   []plugin.ID{"prometheus", "gatus"},
-			Config: func() any { return &pluginconf.Kubernetes{} },
-			Topics: []plugin.TopicSpec{
-				{Name: "cluster", Legacy: "cluster", Type: model.ClusterData{}, Doc: "Nodes, namespaces, pods, workloads and certificates."},
-				{Name: "storage", Legacy: "storage", Type: model.StorageData{}, Doc: "Volumes, buckets and backups."},
-				{Name: "apps", Legacy: "apps", Type: model.AppsData{}, Doc: "The apps behind HTTP routes."},
-			},
-			UI: nav("/cluster", "Cluster", "Kubernetes cluster", "Boxes")},
 		{ID: "flux", Name: "Flux", Description: "Flux sources, kustomizations and Helm releases.", Version: "1.0.0",
 			Uses:   []plugin.ID{"kubernetes"},
 			Config: func() any { return &config.FluxConfig{} },
@@ -108,31 +77,27 @@ func legacyManifests() []plugin.Manifest {
 // return the section types of config.PluginsConfig.
 func LegacyManifests() []plugin.Manifest { return legacyManifests() }
 
-// Plugins returns one shim per manifest, its Status read from what the Manager polls. Register
-// them with plugin.Supervisor.Add before Manager.Run.
+// Plugins returns one shim per manifest, its Status read from what the Manager sees of the
+// kubernetes plugin. Register them with plugin.Supervisor.Add before Manager.Run.
 func (m *Manager) Plugins() []plugin.Factory {
 	ms := legacyManifests()
 	out := make([]plugin.Factory, len(ms))
 	for i, man := range ms {
-		out[i] = func() plugin.Plugin {
-			l := NewLegacy(man, m.legacyStatus)
-			if man.ID == "kubernetes" {
-				// Until the kubernetes plugin exists the Manager is its node index (D14): the
-				// proxmox plugin reads it through Host.Service and needs no change then.
-				l.Provide = func() any { return svc.NodeIndex(m) }
-			}
-			return l
-		}
+		out[i] = func() plugin.Plugin { return NewLegacy(man, m.legacyStatus) }
 	}
 	return out
 }
 
-// legacyStatus is the state of the kubernetes and flux shims (design: how the Manager reports for
-// its plugins): both follow the informers. The message is viewer-visible, so it names nothing but
-// the state.
+// legacyStatus is the state of the flux shim: unavailable while the kubernetes plugin's service
+// is absent, starting until its informers have synced, healthy after. The message is
+// viewer-visible, so it names nothing but the state.
 func (m *Manager) legacyStatus() plugin.Status {
-	if m.d.Cluster.HasSynced() {
-		return plugin.Status{State: plugin.StateHealthy, Sources: m.sources("kubernetes")}
+	c, ok := m.cluster()
+	switch {
+	case !ok:
+		return plugin.Status{State: plugin.StateUnavailable, Message: "kubernetes is not available", Sources: m.kubeSources()}
+	case !c.Synced():
+		return plugin.Status{State: plugin.StateStarting, Message: "informers syncing", Sources: m.kubeSources()}
 	}
-	return plugin.Status{State: plugin.StateStarting, Message: "informers syncing", Sources: m.sources("kubernetes")}
+	return plugin.Status{State: plugin.StateHealthy, Sources: m.kubeSources()}
 }

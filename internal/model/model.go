@@ -49,13 +49,15 @@ const (
 	TopicProxmoxNode      Topic = "proxmox.node"
 	TopicProxmoxStorage   Topic = "proxmox.storage"
 	TopicHardwareMachines Topic = "hardware.machines"
-	TopicCluster          Topic = "cluster"
-	TopicFlux             Topic = "flux"
-	TopicStorage          Topic = "storage"
+	// TopicCluster, TopicStorage and TopicApps are the kubernetes plugin's topics (ClusterData,
+	// StorageData, AppsData).
+	TopicCluster Topic = "kubernetes.cluster"
+	TopicFlux    Topic = "flux"
+	TopicStorage Topic = "kubernetes.storage"
 	// TopicAlerts is the alerts and silences (AlertsData), published by the alertmanager plugin.
 	TopicAlerts Topic = "alertmanager.alerts"
 	TopicStatus Topic = "gatus.status"
-	TopicApps   Topic = "apps"
+	TopicApps   Topic = "kubernetes.apps"
 	// TopicLauncherLinks is the launcher's infrastructure links (LauncherData), published by the
 	// launcher plugin.
 	TopicLauncherLinks Topic = "launcher.links"
@@ -108,20 +110,11 @@ type AttentionItem struct {
 	Ref string `json:"ref,omitempty"`
 }
 
-type WorstPVC struct {
-	Namespace string  `json:"namespace"`
-	Name      string  `json:"name"`
-	UsedRatio float64 `json:"usedRatio"`
-}
-
 type Kpis struct {
-	FluxReady      int       `json:"fluxReady"`
-	FluxTotal      int       `json:"fluxTotal"`
-	FluxSuspended  int       `json:"fluxSuspended"`
-	SourceVerified bool      `json:"sourceVerified"`
-	NodesReady     int       `json:"nodesReady"`
-	NodesTotal     int       `json:"nodesTotal"`
-	WorstPVC       *WorstPVC `json:"worstPvc,omitempty"`
+	FluxReady      int  `json:"fluxReady"`
+	FluxTotal      int  `json:"fluxTotal"`
+	FluxSuspended  int  `json:"fluxSuspended"`
+	SourceVerified bool `json:"sourceVerified"`
 }
 
 type TopologyHost struct {
@@ -564,13 +557,7 @@ type CNPGCluster struct {
 	Links                []Link   `json:"links"`
 }
 
-type NASBackup struct {
-	Name                  string   `json:"name"`
-	LastSuccessAgeSeconds *float64 `json:"lastSuccessAgeSeconds,omitempty"`
-}
-
-// BackupJob is the age of the last successful run of a backup CronJob, the kubernetes plugin's
-// generalisation of NASBackup.
+// BackupJob is the age of the last successful run of a backup CronJob.
 type BackupJob struct {
 	// Ref is kubernetes:BackupJob/<ns>/<name> (design L.6).
 	Ref                   string   `json:"ref"`
@@ -588,10 +575,8 @@ type StorageData struct {
 	Buckets    []Bucket      `json:"buckets"`
 	RustFS     UsedSize      `json:"rustfs"`
 	CNPG       []CNPGCluster `json:"cnpg"`
-	NASBackups []NASBackup   `json:"nasBackups"`
-	// BackupJobs replaces NASBackups under the kubernetes plugin (design L.6).
-	BackupJobs []BackupJob `json:"backupJobs"`
-	Etcd       Etcd        `json:"etcd"`
+	BackupJobs []BackupJob   `json:"backupJobs"`
+	Etcd       Etcd          `json:"etcd"`
 }
 
 // ---- alerts ----
@@ -754,7 +739,7 @@ type LauncherLink struct {
 	Description string `json:"description"`
 }
 
-// RestartRequest is the body of POST /api/actions/restart.
+// RestartRequest is the body of POST /api/v1/plugins/kubernetes/actions/restart.
 type RestartRequest struct {
 	// Kind is Deployment, StatefulSet or DaemonSet; anything else is 400.
 	Kind      WorkloadKind `json:"kind"`

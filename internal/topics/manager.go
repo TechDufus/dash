@@ -1,12 +1,11 @@
-// Package topics builds the integration topics that still run in the dash process (cluster, flux,
-// storage, apps) from the Kubernetes informers and the upstream clients, and composes
-// core.overview from them and from what plugins contribute. Each topic is published through the
-// Host of the plugin that owns it (legacy.go), so a disabled plugin publishes nothing.
+// Package topics builds the integration topic that still runs in the dash process (flux) from the
+// kubernetes plugin's informer caches, and composes core.overview from it and from what plugins
+// contribute. The topic is published through the Host of the plugin that owns it (legacy.go), so a
+// disabled plugin publishes nothing.
 package topics
 
 import (
 	"context"
-	"errors"
 	"log/slog"
 	"strings"
 	"sync"
@@ -14,74 +13,49 @@ import (
 	"time"
 
 	"github.com/TechDufus/dash/internal/config"
-	"github.com/TechDufus/dash/internal/kube"
 	"github.com/TechDufus/dash/internal/model"
 	"github.com/TechDufus/dash/internal/plugin"
-	"github.com/TechDufus/dash/internal/secret"
+	"github.com/TechDufus/dash/internal/svc"
 	"github.com/TechDufus/dash/internal/upstream"
 )
 
-// ErrNotFound is returned by the detail lookups when the object does not exist.
-var ErrNotFound = errors.New("not found")
-
 // Deps are the collaborators of a Manager.
 type Deps struct {
-	Cfg     config.Config
-	Cluster *kube.Cluster
+	Cfg config.Config
+	// Cluster is the kubernetes plugin's svc.Cluster while the plugin runs (the accessor reads
+	// Supervisor.Service per call: the plugin restarts on a reload and its service changes with
+	// it), else false. nil means no cluster. The Manager compares the values it gets, so a
+	// service must be a comparable value such as a pointer.
+	Cluster func() (svc.Cluster, bool)
 	// Hosts hands out the Host each topic is published through, and says which plugins run.
 	Hosts plugin.HostProvider
 	// Contributors lists the running plugins that add to the overview (Supervisor.Contributors);
 	// nil means none do.
 	Contributors func() []plugin.Contributor
-	// Services is Supervisor.Service: what a running plugin exports (svc.Querier,
-	// svc.EndpointHealth, …), for the Manager, which is not a plugin and so cannot use
-	// Host.Service. The Manager reads them through accessors (querier, endpoints) that return a
-	// stub while the plugin is absent. nil means no plugin exports anything.
-	Services func(id plugin.ID) (any, bool)
 	// LinkProviders is Supervisor.Links: the resolver over the running link providers (grafana,
 	// headlamp), read once per rebuild. nil means none: no Grafana or Headlamp link is built.
 	LinkProviders func() plugin.LinkResolver
-	// Secrets scrubs logged upstream errors; nil only matches credential shapes.
-	Secrets *secret.Registry
 }
 
-const (
-	rebuildEvery = time.Second
-	pollTimeout  = 25 * time.Second
-)
+const rebuildEvery = time.Second
 
-// Cadences of the upstream pollers.
-const (
-	usageEvery   = 30 * time.Second
-	storageEvery = 60 * time.Second
-)
-
-type srcState struct {
-	ok  bool
-	err string
-	at  time.Time
-}
-
-// Manager owns the pollers and the dirty-topic rebuild loop.
+// Manager owns the dirty-topic rebuild loop.
 type Manager struct {
 	d   Deps
 	now func() time.Time
 
-	mu      sync.RWMutex
-	srcs    map[string]srcState
-	done    map[string]bool // first poll attempt finished
-	usage   usageSnap
-	storage storageSnap
+	mu    sync.RWMutex
+	built built
 
-	built   built
 	linkSet atomic.Pointer[plugin.LinkResolver] // the provider snapshot of the running rebuild
 	tracker *Tracker
-	nodeRev atomic.Uint64 // svc.NodeIndex.Revision: bumped when a node is added, removed or changes readiness
 
-	// seenEndpoints and seenRevision are the service of svc.EndpointHealth and its Revision as
-	// the last rebuild round saw them (see watchEndpoints); only that round reads or writes them.
-	seenEndpoints any
-	seenRevision  uint64
+	// seenCluster, seenSynced, seenListed and seenRevision are the kubernetes service and what
+	// watchCluster read of it in the last rebuild round; only that round reads or writes them.
+	seenCluster  svc.Cluster
+	seenSynced   bool
+	seenListed   bool
+	seenRevision uint64
 
 	dmu   sync.Mutex
 	dirty map[model.Topic]bool
@@ -92,46 +66,22 @@ type Manager struct {
 
 // built holds the latest typed data of every topic; the overview derives from them.
 type built struct {
-	cluster *model.ClusterData
-	flux    *model.FluxData
-	storage *model.StorageData
-	apps    *model.AppsData
+	flux *model.FluxData
 }
 
 // New returns a Manager; call Run to start it.
 func New(d Deps) *Manager {
-	m := &Manager{
+	return &Manager{
 		d:          d,
 		now:        time.Now,
-		srcs:       map[string]srcState{},
-		done:       map[string]bool{},
 		tracker:    NewTracker(),
 		dirty:      map[model.Topic]bool{},
 		badSources: map[plugin.ID]struct{}{},
 	}
-	// What exists now is not a change; Run marks every topic once the caches are filled.
-	id, ep, _ := m.lookupEndpoints()
-	m.seenEndpoints, m.seenRevision = id, ep.Revision()
-	return m
 }
 
-// Ready is true once every informer has synced. Upstream outages never affect it.
-func (m *Manager) Ready() bool { return m.d.Cluster.HasSynced() }
-
-// Run starts the informers, the pollers and the rebuild loop; it does not block.
+// Run starts the rebuild loop; it does not block.
 func (m *Manager) Run(ctx context.Context) {
-	m.d.Cluster.OnChange(m.onKubeChange)
-	m.d.Cluster.Start(ctx)
-
-	m.every(ctx, "usage", usageEvery, m.pollUsage)
-	m.every(ctx, "storage", storageEvery, m.pollStorage)
-
-	go func() {
-		// Everything is dirty once the caches are filled, so the first full state is published.
-		if m.d.Cluster.WaitForSync(ctx) {
-			m.markAll()
-		}
-	}()
 	go func() {
 		t := time.NewTicker(rebuildEvery)
 		defer t.Stop()
@@ -157,98 +107,20 @@ func (m *Manager) safeRebuild() {
 	m.rebuild()
 }
 
-func (m *Manager) every(ctx context.Context, name string, d time.Duration, fn func(context.Context)) {
-	go func() {
-		t := time.NewTicker(d)
-		defer t.Stop()
-		for {
-			func() {
-				defer func() {
-					if r := recover(); r != nil {
-						slog.Error("poller panic", "poller", name, "panic", r)
-					}
-				}()
-				if !m.anyRunning(pollUsers[name]) {
-					return // nothing that reads this source runs: no request is made
-				}
-				pctx, cancel := context.WithTimeout(ctx, pollTimeout)
-				defer cancel()
-				fn(pctx)
-			}()
-			m.mu.Lock()
-			m.done[name] = true
-			m.mu.Unlock()
-			select {
-			case <-ctx.Done():
-				return
-			case <-t.C:
-			}
-		}
-	}()
-}
-
-func (m *Manager) pollDone(names ...string) bool {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	for _, n := range names {
-		if !m.done[n] {
-			return false
-		}
+// kubeSources is the status of the kubernetes plugin's informers as the Manager's topics see it:
+// the plugin's service is absent (not configured, disabled or failed to start), or it has not
+// synced, or it has.
+func (m *Manager) kubeSources() []model.SourceStatus {
+	s := model.SourceStatus{Name: "kubernetes", CheckedAt: m.now().UTC()}
+	switch c, ok := m.cluster(); {
+	case !ok:
+		s.Error = upstream.CategoryNotConfigured
+	case !c.Synced():
+		s.Error = "informers not synced"
+	default:
+		s.OK = true
 	}
-	return true
-}
-
-// setSource records the outcome of one upstream call; key is "<scope>:<source>". Viewers get
-// only the error category (design C.6, K.3): the detail names URLs and hosts, so it goes to the
-// log, scrubbed, once per change of category rather than on every poll.
-func (m *Manager) setSource(key string, err error) {
-	s := srcState{ok: err == nil, at: m.now().UTC(), err: upstream.Category(err)}
-	m.mu.Lock()
-	prev := m.srcs[key]
-	m.srcs[key] = s
-	m.mu.Unlock()
-	if err != nil && s.err != upstream.CategoryNotConfigured && (prev.ok || prev.err != s.err) {
-		slog.Warn("upstream source failed", "source", key, "category", s.err, "error", m.d.Secrets.Scrub(err.Error()))
-	}
-}
-
-// sources lists SourceStatus for keys; a plain name without ':' is the Kubernetes informers.
-// Keys written by a poller that is not running (see polled) are left out: they would stay "not
-// polled yet" forever.
-func (m *Manager) sources(keys ...string) []model.SourceStatus {
-	keys = m.polledKeys(keys)
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	out := make([]model.SourceStatus, 0, len(keys))
-	seen := map[string]int{}
-	for _, k := range keys {
-		name := k
-		if _, after, found := strings.Cut(k, ":"); found {
-			name = after
-		}
-		var s model.SourceStatus
-		if k == "kubernetes" {
-			s = model.SourceStatus{Name: k, OK: m.d.Cluster.HasSynced(), CheckedAt: m.now().UTC()}
-			if !s.OK {
-				s.Error = "informers not synced"
-			}
-		} else {
-			st := m.srcs[k]
-			s = model.SourceStatus{Name: name, OK: st.ok, Error: st.err, CheckedAt: st.at}
-			if st.at.IsZero() {
-				s.OK, s.Error, s.CheckedAt = false, "not polled yet", m.now().UTC()
-			}
-		}
-		if i, dup := seen[name]; dup {
-			if !s.OK && out[i].OK {
-				out[i] = s
-			}
-			continue
-		}
-		seen[name] = len(out)
-		out = append(out, s)
-	}
-	return out
+	return []model.SourceStatus{s}
 }
 
 func (m *Manager) mark(topics ...model.Topic) {
@@ -259,26 +131,29 @@ func (m *Manager) mark(topics ...model.Topic) {
 	m.dmu.Unlock()
 }
 
-func (m *Manager) markAll() {
-	m.mark(model.TopicCluster, model.TopicFlux, model.TopicStorage, model.TopicApps)
-}
-
-func (m *Manager) onKubeChange(k kube.Kind) {
-	switch k {
-	case kube.KindNodes:
-		m.nodeRev.Add(1)
-		m.mark(model.TopicCluster)
-	case kube.KindNamespaces:
-		m.mark(model.TopicCluster, model.TopicApps)
-	case kube.KindPods, kube.KindWorkloads, kube.KindEvents, kube.KindCertificates, kube.KindExtSecrets:
-		m.mark(model.TopicCluster)
-	case kube.KindPVCs, kube.KindCNPG:
-		m.mark(model.TopicStorage)
-	case kube.KindFlux:
-		m.mark(model.TopicFlux)
-	case kube.KindHTTPRoutes:
-		m.mark(model.TopicApps)
+// watchCluster marks flux when the kubernetes service, its Synced state, its flux resources'
+// revision or the listed state of the five flux resources differs from the last round's. A plugin
+// cannot mark the Manager's topics, and a callback registered once would not survive a reload
+// (which builds a new service), so the Manager compares on its own tick. It asks each new
+// service to watch the flux resources once. It runs at the top of rebuild, ahead of the early
+// return for a quiet round.
+func (m *Manager) watchCluster() {
+	c, ok := m.cluster()
+	var (
+		synced, listed bool
+		rev            uint64
+	)
+	if ok {
+		if c != m.seenCluster {
+			c.Watch(fluxGVRs...)
+		}
+		synced, listed, rev = c.Synced(), fluxListed(c), c.GVRRevision(fluxGVRs...)
 	}
+	if c == m.seenCluster && synced == m.seenSynced && listed == m.seenListed && rev == m.seenRevision {
+		return
+	}
+	m.seenCluster, m.seenSynced, m.seenListed, m.seenRevision = c, synced, listed, rev
+	m.mark(model.TopicFlux)
 }
 
 // publish hands one topic to the Host of the plugin that owns it, which names, types and
@@ -289,43 +164,6 @@ func (m *Manager) publish(topic model.Topic, data any, srcs []model.SourceStatus
 		return
 	}
 	m.d.Hosts.HostFor(plugin.Core).Publish(strings.TrimPrefix(string(topic), string(plugin.Core)+"."), data, srcs)
-}
-
-// anyRunning reports whether at least one of ids runs; an empty list means "always", and so does
-// a Manager without a supervisor (Hosts nil).
-func (m *Manager) anyRunning(ids []plugin.ID) bool {
-	if len(ids) == 0 || m.d.Hosts == nil {
-		return true
-	}
-	for _, id := range ids {
-		if m.d.Hosts.Running(id) {
-			return true
-		}
-	}
-	return false
-}
-
-// keyPoller names the poller (the name Run and pollUsers use) that writes the source keys with
-// a given scope. Keys outside it, the informers' "kubernetes", are always live.
-var keyPoller = map[string]string{"cluster": "usage", "storage": "storage"}
-
-// polled reports whether source key k is being written: its poller runs only while a plugin that
-// reads it does. A key whose poller is skipped never gets a first poll.
-func (m *Manager) polled(k string) bool {
-	scope, _, _ := strings.Cut(k, ":")
-	poller, ok := keyPoller[scope]
-	return !ok || m.anyRunning(pollUsers[poller])
-}
-
-// polledKeys is keys without the ones nothing polls. It takes no lock: Hosts has its own.
-func (m *Manager) polledKeys(keys []string) []string {
-	out := make([]string, 0, len(keys))
-	for _, k := range keys {
-		if m.polled(k) {
-			out = append(out, k)
-		}
-	}
-	return out
 }
 
 // resolver is the link resolver of the running rebuild: one snapshot of the providers per
@@ -355,7 +193,7 @@ func (m *Manager) link(kind, namespace, name string) []model.Link {
 // from what exists. The overview waits for no topic: it is recomposed after any change, and on
 // every round while a plugin contributes to it (the hub drops an unchanged result).
 func (m *Manager) rebuild() {
-	m.watchEndpoints() // before the early return below: a quiet cluster still follows gatus
+	m.watchCluster() // before the early return below: a quiet cluster still follows the plugin
 	m.dmu.Lock()
 	dirty := m.dirty
 	m.dirty = map[model.Topic]bool{}
@@ -367,8 +205,6 @@ func (m *Manager) rebuild() {
 	snap := m.providers()
 	m.linkSet.Store(&snap)
 	defer m.linkSet.Store(nil)
-	synced := m.d.Cluster.HasSynced()
-	retry := func(t model.Topic) { m.mark(t) }
 	now := m.now()
 
 	build := func(t model.Topic, ready bool, fn func() (any, []model.SourceStatus)) {
@@ -379,45 +215,28 @@ func (m *Manager) rebuild() {
 			return // a disabled plugin publishes nothing, and nothing waits for it
 		}
 		if !ready {
-			retry(t)
+			m.mark(t)
 			return
 		}
 		data, srcs := fn()
 		m.publish(t, data, srcs)
 	}
 
-	build(model.TopicCluster, synced, func() (any, []model.SourceStatus) {
-		d := m.buildCluster(now)
-		m.mu.Lock()
-		m.built.cluster = &d
-		m.mu.Unlock()
-		return d, m.sources("kubernetes", "cluster:victoriametrics")
-	})
-	build(model.TopicFlux, synced, func() (any, []model.SourceStatus) {
-		d := m.buildFlux()
+	// The flux build waits for the kubernetes service, its sync and the first list (or the
+	// absence) of each of the five flux resources: sourceVerified is never computed from a
+	// partial list.
+	c, haveCluster := m.cluster()
+	build(model.TopicFlux, haveCluster && c.Synced() && fluxListed(c), func() (any, []model.SourceStatus) {
+		d := m.buildFlux(c)
 		m.mu.Lock()
 		m.built.flux = &d
 		m.mu.Unlock()
-		return d, m.sources("kubernetes")
-	})
-	build(model.TopicStorage, synced && m.pollDone("storage"), func() (any, []model.SourceStatus) {
-		d := m.buildStorage(now)
-		m.mu.Lock()
-		m.built.storage = &d
-		m.mu.Unlock()
-		return d, m.sources("kubernetes", "storage:victoriametrics")
-	})
-	build(model.TopicApps, synced && m.endpointsReady(), func() (any, []model.SourceStatus) {
-		d := m.buildApps()
-		m.mu.Lock()
-		m.built.apps = &d
-		m.mu.Unlock()
-		return d, append(m.sources("kubernetes"), m.endpoints().SourceStatuses()...)
+		return d, m.kubeSources()
 	})
 
 	m.mu.RLock()
 	b := m.built
 	m.mu.RUnlock()
-	srcs := m.sources("kubernetes", "cluster:victoriametrics", "storage:victoriametrics")
-	m.publish(model.TopicOverview, m.buildOverview(b, contributors, now), mergeSources(srcs, m.contributorSources(contributors)))
+	m.publish(model.TopicOverview, m.buildOverview(b, contributors, now),
+		mergeSources(m.kubeSources(), m.contributorSources(contributors)))
 }

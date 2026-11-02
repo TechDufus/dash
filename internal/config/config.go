@@ -61,9 +61,6 @@ type Config struct {
 	IconBaseURL string
 
 	Conventions Conventions
-
-	// Kubeconfig is used outside the cluster (dev); empty means in-cluster config.
-	Kubeconfig string
 }
 
 // Limits is server.limits as the flat view reads it.
@@ -76,19 +73,11 @@ type Limits struct {
 	MaxHeaderBytes          int // of the API listener
 }
 
-// Conventions are the labels, annotations and metric names dash reads from the cluster.
+// Conventions are the labels, annotations and metric names dash reads from the cluster that the
+// core still reads itself; the kubernetes plugin's own are plugins.kubernetes.conventions.
 type Conventions struct {
-	// ProtectedLabel marks a namespace whose restarts must be confirmed by typing the name.
-	ProtectedLabel string
-	// TenantLabel puts a namespace in the Tenants group; its value is the tenant.
-	TenantLabel string
 	// SuspendReasonAnnotation on a Flux object is shown as the reason it is suspended.
 	SuspendReasonAnnotation string
-	// AppsFluxPrefix puts namespaces applied by a Flux Kustomization with this name prefix in Apps.
-	AppsFluxPrefix string
-	// NASBackupNamespace and NASBackupCronJob locate the NAS backup CronJob(s) (name or name-*).
-	NASBackupNamespace string
-	NASBackupCronJob   string
 }
 
 // ProcessSources reads the layers the process itself provides: its environment and the config

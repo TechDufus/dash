@@ -3,14 +3,12 @@ package api
 import (
 	"errors"
 	"net/http"
-	"strconv"
 	"time"
 
 	"github.com/TechDufus/dash/internal/model"
 	"github.com/TechDufus/dash/internal/plugin"
 	"github.com/TechDufus/dash/internal/queries"
 	"github.com/TechDufus/dash/internal/svc"
-	"github.com/TechDufus/dash/internal/topics"
 )
 
 func (s *Server) series(w http.ResponseWriter, r *http.Request) {
@@ -26,17 +24,14 @@ func (s *Server) series(w http.ResponseWriter, r *http.Request) {
 		Namespace: firstOf(r, "namespace", "ns"),
 		Pod:       q.Get("pod"),
 	}
+	// The node is named, not resolved: the series that reads it (a plugin's) turns the name into
+	// its instance and answers plugin.ErrNotFound for a node it does not know.
 	if node := q.Get("node"); node != "" {
 		if !queries.ValidDNS(node) {
 			writeErr(w, http.StatusBadRequest, model.ErrCodeInvalidInput, "invalid node")
 			return
 		}
-		ip, found := s.d.Data.NodeIP(node)
-		if !found {
-			writeErr(w, http.StatusNotFound, model.ErrCodeNotFound, "unknown node")
-			return
-		}
-		args.Instance = ip + ":" + strconv.Itoa(queries.NodeExporterPort)
+		args.Instance = node
 	}
 	expr, err := s.seriesExpr(name, args)
 	switch {
@@ -88,21 +83,4 @@ func (s *Server) seriesExpr(name string, a queries.Args) (string, error) {
 		}
 	}
 	return queries.Series(name, a)
-}
-
-func (s *Server) podDetail(w http.ResponseWriter, r *http.Request) {
-	ns, name := r.PathValue("ns"), r.PathValue("name")
-	if !queries.ValidDNS(ns) || !queries.ValidDNS(name) {
-		writeErr(w, http.StatusBadRequest, model.ErrCodeInvalidInput, "invalid namespace or pod name")
-		return
-	}
-	d, err := s.d.Data.PodDetail(r.Context(), ns, name)
-	switch {
-	case errors.Is(err, topics.ErrNotFound):
-		writeErr(w, http.StatusNotFound, model.ErrCodeNotFound, "pod not found")
-	case err != nil:
-		s.badGateway(w, "pod details unavailable", err)
-	default:
-		writeJSON(w, http.StatusOK, d)
-	}
 }
