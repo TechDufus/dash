@@ -58,23 +58,6 @@ func goldenManager(t *testing.T) *Manager {
 	return m
 }
 
-// withoutNewFields drops what the overview gained when it became a composition of plugin
-// contributions (the plugin of each item, the KPI list), so the rest can be compared with what
-// the overview was before.
-func withoutNewFields(t *testing.T, raw []byte) map[string]any {
-	t.Helper()
-	var doc map[string]any
-	if err := json.Unmarshal(raw, &doc); err != nil {
-		t.Fatal(err)
-	}
-	delete(doc, "kpiList")
-	items, _ := doc["attention"].([]any)
-	for _, it := range items {
-		delete(it.(map[string]any), "plugin")
-	}
-	return doc
-}
-
 // goldenAlerts stands in for the running alertmanager plugin: the two firing alerts of the lab
 // as its AttentionSource raises them (the rules themselves are the plugin's, tested there), with
 // the Grafana link the lab's providers resolve for Kind "Alerts".
@@ -180,12 +163,61 @@ func (goldenHardware) Topology() model.Topology {
 	}
 }
 
+// goldenKubernetes stands in for the running kubernetes plugin: the attention items, KPIs and
+// topology groups it derives from the lab's cluster and storage (the rules are the plugin's,
+// tested there; these are the items the lab had before the plugin took them over, each with the
+// ref the plugin now gives it). It makes the golden file pin what the overview carries for a
+// cluster, where each item sorts among the other plugins' and the order of the KPIs.
+type goldenKubernetes struct{}
+
+func (goldenKubernetes) Attention(time.Time) []model.AttentionItem {
+	item := func(id string, sev model.Severity, source, title, detail string, since time.Time, route, ref string) model.AttentionItem {
+		return model.AttentionItem{ID: id, Severity: sev, Source: source, Plugin: "kubernetes", Title: title, Detail: detail,
+			Since: since, Route: route, Links: []model.Link{}, Ref: ref}
+	}
+	return []model.AttentionItem{
+		item("node:cp-2", model.SeverityCrit, "kubernetes", "Node cp-2 not ready", "192.0.2.12", testNow, "/cluster", "kubernetes:Node/cp-2"),
+		item("pod:media/app-0", model.SeverityCrit, "kubernetes", "Pod media/app-0 is failing", "CrashLoopBackOff", testNow.Add(-47*time.Minute), "/cluster/pods/media/app-0", "kubernetes:Pod/media/app-0"),
+		item("pod:media/app-1", model.SeverityWarn, "kubernetes", "Pod media/app-1 is stuck pending", "Pending for over 5 minutes", testNow.Add(-20*time.Minute), "/cluster/pods/media/app-1", "kubernetes:Pod/media/app-1"),
+		item("workload:Deployment/media/app", model.SeverityCrit, "kubernetes", "Deployment media/app not ready", "0 of 2 ready", testNow, "/cluster", "kubernetes:Workload/Deployment/media/app"),
+		item("cert:media/tls", model.SeverityCrit, "cert-manager", "Certificate media/tls expires soon", "expires 2026-11-04 (5 days)", testNow, "/cluster", "kubernetes:Certificate/media/tls"),
+		item("pvc:media/data", model.SeverityCrit, "storage", "PVC media/data is 93% full", "", testNow, "/storage", "kubernetes:PVC/media/data"),
+		item("pvc:monitoring/tsdb", model.SeverityWarn, "storage", "PVC monitoring/tsdb is 82% full", "", testNow, "/storage", "kubernetes:PVC/monitoring/tsdb"),
+		item("bucket:backups", model.SeverityCrit, "storage", "Bucket backups is 95% of its quota", "", testNow, "/storage", ""),
+	}
+}
+
+func (goldenKubernetes) KPIs() []model.KPI {
+	return []model.KPI{
+		{Key: "nodes.ready", Plugin: "kubernetes", Label: "Nodes ready", Value: 1, Health: model.HealthCrit},
+		{Key: "nodes.total", Plugin: "kubernetes", Label: "Nodes", Value: 2, Health: model.HealthOK},
+		{Key: "pvc.worst", Plugin: "kubernetes", Label: "media/data", Value: 0.93, Health: model.HealthCrit},
+	}
+}
+
+func (goldenKubernetes) Topology() model.Topology {
+	group := func(name model.Group, health model.Health, byNode map[string]int, ns ...model.TopologyNamespace) model.TopologyGroup {
+		return model.TopologyGroup{Name: name, Health: health, Namespaces: ns, PodsByNode: byNode}
+	}
+	return model.Topology{VMs: []model.TopologyVM{}, Groups: []model.TopologyGroup{
+		group(model.GroupPlatform, model.HealthWarn, map[string]int{"cp-1": 2},
+			model.TopologyNamespace{Name: "flux-system", Health: model.HealthOK, Pods: 4},
+			model.TopologyNamespace{Name: "monitoring", Health: model.HealthWarn, Pods: 6}),
+		group(model.GroupApps, model.HealthCrit, map[string]int{"cp-1": 1, "cp-2": 1},
+			model.TopologyNamespace{Name: "media", Health: model.HealthCrit, Pods: 3}),
+		group(model.GroupTenants, model.HealthOK, map[string]int{"cp-2": 1},
+			model.TopologyNamespace{Name: "acme", Health: model.HealthOK, Pods: 2}),
+	}}
+}
+
 // The overview a lab gets is unchanged by composing it from plugin contributions: the golden file
-// was written by the code that built it from the topics directly, and regenerated when the host
-// moved into the hardware plugin (P3.7): the host's items, its two KPIs (now in kpiList, no longer
-// in kpis) and the host in the topology come from its contribution; nothing else changed. The
-// alerts arrive from the alertmanager contribution, and Kpis.alertsFiring is gone (its tile is
-// the plugin's KPI).
+// was written by the code that built it from the topics directly, and regenerated as each
+// integration moved into a plugin of its own. The host's items and KPIs come from the hardware
+// contribution (P3.7), and the cluster's items, its three KPIs (nodes.ready, nodes.total,
+// pvc.worst, now in kpiList and no longer in kpis) and its topology groups from the kubernetes
+// one (P3.8): each item gained its ref, and nothing else changed against v0.8.1. The alerts
+// arrive from the alertmanager contribution, and Kpis.alertsFiring is gone (its tile is the
+// plugin's KPI). The whole document is compared, kpiList and the order of the items included.
 func TestOverviewOutputIsUnchanged(t *testing.T) {
 	gp := goldenProxmox{vms: goldenVMs()}
 	gh := goldenHardware{links: goldenProxmoxLinks{}.Links(plugin.LinkRequest{Kind: "ProxmoxUI"})}
@@ -195,6 +227,7 @@ func TestOverviewOutputIsUnchanged(t *testing.T) {
 		{ID: "gatus", Attention: goldenGatus{}},
 		{ID: "proxmox", Attention: gp, KPIs: gp, Topology: gp},
 		{ID: "hardware", Attention: gh, KPIs: gh, Topology: gh},
+		{ID: "kubernetes", Attention: goldenKubernetes{}, KPIs: goldenKubernetes{}, Topology: goldenKubernetes{}},
 	}
 	got, err := json.MarshalIndent(goldenManager(t).buildOverview(goldenSnapshots(), cs, testNow), "", "  ")
 	if err != nil {
@@ -210,10 +243,7 @@ func TestOverviewOutputIsUnchanged(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	gotDoc, wantDoc := withoutNewFields(t, got), withoutNewFields(t, want)
-	g, _ := json.MarshalIndent(gotDoc, "", "  ")
-	w, _ := json.MarshalIndent(wantDoc, "", "  ")
-	if string(g) != string(w) {
-		t.Errorf("the overview changed:\n got %s\nwant %s", g, w)
+	if string(got)+"\n" != string(want) {
+		t.Errorf("the overview changed (run with -update to rewrite the golden file if intended):\n got %s\nwant %s", got, want)
 	}
 }

@@ -33,6 +33,11 @@ import (
 // fakeConnection is how the kubernetes plugin reaches the cluster in this test: an empty one whose
 // informers sync at once.
 func fakeConnection(pluginconf.Kubernetes) (*kubernetes.Connection, error) {
+	return connectionWith(kubefake.NewClientset()), nil
+}
+
+// connectionWith is a cluster over client, with no custom resource served.
+func connectionWith(client *kubefake.Clientset) *kubernetes.Connection {
 	listKinds := map[schema.GroupVersionResource]string{}
 	for _, gvr := range []schema.GroupVersionResource{
 		kube.GVRKustomizations, kube.GVRHelmReleases, kube.GVRGitRepositories, kube.GVROCIRepositories, kube.GVRHelmRepositories,
@@ -40,8 +45,8 @@ func fakeConnection(pluginconf.Kubernetes) (*kubernetes.Connection, error) {
 	} {
 		listKinds[gvr] = gvr.Resource + "List"
 	}
-	return &kubernetes.Connection{Cluster: kube.NewFromClients(kubefake.NewClientset(),
-		dynfake.NewSimpleDynamicClientWithCustomListKinds(runtime.NewScheme(), listKinds))}, nil
+	return &kubernetes.Connection{Cluster: kube.NewFromClients(client,
+		dynfake.NewSimpleDynamicClientWithCustomListKinds(runtime.NewScheme(), listKinds))}
 }
 
 // topicLineHas reports whether some line of the SSE stream carries the envelope of topic and the
