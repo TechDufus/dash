@@ -425,7 +425,7 @@
         },
         "burst": {
           "default": 40,
-          "description": "Burst of requests the client may send at once, at least qps. The default is 40.",
+          "description": "Burst of requests the client may send at once, at least qps. 0 or unset means the default, 40; a negative value is refused.",
           "type": "integer"
         },
         "context": {
@@ -464,7 +464,7 @@
         },
         "qps": {
           "default": 20,
-          "description": "Requests per second dash's Kubernetes client may send, above 0. The default is 20.",
+          "description": "Requests per second dash's Kubernetes client may send. 0 or unset means the default, 20; a negative value is refused.",
           "type": "integer"
         },
         "type": {

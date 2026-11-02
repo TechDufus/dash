@@ -1,6 +1,7 @@
 package pluginconf
 
 import (
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -72,6 +73,7 @@ func TestKubernetesSettingRules(t *testing.T) {
 		{"mode kubeconfig", Kubernetes{Mode: "kubeconfig"}, nil},
 		{"unknown mode", Kubernetes{Mode: "remote"}, []string{"mode"}},
 		{"qps and burst", Kubernetes{QPS: 50, Burst: 50}, nil},
+		{"zero qps and burst mean the defaults", Kubernetes{QPS: 0, Burst: 0}, nil},
 		{"burst below qps", Kubernetes{QPS: 50, Burst: 10}, []string{"burst"}},
 		{"only qps above the default burst", Kubernetes{QPS: 100}, []string{"burst"}},
 		{"negative qps", Kubernetes{QPS: -1}, []string{"qps"}},
@@ -93,6 +95,22 @@ func TestBurstBelowQPSIsInvalid(t *testing.T) {
 	err := Kubernetes{QPS: 40, Burst: 20}.Validate()
 	if err == nil || !strings.Contains(err.Error(), "burst: is 20, below qps (40)") {
 		t.Fatalf("err = %v", err)
+	}
+}
+
+// The settings table says what the code does: 0 is not "no limit" but the default.
+func TestKubernetesRateLimitDocsSayZeroIsTheDefault(t *testing.T) {
+	for _, name := range []string{"QPS", "Burst"} {
+		f, _ := reflect.TypeOf(Kubernetes{}).FieldByName(name)
+		if doc := f.Tag.Get("doc"); !strings.Contains(doc, "0 or unset means the default") {
+			t.Errorf("%s doc = %q", name, doc)
+		}
+	}
+	if got := (Kubernetes{}).EffectiveQPS(); got != KubernetesQPSDefault {
+		t.Errorf("EffectiveQPS of 0 = %d", got)
+	}
+	if got := (Kubernetes{}).EffectiveBurst(); got != KubernetesBurstDefault {
+		t.Errorf("EffectiveBurst of 0 = %d", got)
 	}
 }
 

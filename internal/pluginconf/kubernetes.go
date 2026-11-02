@@ -31,8 +31,8 @@ type Kubernetes struct {
 	// Kubeconfig is used outside the cluster (dev); empty means in-cluster config.
 	Kubeconfig  string                `json:"kubeconfig" doc:"Path of a kubeconfig file, used outside the cluster (development). Empty means the in-cluster configuration. The standard KUBECONFIG variable fills it too; this setting's own variable wins."`
 	Context     string                `json:"context" doc:"The kubeconfig context to use. Empty uses the kubeconfig's current context. Only read with a kubeconfig."`
-	QPS         int                   `json:"qps" doc:"Requests per second dash's Kubernetes client may send, above 0. The default is 20."`
-	Burst       int                   `json:"burst" doc:"Burst of requests the client may send at once, at least qps. The default is 40."`
+	QPS         int                   `json:"qps" doc:"Requests per second dash's Kubernetes client may send. 0 or unset means the default, 20; a negative value is refused."`
+	Burst       int                   `json:"burst" doc:"Burst of requests the client may send at once, at least qps. 0 or unset means the default, 40; a negative value is refused."`
 	Etcd        KubernetesEtcd        `json:"etcd" doc:"How dash finds etcd's metrics."`
 	Optional    KubernetesOptional    `json:"optional" doc:"CRDs that a cluster may not have. A missing CRD of the kinds the plugin reads shows as a note and makes the plugin degraded, unless it is marked optional here."`
 	Conventions KubernetesConventions `json:"conventions" doc:"Labels dash reads from namespaces. None has a default: while one is empty the feature that depends on it is off."`
@@ -158,10 +158,10 @@ func (k Kubernetes) Validate() error {
 		p.add("mode", "%q is not %s, %s or %s", k.Mode, KubernetesModeAuto, KubernetesModeInCluster, KubernetesModeKubeconfig)
 	}
 	if k.QPS < 0 {
-		p.add("qps", "must be above 0")
+		p.add("qps", "must not be negative (0 means the default, %d)", KubernetesQPSDefault)
 	}
 	if k.Burst < 0 {
-		p.add("burst", "must be above 0")
+		p.add("burst", "must not be negative (0 means the default, %d)", KubernetesBurstDefault)
 	}
 	if k.QPS >= 0 && k.Burst >= 0 && k.EffectiveBurst() < k.EffectiveQPS() {
 		p.add("burst", "is %d, below qps (%d)", k.EffectiveBurst(), k.EffectiveQPS())
