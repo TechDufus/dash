@@ -195,6 +195,52 @@ func TestReloadAddingARefIsAChange(t *testing.T) {
 	}
 }
 
+// Pointing a field at another handle that already holds the same value is a Change: the equal
+// values must not hide that the field reads another Secret.
+func TestRepointingAtAnEqualFilledHandleIsAChange(t *testing.T) {
+	g := newK8sRig(t, proxmoxWith(refA))
+	g.refs.Fill(refA, canary)
+	g.edit(t, proxmoxWith(refB))
+	g.refs.Fill(refB, canary) // the same value in the other Secret
+
+	g.edit(t, proxmoxWith(refA))
+	if len(g.changes) != 1 || g.changes[0].Section != "plugins.proxmox" || !slices.Contains(g.changes[0].Paths, tokenPath) {
+		t.Fatalf("changes = %+v, want plugins.proxmox with %s", g.changes, tokenPath)
+	}
+	g.edit(t, proxmoxWith(refA)+"  # edited\n")
+	if len(g.changes) != 0 {
+		t.Errorf("the same reference again is no change: %+v", g.changes)
+	}
+}
+
+// A reload that replaces a running k8s: reference with a literal or a file: reference brings a
+// new secret into the tree, which the registry must scrub from then on.
+func TestReloadFromK8sRefToAnotherSourceIsScrubbed(t *testing.T) {
+	const fresh = "FRESHSECRETVALUE9876"
+	secretFile := filepath.Join(t.TempDir(), "token")
+	writeFile(t, secretFile, fresh+"\n")
+	for name, value := range map[string]string{"literal": fresh, "file": "file:" + secretFile} {
+		t.Run(name, func(t *testing.T) {
+			g := newK8sRig(t, proxmoxWith(refA))
+			g.refs.Fill(refA, canary)
+			if got := g.reg.Scrub("said " + fresh); !strings.Contains(got, fresh) {
+				t.Fatal("the new value is scrubbed before it was ever configured")
+			}
+
+			g.edit(t, proxmoxWith(value))
+			if len(g.changes) != 1 || !slices.Contains(g.changes[0].Paths, tokenPath) {
+				t.Fatalf("changes = %+v", g.changes)
+			}
+			if got := g.reg.Scrub("said " + fresh); strings.Contains(got, fresh) {
+				t.Errorf("the value a reload brought in is not scrubbed: %q", got)
+			}
+			if got := g.reg.Scrub("said " + canary); strings.Contains(got, canary) {
+				t.Errorf("the value of the k8s: handle stopped being scrubbed: %q", got)
+			}
+		})
+	}
+}
+
 // A reference the reload introduced is scrubbed from the moment the Secret is read, and no log
 // line, error or formatted configuration ever shows the value (the canary of P3.10).
 func TestSecretValueNeverLeaks(t *testing.T) {

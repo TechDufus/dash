@@ -228,9 +228,11 @@ func (r *Reloader) apply(next *Resolved) []Change {
 				restart[l.path] = true // the plugin that reads it is on or off until restart
 			}
 			same := ov.Reveal() == nv.Reveal()
-			if same && (ov.Pending() || nv.Pending()) {
-				// A pending handle has no value to compare: "" == "" would hide a reference
-				// that a reload added, removed or pointed elsewhere.
+			if same && (k8sRef(ov) || k8sRef(nv)) {
+				// A k8s: handle is one per reference and its value is whatever the kubernetes
+				// plugin has read, so equal values prove nothing: a pending handle has none
+				// ("" == "" would hide a reference that a reload added, removed or pointed
+				// elsewhere), and two filled handles can hold the same value.
 				same = ov.Ref() == nv.Ref()
 			}
 			if same {
@@ -242,7 +244,11 @@ func (r *Reloader) apply(next *Resolved) []Change {
 				// A k8s: handle is filled by the kubernetes plugin and is the same one on every
 				// resolution: copying a value into or out of it would overwrite what the
 				// plugin read. A different reference is a different handle, which the plugin
-				// framework picks up with the section's Change.
+				// framework picks up with the section's Change. A value that leaves a k8s:
+				// handle is a new secret all the same: it must never be shown.
+				if !k8sRef(nv) && nv.IsSet() && r.reg != nil {
+					r.reg.Add(nv)
+				}
 			case running.IsSet() && nv.IsSet() && running.Update(nv.Reveal()):
 				r.log().Info("secret reloaded", "path", l.path, "ref", nv.Ref())
 			case nv.IsSet() && r.reg != nil:
