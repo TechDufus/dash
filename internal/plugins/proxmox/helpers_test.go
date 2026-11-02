@@ -280,6 +280,21 @@ type env struct {
 	idx  *fakeIndex
 	prom *fakeProm
 	logs *syncBuffer
+
+	promReleased atomic.Bool // see envOpts.lateProm
+}
+
+// lateService is a fake plugin that exports its service once released is set.
+type lateService struct {
+	*plugintest.Fake
+	released *atomic.Bool
+}
+
+func (l *lateService) Service() any {
+	if !l.released.Load() {
+		return nil
+	}
+	return l.Fake.Service()
 }
 
 // syncBuffer is a bytes.Buffer that is safe to write from the plugin's goroutines.
@@ -305,6 +320,7 @@ type envOpts struct {
 	pve      *fakePVE                  // use this upstream
 	noKube   bool                      // no kubernetes plugin
 	noProm   bool                      // no prometheus plugin
+	lateProm bool                      // prometheus runs, but exports its service only after env.promReleased is set
 	unsynced bool                      // the node index has not synced yet
 	timing   func(*timing)
 	demo     bool
@@ -368,7 +384,12 @@ func newEnv(t *testing.T, o envOpts) *env {
 	if !o.noProm {
 		prom := plugintest.New("prometheus")
 		prom.ServiceVal = svc.Querier(e.prom)
-		if err := sup.Add(prom.Factory()); err != nil {
+		factory := prom.Factory()
+		if o.lateProm {
+			// The service is withheld until the test releases it: a credential filled late.
+			factory = func() plugin.Plugin { return &lateService{Fake: prom, released: &e.promReleased} }
+		}
+		if err := sup.Add(factory); err != nil {
 			t.Fatal(err)
 		}
 	}

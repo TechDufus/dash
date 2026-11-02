@@ -169,7 +169,7 @@ func (p *Plugin) Start(ctx context.Context, h plugin.Host, cfg any) error {
 	}
 	r.spawn("poll vms", func() { r.every(r.t.vms, r.pollVMs) })
 	r.spawn("poll node", func() { r.every(r.t.node, r.pollNode) })
-	r.spawn("poll storage", func() { r.every(r.t.storage, r.pollStorage) })
+	r.spawn("poll storage", r.storageLoop)
 	r.spawn("watch node index", r.watchIndex)
 	return nil
 }

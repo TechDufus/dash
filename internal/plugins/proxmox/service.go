@@ -146,6 +146,34 @@ func (r *runtime) every(d time.Duration, poll func(context.Context)) {
 	}
 }
 
+// storageLoop is every(r.t.storage, r.pollStorage) for the storages: with the Prometheus source
+// it also polls at once when the querier appears after a poll that found none (the plugin starts
+// later, or its credential is filled late), looked for every t.watch, so the source does not
+// read "prometheus not_configured" until the next interval.
+func (r *runtime) storageLoop() {
+	if !r.waitNode(r.ctx) {
+		return
+	}
+	t := time.NewTicker(r.t.storage)
+	defer t.Stop()
+	watch := time.NewTicker(r.t.watch)
+	defer watch.Stop()
+	for {
+		had := r.querier() != nil
+		r.pollStorage(r.ctx)
+		for again := false; !again; {
+			select {
+			case <-r.ctx.Done():
+				return
+			case <-t.C:
+				again = true
+			case <-watch.C:
+				again = !had && r.cfg.StorageSource() == pluginconf.ProxmoxStoragePrometheus && r.querier() != nil
+			}
+		}
+	}
+}
+
 // querier is the prometheus plugin's service, nil when it does not run.
 func (r *runtime) querier() svc.Querier {
 	v, ok := r.h.Service("prometheus")

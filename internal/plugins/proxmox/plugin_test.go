@@ -390,6 +390,34 @@ func TestStoragePrometheusWithoutPrometheusIsNotConfigured(t *testing.T) {
 	}
 }
 
+// A Prometheus whose service appears after the first storage poll (a credential filled late) is
+// polled at once, not at the next interval (an hour here), so the source stops reading
+// not_configured.
+func TestStoragePollsAtOnceWhenPrometheusAppears(t *testing.T) {
+	e := newEnv(t, envOpts{
+		lateProm: true,
+		cfg:      func(c *pluginconf.Proxmox) { c.Storage.Source = pluginconf.ProxmoxStoragePrometheus },
+		timing:   func(tm *timing) { tm.storage = time.Hour },
+		prefill: func(e *env) {
+			e.prom.set(exprStorageUsed, sample(1000, "id", "storage/pve-1/local"))
+			e.prom.set(exprStorageSize, sample(4000, "id", "storage/pve-1/local"))
+			e.prom.set(exprStorageInfo, sample(1, "id", "storage/pve-1/local", "storage", "local"))
+		},
+	})
+	waitFor(t, "the source to say not_configured", func() bool {
+		var s pvemodel.PVEStorageData
+		srcs, ok := e.payload(t, "proxmox.storage", &s)
+		return ok && len(srcs) == 1 && srcs[0].Error == "not_configured"
+	})
+
+	e.promReleased.Store(true)
+	waitFor(t, "the storages from the new querier", func() bool {
+		var s pvemodel.PVEStorageData
+		srcs, _ := e.payload(t, "proxmox.storage", &s)
+		return len(srcs) == 1 && srcs[0].OK && len(s.Storages) == 1
+	})
+}
+
 // The configured node is known from Start, with a PVE that never answers /nodes.
 func TestNodeNameIsOKFromStartWhenConfigured(t *testing.T) {
 	pve := newFakePVE(t, false)
