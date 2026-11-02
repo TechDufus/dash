@@ -98,6 +98,8 @@ type env struct {
 	cluster     *kube.Cluster // the last Cluster connect made
 	p           *Plugin       // the last plugin the factory made
 	rest        *rest.Config  // what connect reports as the REST config (nil for fake clients)
+
+	promReleased atomic.Bool // see envOpts.lateProm
 }
 
 type envOpts struct {
@@ -106,6 +108,7 @@ type envOpts struct {
 	crds      []schema.GroupVersionResource // served; nil is certificates, external secrets, routes and CNPG
 	noCRDs    bool                          // serve none
 	noProm    bool
+	lateProm  bool // prometheus runs, but exports its service only after env.promReleased is set
 	noGatus   bool
 	timing    func(*timing)
 	fakeClock bool
@@ -123,6 +126,19 @@ func fastTiming() timing {
 		discovery: 50 * time.Millisecond, tick: 10 * time.Millisecond,
 		unavailableAfter: 10 * time.Second, typedSyncTimeout: 60 * time.Second,
 	}
+}
+
+// lateService is a fake plugin that exports its service once released is set.
+type lateService struct {
+	*plugintest.Fake
+	released *atomic.Bool
+}
+
+func (l *lateService) Service() any {
+	if !l.released.Load() {
+		return nil
+	}
+	return l.Fake.Service()
 }
 
 // newEnv starts the plugin (or its twin) and the fakes it uses.
@@ -201,7 +217,12 @@ func newEnv(t *testing.T, o envOpts) *env {
 	if !o.noProm {
 		prom := plugintest.New("prometheus")
 		prom.ServiceVal = svc.Querier(e.prom)
-		if err := e.sup.Add(prom.Factory()); err != nil {
+		factory := prom.Factory()
+		if o.lateProm {
+			// The service is withheld until the test releases it: a credential filled late.
+			factory = func() plugin.Plugin { return &lateService{Fake: prom, released: &e.promReleased} }
+		}
+		if err := e.sup.Add(factory); err != nil {
 			t.Fatal(err)
 		}
 	}

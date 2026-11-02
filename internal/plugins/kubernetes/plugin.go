@@ -72,7 +72,7 @@ func defaultTiming() timing {
 type Plugin struct {
 	t       timing
 	connect Connect
-	refs    *secret.K8sRefs // the k8s: references the secret watchers read; nil reads none
+	refs    *secret.K8sRefs         // the k8s: references the secret watchers read; nil reads none
 	rt      atomic.Pointer[runtime] // set by Start when there is a cluster
 
 	secrets *secretWatchers // set by Start when there is a cluster and refs
@@ -401,14 +401,39 @@ func (r *runtime) every(d time.Duration, fn func()) {
 	}
 }
 
+// pollEvery is every for a poll that needs the Prometheus plugin: it also runs fn at once when
+// the querier appears after a poll that found none (the plugin starts later, or its credential
+// is filled late), looked for every t.tick, so the rows do not read "prometheus not_configured"
+// until the next interval.
+func (r *runtime) pollEvery(d time.Duration, fn func()) {
+	t := time.NewTicker(d)
+	defer t.Stop()
+	watch := time.NewTicker(r.t.tick)
+	defer watch.Stop()
+	for {
+		had := r.querier() != nil
+		fn()
+		for again := false; !again; {
+			select {
+			case <-r.ctx.Done():
+				return
+			case <-t.C:
+				again = true
+			case <-watch.C:
+				again = !had && r.querier() != nil
+			}
+		}
+	}
+}
+
 // run starts the informers and the loops.
 func (r *runtime) run() {
 	r.cl.OnChange(r.onChange)
 	r.cl.Start(r.ctx)
 	r.spawn("probe", r.probeLoop)
 	r.spawn("discovery", r.discoveryLoop)
-	r.spawn("poll usage", func() { r.every(r.t.usage, r.pollUsage) })
-	r.spawn("poll storage", func() { r.every(r.t.storage, r.pollStorage) })
+	r.spawn("poll usage", func() { r.pollEvery(r.t.usage, r.pollUsage) })
+	r.spawn("poll storage", func() { r.pollEvery(r.t.storage, r.pollStorage) })
 	r.spawn("publish", r.publishLoop)
 }
 

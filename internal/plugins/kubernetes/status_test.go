@@ -446,18 +446,90 @@ type stubDisc struct {
 	mu    sync.Mutex
 	lists []*metav1.APIResourceList
 	err   error
+	calls int
 }
 
 func (d *stubDisc) ServerGroupsAndResources() ([]*metav1.APIGroup, []*metav1.APIResourceList, error) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
+	d.calls++
 	return nil, d.lists, d.err
+}
+
+func (d *stubDisc) count() int {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return d.calls
 }
 
 func (d *stubDisc) set(err error, lists ...*metav1.APIResourceList) {
 	d.mu.Lock()
 	d.lists, d.err = lists, err
 	d.mu.Unlock()
+}
+
+// A Prometheus whose service appears after the first polls (a credential filled late) is polled
+// at once, not at the next interval (an hour here), so the rows stop saying not_configured.
+func TestUsageAndStoragePollAtOnceWhenPrometheusAppears(t *testing.T) {
+	e := newEnv(t, envOpts{
+		lateProm: true,
+		timing:   func(tm *timing) { tm.usage, tm.storage = time.Hour, time.Hour },
+	})
+	e.healthy()
+	if n := e.prom.requests(); n != 0 {
+		t.Fatalf("%d queries reached a prometheus that exports no service", n)
+	}
+	srcs, _ := e.payload("kubernetes.cluster", &model.ClusterData{})
+	if got := promSourceError(srcs); got != "not_configured" {
+		t.Fatalf("before the service appears the prometheus source says %q", got)
+	}
+
+	e.promReleased.Store(true)
+	waitFor(t, "the usage poll", func() bool {
+		srcs, _ := e.payload("kubernetes.cluster", &model.ClusterData{})
+		return promSourceError(srcs) == ""
+	})
+	waitFor(t, "the storage poll", func() bool {
+		srcs, _ := e.payload("kubernetes.storage", &model.StorageData{})
+		return promSourceError(srcs) == ""
+	})
+}
+
+func promSourceError(srcs []model.SourceStatus) string {
+	for _, s := range srcs {
+		if s.Name == sourcePrometheus {
+			return s.Error
+		}
+	}
+	return "no source"
+}
+
+// Only the retries the backoff timer starts make it grow: discoveries that consumers ask for
+// (a Watch at startup) fail too, but the first timer retry still comes after the probe period.
+func TestDiscoveryBackoffCountsOnlyTimerRetries(t *testing.T) {
+	d := &stubDisc{}
+	d.set(errors.New("connection refused"))
+	e := newEnv(t, envOpts{
+		fakeClock: true,
+		timing:    func(tm *timing) { *tm = defaultTiming(); tm.tick = 10 * time.Millisecond },
+		prefill:   func(e *env) { e.discovery = d },
+	})
+	e.state(plugin.StateDegraded)
+	r := e.runtime()
+	waitFor(t, "the first discovery", func() bool { return d.count() >= 1 })
+
+	// Three consumers ask for resources; each request runs a discovery, which fails.
+	for i, gvr := range []schema.GroupVersionResource{kube.GVRKustomizations, kube.GVRHelmReleases, kube.GVRGitRepositories} {
+		before := d.count()
+		r.cl.Watch(gvr)
+		waitFor(t, "a discovery for request "+string(rune('1'+i)), func() bool { return d.count() > before })
+	}
+
+	// The host clock moves by the probe period: the timer retry is due, however many failed
+	// discoveries came before it (the old count made it 40s by now).
+	before := d.count()
+	e.clock.advance(5 * time.Second)
+	waitFor(t, "the retry after the probe period", func() bool { return d.count() > before })
 }
 
 func groupFailure(gvs ...schema.GroupVersion) error {
@@ -569,7 +641,11 @@ func TestProbeRecoveryRepeatsAFailedDiscovery(t *testing.T) {
 	d.set(errors.New("connection refused"))
 	e := newEnv(t, envOpts{
 		fakeClock: true,
-		timing:    func(tm *timing) { *tm = defaultTiming(); tm.tick = 10 * time.Millisecond; tm.probe = 20 * time.Millisecond },
+		timing: func(tm *timing) {
+			*tm = defaultTiming()
+			tm.tick = 10 * time.Millisecond
+			tm.probe = 20 * time.Millisecond
+		},
 		prefill: func(e *env) {
 			e.discovery = d
 			e.failProbe.Store(true)

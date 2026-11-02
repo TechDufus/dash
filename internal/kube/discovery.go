@@ -32,9 +32,9 @@ type dynamicState struct {
 	// known about it: it is not present, and it is not listed either (its informer may not
 	// exist yet).
 	evaluated bool
-	inf         cache.SharedIndexInformer
-	watchErr    atomic.Pointer[error] // the last error the informer's watch reported
-	lister      cache.GenericLister
+	inf       cache.SharedIndexInformer
+	watchErr  atomic.Pointer[error] // the last error the informer's watch reported
+	lister    cache.GenericLister
 }
 
 // SetDiscovery replaces the discovery client, for tests that need a discovery that fails in a

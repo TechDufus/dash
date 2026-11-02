@@ -75,18 +75,18 @@ func discoveryBackoff(t timing, n int) time.Duration {
 // consumer asks for a resource through svc.Cluster.Watch or the probe sees the API server answer
 // again after a discovery that failed, and, while the last discovery left a wanted group
 // unknown, with a growing wait (see discoveryBackoff). The wait runs on the host's clock, checked
-// every t.tick.
+// every t.tick. Only the attempts that wait starts count towards the growth: a discovery that a
+// consumer or the probe asked for, failing, does not push the next retry further out.
 func (r *runtime) discoveryLoop() {
 	periodic := time.NewTicker(r.t.discovery)
 	defer periodic.Stop()
 	check := time.NewTicker(r.t.tick)
 	defer check.Stop()
-	retries := 0
+	retries := 0 // the retries the backoff timer has started since the last success
 	var retryAt time.Time
 	for {
 		if r.discover() {
-			retries++
-			retryAt = r.h.Now().Add(discoveryBackoff(r.t, retries))
+			retryAt = r.h.Now().Add(discoveryBackoff(r.t, retries+1))
 		} else {
 			retries, retryAt = 0, time.Time{}
 		}
@@ -101,7 +101,9 @@ func (r *runtime) discoveryLoop() {
 			case <-r.rediscover:
 				again = true
 			case <-check.C:
-				again = !retryAt.IsZero() && !r.h.Now().Before(retryAt)
+				if again = !retryAt.IsZero() && !r.h.Now().Before(retryAt); again {
+					retries++
+				}
 			}
 		}
 	}
