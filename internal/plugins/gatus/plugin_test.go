@@ -462,6 +462,52 @@ func TestCredentialsAreSentAndRotate(t *testing.T) {
 	})
 }
 
+// A bearer token that arrives after the authorizer was built (a k8s: reference read later) is
+// sent from the next request on: the authorizer decides per request.
+func TestAuthorizerSendsATokenThatArrivesLater(t *testing.T) {
+	token, err := secret.NewK8sRefs(nil).Handle("k8s:status/gatus-credentials#token")
+	if err != nil {
+		t.Fatal(err)
+	}
+	authz := authorize(pluginconf.Auth{BearerToken: token})
+	header := func() string {
+		r, _ := http.NewRequest(http.MethodGet, "http://gatus.example.com/", nil)
+		authz(r)
+		return r.Header.Get("Authorization")
+	}
+	if got := header(); got != "" {
+		t.Fatalf("a pending token sent %q", got)
+	}
+	token.Update("filled")
+	if got := header(); got != "Bearer filled" {
+		t.Errorf("after the fill: %q", got)
+	}
+}
+
+// A plugin whose k8s: token is pending does not start, and so sends nothing without it; the fill
+// starts it with the header.
+func TestPendingTokenWaitsThenIsSent(t *testing.T) {
+	const ref = "k8s:status/gatus-credentials#token"
+	refs := secret.NewK8sRefs(nil)
+	token, err := refs.Handle(ref)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f := newFakeGatus(t)
+	c := config(f.URL)
+	c.Auth = pluginconf.Auth{BearerToken: token}
+	r := newRig(t, c, nil)
+	refs.OnFill(r.sup.Reload)
+	if st := r.row().State; st != model.PluginUnconfigured && st != model.PluginDisabled {
+		t.Fatalf("state = %s while the token is pending", st)
+	}
+	if r.sup.Running(pluginID) || f.hits.Load() != 0 {
+		t.Fatalf("the plugin ran with its token pending: %d requests", f.hits.Load())
+	}
+	refs.Fill(ref, "from-the-secret")
+	eventually(t, "the filled token to be sent", func() bool { _, got := f.lastQuery(); return got == "Bearer from-the-secret" })
+}
+
 func TestTLSNeedsTheCAOrAskingToSkipVerification(t *testing.T) {
 	tlsSrv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte("[]")) }))
 	t.Cleanup(tlsSrv.Close)

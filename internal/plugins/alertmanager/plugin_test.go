@@ -329,6 +329,52 @@ func TestCredentialsAreSentAndRotate(t *testing.T) {
 	basic.eventually(t, "a basic-auth request", func() bool { return basic.am.sawAuth(want) })
 }
 
+// A bearer token that arrives after the authorizer was built (a k8s: reference read later) is
+// sent from the next request on: the authorizer decides per request.
+func TestAuthorizerSendsATokenThatArrivesLater(t *testing.T) {
+	token, err := secret.NewK8sRefs(nil).Handle("k8s:media/am-credentials#token")
+	if err != nil {
+		t.Fatal(err)
+	}
+	authz := authorizer(pluginconf.Auth{BearerToken: token})
+	header := func() string {
+		r, _ := http.NewRequest(http.MethodGet, "http://am.example.com/", nil)
+		authz(r)
+		return r.Header.Get("Authorization")
+	}
+	if got := header(); got != "" {
+		t.Fatalf("a pending token sent %q", got)
+	}
+	token.Update("filled")
+	if got := header(); got != "Bearer filled" {
+		t.Errorf("after the fill: %q", got)
+	}
+}
+
+// A plugin whose k8s: token is pending does not start, and so sends nothing without it; the fill
+// starts it with the header.
+func TestPendingTokenWaitsThenIsSent(t *testing.T) {
+	refs := secret.NewK8sRefs(nil)
+	const ref = "k8s:media/am-credentials#token"
+	token, err := refs.Handle(ref)
+	if err != nil {
+		t.Fatal(err)
+	}
+	e := newEnv(t, envOpts{cfg: func(c *pluginconf.Alertmanager) { c.Auth.BearerToken = token }})
+	refs.OnFill(e.sup.Reload)
+	if e.sup.Running(ID) {
+		t.Fatal("the plugin started with its token pending")
+	}
+	if st := e.info(t).State; st != model.PluginUnconfigured && st != model.PluginDisabled {
+		t.Errorf("state = %s", st)
+	}
+	refs.Fill(ref, "from-the-secret")
+	e.eventually(t, "a request with the filled token", func() bool { return e.am.sawAuth("Bearer from-the-secret") })
+	if e.am.sawAuth("") {
+		t.Error("a request went out without the token")
+	}
+}
+
 // Visibility rule (a): topics reach a stream opened while the row was hidden.
 func TestTopicsReachAnOpenStreamWhenTheRowTurnsVisible(t *testing.T) {
 	am := newFakeAM(t)

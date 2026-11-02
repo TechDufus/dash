@@ -644,28 +644,41 @@ func (s *Supervisor) evaluate(in *instance, ic InstanceConfig) plan {
 	in.mu.RLock()
 	probe := in.probe
 	in.mu.RUnlock()
-	if c, ok := probe.(Configured); ok {
-		var configured bool
+	c, hasConfigured := probe.(Configured)
+	configured := true
+	if hasConfigured {
 		if rec, stack := protect(func() { configured = c.Configured(ic.Config) }); rec != nil {
 			s.log().Error("panic in Configured", "plugin", in.id, "panic", fmt.Sprint(rec), "stack", string(stack))
 			pl.state, pl.msg = StateError, "panic in Configured"
 			return pl
 		}
-		if !configured {
-			msg := msgNotConfigured
-			if h, ok := probe.(ConfigHinter); ok {
-				if hint := h.ConfigHint(); hint != "" {
-					msg += ": set " + hint
-				}
-			}
-			msg += s.pendingNote(in, ic)
-			if ic.Enabled == nil {
-				pl.state, pl.msg = StateDisabled, msg
-			} else {
-				pl.state, pl.msg = StateUnconfigured, msg
-			}
-			return pl
+	}
+	// A k8s: reference that has not been read yet keeps the plugin from starting, wherever it
+	// sits in the section, optional credentials included: a plugin that built its client
+	// without the value would never use it, and one that sent requests without it would be
+	// refused. It is checked before Configured because the plugin's own answer cannot tell.
+	if msg := s.waitingRow(in, ic); msg != "" {
+		pl.msg = msg
+		if configured || ic.Enabled != nil {
+			pl.state = StateUnconfigured
+		} else {
+			pl.state = StateDisabled
 		}
+		return pl
+	}
+	if !configured {
+		msg := msgNotConfigured
+		if h, ok := probe.(ConfigHinter); ok {
+			if hint := h.ConfigHint(); hint != "" {
+				msg += ": set " + hint
+			}
+		}
+		if ic.Enabled == nil {
+			pl.state, pl.msg = StateDisabled, msg
+		} else {
+			pl.state, pl.msg = StateUnconfigured, msg
+		}
+		return pl
 	}
 	if v, ok := probe.(Validator); ok {
 		var err error
@@ -684,12 +697,12 @@ func (s *Supervisor) evaluate(in *instance, ic InstanceConfig) plan {
 	return pl
 }
 
-// pendingNote is the part of a "not configured" row that says the plugin waits for a Kubernetes
-// Secret: "; waiting for a Kubernetes Secret (see plugins.<id>.<field>)" for each such field,
-// "" when it waits for none. The row goes to every viewer, so it names the setting and nothing
-// of the Secret (design K.3). The reference and the reason category go to the log, once per
-// change: a reload that only changed a reason still reaches this and refreshes it.
-func (s *Supervisor) pendingNote(in *instance, ic InstanceConfig) string {
+// waitingRow is the row message of a plugin that waits for a Kubernetes Secret:
+// "waiting for a Kubernetes Secret (see plugins.<id>.<field>)" for each such field, joined with
+// "; ", and "" when it waits for none. The row goes to every viewer, so it names the setting and
+// nothing of the Secret (design K.3). The reference and the reason category go to the log, once
+// per change: a reload that only changed a reason still reaches this and refreshes it.
+func (s *Supervisor) waitingRow(in *instance, ic InstanceConfig) string {
 	pending := pendingSecrets("plugins."+string(in.id), ic.Config)
 	var sig strings.Builder
 	notes := make([]string, len(pending))
@@ -706,10 +719,7 @@ func (s *Supervisor) pendingNote(in *instance, ic InstanceConfig) string {
 			s.log().Info("plugin waits for a Kubernetes Secret", "plugin", in.id, "field", p.path, "reference", p.value.Ref(), "reason", p.value.Reason())
 		}
 	}
-	if len(notes) == 0 {
-		return ""
-	}
-	return "; " + strings.Join(notes, "; ")
+	return strings.Join(notes, "; ")
 }
 
 type pendingSecret struct {
@@ -729,13 +739,27 @@ func pendingSecrets(prefix string, cfg any) []pendingSecret {
 }
 
 func collectPending(path string, v reflect.Value, out *[]pendingSecret) {
-	for v.Kind() == reflect.Pointer {
+	for v.Kind() == reflect.Pointer || v.Kind() == reflect.Interface {
 		if v.IsNil() {
 			return
 		}
 		v = v.Elem()
 	}
-	if v.Kind() != reflect.Struct {
+	switch v.Kind() {
+	case reflect.Slice, reflect.Array:
+		for i := range v.Len() {
+			collectPending(fmt.Sprintf("%s[%d]", path, i), v.Index(i), out)
+		}
+		return
+	case reflect.Map:
+		keys := v.MapKeys()
+		slices.SortFunc(keys, func(a, b reflect.Value) int { return strings.Compare(fmt.Sprint(a.Interface()), fmt.Sprint(b.Interface())) })
+		for _, k := range keys {
+			collectPending(fmt.Sprintf("%s.%v", path, k.Interface()), v.MapIndex(k), out)
+		}
+		return
+	case reflect.Struct:
+	default:
 		return
 	}
 	if v.Type() == secretValueType {

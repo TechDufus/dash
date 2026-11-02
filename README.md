@@ -496,25 +496,26 @@ subjects:
 `watch` request; `resourceNames` is what limits them to the named Secrets. Repeat the `Role` and
 the `RoleBinding` in each namespace a reference names.
 
-Until the value is read, a plugin that cannot run without it (the Proxmox token, or any plugin
-whose other settings leave it unconfigured) is not configured: its row is `disabled` (or
-`unconfigured` when `enabled: true`) and says `; waiting for a Kubernetes Secret (see
-plugins.<id>.<field>)`. The row never names the namespace, the Secret, the key or the reason; dash's
-log does, once per change (`not_found`, `key_missing`, `forbidden`, `unreachable`,
-`kubernetes_unavailable`). A plugin whose credentials are optional (`auth.bearerToken` and
-`auth.basic.password` of the Prometheus, Alertmanager, Gatus and VictoriaLogs sources) runs as soon
-as its `url` is set, without that credential until the value arrives (its requests may fail with
-`auth` meanwhile). The plugin starts by itself
-when the first value arrives, and a
-rotated Secret applies to the next request without a restart. The value is held in memory only:
-never written to disk, to the settings store, to `core.plugins`, the stream or the log, and
-scrubbed like every other secret.
+A plugin does not start while any `k8s:` reference in its section is unread, an optional
+credential included (`auth.bearerToken` and `auth.basic.password` of the Prometheus,
+Alertmanager, Gatus and VictoriaLogs sources too): it would otherwise query without the
+credential. Its row says `waiting for a Kubernetes Secret (see plugins.<id>.<field>)` (once for
+each such field) and its state is `unconfigured` when its other settings are complete, otherwise
+`disabled` (or `unconfigured` when `enabled: true`). The row never names the namespace, the
+Secret, the key or the reason; dash's log does, once per change (`not_found`, `key_missing`,
+`forbidden`, `unreachable`, `kubernetes_unavailable`). The plugin starts by itself when the
+values arrive, and a rotated Secret applies to the next request without a restart. A waiting
+plugin counts as settled for `/readyz`: a Secret that cannot be read never keeps dash unready.
+The value is trimmed of surrounding whitespace, as an `env:` or `file:` value is (a Secret made
+with `kubectl create secret --from-file` usually ends in a newline), and a blank value counts as
+missing (`key_missing`). It is held in memory only: never written to disk, to the settings store,
+to `core.plugins`, the stream or the log, and scrubbed like every other secret.
 
 When the Secret is deleted, or the kubernetes plugin stops (a reload, a lost cluster), the last
 value stays in use; only the reason the log shows changes, and the next successful read replaces
-it. A reload that adds a `k8s:` reference starts the consumer live but, as for a literal added
-after startup, is listed as needing a restart. `dash config validate` checks the syntax of the
-reference and reads no Secret.
+it. A reload that adds a `k8s:` reference to a plugin that is running stops that plugin until the
+value is read, and is listed as needing a restart as for a literal added after startup.
+`dash config validate` checks the syntax of the reference and reads no Secret.
 
 ### Breaking: no site defaults
 

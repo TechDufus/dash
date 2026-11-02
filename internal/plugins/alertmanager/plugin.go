@@ -156,15 +156,20 @@ func (p *Plugin) Status() plugin.Status {
 	return plugin.Status{State: plugin.StateHealthy, Sources: []model.SourceStatus{src}}
 }
 
-// authorizer sets the credentials on every request, so a rotated secret applies at once.
+// authorizer sets the credentials on every request, so a rotated secret applies at once. The
+// bearer token is looked at per request too: a value that arrives after Start (a k8s: reference
+// read by the kubernetes plugin) is sent from the next request on.
 func authorizer(a pluginconf.Auth) func(*http.Request) {
-	switch {
-	case a.Basic.Username != "":
-		return func(r *http.Request) { r.SetBasicAuth(a.Basic.Username, a.Basic.Password.Reveal()) }
-	case a.BearerToken.IsSet():
-		return func(r *http.Request) { r.Header.Set("Authorization", "Bearer "+a.BearerToken.Reveal()) }
+	return func(r *http.Request) {
+		switch {
+		case a.Basic.Username != "":
+			r.SetBasicAuth(a.Basic.Username, a.Basic.Password.Reveal())
+		default:
+			if tok := a.BearerToken.Reveal(); tok != "" {
+				r.Header.Set("Authorization", "Bearer "+tok)
+			}
+		}
 	}
-	return nil
 }
 
 // runtime is what an action needs, read once.

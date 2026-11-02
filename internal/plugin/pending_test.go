@@ -81,8 +81,7 @@ func TestPendingMessageIsGenericForViewers(t *testing.T) {
 	if st != model.PluginUnconfigured {
 		t.Fatalf("state = %s, want unconfigured with enabled: true", st)
 	}
-	want := "not configured: set plugins.aa.token" +
-		"; waiting for a Kubernetes Secret (see plugins.aa.bearerToken)" +
+	want := "waiting for a Kubernetes Secret (see plugins.aa.bearerToken)" +
 		"; waiting for a Kubernetes Secret (see plugins.aa.token)" +
 		"; waiting for a Kubernetes Secret (see plugins.aa.basic.password)"
 	if msg != want {
@@ -117,7 +116,7 @@ func TestDisabledWithEnabledUnsetAndUnconfiguredWhenEnabled(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			e := pendingEnv(t, secret.NewK8sRefs(nil), func(i *plugin.InstanceConfig) { i.Enabled = tc.enabled }, nil).run(t)
 			st, msg := e.state(t, "aa")
-			if st != tc.want || !strings.HasSuffix(msg, "waiting for a Kubernetes Secret (see plugins.aa.token)") {
+			if st != tc.want || msg != "waiting for a Kubernetes Secret (see plugins.aa.token)" {
 				t.Errorf("state %s, message %q", st, msg)
 			}
 		})
@@ -189,4 +188,105 @@ func TestNoNoteWithoutPendingSecrets(t *testing.T) {
 	if _, msg := e.state(t, "aa"); msg != "not configured: set plugins.aa.url" {
 		t.Errorf("message = %q", msg)
 	}
+}
+
+// optionalCfg is a plugin whose URL is enough and whose credentials are optional, as alertmanager
+// and gatus are; Tokens and Named hold secrets in a slice and in a map.
+type optionalCfg struct {
+	URL    string       `json:"url"`
+	Token  secret.Value `json:"token"`
+	Tokens []secret.Value
+	Named  map[string]struct {
+		Key secret.Value `json:"key"`
+	} `json:"named"`
+}
+
+func optionalFake() *plugintest.Fake {
+	f := plugintest.New("aa", plugintest.Config(func() any { return &optionalCfg{} }))
+	f.ConfiguredFn = func(c any) bool { return c.(*optionalCfg).URL != "" }
+	f.Hint = "plugins.aa.url"
+	return f
+}
+
+// A pending secret anywhere in the section, an optional credential included, keeps a plugin that
+// is otherwise configured from starting: it would have built its client without the value. The
+// row says only what it waits for, and the plugin starts when the value arrives.
+func TestPendingOptionalSecretKeepsAConfiguredPluginFromStarting(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		enabled *bool
+	}{
+		{"enabled unset", nil},
+		{"enabled true", new(true)},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			refs := secret.NewK8sRefs(nil)
+			f := optionalFake()
+			e := newEnv(t, nil, f.Factory())
+			refs.OnFill(e.sup.Reload)
+			token, _ := refs.Handle(refToken)
+			e.set.Set(plugin.InstanceConfig{Name: "aa", Enabled: tc.enabled, Config: &optionalCfg{URL: "http://aa.example.com", Token: token}})
+			e.run(t)
+
+			st, msg := e.state(t, "aa")
+			if st != model.PluginUnconfigured || msg != "waiting for a Kubernetes Secret (see plugins.aa.token)" || f.Starts() != 0 {
+				t.Fatalf("while pending: state %s, message %q, %d starts", st, msg, f.Starts())
+			}
+
+			refs.Fill(refToken, canaryValue)
+			eventually(t, "the plugin to start", func() bool { return f.Starts() == 1 })
+			if st, msg := e.state(t, "aa"); st == model.PluginUnconfigured || strings.Contains(msg, "waiting") {
+				t.Errorf("after the fill: state %s, message %q", st, msg)
+			}
+		})
+	}
+}
+
+// Slices and maps are walked, so a secret in a list of instances or a map of named sections
+// holds the plugin back too.
+func TestPendingSecretsInSlicesAndMapsAreFound(t *testing.T) {
+	refs := secret.NewK8sRefs(nil)
+	f := optionalFake()
+	e := newEnv(t, nil, f.Factory())
+	list, _ := refs.Handle(refToken)
+	named, _ := refs.Handle(refBasic)
+	e.set.Set(plugin.InstanceConfig{Name: "aa", Enabled: new(true), Config: &optionalCfg{
+		URL:    "http://aa.example.com",
+		Tokens: []secret.Value{secret.New("literal", ""), list},
+		Named: map[string]struct {
+			Key secret.Value `json:"key"`
+		}{"beta": {Key: named}},
+	}})
+	e.run(t)
+	st, msg := e.state(t, "aa")
+	want := "waiting for a Kubernetes Secret (see plugins.aa.Tokens[1])" +
+		"; waiting for a Kubernetes Secret (see plugins.aa.named.beta.key)"
+	if st != model.PluginUnconfigured || msg != want || f.Starts() != 0 {
+		t.Errorf("state %s, message %q, %d starts; want %q", st, msg, f.Starts(), want)
+	}
+}
+
+// A reload that adds a pending reference to a running plugin stops it until the fill, and a
+// plugin that waits is settled as far as readiness goes.
+func TestReloadAddingAPendingReferenceStopsARunningPlugin(t *testing.T) {
+	refs := secret.NewK8sRefs(nil)
+	f := optionalFake()
+	e := newEnv(t, func(o *plugin.Options) { o.ReadyRequires = []plugin.ID{"aa"} }, f.Factory())
+	refs.OnFill(e.sup.Reload)
+	e.set.Set(plugin.InstanceConfig{Name: "aa", Enabled: new(true), Config: &optionalCfg{URL: "http://aa.example.com"}})
+	e.run(t)
+	eventually(t, "the plugin to start", func() bool { return f.Starts() == 1 })
+
+	token, _ := refs.Handle(refToken)
+	e.set.Set(plugin.InstanceConfig{Name: "aa", Enabled: new(true), Config: &optionalCfg{URL: "http://aa.example.com", Token: token}})
+	e.reloadUntil(t, "the plugin to stop", func() bool { return f.Stops() == 1 })
+	if st, msg := e.state(t, "aa"); st != model.PluginUnconfigured || !strings.Contains(msg, "waiting for a Kubernetes Secret") {
+		t.Errorf("state %s, message %q", st, msg)
+	}
+	if !e.sup.Ready() {
+		t.Error("a plugin that waits for a Secret must not hold readiness back")
+	}
+
+	refs.Fill(refToken, canaryValue)
+	eventually(t, "the plugin to start again", func() bool { return f.Starts() == 2 })
 }

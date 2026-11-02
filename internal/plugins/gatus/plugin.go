@@ -86,15 +86,16 @@ func (p *Plugin) Validate(cfg any) error {
 }
 
 // authorize sets the credentials of one request, reading the secrets as it goes so a rotated
-// secret applies to the next poll. It is nil when no credentials are configured.
+// secret applies to the next poll, and a value that arrives after Start (a k8s: reference read
+// by the kubernetes plugin) is sent from then on.
 func authorize(a pluginconf.Auth) func(*http.Request) {
-	switch {
-	case a.BearerToken.IsSet():
-		return func(r *http.Request) { r.Header.Set("Authorization", "Bearer "+a.BearerToken.Reveal()) }
-	case a.Basic.Username != "":
-		return func(r *http.Request) { r.SetBasicAuth(a.Basic.Username, a.Basic.Password.Reveal()) }
+	return func(r *http.Request) {
+		if tok := a.BearerToken.Reveal(); tok != "" {
+			r.Header.Set("Authorization", "Bearer "+tok)
+		} else if a.Basic.Username != "" {
+			r.SetBasicAuth(a.Basic.Username, a.Basic.Password.Reveal())
+		}
 	}
-	return nil
 }
 
 // Start builds the client and launches the poller; it does not wait for the first poll.
