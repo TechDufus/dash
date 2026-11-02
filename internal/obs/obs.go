@@ -66,6 +66,13 @@ var (
 	AuthRateLimit       = AuthReason{"rate_limit"}
 	AuthNamespaceDenied = AuthReason{"namespace_denied"}
 	AuthStreamLimit     = AuthReason{"stream_limit"}
+
+	// AuthUntrustedPeer and AuthAmbiguousIdentity are declared for the authenticator's refusals
+	// (identity headers from a peer outside auth.proxy.trustedProxies; an identity header with more
+	// than one line). They join AuthReasons, the README label list and metrics_test.go with the
+	// commit that starts using them; until then AuthFailure counts them as nothing.
+	AuthUntrustedPeer     = AuthReason{"untrusted_peer"}
+	AuthAmbiguousIdentity = AuthReason{"ambiguous_identity"}
 )
 
 // Outcomes of an upstream call.

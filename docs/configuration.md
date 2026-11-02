@@ -49,6 +49,27 @@ What one client, and all clients together, may hold open or send.
 | `server.limits.bodyReadTimeout` | `DASH_SERVER_LIMITS_BODY_READ_TIMEOUT` | duration (e.g. 30s) | `10s` | A request body must arrive within this long. _Restart-only._ |
 | `server.limits.maxHeaderBytes` | `DASH_SERVER_LIMITS_MAX_HEADER_BYTES` | integer | `65536` | Largest request header block the API listener accepts, in bytes. _Restart-only._ |
 
+## `auth`
+
+How dash learns who is making a request and what they may do.
+
+| Setting | Variable | Type | Default | Description |
+|---|---|---|---|---|
+| `auth.mode` | `DASH_AUTH_MODE` | string | `proxy` | How dash learns who is making a request. proxy: an identity proxy in front of dash (oauth2-proxy, Authelia, Authentik) forwards the user name in a header, and dash believes it only from the peers in auth.proxy.trustedProxies. _Restart-only._ |
+
+## `auth.proxy`
+
+The proxy mode: which headers name the user, which peers are believed, and who is an administrator.
+
+| Setting | Variable | Type | Default | Description |
+|---|---|---|---|---|
+| `auth.proxy.userHeaders` | `DASH_AUTH_PROXY_USER_HEADERS` | list of strings (JSON) | `["X-Forwarded-Preferred-Username","X-Forwarded-User"]` | Request headers that carry the user name, in order of preference: the first one the proxy sets is the user. A JSON list in the environment. _Restart-only._ |
+| `auth.proxy.groupsHeader` | `DASH_AUTH_PROXY_GROUPS_HEADER` | string | - | The request header the proxy lists the user's groups in, comma-separated (oauth2-proxy: X-Forwarded-Groups). Empty turns groups off; adminGroups needs it. _Restart-only._ |
+| `auth.proxy.trustedProxies` | `DASH_AUTH_PROXY_TRUSTED_PROXIES` | list of strings (JSON) | `["127.0.0.1/32","::1/128"]` | The peers whose identity headers dash believes: CIDRs or IP addresses of the TCP connection (X-Forwarded-For is never read). A request with identity headers from any other peer gets 401. The default is the loopback, where a sidecar proxy connects from. A JSON list in the environment. _Restart-only._ |
+| `auth.proxy.allowAnyPeer` | `DASH_AUTH_PROXY_ALLOW_ANY_PEER` | boolean | - | Allow 0.0.0.0/0 or ::/0 in trustedProxies. Every client could then forge an identity, so it needs this explicit opt-in and dash warns at every start. _Restart-only._ |
+| `auth.proxy.adminUsers` | `DASH_AUTH_PROXY_ADMIN_USERS` | list of strings (JSON) | - | User names that are administrators: exact and case-sensitive. ["*"] makes every user an administrator (dash warns). With both admin lists empty every user is a viewer: read-only, no actions. A JSON list in the environment. Applies without a restart. |
+| `auth.proxy.adminGroups` | `DASH_AUTH_PROXY_ADMIN_GROUPS` | list of strings (JSON) | - | Groups whose members are administrators; needs groupsHeader. A JSON list in the environment. Applies without a restart. |
+
 ## `settings`
 
 The settings store behind the settings page.

@@ -15,6 +15,21 @@ type Failure struct {
 	WWWAuth string
 }
 
+// The wire codes a Failure carries. They are the model.ErrCode* strings (auth imports no model).
+const (
+	CodeUnauthenticated = "unauthenticated"
+	CodeInvalidToken    = "invalid_token"
+)
+
+// The machine reasons of a Failure. The API maps them to the obs auth reasons of the same name,
+// ReasonNoIdentity and ReasonBearerRefused to "unauthenticated".
+const (
+	ReasonNoIdentity        = "no_identity"        // no identity header, or one that cannot be a user name
+	ReasonUntrustedPeer     = "untrusted_peer"     // identity headers from a peer outside the trusted set
+	ReasonAmbiguousIdentity = "ambiguous_identity" // an identity header with more than one line
+	ReasonBearerRefused     = "bearer_refused"     // Authorization: Bearer, until bearer tokens exist (P7.1)
+)
+
 // Authenticator resolves the principal of a request, or says why it cannot.
 type Authenticator interface {
 	Authenticate(*http.Request) (Principal, *Failure)

@@ -795,12 +795,17 @@ export interface LogLine {
 export interface Me {
   user: string;
   role: string; // admin or viewer
-  authMode: string; // proxy, dev or demo
+  authMode: string; // proxy, none, dev or demo
   scopes: string[]; // read, logs and actions:<plugin> for each plugin with mounted actions
   audience: string; // api
   version: string;
   capabilities: MeCapabilities;
   ui: MeUI;
+  /**
+   * Warnings are the notices the SPA shows an administrator: admin_wildcard, auth_none. Empty
+   * when there is none; never null.
+   */
+  warnings: string[];
 }
 /**
  * MeUI is the site configuration the SPA reads once with /me.

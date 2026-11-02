@@ -110,6 +110,7 @@ func validate(t Tree, dev, demo bool, prov map[string]Provenance) error {
 	// Every section that knows its own cross-field rules says so (auth, header names, launcher
 	// links, ...); the ones still in this package are checked above.
 	v.section("ui", t.UI.Validate())
+	v.section("auth", t.Auth.Validate())
 	for _, sec := range t.PluginSections() {
 		if val, ok := sec.Value.(interface{ Validate() error }); ok {
 			v.section("plugins."+sec.Name, val.Validate())

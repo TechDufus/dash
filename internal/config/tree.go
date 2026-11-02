@@ -16,10 +16,11 @@ import (
 //	restart  a change needs a restart (x-dash-restart, B.6)
 //	url      the value is a URL: validated as http(s) and stored without a trailing slash
 //
-// The auth section is not here yet: a section appears with its first field (G4, P4.6). The
-// plugin sections and ui are defined in internal/pluginconf, so the plugin packages share them.
+// The auth section is in auth.go. The plugin sections and ui are defined in internal/pluginconf,
+// so the plugin packages share them.
 type Tree struct {
 	Server   ServerConfig   `json:"server" doc:"How dash listens and what it calls itself."`
+	Auth     AuthConfig     `json:"auth" doc:"How dash learns who is making a request and what they may do."`
 	Settings SettingsConfig `json:"settings" doc:"The settings store behind the settings page."`
 	DataDir  string         `json:"dataDir" dash:"restart" doc:"Where dash keeps its state (ui-settings.yaml, audit.jsonl) and looks for config.yaml. Demo mode uses none."`
 	UI       pluginconf.UI  `json:"ui" doc:"What the web UI is told by the server."`
@@ -102,6 +103,7 @@ func defaults(dev, demo bool) Tree {
 				MaxHeaderBytes:  64 << 10,
 			},
 		},
+		Auth:     DefaultAuth(),
 		Settings: SettingsConfig{UI: SettingsEditable},
 		DataDir:  "/data",
 		Plugins: PluginsConfig{

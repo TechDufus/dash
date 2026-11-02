@@ -50,6 +50,9 @@ type Deps struct {
 	// Secrets scrubs upstream errors and log lines; nil only matches credential shapes.
 	Secrets *secret.Registry
 	Audit   *audit.Log // nil logs to slog only
+	// Auth resolves the principal of every request. It is read once the request chain is rewired
+	// (P4.1); until then the chain still resolves the identity itself.
+	Auth auth.Authenticator
 }
 
 // Server holds the handlers' state.
@@ -159,8 +162,9 @@ func (s *Server) me(w http.ResponseWriter, r *http.Request) {
 	p := principalFrom(r.Context())
 	me := model.Me{
 		User: p.User, Role: string(p.Role), AuthMode: s.authMode(), Audience: "api", Version: s.d.Version,
-		Scopes: []string{"read", "logs"},
-		UI:     model.MeUI{IconBaseURL: s.d.Cfg.IconBaseURL},
+		Scopes:   []string{"read", "logs"},
+		UI:       model.MeUI{IconBaseURL: s.d.Cfg.IconBaseURL},
+		Warnings: []string{},
 	}
 	if s.d.Plugins != nil {
 		for _, pi := range s.d.Plugins.Infos() {

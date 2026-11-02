@@ -724,12 +724,15 @@ type LogLine struct {
 type Me struct {
 	User         string         `json:"user"`
 	Role         string         `json:"role"`     // admin or viewer
-	AuthMode     string         `json:"authMode"` // proxy, dev or demo
+	AuthMode     string         `json:"authMode"` // proxy, none, dev or demo
 	Scopes       []string       `json:"scopes"`   // read, logs and actions:<plugin> for each plugin with mounted actions
 	Audience     string         `json:"audience"` // api
 	Version      string         `json:"version"`
 	Capabilities MeCapabilities `json:"capabilities"`
 	UI           MeUI           `json:"ui"`
+	// Warnings are the notices the SPA shows an administrator: admin_wildcard, auth_none. Empty
+	// when there is none; never null.
+	Warnings []string `json:"warnings"`
 }
 
 // MeUI is the site configuration the SPA reads once with /me.

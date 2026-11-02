@@ -1493,6 +1493,12 @@
           },
           "version": {
             "type": "string"
+          },
+          "warnings": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
           }
         },
         "type": "object"

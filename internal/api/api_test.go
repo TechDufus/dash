@@ -14,6 +14,8 @@ import (
 	"testing/fstest"
 	"time"
 
+	"github.com/TechDufus/dash/internal/auth"
+	"github.com/TechDufus/dash/internal/auth/authtest"
 	"github.com/TechDufus/dash/internal/config"
 	"github.com/TechDufus/dash/internal/hub"
 	"github.com/TechDufus/dash/internal/model"
@@ -115,6 +117,7 @@ func newServer(mod func(*Deps)) *Server {
 		Cfg:     config.Config{PublicURL: testOrigin + "/", Limits: config.Defaults().Limits},
 		Version: "test",
 		Hub:     hub.New(),
+		Auth:    authtest.Proxy("alice"),
 	}
 	if mod != nil {
 		mod(&d)
@@ -125,6 +128,12 @@ func newServer(mod func(*Deps)) *Server {
 	s := New(d)
 	s.now = func() time.Time { return fixedNow }
 	return s
+}
+
+// withAuth is a newServer option that replaces the default authenticator (the proxy with alice
+// the one administrator, which is the user req.do sends) with a.
+func withAuth(a auth.Authenticator) func(*Deps) {
+	return func(d *Deps) { d.Auth = a }
 }
 
 // req is one test request; Origin/CSRF headers are added for writes unless raw.
