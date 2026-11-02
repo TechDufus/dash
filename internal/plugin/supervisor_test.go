@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"slices"
 	"strings"
 	"sync"
@@ -990,7 +991,7 @@ func TestActionMountingAndRun(t *testing.T) {
 		t.Fatal("DenyNamespaces aliases the supervisor's copy")
 	}
 	p := auth.Principal{Kind: auth.KindProxy, User: "alice", Role: auth.RoleAdmin}
-	if out, err := ref.Run(context.Background(), p, "in"); err != nil || out != "in" || gotAction != "restart" || gotPrincipal != p {
+	if out, err := ref.Run(context.Background(), p, "in"); err != nil || out != "in" || gotAction != "restart" || !reflect.DeepEqual(gotPrincipal, p) {
 		t.Fatalf("Run = %v, %v (%q %+v)", out, err, gotAction, gotPrincipal)
 	}
 	boom, _ := e.sup.Action("aa", "boom")

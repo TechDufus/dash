@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"sync"
 	"testing"
@@ -339,7 +340,7 @@ func TestActionWritesIntentAndOutcome(t *testing.T) {
 			if a.action != "restart" || !ok || *in != okRestart {
 				t.Errorf("Act got %q %#v", a.action, a.input)
 			}
-			if want := (auth.Principal{Kind: auth.KindProxy, User: "alice", Role: auth.RoleAdmin}); a.p != want {
+			if want := (auth.Principal{Kind: auth.KindProxy, User: "alice", Role: auth.RoleAdmin}); !reflect.DeepEqual(a.p, want) {
 				t.Errorf("principal = %+v, want %+v", a.p, want)
 			}
 

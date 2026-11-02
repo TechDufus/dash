@@ -12,8 +12,10 @@ func TestRoleAtLeast(t *testing.T) {
 		{RoleViewer, RoleViewer, true},
 		{RoleViewer, RoleAdmin, false},
 		{"", RoleViewer, false},
+		{"", "", false},
 		{RoleAdmin, "", false},
 		{"owner", RoleViewer, false},
+		{RoleViewer, "owner", false},
 	} {
 		if got := c.r.AtLeast(c.min); got != c.want {
 			t.Errorf("%q.AtLeast(%q) = %v, want %v", c.r, c.min, got, c.want)

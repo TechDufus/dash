@@ -1,6 +1,8 @@
-// Package auth is the identity the request chain and plugins act with. G2 resolves only the
-// interactive kinds; P4.2 adds fields to Principal (groups, tokenID, scopes, …) without
-// changing the ones below.
+// Package auth holds the identity primitives of the request chain: Role and Kind, the Principal
+// a request acts as (principal.go), the Authenticator contract and bearer extraction
+// (authn.go), the trusted-peer set (trust.go), proxy identity headers (proxy.go) and the
+// user-to-role mapping (roles.go). It is pure: it imports neither config nor the model, and it
+// never reads X-Forwarded-For.
 package auth
 
 // Role is what a principal may do. Roles are ordered: admin includes everything viewer does.
@@ -34,15 +36,11 @@ func rank(r Role) (int, bool) {
 type Kind string
 
 const (
-	KindProxy Kind = "proxy" // forwarded headers behind the identity proxy (today's mode)
-	KindDev   Kind = "dev"   // DASH_DEV
-	KindDemo  Kind = "demo"  // DASH_DEMO
+	KindProxy     Kind = "proxy"     // forwarded identity headers from a trusted peer
+	KindSession   Kind = "session"   // session cookie (local and oidc modes)
+	KindToken     Kind = "token"     // bearer token (non-interactive)
+	KindAnonymous Kind = "anonymous" // the anonymous viewer (local mode)
+	KindDev       Kind = "dev"       // DASH_DEV fixed identity
+	KindDemo      Kind = "demo"      // DASH_DEMO fixed identity
+	KindNone      Kind = "none"      // auth.mode none fixed identity
 )
-
-// Principal is who a request acts as. G2 gives every authenticated principal RoleAdmin,
-// preserving today's behaviour (design E.1); P4.2 replaces that with the role mapping.
-type Principal struct {
-	Kind Kind
-	User string
-	Role Role
-}
