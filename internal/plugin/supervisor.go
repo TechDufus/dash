@@ -854,7 +854,15 @@ func (s *Supervisor) reconcile() {
 		plans[in] = s.evaluate(in, cfgs[in])
 	}
 
-	stopping := map[*instance]string{}
+	// What each instance that is stopped now becomes, decided here so that stop can record it in
+	// the same step that ends the instance: between the two an instance that is no longer running
+	// would still report the state it had while it ran (see stop).
+	type stopPlan struct {
+		reason string
+		state  State
+		msg    string
+	}
+	stopping := map[*instance]stopPlan{}
 	for _, in := range order {
 		if !in.isRunning() {
 			continue
@@ -865,28 +873,31 @@ func (s *Supervisor) reconcile() {
 		in.mu.RUnlock()
 		switch {
 		case !pl.runnable:
-			stopping[in] = pl.msg
+			stopping[in] = stopPlan{pl.msg, pl.state, pl.msg}
 		case !reflect.DeepEqual(applied, pl.ic):
-			stopping[in] = "configuration changed"
+			// Started again below with the new configuration, or, when a requirement is not met
+			// by then, set to blocked there: "starting" is the state it had and still has until
+			// the start phase reaches it.
+			stopping[in] = stopPlan{"configuration changed", StateStarting, ""}
 		default:
 			for _, d := range in.deps {
 				if dep := byID[d]; dep != nil {
 					if _, ok := stopping[dep]; ok {
-						stopping[in] = "dependency " + string(d) + " is stopping"
+						stopping[in] = stopPlan{"dependency " + string(d) + " is stopping", StateStarting, ""}
 						break
 					}
 				}
 			}
 			if _, ok := stopping[in]; !ok {
 				if b := s.blocker(in); b != "" {
-					stopping[in] = b
+					stopping[in] = stopPlan{b, StateBlocked, b}
 				}
 			}
 		}
 	}
 	for i := len(order) - 1; i >= 0; i-- {
-		if reason, ok := stopping[order[i]]; ok {
-			s.stop(order[i], context.Background(), reason, true)
+		if sp, ok := stopping[order[i]]; ok {
+			s.stop(order[i], context.Background(), sp.reason, sp.state, sp.msg, true)
 		}
 	}
 
@@ -1052,11 +1063,19 @@ func (s *Supervisor) demoTwin(in *instance) bool { return s.opt.Demo && in.hasTw
 // stop ends an instance: no more publishes, its context cancelled, Stop called within
 // StopTimeout (a Stop that outlives it is abandoned), then its topics removed, so that a viewer
 // is not shown the data of a plugin that no longer runs.
-func (s *Supervisor) stop(in *instance, parent context.Context, reason string, removeTopics bool) {
+//
+// state and msg become the instance's state in the same critical section that clears running.
+// A plugin that runs reports its own status and in.state is only what it was last set to
+// ("starting", from start), so without this an instance that is not running would read as
+// "starting" until the reconcile got round to deciding it (a Stop and the Start of the instances
+// before it in dependency order can take that long), and a reader would see a stopped plugin
+// that claims to be starting.
+func (s *Supervisor) stop(in *instance, parent context.Context, reason string, state State, msg string, removeTopics bool) {
 	in.mu.Lock()
 	p, cancel := in.p, in.cancel
 	was := in.running
 	in.live, in.running, in.routes = false, false, nil
+	in.state, in.msg = state, msg
 	in.mu.Unlock()
 	if cancel != nil {
 		cancel()
@@ -1118,11 +1137,7 @@ func (s *Supervisor) Shutdown(ctx context.Context) {
 	order := slices.Clone(s.order)
 	s.mu.RUnlock()
 	for i := len(order) - 1; i >= 0; i-- {
-		in := order[i]
-		s.stop(in, ctx, "shutting down", false)
-		in.mu.Lock()
-		in.state, in.msg = StateUnavailable, "stopped"
-		in.mu.Unlock()
+		s.stop(order[i], ctx, "shutting down", StateUnavailable, "stopped", false)
 	}
 }
 

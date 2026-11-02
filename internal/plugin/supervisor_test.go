@@ -268,12 +268,14 @@ func TestDependentIsBlockedWhenItsStartMakesTheDependencyUnavailable(t *testing.
 		return nil
 	}
 	e := start(t, a.Factory(), x.Factory())
-	eventually(t, "a to be stopped once xx is unavailable", func() bool { return !e.sup.Running("aa") })
+	// Running turns false before Stop is called (stop clears it first, so nothing more is
+	// published), so the count is waited for as well, not read right after Running changes.
+	eventually(t, "a to be stopped once xx is unavailable", func() bool { return !e.sup.Running("aa") && a.Stops() == 1 })
 	if s, msg := e.state(t, "aa"); s != model.PluginBlocked || !strings.HasPrefix(msg, "requires xx (unavailable") {
 		t.Fatalf("a = %s %q, want blocked", s, msg)
 	}
-	if a.Starts() != 1 || a.Stops() != 1 {
-		t.Fatalf("a started %d and stopped %d times, want 1 and 1", a.Starts(), a.Stops())
+	if a.Starts() != 1 {
+		t.Fatalf("a started %d times, want 1", a.Starts())
 	}
 }
 
@@ -299,6 +301,56 @@ func TestTwoDependentsAreBothBlockedWhenTheFirstsStartMakesTheDependencyUnavaila
 		if s, msg := e.state(t, id); s != model.PluginBlocked || !strings.HasPrefix(msg, "requires xx (unavailable") {
 			t.Errorf("%s = %s %q, want blocked", id, s, msg)
 		}
+	}
+}
+
+// An instance that is being stopped no longer runs, so it must not read as "starting" (the state
+// it was left in when it started) while its Stop is still running: the reconcile decides what it
+// becomes before Stop is called. The reader here is Infos, as in the two tests above, but with
+// Stop held open the window is not a race.
+func TestStoppingInstanceReportsWhyItIsNotRunningWhileStopIsRunning(t *testing.T) {
+	cases := []struct {
+		name   string
+		cause  func(e *env, setXX func(plugin.State))
+		want   model.PluginState
+		prefix string
+	}{
+		{"blocked", func(_ *env, setXX func(plugin.State)) { setXX(plugin.StateUnavailable) }, model.PluginBlocked, "requires xx (unavailable"},
+		{"disabled", func(e *env, _ func(plugin.State)) {
+			e.set.Set(plugin.InstanceConfig{Name: "aa", Enabled: new(false)})
+			e.sup.Reload()
+		}, model.PluginDisabled, ""},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			var mu sync.Mutex
+			st := plugin.StateHealthy
+			a := plugintest.New("aa", plugintest.Requires("xx"))
+			x := plugintest.New("xx")
+			x.StatusFn = func() plugin.Status { mu.Lock(); defer mu.Unlock(); return plugin.Status{State: st, Message: "gone"} }
+			inStop, release := make(chan struct{}), make(chan struct{})
+			a.StopFn = func(context.Context) error { close(inStop); <-release; return nil }
+			var once sync.Once
+			unblock := func() { once.Do(func() { close(release) }) }
+			e := start(t, a.Factory(), x.Factory())
+			t.Cleanup(unblock) // after start's cleanup, so it runs before Shutdown, which waits for Stop
+			if !e.sup.Running("aa") {
+				t.Fatal("aa is not running after Run")
+			}
+			c.cause(e, func(s plugin.State) { mu.Lock(); st = s; mu.Unlock() })
+			select {
+			case <-inStop:
+			case <-time.After(3 * time.Second):
+				t.Fatal("aa's Stop was not called")
+			}
+			if e.sup.Running("aa") {
+				t.Error("aa runs while its Stop is running")
+			}
+			if s, msg := e.state(t, "aa"); s != c.want || !strings.HasPrefix(msg, c.prefix) {
+				t.Errorf("aa during its Stop = %s %q, want %s %q...", s, msg, c.want, c.prefix)
+			}
+			unblock()
+		})
 	}
 }
 
