@@ -11,7 +11,7 @@ import (
 //	""            unset (zero Value)
 //	env:NAME      the process environment variable NAME
 //	file:/path    the file's contents with surrounding whitespace trimmed
-//	k8s:...       rejected: the kubernetes plugin resolves these, not this package
+//	k8s:...       rejected here: K8sRefs hands out those handles (config.Sources.K8s)
 //	anything else a literal
 //
 // path is the config field path (for example "plugins.proxmox.tokenSecret"). It
@@ -50,7 +50,7 @@ func Resolve(raw, path string) (Value, error) {
 		}
 		return New(val, raw), nil
 	case strings.HasPrefix(raw, "k8s:"):
-		return Value{}, fmt.Errorf("%s: k8s: references are resolved by the kubernetes plugin and are not available to this field", path)
+		return Value{}, fmt.Errorf("%s: k8s: references are read by the kubernetes plugin and need dash's secret registry; not available to this field", path)
 	case strings.HasPrefix(raw, "op://"):
 		return Value{}, fmt.Errorf("%s: op:// references are not built in; materialise the secret as an env variable or a file and use env: or file:", path)
 	}

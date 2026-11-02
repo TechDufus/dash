@@ -63,6 +63,11 @@ type Sources struct {
 	// set, but the variable or file need not exist. `dash config validate` uses it to check a
 	// file on a machine other than the one dash runs on.
 	SkipSecrets bool
+	// K8s hands out the holders of k8s: references (P3.10): the same one for the same reference
+	// on every resolution, so a reload sees no change where only the reading progressed. Nil
+	// means no kubernetes plugin to read them: a k8s: reference is then an error.
+	// `dash config validate` passes a throwaway one, which checks the syntax only.
+	K8s *secret.K8sRefs
 }
 
 // Resolved is the outcome of Resolve.
@@ -127,7 +132,7 @@ func layer(src Sources) (r *resolver, dev, demo bool, err error) {
 	env := envMap(src.Environ)
 	dev, demo = envTrue(env["DASH_DEV"]), envTrue(env["DASH_DEMO"])
 
-	r = &resolver{tree: defaults(dev, demo), prov: map[string]Provenance{}, raw: map[string]string{}, plain: map[string]string{}, keys: src.Keys, log: log, skipSecrets: src.SkipSecrets}
+	r = &resolver{tree: defaults(dev, demo), prov: map[string]Provenance{}, raw: map[string]string{}, plain: map[string]string{}, keys: src.Keys, log: log, skipSecrets: src.SkipSecrets, k8s: src.K8s}
 	for _, l := range schema.leaves {
 		r.prov[l.path] = Provenance{Source: SourceDefault}
 	}
@@ -162,6 +167,7 @@ type resolver struct {
 	log   *slog.Logger
 	// skipSecrets leaves env: and file: references unread (Sources.SkipSecrets).
 	skipSecrets bool
+	k8s         *secret.K8sRefs
 
 	// sealedErrs are the stored enc:v1: secrets that cannot be decrypted. They are collected,
 	// not logged as ignored UI settings like other stale values: a stored credential is never
@@ -326,6 +332,13 @@ func (r *resolver) resolveSecrets(reg *secret.Registry) error {
 				// Validation only needs to know the secret is set; the variable or file it points
 				// at may exist only where dash runs. The placeholder is never used for a request.
 				v = secret.New("unread", raw)
+			} else if r.k8s != nil && strings.HasPrefix(raw, "k8s:") {
+				// A pending handle: the kubernetes plugin fills it. The error names the field
+				// and never the reference.
+				if v, err = r.k8s.Handle(raw); err != nil {
+					errs = append(errs, fmt.Errorf("%s%s: %w", l.path, where(r.prov, l.path), err))
+					continue
+				}
 			} else if v, err = secret.Resolve(raw, l.path+where(r.prov, l.path)); err != nil {
 				errs = append(errs, err)
 				continue

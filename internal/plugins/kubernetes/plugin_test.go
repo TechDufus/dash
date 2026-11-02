@@ -31,6 +31,7 @@ import (
 	"github.com/TechDufus/dash/internal/plugin"
 	"github.com/TechDufus/dash/internal/plugin/plugintest"
 	"github.com/TechDufus/dash/internal/pluginconf"
+	"github.com/TechDufus/dash/internal/secret"
 	"github.com/TechDufus/dash/internal/svc"
 )
 
@@ -114,6 +115,7 @@ type envOpts struct {
 	demo      bool
 	links     func(plugin.LinkRequest) []model.Link // a headlamp-like link provider
 	noRun     bool                                  // build everything but do not start the supervisor
+	refs      *secret.K8sRefs                       // the k8s: references the plugin reads (nil: none)
 }
 
 func fastTiming() timing {
@@ -177,7 +179,7 @@ func newEnv(t *testing.T, o envOpts) *env {
 		o.timing(&tm)
 	}
 	factory := func() plugin.Plugin {
-		p := &Plugin{t: tm, connect: e.connect}
+		p := &Plugin{t: tm, connect: e.connect, refs: o.refs}
 		e.mu.Lock()
 		e.p = p
 		e.mu.Unlock()
@@ -417,12 +419,21 @@ func TestStartsAndPublishesEverything(t *testing.T) {
 	}
 }
 
-// Every goroutine of the plugin ends with it (informers, probe, discovery, pollers, publisher),
-// and no request reaches the fake API server or Prometheus afterwards.
+// Every goroutine of the plugin ends with it (informers, probe, discovery, pollers, publisher and
+// the Secret watchers of its k8s: references), the last value read stays, and no request reaches
+// the fake API server or Prometheus afterwards.
 func TestStopEndsEveryGoroutine(t *testing.T) {
 	base := goruntime.NumGoroutine()
-	e := newEnv(t, envOpts{objs: []k8sruntime.Object{node("n1", "192.0.2.11", true)}})
+	refs := secret.NewK8sRefs(nil)
+	held, err := refs.Handle("k8s:dash/creds#token")
+	if err != nil {
+		t.Fatal(err)
+	}
+	e := newEnv(t, envOpts{refs: refs, objs: []k8sruntime.Object{
+		node("n1", "192.0.2.11", true), swSecret("dash", "creds", map[string]string{"token": swCanary}),
+	}})
 	e.healthy()
+	swEventually(t, "the Secret watcher to read the value", reveals(held, swCanary))
 	if goruntime.NumGoroutine() <= base {
 		t.Fatal("the plugin started no goroutine")
 	}
@@ -431,6 +442,9 @@ func TestStopEndsEveryGoroutine(t *testing.T) {
 	defer cancel()
 	if err := p.Stop(ctx); err != nil {
 		t.Fatalf("Stop: %v", err)
+	}
+	if got := held.Reveal(); got != swCanary || held.Reason() != secret.ReasonKubernetesUnavailable {
+		t.Errorf("after Stop the value must stay and the reason say so: reason %q", held.Reason())
 	}
 	api, prom := e.requests.Load(), e.prom.requests()
 	time.Sleep(150 * time.Millisecond) // ten probe periods: anything still running would send a request

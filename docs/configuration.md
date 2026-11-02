@@ -11,7 +11,8 @@ Every setting has a variable: `DASH_` plus its path in UPPER_SNAKE case. Lists a
 (`DASH_PLUGINS_HARDWARE_HOSTS='[{"nodename":"pve"}]'`). Append `_FILE` to read the value from a file
 (`DASH_PLUGINS_PROXMOX_TOKEN_SECRET_FILE=/run/secrets/pve`); set only one of the two forms.
 
-A secret takes a literal, `env:NAME` or `file:/path`. A change to a `plugins.<id>` section applies live
+A secret takes a literal, `env:NAME`, `file:/path` or `k8s:<namespace>/<name>#<key>` (the value of that key of a Kubernetes Secret,
+read through the kubernetes plugin: it must run and be allowed to read that Secret; see the README). A change to a `plugins.<id>` section applies live
 for prometheus, alertmanager, gatus, victorialogs, proxmox, hardware, kubernetes, grafana, headlamp and launcher, except
 for a setting marked "restart-only": that plugin restarts, and so do the plugins that use or require it
 (a prometheus change restarts proxmox, hardware and kubernetes; a gatus change restarts hardware and
@@ -89,7 +90,7 @@ HTTP Basic authentication. Not together with bearerToken.
 | Setting | Variable | Type | Default | Description |
 |---|---|---|---|---|
 | `plugins.prometheus.auth.basic.username` | `DASH_PLUGINS_PROMETHEUS_AUTH_BASIC_USERNAME` | string | - | User name. |
-| `plugins.prometheus.auth.basic.password` | `DASH_PLUGINS_PROMETHEUS_AUTH_BASIC_PASSWORD` | string | - | Password: a literal, env:NAME or file:/path. Set together with username. _Secret._ |
+| `plugins.prometheus.auth.basic.password` | `DASH_PLUGINS_PROMETHEUS_AUTH_BASIC_PASSWORD` | string | - | Password: a literal, env:NAME, file:/path or k8s:<namespace>/<name>#<key> (read from that Kubernetes Secret by the kubernetes plugin, which must run and be allowed to read it). Set together with username. _Secret._ |
 
 ## `plugins.prometheus.auth`
 
@@ -97,7 +98,7 @@ How dash authenticates to the service. Neither basic nor bearerToken sends no cr
 
 | Setting | Variable | Type | Default | Description |
 |---|---|---|---|---|
-| `plugins.prometheus.auth.bearerToken` | `DASH_PLUGINS_PROMETHEUS_AUTH_BEARER_TOKEN` | string | - | Bearer token sent as Authorization: Bearer: a literal, env:NAME or file:/path. Not together with basic. _Secret._ |
+| `plugins.prometheus.auth.bearerToken` | `DASH_PLUGINS_PROMETHEUS_AUTH_BEARER_TOKEN` | string | - | Bearer token sent as Authorization: Bearer: a literal, env:NAME, file:/path or k8s:<namespace>/<name>#<key> (read from that Kubernetes Secret by the kubernetes plugin, which must run and be allowed to read it). Not together with basic. _Secret._ |
 
 ## `plugins.prometheus.tls`
 
@@ -129,7 +130,7 @@ HTTP Basic authentication. Not together with bearerToken.
 | Setting | Variable | Type | Default | Description |
 |---|---|---|---|---|
 | `plugins.alertmanager.auth.basic.username` | `DASH_PLUGINS_ALERTMANAGER_AUTH_BASIC_USERNAME` | string | - | User name. |
-| `plugins.alertmanager.auth.basic.password` | `DASH_PLUGINS_ALERTMANAGER_AUTH_BASIC_PASSWORD` | string | - | Password: a literal, env:NAME or file:/path. Set together with username. _Secret._ |
+| `plugins.alertmanager.auth.basic.password` | `DASH_PLUGINS_ALERTMANAGER_AUTH_BASIC_PASSWORD` | string | - | Password: a literal, env:NAME, file:/path or k8s:<namespace>/<name>#<key> (read from that Kubernetes Secret by the kubernetes plugin, which must run and be allowed to read it). Set together with username. _Secret._ |
 
 ## `plugins.alertmanager.auth`
 
@@ -137,7 +138,7 @@ How dash authenticates to Alertmanager. Neither basic nor bearerToken sends no c
 
 | Setting | Variable | Type | Default | Description |
 |---|---|---|---|---|
-| `plugins.alertmanager.auth.bearerToken` | `DASH_PLUGINS_ALERTMANAGER_AUTH_BEARER_TOKEN` | string | - | Bearer token sent as Authorization: Bearer: a literal, env:NAME or file:/path. Not together with basic. _Secret._ |
+| `plugins.alertmanager.auth.bearerToken` | `DASH_PLUGINS_ALERTMANAGER_AUTH_BEARER_TOKEN` | string | - | Bearer token sent as Authorization: Bearer: a literal, env:NAME, file:/path or k8s:<namespace>/<name>#<key> (read from that Kubernetes Secret by the kubernetes plugin, which must run and be allowed to read it). Not together with basic. _Secret._ |
 
 ## `plugins.alertmanager.tls`
 
@@ -175,7 +176,7 @@ HTTP Basic authentication. Not together with bearerToken.
 | Setting | Variable | Type | Default | Description |
 |---|---|---|---|---|
 | `plugins.victorialogs.auth.basic.username` | `DASH_PLUGINS_VICTORIALOGS_AUTH_BASIC_USERNAME` | string | - | User name. |
-| `plugins.victorialogs.auth.basic.password` | `DASH_PLUGINS_VICTORIALOGS_AUTH_BASIC_PASSWORD` | string | - | Password: a literal, env:NAME or file:/path. Set together with username. _Secret._ |
+| `plugins.victorialogs.auth.basic.password` | `DASH_PLUGINS_VICTORIALOGS_AUTH_BASIC_PASSWORD` | string | - | Password: a literal, env:NAME, file:/path or k8s:<namespace>/<name>#<key> (read from that Kubernetes Secret by the kubernetes plugin, which must run and be allowed to read it). Set together with username. _Secret._ |
 
 ## `plugins.victorialogs.auth`
 
@@ -183,7 +184,7 @@ How dash authenticates to VictoriaLogs. Neither basic nor bearerToken sends no c
 
 | Setting | Variable | Type | Default | Description |
 |---|---|---|---|---|
-| `plugins.victorialogs.auth.bearerToken` | `DASH_PLUGINS_VICTORIALOGS_AUTH_BEARER_TOKEN` | string | - | Bearer token sent as Authorization: Bearer: a literal, env:NAME or file:/path. Not together with basic. _Secret._ |
+| `plugins.victorialogs.auth.bearerToken` | `DASH_PLUGINS_VICTORIALOGS_AUTH_BEARER_TOKEN` | string | - | Bearer token sent as Authorization: Bearer: a literal, env:NAME, file:/path or k8s:<namespace>/<name>#<key> (read from that Kubernetes Secret by the kubernetes plugin, which must run and be allowed to read it). Not together with basic. _Secret._ |
 
 ## `plugins.victorialogs.tls`
 
@@ -223,7 +224,7 @@ HTTP Basic authentication. Not together with bearerToken.
 | Setting | Variable | Type | Default | Description |
 |---|---|---|---|---|
 | `plugins.gatus.auth.basic.username` | `DASH_PLUGINS_GATUS_AUTH_BASIC_USERNAME` | string | - | User name. |
-| `plugins.gatus.auth.basic.password` | `DASH_PLUGINS_GATUS_AUTH_BASIC_PASSWORD` | string | - | Password: a literal, env:NAME or file:/path. Set together with username. _Secret._ |
+| `plugins.gatus.auth.basic.password` | `DASH_PLUGINS_GATUS_AUTH_BASIC_PASSWORD` | string | - | Password: a literal, env:NAME, file:/path or k8s:<namespace>/<name>#<key> (read from that Kubernetes Secret by the kubernetes plugin, which must run and be allowed to read it). Set together with username. _Secret._ |
 
 ## `plugins.gatus.auth`
 
@@ -231,7 +232,7 @@ How dash authenticates to Gatus. Neither basic nor bearerToken sends no credenti
 
 | Setting | Variable | Type | Default | Description |
 |---|---|---|---|---|
-| `plugins.gatus.auth.bearerToken` | `DASH_PLUGINS_GATUS_AUTH_BEARER_TOKEN` | string | - | Bearer token sent as Authorization: Bearer: a literal, env:NAME or file:/path. Not together with basic. _Secret._ |
+| `plugins.gatus.auth.bearerToken` | `DASH_PLUGINS_GATUS_AUTH_BEARER_TOKEN` | string | - | Bearer token sent as Authorization: Bearer: a literal, env:NAME, file:/path or k8s:<namespace>/<name>#<key> (read from that Kubernetes Secret by the kubernetes plugin, which must run and be allowed to read it). Not together with basic. _Secret._ |
 
 ## `plugins.gatus.tls`
 
@@ -253,7 +254,7 @@ Proxmox VE: virtual machines, containers and the hypervisor.
 | `plugins.proxmox.url` | `DASH_PLUGINS_PROXMOX_URL` | string | - | Base URL of the Proxmox API, e.g. https://pve.example.com:8006. Required with a token; a URL alone leaves Proxmox disabled. |
 | `plugins.proxmox.node` | `DASH_PLUGINS_PROXMOX_NODE` | string | - | The Proxmox node to read. Empty is discovered from the API when the cluster has exactly one node; set it for several nodes or to skip discovery. The hardware plugin reads the host's node from the running proxmox plugin, so without hosts[0].nodename it needs Proxmox to run (url, tokenID and tokenSecret all set). |
 | `plugins.proxmox.tokenID` | `DASH_PLUGINS_PROXMOX_TOKEN_ID` | string | - | API token ID, user@realm!tokenname. Proxmox runs only with url, tokenID and tokenSecret all set and is disabled with none of the token set. A token ID without tokenSecret, a tokenSecret without tokenID, or a token without url is a configuration error that stops dash at startup. |
-| `plugins.proxmox.tokenSecret` | `DASH_PLUGINS_PROXMOX_TOKEN_SECRET` | string | - | API token secret: a literal, env:NAME or file:/path. Set together with tokenID: one without the other is a configuration error. _Secret._ |
+| `plugins.proxmox.tokenSecret` | `DASH_PLUGINS_PROXMOX_TOKEN_SECRET` | string | - | API token secret: a literal, env:NAME, file:/path or k8s:<namespace>/<name>#<key> (read from that Kubernetes Secret by the kubernetes plugin, which must run and be allowed to read it). Set together with tokenID: one without the other is a configuration error. _Secret._ |
 
 ## `plugins.proxmox.tls`
 

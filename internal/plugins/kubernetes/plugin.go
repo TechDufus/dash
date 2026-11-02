@@ -21,6 +21,7 @@ import (
 	"github.com/TechDufus/dash/internal/model"
 	"github.com/TechDufus/dash/internal/plugin"
 	"github.com/TechDufus/dash/internal/pluginconf"
+	"github.com/TechDufus/dash/internal/secret"
 	"github.com/TechDufus/dash/internal/svc"
 )
 
@@ -69,7 +70,10 @@ func defaultTiming() timing {
 type Plugin struct {
 	t       timing
 	connect Connect
+	refs    *secret.K8sRefs // the k8s: references the secret watchers read; nil reads none
 	rt      atomic.Pointer[runtime] // set by Start when there is a cluster
+
+	secrets *secretWatchers // set by Start when there is a cluster and refs
 
 	mu     sync.Mutex
 	noConn *connStatus // set by Start when there is no cluster to run on
@@ -81,13 +85,18 @@ type connStatus struct {
 	msg   string
 }
 
-// New is the plugin's factory.
-func New() plugin.Plugin { return Factory(connectCluster)() }
+// New is the plugin without secret references: its manifest, routes and settings, for the
+// tools and tests that never start it.
+func New() plugin.Plugin { return Factory(nil)() }
 
-// Factory is New with the way of reaching the cluster given, so a test can hand over fake
-// clients.
-func Factory(connect Connect) plugin.Factory {
-	return func() plugin.Plugin { return &Plugin{t: defaultTiming(), connect: connect} }
+// Factory is the plugin's factory. refs holds the k8s: references of the configuration: the
+// plugin reads the Secrets they name once it is connected (nil reads none).
+func Factory(refs *secret.K8sRefs) plugin.Factory { return FactoryWithConnect(refs, connectCluster) }
+
+// FactoryWithConnect is Factory with the way of reaching the cluster given, so a test can hand
+// over fake clients.
+func FactoryWithConnect(refs *secret.K8sRefs, connect Connect) plugin.Factory {
+	return func() plugin.Plugin { return &Plugin{t: defaultTiming(), connect: connect, refs: refs} }
 }
 
 func (p *Plugin) timing() timing {
@@ -174,6 +183,7 @@ func (p *Plugin) Start(ctx context.Context, h plugin.Host, cfg any) error {
 		p.setNoConn(plugin.StateError, fmt.Sprintf("cannot connect to the cluster (plugins.kubernetes.mode %s): see the log", mode))
 		return nil
 	}
+	p.secrets = bindSecrets(ctx, conn.Cluster.Client, p.refs, h.Logger())
 	rctx, cancel := context.WithCancel(ctx)
 	r := newRuntime(rctx, cancel, h, c, p.timing(), conn)
 	p.rt.Store(r)
@@ -196,6 +206,7 @@ func (p *Plugin) setNoConn(state plugin.State, msg string) {
 
 // Stop ends every goroutine Start launched, as long as ctx allows.
 func (p *Plugin) Stop(ctx context.Context) error {
+	p.secrets.stop()
 	r := p.rt.Load()
 	if r == nil {
 		return nil

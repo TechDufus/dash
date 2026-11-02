@@ -44,7 +44,7 @@ type Proxmox struct {
 	URL         string         `json:"url" dash:"url" doc:"Base URL of the Proxmox API, e.g. https://pve.example.com:8006. Required with a token; a URL alone leaves Proxmox disabled."`
 	Node        string         `json:"node" doc:"The Proxmox node to read. Empty is discovered from the API when the cluster has exactly one node; set it for several nodes or to skip discovery. The hardware plugin reads the host's node from the running proxmox plugin, so without hosts[0].nodename it needs Proxmox to run (url, tokenID and tokenSecret all set)."`
 	TokenID     string         `json:"tokenID" doc:"API token ID, user@realm!tokenname. Proxmox runs only with url, tokenID and tokenSecret all set and is disabled with none of the token set. A token ID without tokenSecret, a tokenSecret without tokenID, or a token without url is a configuration error that stops dash at startup."`
-	TokenSecret secret.Value   `json:"tokenSecret" dash:"secret" doc:"API token secret: a literal, env:NAME or file:/path. Set together with tokenID: one without the other is a configuration error."`
+	TokenSecret secret.Value   `json:"tokenSecret" dash:"secret" doc:"API token secret: a literal, env:NAME, file:/path or k8s:<namespace>/<name>#<key> (read from that Kubernetes Secret by the kubernetes plugin, which must run and be allowed to read it). Set together with tokenID: one without the other is a configuration error."`
 	TLS         TLS            `json:"tls" doc:"How dash verifies the Proxmox API's certificate."`
 	CriticalVMs CriticalVMs    `json:"criticalVMs" doc:"Which VMs are critical. No VM is critical by default."`
 	Storage     ProxmoxStorage `json:"storage" doc:"Where the Proxmox storage list comes from."`
@@ -103,7 +103,7 @@ func ValidVMSelector(s string) error {
 // then the rules of the settings the schema cannot express.
 func (p Proxmox) Validate() error {
 	var pr problems
-	if (p.TokenID == "") != !p.TokenSecret.IsSet() {
+	if (p.TokenID == "") != !p.TokenSecret.Present() {
 		pr.add("tokenSecret", "tokenID and tokenSecret must be set together")
 	}
 	if p.TokenID != "" && p.URL == "" {

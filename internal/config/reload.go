@@ -48,7 +48,9 @@ type ReloadOptions struct {
 // configuration stays in force. A valid one
 //   - updates every rotated secret in place (secret.Value.Update), so holders of the Value, such
 //     as the Proxmox client, use the new credential at their next request, and the registry
-//     keeps scrubbing the old one;
+//     keeps scrubbing the old one (a k8s: reference is no rotation of this kind: Sources.K8s
+//     hands out one holder per reference, which the kubernetes plugin keeps filled, so a
+//     reload sees a change only when a reference is added, removed or pointed elsewhere);
 //   - records every other changed setting in RestartRequired and logs it once, unless its
 //     section is live (ReloadOptions.Live): the plugin framework applies those in-process;
 //   - emits one Change per affected section to the subscribers.
@@ -222,14 +224,25 @@ func (r *Reloader) apply(next *Resolved) []Change {
 		start := l.field(&r.startup.Tree)
 		if l.secret {
 			ov, nv, running := was.Interface().(secret.Value), now.Interface().(secret.Value), start.Interface().(secret.Value)
-			if running.IsSet() != nv.IsSet() {
+			if running.Present() != nv.Present() {
 				restart[l.path] = true // the plugin that reads it is on or off until restart
 			}
-			if ov.Reveal() == nv.Reveal() {
+			same := ov.Reveal() == nv.Reveal()
+			if same && (ov.Pending() || nv.Pending()) {
+				// A pending handle has no value to compare: "" == "" would hide a reference
+				// that a reload added, removed or pointed elsewhere.
+				same = ov.Ref() == nv.Ref()
+			}
+			if same {
 				continue
 			}
 			changed = append(changed, l.path)
 			switch {
+			case k8sRef(running) || k8sRef(nv):
+				// A k8s: handle is filled by the kubernetes plugin and is the same one on every
+				// resolution: copying a value into or out of it would overwrite what the
+				// plugin read. A different reference is a different handle, which the plugin
+				// framework picks up with the section's Change.
 			case running.IsSet() && nv.IsSet() && running.Update(nv.Reveal()):
 				r.log().Info("secret reloaded", "path", l.path, "ref", nv.Ref())
 			case nv.IsSet() && r.reg != nil:
@@ -269,6 +282,9 @@ func (r *Reloader) apply(next *Resolved) []Change {
 	}
 	return out
 }
+
+// k8sRef reports whether v is a handle of a k8s: reference.
+func k8sRef(v secret.Value) bool { return strings.HasPrefix(v.Ref(), "k8s:") }
 
 // sectionOf names the section a setting belongs to: the plugin for plugins.<id>.*, otherwise
 // the first path segment.

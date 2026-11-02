@@ -153,7 +153,8 @@ Every setting has a variable: ` + "`DASH_`" + ` plus its path in UPPER_SNAKE cas
 (` + "`DASH_PLUGINS_HARDWARE_HOSTS='[{\"nodename\":\"pve\"}]'`" + `). Append ` + "`_FILE`" + ` to read the value from a file
 (` + "`DASH_PLUGINS_PROXMOX_TOKEN_SECRET_FILE=/run/secrets/pve`" + `); set only one of the two forms.
 
-A secret takes a literal, ` + "`env:NAME`" + ` or ` + "`file:/path`" + `. A change to a ` + "`plugins.<id>`" + ` section applies live
+A secret takes a literal, ` + "`env:NAME`" + `, ` + "`file:/path`" + ` or ` + "`k8s:<namespace>/<name>#<key>`" + ` (the value of that key of a Kubernetes Secret,
+read through the kubernetes plugin: it must run and be allowed to read that Secret; see the README). A change to a ` + "`plugins.<id>`" + ` section applies live
 for prometheus, alertmanager, gatus, victorialogs, proxmox, hardware, kubernetes, grafana, headlamp and launcher, except
 for a setting marked "restart-only": that plugin restarts, and so do the plugins that use or require it
 (a prometheus change restarts proxmox, hardware and kubernetes; a gatus change restarts hardware and

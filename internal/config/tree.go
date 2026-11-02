@@ -12,7 +12,7 @@ import (
 // to UPPER_SNAKE, the environment names (B.3). The dash tag holds comma-separated metadata:
 //
 //	secret   the value is a credential (a secret.Value, never logged or shown). Layers give a
-//	         literal, env:NAME or file:/path; resolve reads the reference once all layers are set
+//	         literal, env:NAME, file:/path or k8s:<ns>/<name>#<key>; resolve reads the reference once all layers are set
 //	restart  a change needs a restart (x-dash-restart, B.6)
 //	url      the value is a URL: validated as http(s) and stored without a trailing slash
 //

@@ -12,6 +12,7 @@ import (
 
 	"github.com/TechDufus/dash/internal/config"
 	"github.com/TechDufus/dash/internal/pluginconf"
+	"github.com/TechDufus/dash/internal/secret"
 )
 
 // errConfigInvalid makes `dash config validate` exit 1; the report it printed says why.
@@ -91,6 +92,9 @@ func configValidate(args []string, out io.Writer) error {
 		return reportInvalid(out, err)
 	}
 	src.SkipSecrets = !resolveSecrets
+	// A k8s: reference is read through the kubernetes plugin of a running dash: here its syntax is
+	// checked and the handle stays pending.
+	src.K8s = secret.NewK8sRefs(nil)
 	var warnings bytes.Buffer
 	src.Log = slog.New(slog.NewTextHandler(&warnings, &slog.HandlerOptions{
 		Level: slog.LevelWarn,

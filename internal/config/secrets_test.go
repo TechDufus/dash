@@ -134,7 +134,7 @@ func TestUnreadableSecretReferenceFailsNamingFieldNotValue(t *testing.T) {
 		{"missing file: ref", "DASH_PLUGINS_PROXMOX_TOKEN_SECRET=file:/missing/secret", []string{"plugins.proxmox.tokenSecret", "DASH_PLUGINS_PROXMOX_TOKEN_SECRET", "/missing/secret"}},
 		{"empty file", "DASH_PLUGINS_PROXMOX_TOKEN_SECRET_FILE=" + empty, []string{"plugins.proxmox.tokenSecret", "is empty"}},
 		{"unset variable", "DASH_PLUGINS_PROXMOX_TOKEN_SECRET=env:DASH_TEST_NOT_SET", []string{"plugins.proxmox.tokenSecret", "DASH_TEST_NOT_SET is not set"}},
-		{"k8s: needs the plugin", "DASH_PLUGINS_PROXMOX_TOKEN_SECRET=k8s:dash/proxmox#" + canary, []string{"plugins.proxmox.tokenSecret", "kubernetes plugin"}},
+		{"k8s: without the kubernetes registry", "DASH_PLUGINS_PROXMOX_TOKEN_SECRET=k8s:dash/proxmox#" + canary, []string{"plugins.proxmox.tokenSecret", "kubernetes plugin"}},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -192,10 +192,18 @@ func TestUILayerCannotSetASecretFromEnvFileOrLiteral(t *testing.T) {
 			}
 		})
 	}
-	// A k8s: reference is accepted from the UI; it errors until the kubernetes plugin resolves it.
+	// A k8s: reference is accepted from the UI. Without a registry of references (nothing reads
+	// them) it errors; with one it resolves to a pending handle.
 	ui := map[string]any{"plugins": map[string]any{"proxmox": map[string]any{"tokenSecret": "k8s:dash/proxmox#token"}}}
 	_, _, err := resolveWith(t, Sources{Environ: pveBase, UI: ui})
 	if err == nil || !strings.Contains(err.Error(), "plugins.proxmox.tokenSecret (UI settings)") || !strings.Contains(err.Error(), "kubernetes plugin") {
-		t.Errorf("k8s: from the UI: %v", err)
+		t.Errorf("k8s: from the UI without a registry: %v", err)
+	}
+	res, _, err := resolveWith(t, Sources{Environ: pveBase, UI: ui, K8s: secret.NewK8sRefs(nil)})
+	if err != nil {
+		t.Fatalf("k8s: from the UI with a registry: %v", err)
+	}
+	if v := res.Tree.Plugins.Proxmox.TokenSecret; !v.Pending() || v.Ref() != "k8s:dash/proxmox#token" {
+		t.Errorf("want a pending handle for the reference, got ref %q pending %v", v.Ref(), v.Pending())
 	}
 }

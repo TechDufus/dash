@@ -151,7 +151,7 @@ func TestStartTurnsConnectFailuresIntoTheRow(t *testing.T) {
 		{"explicit mode", errors.New("boom /secret/path"), plugin.StateError},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			p := Factory(func(pluginconf.Kubernetes) (*Connection, error) { return nil, tc.err })().(*Plugin)
+			p := FactoryWithConnect(nil, func(pluginconf.Kubernetes) (*Connection, error) { return nil, tc.err })().(*Plugin)
 			cfg := pluginconf.DefaultKubernetes()
 			h := &connHost{}
 			if err := p.Start(context.Background(), h, &cfg); err != nil {

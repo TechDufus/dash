@@ -229,7 +229,7 @@ func TestRegistryOrderAndReplacement(t *testing.T) {
 		return out
 	}
 
-	if got := ids(registry(shims)); !slices.Equal(got, displayOrder) {
+	if got := ids(registry(shims, nil)); !slices.Equal(got, displayOrder) {
 		t.Fatalf("registry = %v, want %v", got, displayOrder)
 	}
 	var legacy []plugin.ID
@@ -304,7 +304,7 @@ func TestNewFrameworkWiresScrubbingAndTransport(t *testing.T) {
 	startEnv(t, t.TempDir())
 	reg := secret.NewRegistry()
 	reg.Add(secret.New("hunter2-hunter2", ""))
-	res, store, err := loadConfig(reg)
+	res, store, err := loadConfig(reg, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -312,7 +312,7 @@ func TestNewFrameworkWiresScrubbingAndTransport(t *testing.T) {
 
 	var wrapped []plugin.ID
 	tr := func(id plugin.ID, rt http.RoundTripper) http.RoundTripper { wrapped = append(wrapped, id); return rt }
-	fw := newFramework(res, store, config.ReloadOptions{Interval: time.Millisecond}, reg, tr, false)
+	fw := newFramework(res, store, config.ReloadOptions{Interval: time.Millisecond}, reg, nil, tr, false)
 	f := plugintest.New("grafana")
 	startFake(t, fw, f)
 	waitFor(t, func() bool { return fw.sup.Running("grafana") })
@@ -334,7 +334,7 @@ func TestNewFrameworkWiresScrubbingAndTransport(t *testing.T) {
 	}
 
 	// No registry and no hook: nothing to scrub with, nothing wrapped, no panic.
-	plain := newFramework(res, store, config.ReloadOptions{Interval: time.Millisecond}, nil, nil, false)
+	plain := newFramework(res, store, config.ReloadOptions{Interval: time.Millisecond}, nil, nil, nil, false)
 	g := plugintest.New("grafana")
 	startFake(t, plain, g)
 	waitFor(t, func() bool { return plain.sup.Running("grafana") })

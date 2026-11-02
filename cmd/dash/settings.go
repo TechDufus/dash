@@ -14,11 +14,15 @@ import (
 // which only the file and the environment can set, so it is opened between two resolutions: the
 // first finds the store, the second adds its values as the UI layer. Demo mode has no data
 // directory and opens no store (the returned store is nil). The caller closes the store.
-func loadConfig(reg *secret.Registry) (*config.Resolved, *settings.Store, error) {
+//
+// refs hands out the holders of the k8s: references of every secret field (the reloader keeps it
+// in its sources, so a reload sees the same holders); nil makes a k8s: reference an error.
+func loadConfig(reg *secret.Registry, refs *secret.K8sRefs) (*config.Resolved, *settings.Store, error) {
 	src, err := config.ProcessSources(reg)
 	if err != nil {
 		return nil, nil, err
 	}
+	src.K8s = refs
 	if src.Keys, err = config.SecretKeys(src.Environ, reg); err != nil {
 		return nil, nil, err
 	}
@@ -51,8 +55,8 @@ func loadConfig(reg *secret.Registry) (*config.Resolved, *settings.Store, error)
 // is an error: dash refuses to start rather than run without the record the 503 rule relies
 // on. The file has no redacting handler in front of it, so error text is scrubbed here. The
 // caller closes the log, then the store.
-func openState(reg *secret.Registry) (*config.Resolved, *settings.Store, *audit.Log, error) {
-	res, store, err := loadConfig(reg)
+func openState(reg *secret.Registry, refs *secret.K8sRefs) (*config.Resolved, *settings.Store, *audit.Log, error) {
+	res, store, err := loadConfig(reg, refs)
 	if err != nil {
 		return nil, nil, nil, err
 	}

@@ -55,6 +55,16 @@ func (tp *tap) all() []tapEvent {
 	return append([]tapEvent(nil), tp.events...)
 }
 
+// envelopeData is the data of an event body (the marshalled envelope).
+func envelopeData(t *testing.T, body []byte) []byte {
+	t.Helper()
+	var env model.Envelope
+	if err := json.Unmarshal(body, &env); err != nil {
+		t.Fatal(err)
+	}
+	return env.Data
+}
+
 // kubeRowState is the state of the kubernetes row in a core.plugins event body.
 func kubeRowState(t *testing.T, body []byte) plugin.State {
 	t.Helper()
@@ -249,7 +259,9 @@ func TestRecoveryResendsTopicsToAnOpenStream(t *testing.T) {
 			}
 			if visible >= 0 && i > visible && strings.HasPrefix(ev.topic, "kubernetes.") {
 				seen[ev.topic] = true
-				if !bytes.Equal(ev.body, data[ev.topic]) {
+				// The data, not the envelope: a poll that runs after the recovery republishes with a
+				// new updatedAt and source check times, which is fine; the topic's data must not change.
+				if !bytes.Equal(envelopeData(t, ev.body), envelopeData(t, data[ev.topic])) {
 					t.Errorf("%s changed across the outage", ev.topic)
 				}
 			}

@@ -12,6 +12,7 @@ import (
 // in internal/config before the section moved, with the same paths and messages.
 func TestProxmoxTokenRules(t *testing.T) {
 	tok := secret.New("s3cret-0123456789", "")
+	pending := secret.New("", "k8s:dash/pve#token") // a reference the kubernetes plugin has not read yet
 	for _, tc := range []struct {
 		name string
 		p    Proxmox
@@ -25,6 +26,8 @@ func TestProxmoxTokenRules(t *testing.T) {
 		{"a secret without an id", Proxmox{URL: "https://pve.example.com:8006", TokenSecret: tok}, []string{"tokenSecret"}, "tokenID and tokenSecret must be set together"},
 		{"a token without a url", Proxmox{TokenID: "dash@pve!ci", TokenSecret: tok}, []string{"url"}, "is required with a Proxmox token"},
 		{"an id alone reports both", Proxmox{TokenID: "dash@pve!ci"}, []string{"tokenSecret", "url"}, ""},
+		{"a pending secret counts as given", Proxmox{URL: "https://pve.example.com:8006", TokenID: "dash@pve!ci", TokenSecret: pending}, nil, ""},
+		{"a pending secret without an id", Proxmox{URL: "https://pve.example.com:8006", TokenSecret: pending}, []string{"tokenSecret"}, "tokenID and tokenSecret must be set together"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			err := tc.p.Validate()

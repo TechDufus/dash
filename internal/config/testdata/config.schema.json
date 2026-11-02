@@ -125,7 +125,7 @@
           "description": "HTTP Basic authentication. Not together with bearerToken."
         },
         "bearerToken": {
-          "description": "Bearer token sent as Authorization: Bearer: a literal, env:NAME or file:/path. Not together with basic.",
+          "description": "Bearer token sent as Authorization: Bearer: a literal, env:NAME, file:/path or k8s:<namespace>/<name>#<key> (read from that Kubernetes Secret by the kubernetes plugin, which must run and be allowed to read it). Not together with basic.",
           "type": "string",
           "writeOnly": true,
           "x-dash-secret": true
@@ -155,7 +155,7 @@
       "additionalProperties": false,
       "properties": {
         "password": {
-          "description": "Password: a literal, env:NAME or file:/path. Set together with username.",
+          "description": "Password: a literal, env:NAME, file:/path or k8s:<namespace>/<name>#<key> (read from that Kubernetes Secret by the kubernetes plugin, which must run and be allowed to read it). Set together with username.",
           "type": "string",
           "writeOnly": true,
           "x-dash-secret": true
@@ -817,7 +817,7 @@
           "type": "string"
         },
         "tokenSecret": {
-          "description": "API token secret: a literal, env:NAME or file:/path. Set together with tokenID: one without the other is a configuration error.",
+          "description": "API token secret: a literal, env:NAME, file:/path or k8s:<namespace>/<name>#<key> (read from that Kubernetes Secret by the kubernetes plugin, which must run and be allowed to read it). Set together with tokenID: one without the other is a configuration error.",
           "type": "string",
           "writeOnly": true,
           "x-dash-secret": true

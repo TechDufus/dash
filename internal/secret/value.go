@@ -31,6 +31,7 @@ type holder struct {
 	cur     string
 	retired []string
 	version uint64 // bumps on every change; Registry uses it to rebuild lazily
+	reason  string // why a reference has not been read (K8sRefs); not part of the secret
 }
 
 // Value is one secret. The zero Value is unset. Copy it freely: copies share
@@ -59,6 +60,40 @@ func (v Value) Reveal() string {
 
 // IsSet reports whether the Value holds a non-empty secret.
 func (v Value) IsSet() bool { return v.Reveal() != "" }
+
+// Pending reports whether the Value is a reference that has not been read yet: it has a ref and
+// no secret. A k8s: reference is pending until the kubernetes plugin has read the Secret.
+func (v Value) Pending() bool { return v.h != nil && v.h.ref != "" && !v.IsSet() }
+
+// Present reports whether the Value holds a secret or a reference to one that is on its way.
+// Validation uses it: a pending handle is configured as far as the load can tell, while
+// Configured (a plugin's own decision) keeps asking IsSet.
+func (v Value) Present() bool { return v.IsSet() || v.Pending() }
+
+// Reason is the category a pending reference gives for not being read yet, "" when there is
+// none. It is a category, never a name or a value, and is for logs.
+func (v Value) Reason() string {
+	if v.h == nil {
+		return ""
+	}
+	v.h.mu.RLock()
+	defer v.h.mu.RUnlock()
+	return v.h.reason
+}
+
+// setReason records the reason and reports whether it changed.
+func (v Value) setReason(reason string) bool {
+	if v.h == nil {
+		return false
+	}
+	v.h.mu.Lock()
+	defer v.h.mu.Unlock()
+	if v.h.reason == reason {
+		return false
+	}
+	v.h.reason = reason
+	return true
+}
 
 // Ref returns the reference the secret was resolved from, or "" for a literal
 // or an unset Value.

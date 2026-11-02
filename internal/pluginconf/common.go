@@ -15,27 +15,29 @@ type TLS struct {
 // BasicAuth is a user name and password sent as HTTP Basic authentication.
 type BasicAuth struct {
 	Username string       `json:"username" doc:"User name."`
-	Password secret.Value `json:"password" dash:"secret" doc:"Password: a literal, env:NAME or file:/path. Set together with username."`
+	Password secret.Value `json:"password" dash:"secret" doc:"Password: a literal, env:NAME, file:/path or k8s:<namespace>/<name>#<key> (read from that Kubernetes Secret by the kubernetes plugin, which must run and be allowed to read it). Set together with username."`
 }
 
 // Auth is how a plugin authenticates to the service it calls: HTTP Basic or a bearer token,
 // not both. Neither set sends no credentials.
 type Auth struct {
 	Basic       BasicAuth    `json:"basic" doc:"HTTP Basic authentication. Not together with bearerToken."`
-	BearerToken secret.Value `json:"bearerToken" dash:"secret" doc:"Bearer token sent as Authorization: Bearer: a literal, env:NAME or file:/path. Not together with basic."`
+	BearerToken secret.Value `json:"bearerToken" dash:"secret" doc:"Bearer token sent as Authorization: Bearer: a literal, env:NAME, file:/path or k8s:<namespace>/<name>#<key> (read from that Kubernetes Secret by the kubernetes plugin, which must run and be allowed to read it). Not together with basic."`
 }
 
-// validate checks the rules of Auth; the paths are relative to the Auth section.
+// validate checks the rules of Auth; the paths are relative to the Auth section. A secret that
+// is a reference not read yet (k8s:) counts as given: the load cannot tell yet, and the plugin
+// that owns the row says it is waiting.
 func (a Auth) validate() error {
 	var p problems
-	basic := a.Basic.Username != "" || a.Basic.Password.IsSet()
+	basic := a.Basic.Username != "" || a.Basic.Password.Present()
 	switch {
-	case a.Basic.Username == "" && a.Basic.Password.IsSet():
+	case a.Basic.Username == "" && a.Basic.Password.Present():
 		p.add("basic.username", "is required with basic.password")
-	case a.Basic.Username != "" && !a.Basic.Password.IsSet():
+	case a.Basic.Username != "" && !a.Basic.Password.Present():
 		p.add("basic.password", "is required with basic.username")
 	}
-	if basic && a.BearerToken.IsSet() {
+	if basic && a.BearerToken.Present() {
 		p.add("bearerToken", "cannot be set together with basic")
 	}
 	return p.err()

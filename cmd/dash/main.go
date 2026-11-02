@@ -69,7 +69,10 @@ func exitCode(err error) int {
 }
 
 func run(reg *secret.Registry) error {
-	res, store, alog, err := openState(reg)
+	// One per process: the k8s: references of every resolution (the reloader's too) share its
+	// holders, and the kubernetes plugin reads the Secrets they name.
+	refs := secret.NewK8sRefs(reg)
+	res, store, alog, err := openState(reg, refs)
 	if err != nil {
 		return err
 	}
@@ -102,7 +105,7 @@ func run(reg *secret.Registry) error {
 		}
 		return metrics.Upstream(string(id), rt)
 	}
-	fw := newFramework(res, store, config.ReloadOptions{}, reg, transport, cfg.Demo)
+	fw := newFramework(res, store, config.ReloadOptions{}, reg, refs, transport, cfg.Demo)
 	h, sup, reloader := fw.hub, fw.sup, fw.reloader
 	reloaderDone := make(chan struct{})
 	go func() { defer close(reloaderDone); reloader.Run(ctx) }()
@@ -123,7 +126,7 @@ func run(reg *secret.Registry) error {
 	if cfg.Demo {
 		src := demo.New(cfg)
 		src.HasReal = hasRealPlugin
-		if err := fw.start(ctx, registry(src.Plugins(sup)), func() { src.Run(ctx) }); err != nil {
+		if err := fw.start(ctx, registry(src.Plugins(sup), refs), func() { src.Run(ctx) }); err != nil {
 			return err
 		}
 		srv = api.New(api.Deps{
@@ -136,7 +139,7 @@ func run(reg *secret.Registry) error {
 			Cfg: cfg, Cluster: kubernetesCluster(sup), Hosts: sup, Contributors: sup.Contributors, LinkProviders: sup.Links,
 		})
 		// The supervisor starts before the Manager so that no first publish is dropped.
-		if err := fw.start(ctx, registry(mgr.Plugins()), func() { mgr.Run(ctx) }); err != nil {
+		if err := fw.start(ctx, registry(mgr.Plugins(), refs), func() { mgr.Run(ctx) }); err != nil {
 			return err
 		}
 

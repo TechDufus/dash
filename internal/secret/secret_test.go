@@ -175,7 +175,7 @@ func TestResolve(t *testing.T) {
 		{name: "file missing", raw: "file:" + filepath.Join(dir, "gone"), wantErr: []string{"x.y", "cannot read secret file"}},
 		{name: "file empty", raw: "file:" + empty, wantErr: []string{"x.y", "empty"}},
 		{name: "file pathless", raw: "file:", wantErr: []string{"x.y", "no path"}},
-		{name: "k8s", raw: "k8s:dash/proxmox#tokenSecret", wantErr: []string{"x.y", "kubernetes plugin"}},
+		{name: "k8s stays strict without K8sRefs", raw: "k8s:dash/proxmox#tokenSecret", wantErr: []string{"x.y", "kubernetes plugin"}},
 		{name: "op", raw: "op://vault/item/field", wantErr: []string{"x.y", "not built in"}},
 	}
 	for _, tt := range tests {
@@ -206,10 +206,15 @@ func TestResolve(t *testing.T) {
 }
 
 func TestResolveErrorsNeverContainValue(t *testing.T) {
-	// A literal that looks like a reference to something broken must not be echoed.
+	// A literal that looks like a reference to something broken must not be echoed, strict
+	// resolution or K8sRefs alike.
 	_, err := Resolve("k8s:"+canary, "p")
 	if err == nil || strings.Contains(err.Error(), canary) {
 		t.Errorf("error = %v", err)
+	}
+	_, err = NewK8sRefs(nil).Handle("k8s:" + canary)
+	if err == nil || strings.Contains(err.Error(), canary) {
+		t.Errorf("Handle error = %v", err)
 	}
 }
 

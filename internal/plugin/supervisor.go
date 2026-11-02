@@ -10,12 +10,14 @@ import (
 	"reflect"
 	"runtime/debug"
 	"slices"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
 
 	"github.com/TechDufus/dash/internal/auth"
 	"github.com/TechDufus/dash/internal/model"
+	"github.com/TechDufus/dash/internal/secret"
 )
 
 // Options configure a Supervisor. Only Publisher and Settings are needed in practice; the zero
@@ -87,6 +89,9 @@ type instance struct {
 	evaluated   bool   // a reconcile has decided this instance once
 	routes      *http.ServeMux
 	loggedState string
+	// loggedPending is what the log last said about the Kubernetes Secrets the instance waits
+	// for, so that a changed reason is logged once and an unchanged one not again.
+	loggedPending string
 
 	statusPanicked atomic.Bool
 }
@@ -653,6 +658,7 @@ func (s *Supervisor) evaluate(in *instance, ic InstanceConfig) plan {
 					msg += ": set " + hint
 				}
 			}
+			msg += s.pendingNote(in, ic)
 			if ic.Enabled == nil {
 				pl.state, pl.msg = StateDisabled, msg
 			} else {
@@ -676,6 +682,86 @@ func (s *Supervisor) evaluate(in *instance, ic InstanceConfig) plan {
 	}
 	pl.runnable = true
 	return pl
+}
+
+// pendingNote is the part of a "not configured" row that says the plugin waits for a Kubernetes
+// Secret: "; waiting for a Kubernetes Secret (see plugins.<id>.<field>)" for each such field,
+// "" when it waits for none. The row goes to every viewer, so it names the setting and nothing
+// of the Secret (design K.3). The reference and the reason category go to the log, once per
+// change: a reload that only changed a reason still reaches this and refreshes it.
+func (s *Supervisor) pendingNote(in *instance, ic InstanceConfig) string {
+	pending := pendingSecrets("plugins."+string(in.id), ic.Config)
+	var sig strings.Builder
+	notes := make([]string, len(pending))
+	for i, p := range pending {
+		notes[i] = "waiting for a Kubernetes Secret (see " + p.path + ")"
+		sig.WriteString(p.path + "|" + p.value.Ref() + "|" + p.value.Reason() + "\n")
+	}
+	in.mu.Lock()
+	changed := in.loggedPending != sig.String()
+	in.loggedPending = sig.String()
+	in.mu.Unlock()
+	if changed {
+		for _, p := range pending {
+			s.log().Info("plugin waits for a Kubernetes Secret", "plugin", in.id, "field", p.path, "reference", p.value.Ref(), "reason", p.value.Reason())
+		}
+	}
+	if len(notes) == 0 {
+		return ""
+	}
+	return "; " + strings.Join(notes, "; ")
+}
+
+type pendingSecret struct {
+	path  string
+	value secret.Value
+}
+
+var secretValueType = reflect.TypeFor[secret.Value]()
+
+// pendingSecrets lists the secrets of cfg that are k8s: references not read yet, with their
+// paths under prefix as the settings name them (the json names, so "plugins.proxmox.tokenSecret").
+// cfg is a plugin's configuration struct (or a pointer to one); anything else lists nothing.
+func pendingSecrets(prefix string, cfg any) []pendingSecret {
+	var out []pendingSecret
+	collectPending(prefix, reflect.ValueOf(cfg), &out)
+	return out
+}
+
+func collectPending(path string, v reflect.Value, out *[]pendingSecret) {
+	for v.Kind() == reflect.Pointer {
+		if v.IsNil() {
+			return
+		}
+		v = v.Elem()
+	}
+	if v.Kind() != reflect.Struct {
+		return
+	}
+	if v.Type() == secretValueType {
+		if sv := v.Interface().(secret.Value); sv.Pending() && strings.HasPrefix(sv.Ref(), "k8s:") {
+			*out = append(*out, pendingSecret{path, sv})
+		}
+		return
+	}
+	t := v.Type()
+	for i := range t.NumField() {
+		f := t.Field(i)
+		if !f.IsExported() && !f.Anonymous { // encoding/json also inlines the exported fields of an embedded unexported struct
+			continue
+		}
+		tag, _, _ := strings.Cut(f.Tag.Get("json"), ",")
+		switch {
+		case tag == "-":
+			continue
+		case tag == "" && f.Anonymous:
+			collectPending(path, v.Field(i), out) // an embedded struct is inlined by encoding/json
+		case tag == "":
+			collectPending(path+"."+f.Name, v.Field(i), out)
+		default:
+			collectPending(path+"."+tag, v.Field(i), out)
+		}
+	}
 }
 
 // liveState is the state of an instance as it is now: the plugin's own report while it runs.

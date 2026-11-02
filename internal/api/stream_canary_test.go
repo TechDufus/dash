@@ -120,7 +120,7 @@ func TestStreamEndpointNeverCarriesUpstreamDetail(t *testing.T) {
 		mgr := topics.New(topics.Deps{
 			Cfg: cfg, Cluster: cluster, Hosts: sup, Contributors: sup.Contributors, LinkProviders: sup.Links,
 		})
-		if err := sup.Add(append(mgr.Plugins(), proxmox.New, prometheus.New, gatus.New, kubernetes.Factory(fakeConnection))...); err != nil {
+		if err := sup.Add(append(mgr.Plugins(), proxmox.New, prometheus.New, gatus.New, kubernetes.FactoryWithConnect(nil, fakeConnection))...); err != nil {
 			t.Fatal(err)
 		}
 		sctx, scancel := context.WithCancel(context.Background())

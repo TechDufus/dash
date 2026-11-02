@@ -176,7 +176,10 @@ type Plugin interface {
 type Validator interface{ Validate(cfg any) error }
 
 // Configured reports whether the config has what the plugin needs. With enabled unset, false
-// means "disabled" (auto-enable); with enabled true, "unconfigured".
+// means "disabled" (auto-enable); with enabled true, "unconfigured". A secret that is a k8s:
+// reference the kubernetes plugin has not read yet is not set (secret.Value.IsSet is false), so
+// a plugin that needs it is not configured until then; the row says it waits for a Kubernetes
+// Secret and the supervisor starts the plugin when the first Reload after the fill finds it set.
 type Configured interface{ Configured(cfg any) bool }
 
 // ConfigHinter names what to set to configure the plugin ("plugins.gatus.url"), so that its

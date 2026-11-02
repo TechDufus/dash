@@ -99,12 +99,12 @@ func testCluster() func() (svc.Cluster, bool) {
 // framework around it. The reloader polls every millisecond.
 func loadFramework(t *testing.T) (*framework, *config.Resolved) {
 	t.Helper()
-	res, store, err := loadConfig(secret.NewRegistry())
+	res, store, err := loadConfig(secret.NewRegistry(), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = store.Close() })
-	return newFramework(res, store, config.ReloadOptions{Interval: time.Millisecond}, nil, nil, false), res
+	return newFramework(res, store, config.ReloadOptions{Interval: time.Millisecond}, nil, nil, nil, false), res
 }
 
 // The framework as run starts it: Supervisor.Run returns before Manager.Run starts, so the
@@ -193,7 +193,7 @@ func TestFrameworkAppliesLiveSectionsAndReportsTheRest(t *testing.T) {
 // series, and the demo source serves neither.
 func TestDemoSeriesComeFromThePrometheusTwin(t *testing.T) {
 	startEnv(t, t.TempDir(), "DASH_DEMO=true")
-	res, store, err := loadConfig(secret.NewRegistry())
+	res, store, err := loadConfig(secret.NewRegistry(), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -201,12 +201,12 @@ func TestDemoSeriesComeFromThePrometheusTwin(t *testing.T) {
 		t.Cleanup(func() { _ = store.Close() })
 	}
 	cfg := res.Config
-	fw := newFramework(res, store, config.ReloadOptions{}, nil, nil, true)
+	fw := newFramework(res, store, config.ReloadOptions{}, nil, nil, nil, true)
 	src := demo.New(cfg)
 	src.HasReal = hasRealPlugin
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	if err := fw.start(ctx, registry(src.Plugins(fw.sup)), func() { src.Run(ctx) }); err != nil {
+	if err := fw.start(ctx, registry(src.Plugins(fw.sup), nil), func() { src.Run(ctx) }); err != nil {
 		t.Fatal(err)
 	}
 	defer fw.sup.Shutdown(context.Background())
@@ -229,19 +229,19 @@ func TestDemoSeriesComeFromThePrometheusTwin(t *testing.T) {
 // registers nothing under that name.
 func TestDemoPublishesTheLauncherLinksLast(t *testing.T) {
 	startEnv(t, t.TempDir(), "DASH_DEMO=true")
-	res, store, err := loadConfig(secret.NewRegistry())
+	res, store, err := loadConfig(secret.NewRegistry(), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if store != nil {
 		t.Cleanup(func() { _ = store.Close() })
 	}
-	fw := newFramework(res, store, config.ReloadOptions{}, nil, nil, true)
+	fw := newFramework(res, store, config.ReloadOptions{}, nil, nil, nil, true)
 	src := demo.New(res.Config)
 	src.HasReal = hasRealPlugin
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	if err := fw.start(ctx, registry(src.Plugins(fw.sup)), func() { src.Run(ctx) }); err != nil {
+	if err := fw.start(ctx, registry(src.Plugins(fw.sup), nil), func() { src.Run(ctx) }); err != nil {
 		t.Fatal(err)
 	}
 	defer fw.sup.Shutdown(context.Background())

@@ -50,7 +50,7 @@ func TestStartupDecryptsStoredSecretsOrFailsListingThem(t *testing.T) {
 	startEnv(t, dir, "DASH_PLUGINS_PROXMOX_URL=https://pve.example.com:8006", "DASH_PLUGINS_PROXMOX_TOKEN_ID=u@pve!t")
 
 	t.Setenv("DASH_SECRET_KEY", testKey(1))
-	res, store, err := loadConfig(secret.NewRegistry())
+	res, store, err := loadConfig(secret.NewRegistry(), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -62,7 +62,7 @@ func TestStartupDecryptsStoredSecretsOrFailsListingThem(t *testing.T) {
 	for name, key := range map[string]string{"the wrong key": testKey(2), "no key": ""} {
 		t.Run(name, func(t *testing.T) {
 			t.Setenv("DASH_SECRET_KEY", key)
-			_, store, err := loadConfig(secret.NewRegistry())
+			_, store, err := loadConfig(secret.NewRegistry(), nil)
 			if err == nil || !strings.Contains(err.Error(), tokenSecretPath) {
 				t.Fatalf("want an error listing %s, got %v", tokenSecretPath, err)
 			}
@@ -73,7 +73,7 @@ func TestStartupDecryptsStoredSecretsOrFailsListingThem(t *testing.T) {
 	}
 	// The failed starts released the lock.
 	t.Setenv("DASH_SECRET_KEY", testKey(1))
-	if _, store, err = loadConfig(secret.NewRegistry()); err != nil {
+	if _, store, err = loadConfig(secret.NewRegistry(), nil); err != nil {
 		t.Fatalf("the data directory must be free after a failed start: %v", err)
 	}
 	store.Close()
@@ -88,7 +88,7 @@ func TestStartupRekeysStoredSecretsAndAuditsIt(t *testing.T) {
 		"DASH_SECRET_KEY="+testKey(2), "DASH_SECRET_KEY_PREVIOUS="+testKey(1))
 	logs := captureLog(t)
 
-	res, store, alog, err := openState(secret.NewRegistry())
+	res, store, alog, err := openState(secret.NewRegistry(), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -114,11 +114,11 @@ func TestStartupRekeysStoredSecretsAndAuditsIt(t *testing.T) {
 	// Rekeyed: the previous key alone no longer opens the store, the new key does.
 	t.Setenv("DASH_SECRET_KEY_PREVIOUS", "")
 	t.Setenv("DASH_SECRET_KEY", testKey(1))
-	if _, _, err := loadConfig(secret.NewRegistry()); err == nil {
+	if _, _, err := loadConfig(secret.NewRegistry(), nil); err == nil {
 		t.Error("the old key must no longer open a rekeyed store")
 	}
 	t.Setenv("DASH_SECRET_KEY", testKey(2))
-	res, store, err = loadConfig(secret.NewRegistry())
+	res, store, err = loadConfig(secret.NewRegistry(), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -130,7 +130,7 @@ func TestStartupRekeysStoredSecretsAndAuditsIt(t *testing.T) {
 
 func TestStartupRefusesBothFormsOfTheKey(t *testing.T) {
 	startEnv(t, t.TempDir(), "DASH_SECRET_KEY="+testKey(1), "DASH_SECRET_KEY_FILE=/run/secrets/key")
-	if _, _, err := loadConfig(secret.NewRegistry()); err == nil || !strings.Contains(err.Error(), "DASH_SECRET_KEY and DASH_SECRET_KEY_FILE are both set") {
+	if _, _, err := loadConfig(secret.NewRegistry(), nil); err == nil || !strings.Contains(err.Error(), "DASH_SECRET_KEY and DASH_SECRET_KEY_FILE are both set") {
 		t.Errorf("got %v", err)
 	}
 }

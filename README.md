@@ -130,12 +130,15 @@ description (generated from the code).
 checks a file and the environment the way startup does, without starting dash or touching the
 data directory, prints every problem with its path and layer, and exits 1 when there is one. It
 does not read `env:` and `file:` secret references, which often point at files that exist only
-where dash runs; `--resolve-secrets` reads them.
+where dash runs; `--resolve-secrets` reads them. A `k8s:` reference is only checked for its
+syntax, with or without that flag.
 
 Secret fields (`plugins.proxmox.tokenSecret`) take a literal, `env:NAME` (the value of that
-variable) or `file:/path` (the file's contents, trimmed); `..._FILE` is shorthand for a `file:`
-reference. A literal in the config file logs a warning, because such files often live in git. A
-reference dash cannot read stops it from starting and names the field, never the value. dash
+variable), `file:/path` (the file's contents, trimmed) or `k8s:<namespace>/<name>#<key>` (a key of
+a Kubernetes Secret, see [Secrets from Kubernetes](#secrets-from-kubernetes-k8s)); `..._FILE` is
+shorthand for a `file:` reference. A literal in the config file logs a warning, because such files
+often live in git. An `env:` or `file:` reference dash cannot read stops it from starting and
+names the field, never the value. dash
 scrubs every secret it has read, in its encoded forms too, and credential-shaped tokens
 (`dash_pat_…`, `enc:v1:…`) from its log, from error messages and from the pod logs the UI shows.
 A failing upstream is reported to viewers as one category only (`unreachable`, `timeout`, `tls`,
@@ -176,11 +179,11 @@ restart with `DASH_PLUGINS_PROXMOX_TOKEN_SECRET_FILE`.
 | `dataDir` (`DASH_DATA_DIR`) | `/data` | where dash keeps its state and looks for `config.yaml` |
 | `plugins.prometheus.url` | empty (source not configured) | VictoriaMetrics or Prometheus; a change of any `plugins.prometheus.*` setting applies without a restart |
 | `plugins.prometheus.timeout` | `5s` | how long one query may take before dash gives up on it |
-| `plugins.prometheus.auth.basic.username`, `.password` / `.auth.bearerToken` | empty (no credentials) | Basic or bearer credentials for the service, not both; the password and the token take a literal, `env:NAME` or `file:/path` and a rotated file applies without a restart |
+| `plugins.prometheus.auth.basic.username`, `.password` / `.auth.bearerToken` | empty (no credentials) | Basic or bearer credentials for the service, not both; the password and the token take a literal, `env:NAME`, `file:/path` or `k8s:namespace/name#key`, and a rotated file applies without a restart |
 | `plugins.prometheus.headers` | empty | extra headers sent with every request, `{name: value}` (a JSON object in the environment). Plain configuration, not secrets: put credentials in `auth`. `Authorization`, `Proxy-Authorization`, `Cookie` and `Host` cannot be set |
 | `plugins.prometheus.tls.caFile`, `.insecureSkipVerify` | empty, `false` | a PEM file with the CA that signed the service's certificate, added to the system roots; `insecureSkipVerify` skips verification (prefer `caFile`) |
 | `plugins.alertmanager.url` | empty (source not configured) | Alertmanager; a change of any `plugins.alertmanager.*` setting applies without a restart of dash |
-| `plugins.alertmanager.auth.basic.username`, `.password` / `.auth.bearerToken` | empty (no credentials) | Basic or bearer credentials for Alertmanager, not both; the password and the token take a literal, `env:NAME` or `file:/path` and a rotated file applies without a restart |
+| `plugins.alertmanager.auth.basic.username`, `.password` / `.auth.bearerToken` | empty (no credentials) | Basic or bearer credentials for Alertmanager, not both; the password and the token take a literal, `env:NAME`, `file:/path` or `k8s:namespace/name#key`, and a rotated file applies without a restart |
 | `plugins.alertmanager.tls.caFile`, `.insecureSkipVerify` | empty, `false` | a PEM file with the CA that signed Alertmanager's certificate, added to the system roots; `insecureSkipVerify` skips verification (prefer `caFile`) |
 | `plugins.alertmanager.ignoreAlerts` | `["Watchdog","InfoInhibitor"]` | alert names dash drops everywhere: the alert list, the attention items and the firing count (a JSON list in the environment) |
 | `plugins.alertmanager.severityMap` | `{"critical":"crit","warning":"warn"}` | how an alert's `severity` label value becomes dash's severity, `crit` or `warn`; an alert whose value is not listed is not attention (a JSON object in the environment) |
@@ -188,17 +191,17 @@ restart with `DASH_PLUGINS_PROXMOX_TOKEN_SECRET_FILE`.
 | `plugins.alertmanager.protectedAlerts` | `["Watchdog"]` | alert names nobody can silence through dash, whatever the role: the Alerts page has no Silence button for them and `silence.create` answers 403 (a JSON list in the environment) |
 | `plugins.alertmanager.actions.enabled` | `false` | mounts the silence actions (`silence.create`, `silence.expire`); only silences dash created (`createdBy` starting `dash:`) can be expired through it. `DASH_PLUGINS_ALERTMANAGER_ACTIONS_ENABLED=true`; a change restarts the plugin |
 | `plugins.victorialogs.url` | empty (source not configured) | VictoriaLogs, for pod logs; a change of any `plugins.victorialogs.*` setting applies without a restart of dash, and the pod sheet's Logs tab appears and disappears with the plugin |
-| `plugins.victorialogs.auth.basic.username`, `.password` / `.auth.bearerToken` | empty (no credentials) | Basic or bearer credentials for VictoriaLogs, not both; the password and the token take a literal, `env:NAME` or `file:/path` and a rotated file applies without a restart |
+| `plugins.victorialogs.auth.basic.username`, `.password` / `.auth.bearerToken` | empty (no credentials) | Basic or bearer credentials for VictoriaLogs, not both; the password and the token take a literal, `env:NAME`, `file:/path` or `k8s:namespace/name#key`, and a rotated file applies without a restart |
 | `plugins.victorialogs.tls.caFile`, `.insecureSkipVerify` | empty, `false` | a PEM file with the CA that signed VictoriaLogs's certificate, added to the system roots; `insecureSkipVerify` skips verification (prefer `caFile`) |
 | `plugins.victorialogs.fields.namespace`, `.pod`, `.container` | `kubernetes.pod_namespace`, `kubernetes.pod_name`, `kubernetes.container_name` | the fields of your log records that name the pod a line came from, for the query and for the pod and container shown with each line; letters, digits, `_` and `.`, not starting with a digit or a dot. The fields that share a name's prefix up to its first dot (`kubernetes.` by default) are left out of the message text |
 | `plugins.victorialogs.limit` | `500` | the most lines one log query returns; greater than zero |
 | `plugins.victorialogs.denyNamespaces` | `[]` | namespaces whose logs dash never shows, whatever the role: the query and the tail answer 403 and the refusal is audited (a JSON list in the environment) |
 | `plugins.gatus.url` | empty (source not configured) | Gatus; a change of any `plugins.gatus.*` setting applies without a restart of dash |
-| `plugins.gatus.auth.basic.username`, `.password` / `.auth.bearerToken` | empty (no credentials) | Basic or bearer credentials for Gatus, not both; the password and the token take a literal, `env:NAME` or `file:/path` and a rotated file applies without a restart |
+| `plugins.gatus.auth.basic.username`, `.password` / `.auth.bearerToken` | empty (no credentials) | Basic or bearer credentials for Gatus, not both; the password and the token take a literal, `env:NAME`, `file:/path` or `k8s:namespace/name#key`, and a rotated file applies without a restart |
 | `plugins.gatus.tls.caFile`, `.insecureSkipVerify` | empty, `false` | a PEM file with the CA that signed Gatus's certificate, added to the system roots; `insecureSkipVerify` skips verification (prefer `caFile`) |
 | `plugins.gatus.criticalGroups` | `[]` | the Gatus groups whose failing checks are critical (matched without regard to case); a failing check in any other group is a warning, so with `[]` every failure is a warning. The Status page lists these groups first, then the others alphabetically. The old built-in rule made `infrastructure` critical: set `DASH_PLUGINS_GATUS_CRITICAL_GROUPS='["infrastructure"]'` to keep it (a JSON list in the environment) |
 | `plugins.gatus.pageSize` | `30` | how many check results Gatus returns per endpoint (its `pageSize` query parameter), drawn as each endpoint's history on the Status page; greater than zero |
-| `plugins.proxmox.tokenID`, `.tokenSecret` | empty (Proxmox off) | API token `<user>!<token>` and its secret; `url`, `tokenID` and `tokenSecret` all set turn the plugin on, and with none of the token set it is `disabled` (a URL alone leaves it `disabled`). A token ID without its secret (or the secret without the ID), or a token without a `url`, is a configuration error and dash does not start; a change applies without a restart |
+| `plugins.proxmox.tokenID`, `.tokenSecret` | empty (Proxmox off) | API token `<user>!<token>` and its secret (a literal, `env:NAME`, `file:/path` or `k8s:namespace/name#key`); `url`, `tokenID` and `tokenSecret` all set turn the plugin on, and with none of the token set it is `disabled` (a URL alone leaves it `disabled`; with a `k8s:` token still being read the row says it waits for a Kubernetes Secret). A token ID without its secret (or the secret without the ID), or a token without a `url`, is a configuration error and dash does not start; a change applies without a restart |
 | `plugins.proxmox.url` | required with a token | Proxmox API; with no token it leaves Proxmox `disabled` |
 | `plugins.proxmox.node` | discovered from the API when the cluster has one node | the node to read; set it for multi-node clusters or to skip discovery. The Hardware plugin reads the host's node from the running Proxmox plugin, so without `hosts[0].nodename` the Hardware row stays `unavailable` ("waiting for the Proxmox node name") until Proxmox runs (URL, token ID and token secret set): v0.7.0 used this setting as the host's node even without a token |
 | `plugins.proxmox.tls.caFile`, `.insecureSkipVerify` | empty, `false` | a PEM file with the CA that signed the Proxmox certificate, added to the system roots; `insecureSkipVerify` skips verification (prefer `caFile`) and makes dash log a startup WARN and list an `ok` source named `tls: verification disabled` in the Overview's sources (not on the Proxmox row, and drawn as no chip: chips show failing sources only) |
@@ -453,6 +456,65 @@ where you turn the key on (without the permission the apps are published without
 plugin is `degraded`).
 A cluster that lacks a CRD group is fine: mark the kinds in `plugins.kubernetes.optional.*` to
 keep the plugin out of `degraded` for it.
+
+### Secrets from Kubernetes (`k8s:`)
+
+Any secret field takes `k8s:<namespace>/<name>#<key>`: the value of one key of a Kubernetes
+Secret. The kubernetes plugin reads it, so the plugin must run (a cluster, and `plugins.kubernetes`
+not disabled) and dash's ServiceAccount needs the permission below. The plugin watches each
+Secret it is asked for with `fieldSelector=metadata.name=<name>` and nothing else; it never lists
+Secrets, keeps no Secret object and copies only the keys the configuration names. dash can read
+nothing else of the namespace.
+
+```yaml
+plugins:
+  proxmox:
+    url: https://pve.example.com:8006
+    tokenID: dash@pve!dash
+    tokenSecret: k8s:dash/proxmox#tokenSecret
+```
+
+```yaml
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata: {name: dash-secrets, namespace: dash}
+rules:
+  - apiGroups: [""]
+    resources: [secrets]
+    resourceNames: [proxmox]        # one entry per Secret a k8s: reference names in this namespace
+    verbs: [get, list, watch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata: {name: dash-secrets, namespace: dash}
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: dash-secrets}
+subjects:
+  - {kind: ServiceAccount, name: dash, namespace: dash}
+```
+
+`list` and `watch` are needed because a watch with a `metadata.name` selector is a `list` and a
+`watch` request; `resourceNames` is what limits them to the named Secrets. Repeat the `Role` and
+the `RoleBinding` in each namespace a reference names.
+
+Until the value is read, a plugin that cannot run without it (the Proxmox token, or any plugin
+whose other settings leave it unconfigured) is not configured: its row is `disabled` (or
+`unconfigured` when `enabled: true`) and says `; waiting for a Kubernetes Secret (see
+plugins.<id>.<field>)`. The row never names the namespace, the Secret, the key or the reason; dash's
+log does, once per change (`not_found`, `key_missing`, `forbidden`, `unreachable`,
+`kubernetes_unavailable`). A plugin whose credentials are optional (`auth.bearerToken` and
+`auth.basic.password` of the Prometheus, Alertmanager, Gatus and VictoriaLogs sources) runs as soon
+as its `url` is set, without that credential until the value arrives (its requests may fail with
+`auth` meanwhile). The plugin starts by itself
+when the first value arrives, and a
+rotated Secret applies to the next request without a restart. The value is held in memory only:
+never written to disk, to the settings store, to `core.plugins`, the stream or the log, and
+scrubbed like every other secret.
+
+When the Secret is deleted, or the kubernetes plugin stops (a reload, a lost cluster), the last
+value stays in use; only the reason the log shows changes, and the next successful read replaces
+it. A reload that adds a `k8s:` reference starts the consumer live but, as for a literal added
+after startup, is listed as needing a restart. `dash config validate` checks the syntax of the
+reference and reads no Secret.
 
 ### Breaking: no site defaults
 

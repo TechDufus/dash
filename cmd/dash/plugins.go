@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"maps"
 	"net/http"
 	"slices"
 	"strings"
@@ -73,7 +74,8 @@ var displayOrder = []plugin.ID{
 
 // realPlugins are the plugins that run as plugins of their own, by id. An integration that has
 // moved out of the Manager adds its factory here and its shim leaves topics.legacyManifests;
-// until then it is absent and the shim stands in.
+// until then it is absent and the shim stands in. The kubernetes entry reads no k8s: reference
+// (manifests, routes, settings): registry swaps in the one that does.
 var realPlugins = map[plugin.ID]plugin.Factory{
 	"prometheus":   prometheus.New,
 	"alertmanager": alertmanager.New,
@@ -117,8 +119,13 @@ func manifestsOf(impl map[plugin.ID]plugin.Factory, legacy []plugin.Manifest) []
 }
 
 // registry is the plugins to Add to the supervisor, in display order: per id the real factory
-// when there is one, else its shim out of shims (topics.Manager.Plugins).
-func registry(shims []plugin.Factory) []plugin.Factory { return registryOf(realPlugins, shims) }
+// when there is one, else its shim out of shims (topics.Manager.Plugins). refs are the k8s:
+// references the kubernetes plugin reads (nil: it reads none).
+func registry(shims []plugin.Factory, refs *secret.K8sRefs) []plugin.Factory {
+	impl := maps.Clone(realPlugins)
+	impl[kubernetes.ID] = kubernetes.Factory(refs)
+	return registryOf(impl, shims)
+}
 
 // registryOf is registry for a given set of real plugins.
 func registryOf(impl map[plugin.ID]plugin.Factory, shims []plugin.Factory) []plugin.Factory {
@@ -175,7 +182,7 @@ type framework struct {
 // reg scrubs the log lines plugins publish (nil scrubs by shape only), transport wraps the
 // client of every plugin (nil leaves it alone) and demo runs the plugins' demo twins.
 func newFramework(res *config.Resolved, store *settings.Store, opts config.ReloadOptions, reg *secret.Registry,
-	transport func(plugin.ID, http.RoundTripper) http.RoundTripper, demo bool) *framework {
+	refs *secret.K8sRefs, transport func(plugin.ID, http.RoundTripper) http.RoundTripper, demo bool) *framework {
 	f := &framework{hub: hub.New()}
 	// f.sup is set before the reloader's loop can start, so the hook never sees nil.
 	opts.Live = func(section string) bool { return f.sup.Live(section) }
@@ -194,6 +201,12 @@ func newFramework(res *config.Resolved, store *settings.Store, opts config.Reloa
 			f.sup.Reload()
 		}
 	})
+	// A Secret read for the first time, a reason that changed, or a reference a reload added: the
+	// consumer of the credential starts (or its row says why not) through one Reload. A later
+	// rotation of a value does not: the holders are read in place.
+	if refs != nil {
+		refs.OnChange(f.sup.Reload)
+	}
 	return f
 }
 

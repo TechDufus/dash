@@ -63,7 +63,7 @@ func TestPR2SettingsReachTheProxmoxPlugin(t *testing.T) {
 		}
 	}
 	startEnv(t, t.TempDir(), more...)
-	res, store, err := loadConfig(secret.NewRegistry())
+	res, store, err := loadConfig(secret.NewRegistry(), nil)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -42,6 +42,7 @@ func TestProblems(t *testing.T) {
 
 func TestAuthRules(t *testing.T) {
 	pw, tok := secret.New("pw", ""), secret.New("tok", "")
+	pending := secret.New("", "k8s:dash/auth#token")
 	for name, tc := range map[string]struct {
 		auth Auth
 		want []string
@@ -53,6 +54,9 @@ func TestAuthRules(t *testing.T) {
 		"password only":      {Auth{Basic: BasicAuth{Password: pw}}, []string{"basic.username"}},
 		"basic and bearer":   {Auth{Basic: BasicAuth{Username: "u", Password: pw}, BearerToken: tok}, []string{"bearerToken"}},
 		"half basic, bearer": {Auth{Basic: BasicAuth{Username: "u"}, BearerToken: tok}, []string{"basic.password", "bearerToken"}},
+		"pending bearer":     {Auth{BearerToken: pending}, nil},
+		"pending password":   {Auth{Basic: BasicAuth{Username: "u", Password: pending}}, nil},
+		"pending and basic":  {Auth{Basic: BasicAuth{Username: "u", Password: pw}, BearerToken: pending}, []string{"bearerToken"}},
 	} {
 		t.Run(name, func(t *testing.T) {
 			if got := paths(tc.auth.validate()); !slices.Equal(got, tc.want) {

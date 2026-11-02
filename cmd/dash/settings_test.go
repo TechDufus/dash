@@ -50,7 +50,7 @@ func TestLoadConfigAppliesStoredSettingsBelowEnvironment(t *testing.T) {
 	st.Close()
 	startEnv(t, dir, "DASH_PLUGINS_HEADLAMP_URL=https://headlamp.env.example.com")
 
-	res, store, err := loadConfig(secret.NewRegistry())
+	res, store, err := loadConfig(secret.NewRegistry(), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -67,11 +67,11 @@ func TestLoadConfigAppliesStoredSettingsBelowEnvironment(t *testing.T) {
 // (shutdown) frees it (P1.6 acceptance).
 func TestSecondInstanceOnTheSameDataDirIsRefused(t *testing.T) {
 	startEnv(t, t.TempDir())
-	_, first, err := loadConfig(secret.NewRegistry())
+	_, first, err := loadConfig(secret.NewRegistry(), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, second, err := loadConfig(secret.NewRegistry())
+	_, second, err := loadConfig(secret.NewRegistry(), nil)
 	if !errors.Is(err, settings.ErrLocked) || second != nil {
 		t.Fatalf("second start: store %v, err %v; want ErrLocked", second, err)
 	}
@@ -79,7 +79,7 @@ func TestSecondInstanceOnTheSameDataDirIsRefused(t *testing.T) {
 		t.Errorf("the message must say what to do: %v", err)
 	}
 	first.Close()
-	_, third, err := loadConfig(secret.NewRegistry())
+	_, third, err := loadConfig(secret.NewRegistry(), nil)
 	if err != nil {
 		t.Fatalf("after the first instance closed its store: %v", err)
 	}
@@ -89,7 +89,7 @@ func TestSecondInstanceOnTheSameDataDirIsRefused(t *testing.T) {
 func TestUnwritableDataDirIsReadOnlyWithOneInfo(t *testing.T) {
 	startEnv(t, filepath.Join(t.TempDir(), "missing"))
 	log := captureLog(t)
-	_, store, err := loadConfig(secret.NewRegistry())
+	_, store, err := loadConfig(secret.NewRegistry(), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -110,7 +110,7 @@ func TestSettingsUIReadonlyIsReadOnlyEvenWhenWritable(t *testing.T) {
 	dir := t.TempDir()
 	startEnv(t, dir, "DASH_SETTINGS_UI=readonly")
 	log := captureLog(t)
-	_, store, err := loadConfig(secret.NewRegistry())
+	_, store, err := loadConfig(secret.NewRegistry(), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -119,7 +119,7 @@ func TestSettingsUIReadonlyIsReadOnlyEvenWhenWritable(t *testing.T) {
 		t.Errorf("readonly=%v, log:\n%s", store.ReadOnly(), log)
 	}
 	// Read-only takes no lock: another instance can still start (GitOps replicas).
-	_, other, err := loadConfig(secret.NewRegistry())
+	_, other, err := loadConfig(secret.NewRegistry(), nil)
 	if err != nil {
 		t.Fatalf("a read-only instance takes no lock: %v", err)
 	}
@@ -136,7 +136,7 @@ func TestStartupWarnsOncePerUnknownVariable(t *testing.T) {
 		"DASH_PLUGINS_GRAFANA_URL=https://grafana.example.com", "DASH_PLUGINS_HEADLAMP_URL=https://headlamp.example.com",
 		"DASH_LISTN=127.0.0.1:1", "DASH_FOO=bar")
 	log := captureLog(t)
-	res, store, err := loadConfig(secret.NewRegistry())
+	res, store, err := loadConfig(secret.NewRegistry(), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -173,7 +173,7 @@ func TestDemoModeOpensNoStore(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "data")
 	startEnv(t, dir, "DASH_DEMO=true")
 	log := captureLog(t)
-	res, store, err := loadConfig(secret.NewRegistry())
+	res, store, err := loadConfig(secret.NewRegistry(), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
