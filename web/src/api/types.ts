@@ -282,8 +282,9 @@ export interface HostData {
    */
   model: string;
   /**
-   * Bays is plugins.hardware.hosts[0].bays: the drive slots the Disks grid draws, 0 to derive
-   * them from the highest populated slot.
+   * Bays is plugins.hardware.hosts[0].bays: the drive slots the Disks grid draws. 0 derives them:
+   * the grid numbers its slots from 1 (from 0 when a disk sits in slot 0) up to the highest
+   * populated one, at most 128; above that the page lists the disks sorted.
    */
   bays: number /* int */;
   /**

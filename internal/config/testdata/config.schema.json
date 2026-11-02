@@ -236,7 +236,7 @@
           "type": "boolean"
         },
         "hosts": {
-          "description": "The machine behind the cluster, as [{name, nodename, model, bays, fanMaxRPM, sensorAliases}]; every key is optional, and [{}] reads the Proxmox node. One entry is supported for now. A JSON list in the environment.",
+          "description": "The machine behind the cluster, as [{name, nodename, model, bays, fanMaxRPM, sensorAliases}]; every key is optional, and [{}] reads the Proxmox node, which needs the proxmox plugin to run (its URL, token ID and token secret set) unless nodename is set. One entry is supported for now. A JSON list in the environment.",
           "items": {
             "$ref": "#/$defs/HardwareHost"
           },
@@ -272,7 +272,7 @@
       "additionalProperties": false,
       "properties": {
         "bays": {
-          "description": "Drive bays the Disks grid draws, 0 to 128. 0 draws up to the highest bay that holds a disk.",
+          "description": "Drive bays the Disks grid draws, 0 to 128. 0 numbers the slots from 1 (from 0 when a disk sits in slot 0) up to the highest one that holds a disk, at most 128; above that, or when the disks' bay labels are not distinct numbers, the page lists the disks sorted.",
           "type": "integer"
         },
         "fanMaxRPM": {
@@ -288,7 +288,7 @@
           "type": "string"
         },
         "nodename": {
-          "description": "The nodename label of the host's node-exporter and IPMI series. Empty uses plugins.proxmox.node, or the node discovered from the Proxmox API.",
+          "description": "The nodename label of the host's node-exporter and IPMI series. Empty uses the node of the running proxmox plugin (plugins.proxmox.node, or the node it discovers), so the plugin needs its URL, token ID and token secret; without it the Hardware row stays unavailable (waiting for the Proxmox node name) until nodename is set.",
           "type": "string"
         },
         "sensorAliases": {
@@ -660,7 +660,7 @@
           "type": "boolean"
         },
         "node": {
-          "description": "The Proxmox node to read. Empty is discovered from the API when the cluster has exactly one node; set it for several nodes or to skip discovery.",
+          "description": "The Proxmox node to read. Empty is discovered from the API when the cluster has exactly one node; set it for several nodes or to skip discovery. The hardware plugin reads the host's node from the running proxmox plugin, so without hosts[0].nodename it needs Proxmox to run (url, tokenID and tokenSecret all set).",
           "type": "string"
         },
         "series": {
@@ -676,11 +676,11 @@
           "description": "How dash verifies the Proxmox API's certificate."
         },
         "tokenID": {
-          "description": "API token ID, user@realm!tokenname. Set together with tokenSecret. Empty turns Proxmox off.",
+          "description": "API token ID, user@realm!tokenname. Proxmox runs only with url, tokenID and tokenSecret all set and is disabled with none of the token set. A token ID without tokenSecret, a tokenSecret without tokenID, or a token without url is a configuration error that stops dash at startup.",
           "type": "string"
         },
         "tokenSecret": {
-          "description": "API token secret: a literal, env:NAME or file:/path. Set together with tokenID.",
+          "description": "API token secret: a literal, env:NAME or file:/path. Set together with tokenID: one without the other is a configuration error.",
           "type": "string",
           "writeOnly": true,
           "x-dash-secret": true
@@ -690,7 +690,7 @@
           "type": "string"
         },
         "url": {
-          "description": "Base URL of the Proxmox API, e.g. https://pve.example.com:8006. Required with a token.",
+          "description": "Base URL of the Proxmox API, e.g. https://pve.example.com:8006. Required with a token; a URL alone leaves Proxmox disabled.",
           "format": "uri",
           "type": "string"
         }

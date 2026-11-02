@@ -19,7 +19,7 @@ const (
 type Hardware struct {
 	PluginBase
 	// Hosts has at most one entry until the hardware plugin supports several (G3).
-	Hosts []HardwareHost `json:"hosts" doc:"The machine behind the cluster, as [{name, nodename, model, bays, fanMaxRPM, sensorAliases}]; every key is optional, and [{}] reads the Proxmox node. One entry is supported for now. A JSON list in the environment."`
+	Hosts []HardwareHost `json:"hosts" doc:"The machine behind the cluster, as [{name, nodename, model, bays, fanMaxRPM, sensorAliases}]; every key is optional, and [{}] reads the Proxmox node, which needs the proxmox plugin to run (its URL, token ID and token secret set) unless nodename is set. One entry is supported for now. A JSON list in the environment."`
 	// Machines are the boxes outside the cluster whose reachability dash shows.
 	Machines []HardwareMachine `json:"machines" doc:"Machines outside the cluster to show as up or down, as [{name, nodeExporterNodename}] (up while their node-exporter is scraped) or [{name, gatusEndpoint}] (up while that Gatus check passes). A JSON list in the environment."`
 	// Selectors are the label values the queries select the host and the machines by.
@@ -35,12 +35,14 @@ type Hardware struct {
 type HardwareHost struct {
 	// Name is shown as the host's name; empty uses the Proxmox node's name.
 	Name string `json:"name" doc:"The host's name in the web UI. Empty uses the Proxmox node's name, then the nodename."`
-	// Nodename is the nodename label of its series; empty falls back to the Proxmox node.
-	Nodename string `json:"nodename" doc:"The nodename label of the host's node-exporter and IPMI series. Empty uses plugins.proxmox.node, or the node discovered from the Proxmox API."`
+	// Nodename is the nodename label of its series; empty falls back to the node of the running
+	// proxmox plugin.
+	Nodename string `json:"nodename" doc:"The nodename label of the host's node-exporter and IPMI series. Empty uses the node of the running proxmox plugin (plugins.proxmox.node, or the node it discovers), so the plugin needs its URL, token ID and token secret; without it the Hardware row stays unavailable (waiting for the Proxmox node name) until nodename is set."`
 	// Model is shown next to the host's name, e.g. "Dell R730".
 	Model string `json:"model" doc:"Shown next to the host's name, e.g. Dell R730."`
-	// Bays is the number of drive bays the Disks grid draws; 0 draws up to the highest bay that has a disk.
-	Bays int `json:"bays" doc:"Drive bays the Disks grid draws, 0 to 128. 0 draws up to the highest bay that holds a disk."`
+	// Bays is the number of drive bays the Disks grid draws; 0 numbers the slots from 1 (from 0
+	// when a disk sits in slot 0) up to the highest one that has a disk, at most 128.
+	Bays int `json:"bays" doc:"Drive bays the Disks grid draws, 0 to 128. 0 numbers the slots from 1 (from 0 when a disk sits in slot 0) up to the highest one that holds a disk, at most 128; above that, or when the disks' bay labels are not distinct numbers, the page lists the disks sorted."`
 	// FanMaxRPM is the top of the fan gauges; 0 scales them to the fastest fan observed.
 	FanMaxRPM int `json:"fanMaxRPM" doc:"Top of the fan gauges, in RPM, 0 to 100000. 0 scales them to the fastest fan seen. A gauge never ends below the speed a fan reports."`
 	// SensorAliases pick the sensors the Inlet and Exhaust tiles show.
