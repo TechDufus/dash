@@ -710,7 +710,7 @@ func TestVerifyEmptyAndMissingDir(t *testing.T) {
 	}
 }
 
-func TestDenialRateLimitPerPeerAndReason(t *testing.T) {
+func TestDenialRateLimitPerUserAndReason(t *testing.T) {
 	dir := t.TempDir()
 	clk := newClock()
 	var buf bytes.Buffer
@@ -718,11 +718,12 @@ func TestDenialRateLimitPerPeerAndReason(t *testing.T) {
 
 	rec := Record{Actor: Actor{User: "alice"}, RequestID: "r1", Action: "kubernetes.restart"}
 	l.Denial("192.0.2.7", "csrf_failed", rec)
-	l.Denial("192.0.2.7", "csrf_failed", rec) // same peer and reason: suppressed
+	l.Denial("192.0.2.7", "csrf_failed", rec) // same user and reason: suppressed
 	clk.Advance(59 * time.Second)
-	l.Denial("192.0.2.7", "csrf_failed", rec) // still within the minute
-	l.Denial("192.0.2.7", "forbidden", rec)   // other reason
-	l.Denial("192.0.2.8", "csrf_failed", rec) // other peer
+	l.Denial("192.0.2.7", "csrf_failed", rec)                               // still within the minute
+	l.Denial("192.0.2.7", "forbidden", rec)                                 // other reason
+	l.Denial("192.0.2.8", "csrf_failed", rec)                               // same user from another peer: suppressed
+	l.Denial("192.0.2.7", "csrf_failed", Record{Actor: Actor{User: "bob"}}) // other user behind the same peer
 	clk.Advance(2 * time.Second)
 	l.Denial("192.0.2.7", "csrf_failed", rec) // window elapsed
 
@@ -739,6 +740,23 @@ func TestDenialRateLimitPerPeerAndReason(t *testing.T) {
 	}
 	if rep, err := Verify(dir); err != nil || !rep.OK() {
 		t.Errorf("Verify = %+v, %v", rep, err)
+	}
+}
+
+// A refusal that names no user (an unauthenticated request) is counted per peer, and a user
+// named like a peer address is a different key from that peer.
+func TestDenialWithoutAUserIsLimitedPerPeer(t *testing.T) {
+	dir := t.TempDir()
+	clk := newClock()
+	l := open(t, dir, Options{Now: clk.Now})
+
+	l.Denial("192.0.2.7", "unauthenticated", Record{})
+	l.Denial("192.0.2.7", "unauthenticated", Record{})                                // same peer, no user: suppressed
+	l.Denial("192.0.2.8", "unauthenticated", Record{})                                // other peer
+	l.Denial("192.0.2.7", "unauthenticated", Record{Actor: Actor{User: "192.0.2.7"}}) // a user named like the peer
+
+	if lines := readLines(t, filepath.Join(dir, FileName)); len(lines) != 3 {
+		t.Fatalf("%d denial records, want 3:\n%s", len(lines), bytes.Join(lines, []byte("\n")))
 	}
 }
 

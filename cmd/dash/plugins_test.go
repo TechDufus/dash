@@ -13,8 +13,8 @@ import (
 	"time"
 
 	"github.com/TechDufus/dash/internal/api"
+	"github.com/TechDufus/dash/internal/auth"
 	"github.com/TechDufus/dash/internal/config"
-	"github.com/TechDufus/dash/internal/demo"
 	"github.com/TechDufus/dash/internal/demo/world"
 	"github.com/TechDufus/dash/internal/model"
 	"github.com/TechDufus/dash/internal/overview"
@@ -168,10 +168,13 @@ func TestFrameworkAppliesLiveSectionsAndReportsTheRest(t *testing.T) {
 func TestDemoSeriesComeFromThePrometheusTwin(t *testing.T) {
 	fw, cfg := startDemo(t)
 
-	srv := api.New(api.Deps{Cfg: cfg, Hub: fw.hub, Plugins: fw.sup, Health: fw.sup})
+	srv := api.New(api.Deps{
+		Cfg: cfg, Hub: fw.hub, Plugins: fw.sup, Health: fw.sup,
+		Auth: auth.Fixed(auth.Principal{Kind: auth.KindDemo, User: "demo", Role: auth.RoleAdmin}),
+	})
 	r := httptest.NewRequest(http.MethodGet, cfg.PublicURL+"/api/v1/series?name=host.cpu&range=1h", nil)
 	rec := httptest.NewRecorder()
-	demo.SignIn(srv.Handler()).ServeHTTP(rec, r)
+	srv.Handler().ServeHTTP(rec, r)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("series = %d %s", rec.Code, rec.Body)
 	}

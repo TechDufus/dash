@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/TechDufus/dash/internal/auth"
 	"github.com/TechDufus/dash/internal/config"
 	"github.com/TechDufus/dash/internal/model"
 )
@@ -63,22 +64,34 @@ func TestCSRFPublicURLCase(t *testing.T) {
 }
 
 func TestUserResolution(t *testing.T) {
+	// Dev and demo sign every request in as one fixed identity: they read no header and need no
+	// trusted peer.
+	dev := auth.Fixed(auth.Principal{Kind: auth.KindDev, User: "dev", Role: auth.RoleAdmin})
+	demo := auth.Fixed(auth.Principal{Kind: auth.KindDemo, User: "demo", Role: auth.RoleAdmin})
 	tests := []struct {
 		name   string
 		dev    bool
+		a      auth.Authenticator // nil: the default proxy authenticator of newServer
 		header map[string]string
 		code   int
 		user   string
 	}{
-		{"no headers prod", false, map[string]string{"X-Forwarded-Preferred-Username": ""}, 401, ""},
-		{"preferred username", false, map[string]string{"X-Forwarded-Preferred-Username": "alice", "X-Forwarded-User": "sub-123"}, 200, "alice"},
-		{"falls back to forwarded user", false, map[string]string{"X-Forwarded-Preferred-Username": "", "X-Forwarded-User": "bob"}, 200, "bob"},
-		{"dev default", true, map[string]string{"X-Forwarded-Preferred-Username": ""}, 200, "dev"},
-		{"dev header wins", true, map[string]string{"X-Forwarded-Preferred-Username": "carol"}, 200, "carol"},
+		{"no headers prod", false, nil, map[string]string{"X-Forwarded-Preferred-Username": ""}, 401, ""},
+		{"preferred username", false, nil, map[string]string{"X-Forwarded-Preferred-Username": "alice", "X-Forwarded-User": "sub-123"}, 200, "alice"},
+		{"falls back to forwarded user", false, nil, map[string]string{"X-Forwarded-Preferred-Username": "", "X-Forwarded-User": "bob"}, 200, "bob"},
+		{"dev default", true, dev, map[string]string{"X-Forwarded-Preferred-Username": ""}, 200, "dev"},
+		{"dev ignores a header", true, dev, map[string]string{"X-Forwarded-Preferred-Username": "carol"}, 200, "dev"},
+		{"demo ignores a header", false, demo, map[string]string{"X-Forwarded-Preferred-Username": "carol", "X-Forwarded-User": "carol"}, 200, "demo"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			s := newServer(func(d *Deps) { d.Cfg = config.Config{Dev: tc.dev, PublicURL: testOrigin}; d.Version = "v9" })
+			s := newServer(func(d *Deps) {
+				d.Cfg = config.Config{Dev: tc.dev, PublicURL: testOrigin}
+				d.Version = "v9"
+				if tc.a != nil {
+					d.Auth = tc.a
+				}
+			})
 			w := req{path: "/api/v1/me", header: tc.header}.do(s.Handler())
 			if w.Code != tc.code {
 				t.Fatalf("code = %d, want %d", w.Code, tc.code)

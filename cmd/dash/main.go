@@ -16,7 +16,6 @@ import (
 
 	"github.com/TechDufus/dash/internal/api"
 	"github.com/TechDufus/dash/internal/config"
-	"github.com/TechDufus/dash/internal/demo"
 	"github.com/TechDufus/dash/internal/obs"
 	"github.com/TechDufus/dash/internal/overview"
 	"github.com/TechDufus/dash/internal/plugin"
@@ -85,6 +84,10 @@ func run(reg *secret.Registry) error {
 	defer alog.Close()
 	cfg := res.Config
 	warnSettledRequirements(res.Tree, cfg.ReadyRequires)
+	authn, _, err := buildAuthenticator(res, slog.Default())
+	if err != nil {
+		return err
+	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
@@ -130,11 +133,10 @@ func run(reg *secret.Registry) error {
 	}
 	srv := api.New(api.Deps{
 		Cfg: cfg, Version: version, Hub: h, Plugins: sup,
-		Health: sup, Metrics: metrics, Secrets: reg, Audit: alog,
+		Health: sup, Metrics: metrics, Secrets: reg, Audit: alog, Auth: authn,
 	})
 	handler := srv.Handler()
 	if cfg.Demo {
-		handler = demo.SignIn(handler)
 		slog.Info("demo mode: serving fake data, no cluster or upstreams are contacted")
 	}
 

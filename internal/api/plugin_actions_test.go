@@ -16,6 +16,7 @@ import (
 
 	"github.com/TechDufus/dash/internal/audit"
 	"github.com/TechDufus/dash/internal/auth"
+	"github.com/TechDufus/dash/internal/auth/authtest"
 	"github.com/TechDufus/dash/internal/model"
 	"github.com/TechDufus/dash/internal/plugin"
 	"github.com/TechDufus/dash/internal/plugin/plugintest"
@@ -392,6 +393,7 @@ func TestEleventhActionInAMinuteIs429RateLimited(t *testing.T) {
 	}
 
 	// The limit is per principal, and the window slides.
+	e.Server.d.Auth = authtest.Proxy("alice", "bob")
 	bob := req{method: http.MethodPost, path: "/api/v1/plugins/aa/actions/ping", header: map[string]string{"X-Forwarded-Preferred-Username": "bob"}}
 	if w := bob.do(e.Handler()); w.Code != http.StatusAccepted {
 		t.Errorf("bob = %d %s", w.Code, w.Body)

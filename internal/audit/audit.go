@@ -41,7 +41,7 @@ const (
 	defaultMaxSize = 10 << 20
 	defaultKeep    = 5
 
-	// denialWindow is the rate limit for denial records per (peer, reason).
+	// denialWindow is the rate limit for denial records per (user or peer, reason).
 	denialWindow = time.Minute
 	// maxDenialKeys bounds the rate-limit table against a flood of distinct peers.
 	// Past it, new keys are dropped rather than recorded: denials are best effort.
@@ -161,7 +161,8 @@ func writable(dir string) bool {
 	return os.Remove(f.Name()) == nil
 }
 
-type denialKey struct{ peer, reason string }
+// denialKey is what the denial rate limit counts per: who (denialSubject) and why.
+type denialKey struct{ who, reason string }
 
 // Open starts the audit log in dir. A missing, empty or unwritable dir yields a
 // slog-only log (Enabled reports false); that is not an error, so an unconfigured data
@@ -313,11 +314,12 @@ func (l *Log) Event(rec Record) {
 	l.bestEffort(rec)
 }
 
-// Denial records a refused request, best effort, at most once per peer and reason per
-// minute so an attacker cannot fill the log; a suppressed repeat leaves no slog record
-// either. rec carries the actor, request ID and target when the caller knows them.
+// Denial records a refused request, best effort, at most once per reason a minute for each user
+// (for each peer when the record names no user), so an attacker cannot fill the log; a
+// suppressed repeat leaves no slog record either. rec carries the actor, request ID and target
+// when the caller knows them.
 func (l *Log) Denial(peer, reason string, rec Record) {
-	if !l.allowDenial(peer, reason) {
+	if !l.allowDenial(denialSubject(peer, rec), reason) {
 		return
 	}
 	rec.Kind = KindDenial
@@ -327,12 +329,12 @@ func (l *Log) Denial(peer, reason string, rec Record) {
 	l.bestEffort(rec)
 }
 
-func (l *Log) allowDenial(peer, reason string) bool {
+func (l *Log) allowDenial(who, reason string) bool {
 	if l == nil {
 		return true
 	}
 	now := l.now()
-	key := denialKey{peer, reason}
+	key := denialKey{who, reason}
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	if at, ok := l.denials[key]; ok && now.Sub(at) < denialWindow {
@@ -350,6 +352,17 @@ func (l *Log) allowDenial(peer, reason string) bool {
 	}
 	l.denials[key] = now
 	return true
+}
+
+// denialSubject is who a denial is counted against: the user the record names, or the peer when
+// there is none. Behind a sidecar proxy every request has the same peer, so keying on the peer
+// alone would fold two users' refusals into one record. The prefix keeps a user named like an
+// address apart from that address.
+func denialSubject(peer string, rec Record) string {
+	if u := rec.Actor.User; u != "" {
+		return "user:" + u
+	}
+	return "peer:" + peer
 }
 
 func (l *Log) bestEffort(rec Record) {

@@ -5,6 +5,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/TechDufus/dash/internal/auth/authtest"
 	"github.com/TechDufus/dash/internal/config"
 	"github.com/TechDufus/dash/internal/hub"
 )
@@ -64,7 +65,7 @@ func TestStreamLimiter(t *testing.T) {
 
 func TestNewUsesDefaultLimitsWhenZero(t *testing.T) {
 	want := config.Defaults().Limits
-	s := New(Deps{Cfg: config.Config{PublicURL: testOrigin}, Hub: hub.New()})
+	s := New(Deps{Cfg: config.Config{PublicURL: testOrigin}, Hub: hub.New(), Auth: authtest.Proxy()})
 
 	if s.events.perUser != want.StreamsPerUser || s.events.max != want.Streams {
 		t.Errorf("events limiter = %d/%d, want %d/%d", s.events.perUser, s.events.max, want.StreamsPerUser, want.Streams)

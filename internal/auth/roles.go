@@ -60,3 +60,12 @@ func (h *RoleHolder) Load() RoleMap {
 func (h *RoleHolder) Store(m RoleMap) {
 	h.p.Store(&RoleMap{AdminUsers: slices.Clone(m.AdminUsers), AdminGroups: slices.Clone(m.AdminGroups)})
 }
+
+// roleFor maps user without copying the map: the stored RoleMap is never modified after Store.
+func (h *RoleHolder) roleFor(user string, groups []string) Role {
+	m := h.p.Load()
+	if m == nil {
+		return RoleMap{}.RoleFor(user, groups)
+	}
+	return m.RoleFor(user, groups)
+}

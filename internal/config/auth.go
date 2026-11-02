@@ -1,5 +1,15 @@
 package config
 
+import (
+	"errors"
+	"fmt"
+	"slices"
+	"strings"
+
+	"github.com/TechDufus/dash/internal/auth"
+	"github.com/TechDufus/dash/internal/pluginconf"
+)
+
 // Values of AuthConfig.Mode.
 const AuthModeProxy = "proxy"
 
@@ -33,6 +43,68 @@ func DefaultAuth() AuthConfig {
 	}
 }
 
-// Validate reports unusable auth settings, each at its full path under "auth" (the problem
-// format of pluginconf.Problems). The scaffold accepts everything.
-func (a AuthConfig) Validate() error { return nil }
+// authModes are the accepted values of AuthConfig.Mode, in the order the error lists them; the
+// enum tag on the field documents the same set.
+var authModes = []string{AuthModeProxy}
+
+// Validate reports unusable auth settings, each at its path relative to "auth" (the problem
+// format of pluginconf.Problems). A message names the path and the problem and never echoes a
+// value beyond the header name or trusted-proxy entry it is about, so no secret can leak into it.
+func (a AuthConfig) Validate() error {
+	var errs []error
+	add := func(path, format string, args ...any) {
+		errs = append(errs, pluginconf.FieldError{Path: path, Msg: fmt.Sprintf(format, args...)})
+	}
+	if !slices.Contains(authModes, a.Mode) {
+		add("mode", "%q is not an auth mode (one of: %s)", a.Mode, strings.Join(authModes, ", "))
+	}
+
+	p := a.Proxy
+	users := trimmed(p.UserHeaders)
+	groups := strings.TrimSpace(p.GroupsHeader)
+	if err := (auth.ProxyIdentity{UserHeaders: users}).Validate(); err != nil {
+		add("proxy.userHeaders", "%v", err)
+	}
+	if groups != "" {
+		// The stand-in user header is valid, so an error here is about the groups header alone.
+		if err := (auth.ProxyIdentity{UserHeaders: []string{"X-Forwarded-User"}, GroupsHeader: groups}).Validate(); err != nil {
+			add("proxy.groupsHeader", "%v", err)
+		}
+	}
+
+	if len(p.TrustedProxies) == 0 {
+		add("proxy.trustedProxies", "must list at least one peer: with none, no request could be signed in (the default is [\"127.0.0.1/32\",\"::1/128\"])")
+	}
+	var parsed []string
+	for _, e := range p.TrustedProxies {
+		if _, err := auth.ParseTrust([]string{e}); err != nil {
+			add("proxy.trustedProxies", "%v", err)
+			continue
+		}
+		parsed = append(parsed, e)
+	}
+	if t, err := auth.ParseTrust(parsed); err == nil && t.Wide() && !p.AllowAnyPeer {
+		add("proxy.trustedProxies", "0.0.0.0/0 or ::/0 would believe an identity header from every client; set allowAnyPeer to true to accept that")
+	}
+	return errors.Join(errs...)
+}
+
+// trimmed returns the entries of l without surrounding space, so Validate judges what the
+// authenticator will use; normalize belongs to the resolver, which this does not wait for.
+func trimmed(l []string) []string {
+	out := make([]string, len(l))
+	for i, s := range l {
+		out[i] = strings.TrimSpace(s)
+	}
+	return out
+}
+
+// normalize trims what operators paste into the lists the authenticator reads. An empty entry
+// stays: Validate reports it.
+func (a *AuthConfig) normalize() {
+	for _, l := range []*[]string{&a.Proxy.UserHeaders, &a.Proxy.TrustedProxies} {
+		if *l != nil {
+			*l = trimmed(*l)
+		}
+	}
+}

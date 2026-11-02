@@ -50,8 +50,7 @@ type Deps struct {
 	// Secrets scrubs upstream errors and log lines; nil only matches credential shapes.
 	Secrets *secret.Registry
 	Audit   *audit.Log // nil logs to slog only
-	// Auth resolves the principal of every request. It is read once the request chain is rewired
-	// (P4.1); until then the chain still resolves the identity itself.
+	// Auth resolves the principal of every /api request. It is required: New panics without one.
 	Auth auth.Authenticator
 }
 
@@ -77,6 +76,9 @@ type Server struct {
 
 // New builds a Server serving the embedded SPA.
 func New(d Deps) *Server {
+	if d.Auth == nil {
+		panic("api: Deps.Auth is required")
+	}
 	dist, err := fs.Sub(web.Dist, "dist")
 	if err != nil { // only if the embed root is renamed
 		panic(err)
@@ -94,9 +96,11 @@ func New(d Deps) *Server {
 }
 
 // Handler is the API plus the SPA, for the loopback listener. The chain is request id, host
-// check, CSRF, authentication, then the mux the route table builds.
+// check, authentication, CSRF, then the mux the route table builds (whose guard enforces each
+// route's role). Authentication runs before CSRF, so a refusal for a missing header names the
+// user and an unauthenticated write is 401.
 func (s *Server) Handler() http.Handler {
-	return s.d.Metrics.Instrument(s.requestID(s.hosts(s.csrf(s.auth(s.mux())))))
+	return s.d.Metrics.Instrument(s.requestID(s.hosts(s.authn(s.csrf(s.mux())))))
 }
 
 func writeJSON(w http.ResponseWriter, code int, v any) {

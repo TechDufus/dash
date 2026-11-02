@@ -7,6 +7,8 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+
+	"github.com/TechDufus/dash/internal/auth"
 )
 
 const requestIDHeader = "X-Request-Id"
@@ -24,7 +26,7 @@ func requestIDFrom(ctx context.Context) string {
 
 // requestID is the outermost middleware (design L.2, L.8). Every response carries an
 // X-Request-Id: 128 random bits as hex, or the id an upstream proxy sent when its TCP peer is
-// loopback (the trusted-proxy default; no header is believed from anyone else) and it is a
+// one the authenticator trusts (peerTrusted; no header is believed from anyone else) and it is a
 // short token of letters, digits, dot, underscore and dash. The id reaches the error body, the
 // audit records and the log line of an upstream failure.
 //
@@ -33,7 +35,7 @@ func requestIDFrom(ctx context.Context) string {
 func (s *Server) requestID(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		id := r.Header.Get(requestIDHeader)
-		if !inboundRequestID.MatchString(id) || !loopbackPeer(r) {
+		if !inboundRequestID.MatchString(id) || !s.peerTrusted(r) {
 			id = newRequestID()
 		}
 		w.Header().Set(requestIDHeader, id)
@@ -48,4 +50,14 @@ func newRequestID() string {
 	var b [16]byte
 	_, _ = rand.Read(b[:]) // never fails since Go 1.24
 	return hex.EncodeToString(b[:])
+}
+
+// peerTrusted reports whether the TCP peer is one whose headers dash believes: the trusted set
+// of an authenticator that has one (the proxy mode), otherwise the loopback, where a sidecar
+// proxy of a process-mode dash connects from.
+func (s *Server) peerTrusted(r *http.Request) bool {
+	if t, ok := s.d.Auth.(auth.PeerTruster); ok {
+		return t.TrustsPeer(r)
+	}
+	return loopbackPeer(r)
 }

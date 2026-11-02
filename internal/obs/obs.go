@@ -67,10 +67,8 @@ var (
 	AuthNamespaceDenied = AuthReason{"namespace_denied"}
 	AuthStreamLimit     = AuthReason{"stream_limit"}
 
-	// AuthUntrustedPeer and AuthAmbiguousIdentity are declared for the authenticator's refusals
-	// (identity headers from a peer outside auth.proxy.trustedProxies; an identity header with more
-	// than one line). They join AuthReasons, the README label list and metrics_test.go with the
-	// commit that starts using them; until then AuthFailure counts them as nothing.
+	// AuthUntrustedPeer is an identity header from a peer outside auth.proxy.trustedProxies;
+	// AuthAmbiguousIdentity is an identity header sent as more than one line.
 	AuthUntrustedPeer     = AuthReason{"untrusted_peer"}
 	AuthAmbiguousIdentity = AuthReason{"ambiguous_identity"}
 )
@@ -97,7 +95,7 @@ var (
 	// ActionOutcomes is every value of dash_actions_total's outcome label.
 	ActionOutcomes = []string{ActionOK, ActionError, ActionDenied, ActionInvalid, ActionRateLimited}
 	// AuthReasons is every value of dash_auth_failures_total's reason label.
-	AuthReasons = []AuthReason{AuthUnauthenticated, AuthCSRF, AuthForbidden, AuthRateLimit, AuthNamespaceDenied, AuthStreamLimit}
+	AuthReasons = []AuthReason{AuthUnauthenticated, AuthCSRF, AuthForbidden, AuthRateLimit, AuthNamespaceDenied, AuthStreamLimit, AuthUntrustedPeer, AuthAmbiguousIdentity}
 	// StreamKinds is every value of dash_sse_streams' kind label.
 	StreamKinds = []string{StreamEvents, StreamTail}
 	// PluginStates is every value of dash_plugin_state's state label.

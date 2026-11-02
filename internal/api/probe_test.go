@@ -10,7 +10,7 @@ import (
 	"unsafe"
 
 	"github.com/TechDufus/dash/internal/auth"
-	"github.com/TechDufus/dash/internal/config"
+	"github.com/TechDufus/dash/internal/auth/authtest"
 )
 
 // probeLines are the "principal seen" lines buf holds, decoded.
@@ -122,37 +122,37 @@ func TestPrincipalSeenKeepsNoPartOfTheHeaderValue(t *testing.T) {
 // carries nothing else a client sent.
 func TestPrincipalSeenCarriesPeerAndVia(t *testing.T) {
 	const canary = "CANARY-EMAIL-VALUE"
+	// Every user an administrator, so the line's role is the same for each row.
+	proxy := authtest.ProxyWith(auth.RoleMap{AdminUsers: []string{"*"}})
+	dev := auth.Fixed(auth.Principal{Kind: auth.KindDev, User: "dev", Role: auth.RoleAdmin})
+	demo := auth.Fixed(auth.Principal{Kind: auth.KindDemo, User: "demo", Role: auth.RoleAdmin})
 	for _, tc := range []struct {
 		name     string
-		cfg      func(*config.Config)
+		a        auth.Authenticator
 		r        req
 		wantUser string
 		wantKind string
 		wantVia  string
 	}{
-		{"the subject header", nil,
+		{"the subject header", proxy,
 			req{path: "/api/v1/me", peer: "127.0.0.1:41000", header: map[string]string{"X-Forwarded-Preferred-Username": "", "X-Forwarded-User": "dash-baseline", "X-Forwarded-Email": canary}},
 			"dash-baseline", "proxy", "X-Forwarded-User"},
-		{"the preferred username wins over the subject", nil,
+		{"the preferred username wins over the subject", proxy,
 			req{path: "/api/v1/me", peer: "[::1]:41000", header: map[string]string{"X-Forwarded-Preferred-Username": "dash-verify", "X-Forwarded-User": "sub-123", "X-Forwarded-Email": canary}},
 			"dash-verify", "proxy", "X-Forwarded-Preferred-Username"},
-		{"dev signs in a fixed user", func(c *config.Config) { c.Dev = true },
+		{"dev signs in a fixed user", dev,
 			req{path: "/api/v1/me", header: map[string]string{"X-Forwarded-Preferred-Username": ""}},
 			"dev", "dev", "fixed"},
-		{"dev with a header names the header", func(c *config.Config) { c.Dev = true },
-			req{path: "/api/v1/me", header: map[string]string{"X-Forwarded-Preferred-Username": "bob-from-header"}},
-			"bob-from-header", "dev", "X-Forwarded-Preferred-Username"},
-		{"demo names the header the demo wrapper injects", func(c *config.Config) { c.Demo = true },
-			req{path: "/api/v1/me", header: map[string]string{"X-Forwarded-Preferred-Username": "", "X-Forwarded-User": "demo"}},
-			"demo", "demo", "X-Forwarded-User"},
+		{"dev ignores a header", dev,
+			req{path: "/api/v1/me", header: map[string]string{"X-Forwarded-Preferred-Username": "bob-from-header", "X-Forwarded-Email": canary}},
+			"dev", "dev", "fixed"},
+		{"demo ignores a header", demo,
+			req{path: "/api/v1/me", header: map[string]string{"X-Forwarded-Preferred-Username": "", "X-Forwarded-User": "someone-else"}},
+			"demo", "demo", "fixed"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			buf := &syncBuf{}
-			s := newServer(func(d *Deps) {
-				if tc.cfg != nil {
-					tc.cfg(&d.Cfg)
-				}
-			})
+			s := newServer(func(d *Deps) { d.Auth = tc.a })
 			s.probe.log = probeLogger(buf)
 			h := s.Handler()
 			for range 2 { // the second request is the same user: still one line

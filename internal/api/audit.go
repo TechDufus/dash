@@ -32,13 +32,10 @@ func peerOf(r *http.Request) string {
 	return r.RemoteAddr
 }
 
-// auditRecord names the user auth stored; a refusal that happens before auth (CSRF) has none,
-// so it falls back to the forwarded user.
+// auditRecord names the user authn stored; a refusal by authn itself, or by the host check,
+// has none.
 func (s *Server) auditRecord(r *http.Request, action string, t audit.Target) audit.Record {
 	user := userFrom(r.Context())
-	if user == "" {
-		user = s.requestUser(r)
-	}
 	return audit.Record{
 		Action: action, Target: t, Peer: peerOf(r), AuthMode: s.authMode(), RequestID: requestIDFrom(r.Context()),
 		Actor: audit.Actor{Type: s.authMode(), User: user, Surface: "ui"},
@@ -54,9 +51,9 @@ func (s *Server) beginRecord(w http.ResponseWriter, rec audit.Record) (audit.Pen
 	return p, true
 }
 
-// deny records a refused request and counts it; the log keeps at most one record per peer and
-// reason a minute, so a flood of refusals cannot fill the disk. The reason is a value of
-// obs.AuthReason: a reason the metric does not know cannot be passed.
+// deny records a refused request and counts it; the log keeps at most one record per user (per
+// peer when there is no user) and reason a minute, so a flood of refusals cannot fill the disk.
+// The reason is a value of obs.AuthReason: a reason the metric does not know cannot be passed.
 func (s *Server) deny(r *http.Request, reason obs.AuthReason) {
 	s.d.Metrics.AuthFailure(reason)
 	s.refuse(r, reason.String())

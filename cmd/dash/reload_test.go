@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/TechDufus/dash/internal/api"
+	"github.com/TechDufus/dash/internal/auth/authtest"
 	"github.com/TechDufus/dash/internal/config"
 	"github.com/TechDufus/dash/internal/overview"
 	"github.com/TechDufus/dash/internal/secret"
@@ -133,7 +134,7 @@ func TestReloadedSecretReachesTheProxmoxPluginWhileReadinessHolds(t *testing.T) 
 		t.Fatal(err)
 	}
 	defer sup.Shutdown(context.Background())
-	srv := api.New(api.Deps{Cfg: cfg, Hub: fw.hub, Secrets: reg, Health: sup, Plugins: sup})
+	srv := api.New(api.Deps{Cfg: cfg, Hub: fw.hub, Secrets: reg, Health: sup, Plugins: sup, Auth: authtest.Proxy("alice")})
 	srv.MarkServing()
 	health := srv.HealthHandler()
 	ready := func() int {

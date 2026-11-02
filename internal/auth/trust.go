@@ -71,6 +71,18 @@ func (t Trust) Wide() bool {
 	return false
 }
 
+// Broad returns the prefixes that trust a large part of an address family: shorter than /8 for
+// IPv4, shorter than /16 for IPv6 (the zero-bit prefixes included). The caller warns about them.
+func (t Trust) Broad() []netip.Prefix {
+	var out []netip.Prefix
+	for _, p := range t.prefixes {
+		if (p.Addr().Is4() && p.Bits() < 8) || (p.Addr().Is6() && p.Bits() < 16) {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
 // Len is the number of prefixes.
 func (t Trust) Len() int { return len(t.prefixes) }
 

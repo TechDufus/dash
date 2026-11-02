@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/TechDufus/dash/internal/audit"
+	"github.com/TechDufus/dash/internal/auth"
 	"github.com/TechDufus/dash/internal/config"
 	"github.com/TechDufus/dash/internal/model"
 )
@@ -170,7 +171,10 @@ func TestMeCapabilitiesAndScopes(t *testing.T) {
 		}
 	})
 	t.Run("dev mode", func(t *testing.T) {
-		s := newServer(func(d *Deps) { d.Cfg = config.Config{Dev: true, PublicURL: testOrigin} })
+		s := newServer(func(d *Deps) {
+			d.Cfg = config.Config{Dev: true, PublicURL: testOrigin}
+			d.Auth = auth.Fixed(auth.Principal{Kind: auth.KindDev, User: "dev", Role: auth.RoleAdmin})
+		})
 		var me model.Me
 		decodeJSON(t, req{path: "/api/v1/me", header: map[string]string{"X-Forwarded-Preferred-Username": ""}}.do(s.Handler()), &me)
 		if me.User != "dev" || me.AuthMode != "dev" {

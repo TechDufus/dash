@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/TechDufus/dash/internal/api"
+	"github.com/TechDufus/dash/internal/auth/authtest"
 	"github.com/TechDufus/dash/internal/config"
 	"github.com/TechDufus/dash/internal/model"
 	"github.com/TechDufus/dash/internal/overview"
@@ -85,7 +86,7 @@ func startK8sProcess(t *testing.T, cfgBody string, env ...string) *k8sProcess {
 		<-done
 		p.fw.sup.Shutdown(context.Background())
 	})
-	p.srv = api.New(api.Deps{Cfg: p.cfg, Hub: p.fw.hub, Secrets: p.reg, Health: p.fw.sup, Plugins: p.fw.sup})
+	p.srv = api.New(api.Deps{Cfg: p.cfg, Hub: p.fw.hub, Secrets: p.reg, Health: p.fw.sup, Plugins: p.fw.sup, Auth: authtest.Proxy("alice")})
 	p.srv.MarkServing()
 	return p
 }

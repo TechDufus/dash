@@ -4,7 +4,6 @@ import (
 	"context"
 	"log/slog"
 	"net/http"
-	"strings"
 	"time"
 
 	"github.com/TechDufus/dash/internal/auth"
@@ -16,14 +15,14 @@ type userKey struct{}
 
 type principalKey struct{}
 
-// userFrom returns the authenticated user stored by auth.
+// userFrom returns the authenticated user stored by authn.
 func userFrom(ctx context.Context) string {
 	u, _ := ctx.Value(userKey{}).(string)
 	return u
 }
 
-// principalFrom returns the principal auth stored: who the request acts as and with which
-// role. A request that did not pass auth has none and gets the zero Principal, whose role
+// principalFrom returns the principal authn stored: who the request acts as and with which
+// role. A request that did not pass authn has none and gets the zero Principal, whose role
 // grants nothing.
 func principalFrom(ctx context.Context) auth.Principal {
 	p, _ := ctx.Value(principalKey{}).(auth.Principal)
@@ -67,62 +66,5 @@ func (s *Server) csrf(next http.Handler) http.Handler {
 			}
 		}
 		next.ServeHTTP(w, r)
-	})
-}
-
-// forwardedUser is the user oauth2-proxy forwarded and the header that carried it, or "" when it
-// sent none. The preferred username wins over the subject.
-func forwardedUser(r *http.Request) (user, header string) {
-	for _, h := range [...]string{"X-Forwarded-Preferred-Username", "X-Forwarded-User"} {
-		if u := strings.TrimSpace(r.Header.Get(h)); u != "" {
-			return u, h
-		}
-	}
-	return "", ""
-}
-
-// proxyUser is the user oauth2-proxy forwarded, or "" when it sent none.
-func proxyUser(r *http.Request) string {
-	u, _ := forwardedUser(r)
-	return u
-}
-
-// requestUser is the user a request acts as before auth has run: the forwarded user, or "dev"
-// in dev mode. csrf runs ahead of auth, and its denials still name who was refused.
-func (s *Server) requestUser(r *http.Request) string {
-	if u := proxyUser(r); u != "" {
-		return u
-	}
-	if s.d.Cfg.Dev {
-		return "dev"
-	}
-	return ""
-}
-
-// auth resolves the user behind oauth2-proxy for every /api request.
-func (s *Server) auth(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/api" && !strings.HasPrefix(r.URL.Path, "/api/") {
-			next.ServeHTTP(w, r)
-			return
-		}
-		user := s.requestUser(r)
-		if user == "" {
-			s.deny(r, obs.AuthUnauthenticated)
-			writeErr(w, http.StatusUnauthorized, model.ErrCodeUnauthenticated, "unauthenticated")
-			return
-		}
-		// What carried the identity, for the probe: the header oauth2-proxy set, or "fixed" when
-		// dev or demo mode signed the request in with no header.
-		via := "fixed"
-		if _, h := forwardedUser(r); h != "" {
-			via = h
-		}
-		// G2 gives every authenticated principal the admin role, as before (design E.1); P4.2
-		// replaces this with the role mapping.
-		p := auth.Principal{Kind: auth.Kind(s.authMode()), User: user, Role: auth.RoleAdmin, Via: via}
-		s.probe.see(p, peerOf(r))
-		ctx := context.WithValue(context.WithValue(r.Context(), userKey{}, user), principalKey{}, p)
-		next.ServeHTTP(w, r.WithContext(ctx))
 	})
 }

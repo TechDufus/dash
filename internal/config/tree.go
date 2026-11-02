@@ -140,6 +140,7 @@ func (t *Tree) normalize() {
 	}
 	t.Server.AllowedHosts = splitHosts(strings.Join(t.Server.AllowedHosts, ","))
 	t.Server.ReadyRequires = splitHosts(strings.Join(t.Server.ReadyRequires, ","))
+	t.Auth.normalize()
 	for i := range t.Plugins.Kubernetes.BackupJobs {
 		j := &t.Plugins.Kubernetes.BackupJobs[i]
 		j.Namespace, j.CronJob = strings.TrimSpace(j.Namespace), strings.TrimSpace(j.CronJob)
