@@ -132,6 +132,8 @@ Two follow-on defaults are part of this decision:
 
 **Consequences.** With actions disabled the action route is not mounted and the SPA hides its buttons. Each plugin that declares actions needs the `actions.enabled` field. The existing deployment sets it to `true` explicitly. The admission policy remains the real fence for Kubernetes writes.
 
+**As shipped (G3 PR-3a, v0.9.0).** Kubernetes Restart and Flux reconcile were on without a setting. Restart now follows this decision: it is a framework action of the `kubernetes` plugin, off until `plugins.kubernetes.actions.enabled` (`DASH_PLUGINS_KUBERNETES_ACTIONS_ENABLED=true`), so the existing deployment must set it in the same change as the image (the PR-3a release notes say so). Reconcile is still the legacy route, outside this rule, until v0.10.0.
+
 ### 12. Roles
 
 **Decision.** Two roles in v1: `viewer` and `admin` (design E.4).
@@ -185,6 +187,8 @@ Two follow-on defaults are part of this decision:
 - The CDN as the default: no bundling work, but the browser would make third-party requests by default, which is a privacy cost.
 
 **Consequences.** Icons must be bundled or served by dash, with attribution in NOTICE (dashboard-icons is Apache-2.0; the logos are their owners' trademarks). The runtime CDN references in the server and SPA are replaced.
+
+**As shipped (G3 PR-1, v0.7.0, and PR-3a, v0.9.0).** No icon set is bundled, so "bundled or self-hosted by default" became "no icon request by default": with `ui.iconBaseURL` empty an icon is a letter tile and the browser makes no third-party request. Launcher links were resolved through `ui.iconBaseURL` in v0.7.0, and since v0.9.0 so are the apps' icons (the server no longer builds a CDN URL; it sends the annotation's token as `icon`).
 
 ### 18. Supported upstream versions to test against
 
