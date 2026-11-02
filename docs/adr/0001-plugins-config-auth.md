@@ -121,6 +121,8 @@ Two follow-on defaults are part of this decision:
 
 **Consequences.** `prometheus` stays a generic query client that exposes a `Querier` service and hosts series. `hardware` requires it; `cnpg` requires `kubernetes` and uses it; `rustfs` requires it. Plugin IDs match `[a-z][a-z0-9]{1,31}` so env names parse unambiguously. A generic S3-usage plugin may follow if another backend is requested.
 
+**As shipped (G3 PR-2, v0.8.0).** `hardware` does not require `prometheus`: it `Uses` prometheus, proxmox and gatus, so a deployment that lists only Gatus-backed machines runs without a Prometheus-compatible source, and whichever half of the plugin cannot run reports that in its sources instead of the plugin being `blocked`. The rest of this decision stands: `hardware` is its own plugin, enabled, shown and configured on its own (`disabled` until `plugins.hardware.hosts` or `machines` is set).
+
 ### 11. Actions default
 
 **Decision.** Actions are off per plugin: `actions.enabled: false` (design A.8).

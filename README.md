@@ -111,7 +111,7 @@ plugins:
     tokenID: dash@pve!dash
     tokenSecret: file:/run/secrets/pve
   hardware:
-    hosts: [{nodename: pve, model: Dell R730}]
+    hosts: [{nodename: pve, model: Example 2U}]
 ```
 
 Every setting also has an environment variable: `DASH_` plus the path in UPPER_SNAKE case
@@ -203,7 +203,7 @@ restart with `DASH_PLUGINS_PROXMOX_TOKEN_SECRET_FILE`.
 | `plugins.proxmox.criticalVMs.ids`, `.tags` | empty (no VM is critical) | a stopped VM whose id is in `ids`, or that carries one of `tags` (matched without regard to case), is critical; any other stopped VM is a warning (JSON lists in the environment: `DASH_PLUGINS_PROXMOX_CRITICAL_VMS_IDS='[101,102]'`) |
 | `plugins.proxmox.storage.source` | `api` | where the storage list comes from: `api` (the token needs the `Datastore.Audit` privilege on `/storage`) or `prometheus` (the pve-exporter series through the prometheus plugin) |
 | `plugins.proxmox.series.vmSelector` | `id="qemu/{vmid}"` | the one label matcher that selects a VM in the pve-exporter series behind the VM charts, with `{vmid}` once |
-| `plugins.hardware.hosts` | empty | `[{name, nodename, model, bays, fanMaxRPM, sensorAliases}]`, one entry for now, every key optional (`[{}]` reads the Proxmox node): `name` is the host's name in the web UI (default: the Proxmox node, then `nodename`); `nodename` is the label of the host's node-exporter and IPMI series (default: `plugins.proxmox.node`, or the discovered node); `model` is shown next to the name, e.g. `Dell R730`; `bays` is the number of drive slots the Disks grid draws (0 to 128; 0 draws up to the highest slot that holds a disk); `fanMaxRPM` is the top of the fan gauges (0 scales them to the fastest fan, and a gauge never ends below the speed a fan reports); `sensorAliases` is `{inlet, exhaust}`, the text the names of the Inlet and Exhaust temperature sensors contain, ignoring case (`inlet` and `exhaust` when empty). A JSON list in the environment: `DASH_PLUGINS_HARDWARE_HOSTS='[{"model":"Dell R730","bays":16,"fanMaxRPM":18000}]'` |
+| `plugins.hardware.hosts` | empty | `[{name, nodename, model, bays, fanMaxRPM, sensorAliases}]`, one entry for now, every key optional (`[{}]` reads the Proxmox node): `name` is the host's name in the web UI (default: the Proxmox node, then `nodename`); `nodename` is the label of the host's node-exporter and IPMI series (default: `plugins.proxmox.node`, or the discovered node); `model` is shown next to the name, e.g. `Example 2U`; `bays` is the number of drive slots the Disks grid draws (0 to 128; 0 draws up to the highest slot that holds a disk); `fanMaxRPM` is the top of the fan gauges (0 scales them to the fastest fan, and a gauge never ends below the speed a fan reports); `sensorAliases` is `{inlet, exhaust}`, the text the names of the Inlet and Exhaust temperature sensors contain, ignoring case (`inlet` and `exhaust` when empty). A JSON list in the environment: `DASH_PLUGINS_HARDWARE_HOSTS='[{"model":"Example 2U","bays":16,"fanMaxRPM":18000}]'` |
 | `plugins.hardware.machines` | empty | machines outside the cluster to show as up or down: `[{name, nodeExporterNodename}]` (up while the node-exporter with that `nodename` label is scraped) or `[{name, gatusEndpoint}]` (up while that Gatus check passes, compared without regard to case; a check that does not exist, or no gatus plugin, counts as down). Exactly one of the two per entry, names unique ignoring case and at most 64 bytes. A JSON list in the environment |
 | `plugins.hardware.selectors.nodeExporterJob`, `.hwmonChip` | `node-exporter`, `platform_coretemp_.*` | the `job` label of the node-exporter targets (which the machines' `up` query selects) and the RE2 expression for the `chip` label of the CPU package temperature (`node_hwmon_temp_celsius`) |
 | `plugins.hardware.tempThresholds.warn`, `.crit` | `85`, `90` | the CPU package temperature, in whole °C, from which the host is warning and critical; `0 < warn < crit` |
@@ -430,15 +430,16 @@ name wins), with no `_FILE` form because it is another tool's variable.
 | `internal/config` | layered configuration: defaults, config file, environment (`DASH_*`) |
 | `internal/jsonschema` | JSON Schema from Go structs, for `dash config schema` and plugin config |
 | `internal/plugin` | the plugin contract, registry and supervisor; `plugintest` has the fakes |
-| `internal/plugins` | the plugins dash ships, one package per plugin ID (G3 moves each integration here) |
-| `internal/svc` | the interfaces plugins export to each other and to the core: `Querier`, `EndpointHealth` |
+| `internal/plugins` | the plugins dash ships, one package per plugin ID (G3 moves each integration here): `proxmox`, `hardware`, `prometheus`, `alertmanager`, `gatus`, `victorialogs`, `grafana`, `headlamp` and `launcher` so far; `internal/plugins/<id>/model` holds the payload types only that plugin publishes |
+| `internal/svc` | the interfaces plugins export to each other and to the core: `Querier`, `EndpointHealth`, `NodeName` (proxmox) and `NodeIndex` (the kubernetes shim, until the kubernetes plugin) |
 | `internal/pluginconf` | the configuration structs of the plugins, shared by `internal/config` and the plugins (which never import `internal/config`) |
 | `internal/auth` | who a request acts as: role and principal |
 | `internal/kube` | informers and the actions' Kubernetes patches |
 | `internal/upstream` | VictoriaMetrics, Alertmanager, VictoriaLogs, Gatus, Proxmox clients |
-| `internal/topics` | topic builders, health and attention rules, and the shims that stand for each integration in the plugin registry until it becomes a plugin |
+| `internal/topics` | topic builders, health and attention rules, and the shims that stand for the integrations that are not plugins yet (kubernetes and flux) |
 | `internal/hub`, `internal/api` | SSE hub, REST, middleware |
 | `internal/obs` | dash's own Prometheus metrics (`server.metrics`), in a private registry |
+| `internal/hygiene` | repository-wide guards that belong to no package (`TestNoHomelabLiterals`: no lab identifier in non-test code) |
 | `internal/demo` | fake data for `DASH_DEMO=true`; `internal/demo/world` is the fake homelab the plugins' demo twins publish from |
 | `web/` | React 19, Vite, Tailwind v4, shadcn/ui and Magic UI |
 | `web/src/plugins` | the SPA's plugin modules, registry, slots and generic panels; a module's directory name is its plugin ID |
@@ -484,7 +485,7 @@ commit them with the change:
 A changed config schema also needs `go test ./internal/config -run TestConfigSchemaGolden -update`
 for `internal/config/testdata/config.schema.json`.
 
-Per-plugin generated types arrive with the plugin packages: a plugin's `model` package gets its own tygo entry and a `web/src/plugins/modules/<id>/model.gen.ts`, which `make check` also diffs.
+A plugin that owns payload types has its own `model` package (`internal/plugins/<id>/model`: proxmox and hardware have one), its own entry in `tygo.yaml` and a generated `web/src/plugins/modules/<id>/model.gen.ts`, which `make check` also diffs. Such a package is an import leaf: it imports only the standard library (`TestPluginModelPackagesAreImportLeaves`), so a payload that needs a core type such as `Link` or `Health` stays in `internal/model`; `tygo.yaml` has the recipe for the other case.
 
 ### Pre-push hook (opt-in)
 
