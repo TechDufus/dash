@@ -190,6 +190,8 @@ Resolution order:
 
 An **interactive principal** is a person using the SPA: kind `session`, `proxy`, `dev` or `demo`. `token` and `anonymous` principals are never interactive. Rules that mean "a person in the browser" say "interactive" throughout these documents; "session" is reserved for the cookie (E.3, M.8).
 
+**As shipped (G4 R1, v0.10.1).** `auth.Principal` carries these fields now; R1 fills `Kind`, `User`, `Role` and `Via`, and the other fields are declared for the releases that follow. Two differences from the sketch: `RoleClaim` is a `[]string` (an OIDC token can carry several role values), and there is a seventh kind, `none`, for `auth.mode: none` (E.2): interactive and admin with no credential. `Via` names what carried the identity (a header name, `cookie` or `fixed`); only the log reads it. `Principal` holds slices, so it is not comparable with `==`.
+
 ### M.2 CSRF and Origin checks
 
 CSRF and Origin checks apply to every non-bearer request: interactive and anonymous principals, the ones a browser can be tricked into sending. Bearer principals skip them: a bearer token is not attached automatically, so there is nothing for a forged request to ride on. The SPA never uses bearer tokens.
