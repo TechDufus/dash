@@ -8,8 +8,43 @@ import (
 
 // probeState is what the API-server probe knows.
 type probeState struct {
-	failingSince time.Time // when the probe began to fail; zero while it succeeds
-	cat          string    // the category of the last failure
+	failingSince time.Time     // when the probe began to fail; zero while it succeeds
+	cat          string        // the category of the last failure
+	outage       time.Duration // the time of the finished outages, never reset: see downForLocked
+}
+
+// clockMark is a moment of the plugin's life and the API-server down-time it had counted by then
+// (downForLocked). A timeout that must count only the time the API server answered starts from
+// a mark (see upSince).
+type clockMark struct {
+	at   time.Time
+	down time.Duration
+}
+
+// downForLocked is how long the API server has not answered since the plugin started: the
+// finished outages and the one in progress, while the probe is failing (not the debounced
+// isUnavailable). It never decreases. The caller holds r.mu.
+func (r *runtime) downForLocked(now time.Time) time.Duration {
+	d := r.probe.outage
+	if !r.probe.failingSince.IsZero() {
+		d += now.Sub(r.probe.failingSince)
+	}
+	return d
+}
+
+// markNowLocked is the mark of now. The caller holds r.mu.
+func (r *runtime) markNowLocked(now time.Time) clockMark {
+	return clockMark{at: now, down: r.downForLocked(now)}
+}
+
+// upSince is the time the API server has been answering since m: the wall time since m less the
+// down-time since then. The clock pauses (it never resets) while the probe fails, so a timeout
+// of a list that never completes counts only the time the list had a chance to complete, and the
+// first round after an outage does not judge it. It never decreases.
+func (r *runtime) upSince(now time.Time, m clockMark) time.Duration {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return now.Sub(m.at) - (r.downForLocked(now) - m.down)
 }
 
 // probeLoop asks the API server for its version every t.probe.
@@ -27,7 +62,7 @@ func (r *runtime) probeOnce() {
 	was := r.probe
 	retry := r.disc.retry
 	if err == nil {
-		r.probe = probeState{}
+		r.probe = probeState{outage: r.downForLocked(now)}
 	} else {
 		r.probe.cat = kube.Category(err)
 		if r.probe.failingSince.IsZero() {

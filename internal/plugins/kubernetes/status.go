@@ -24,7 +24,7 @@ func (r *runtime) status() plugin.Status {
 		return plugin.Status{State: plugin.StateUnavailable, Message: "api server unreachable", Sources: srcs}
 	}
 	synced := r.cl.HasSynced()
-	if !synced && now.Sub(r.started) >= r.t.typedSyncTimeout {
+	if !synced && r.upSince(now, clockMark{at: r.started}) >= r.t.typedSyncTimeout {
 		cat := "timeout"
 		if err := r.cl.SyncError(); err != nil {
 			cat = kube.Category(err)

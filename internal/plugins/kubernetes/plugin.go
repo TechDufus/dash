@@ -55,8 +55,9 @@ type timing struct {
 	// unavailableAfter is how long the probe must have failed, without a success between, for
 	// the row to turn unavailable. Recovery has no debounce.
 	unavailableAfter time.Duration
-	// typedSyncTimeout is how long the typed informers may take to sync before the row is an
-	// error and the service is withdrawn.
+	// typedSyncTimeout is how long, in API-server up-time (the clock pauses while the probe
+	// fails), the typed informers may take to sync before the row is an error and the service is
+	// withdrawn, and a list that never completes is published without.
 	typedSyncTimeout time.Duration
 }
 
@@ -334,11 +335,11 @@ type runtime struct {
 	cluster    *model.ClusterData // the last published payloads: the overview derives from them
 	storageD   *model.StorageData
 	logged     map[string]string // key -> the value last logged for it (once per change)
-	// had and appeared are, per wanted resource, whether the last discovery found it served and
-	// when one after the first discovery found it first: a resource that appears later gets its
-	// whole sync timeout from then.
+	// had and appeared are, per wanted resource, whether the last discovery found it served
+	// and when one after the first discovery found it first: a resource that appears later gets
+	// its whole sync timeout from then, counted in API-server up-time (see clockMark).
 	had      map[schema.GroupVersionResource]bool
-	appeared map[schema.GroupVersionResource]time.Time
+	appeared map[schema.GroupVersionResource]clockMark
 
 	// seenEndpoints and seenRevision are the gatus service and its Revision as the last round saw
 	// them, seenStuck the resources that were stuck (only the publisher round reads or writes
@@ -366,7 +367,7 @@ func newRuntime(ctx context.Context, cancel context.CancelFunc, h plugin.Host, c
 	r := &runtime{
 		h: h, cfg: cfg, t: t, ctx: ctx, cancel: cancel, conn: conn, cl: conn.Cluster,
 		started: h.Now(), logged: map[string]string{}, rediscover: make(chan struct{}, 1),
-		had: map[schema.GroupVersionResource]bool{}, appeared: map[schema.GroupVersionResource]time.Time{},
+		had: map[schema.GroupVersionResource]bool{}, appeared: map[schema.GroupVersionResource]clockMark{},
 	}
 	r.svc = &service{r: r}
 	r.nodeRev.Store(nodeSeq.Add(1))

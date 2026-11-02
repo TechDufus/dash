@@ -131,7 +131,7 @@ func (r *runtime) discover() (retry bool) {
 	for _, c := range r.crds() {
 		has := r.cl.Has(c.gvr)
 		if has && !r.had[c.gvr] && !first {
-			r.appeared[c.gvr] = now
+			r.appeared[c.gvr] = r.markNowLocked(now)
 		}
 		r.had[c.gvr] = has
 	}
@@ -217,19 +217,20 @@ func (r *runtime) crdState(c crd) (absent bool, fail crdFailure) {
 	return false, crdFailure{}
 }
 
-// stuck reports a served resource whose informer has not listed within the sync timeout, counted
-// from the start of the plugin, or from the moment the resource appeared when that was later.
+// stuck reports a served resource whose informer has not listed within the sync timeout of
+// API-server up-time (upSince), counted from the start of the plugin, or from the moment the
+// resource appeared when that was later. The clock pauses while the probe fails.
 func (r *runtime) stuck(gvr schema.GroupVersionResource) bool {
 	if !r.cl.Has(gvr) || r.cl.Listed(gvr) {
 		return false
 	}
 	r.mu.RLock()
-	since := r.appeared[gvr]
+	m, ok := r.appeared[gvr]
 	r.mu.RUnlock()
-	if since.Before(r.started) {
-		since = r.started
+	if !ok || m.at.Before(r.started) {
+		m = clockMark{at: r.started}
 	}
-	return r.h.Now().Sub(since) >= r.t.typedSyncTimeout
+	return r.upSince(r.h.Now(), m) >= r.t.typedSyncTimeout
 }
 
 // listedOrStuck is the publish gate of one resource: its first list is in the cache, or it will
