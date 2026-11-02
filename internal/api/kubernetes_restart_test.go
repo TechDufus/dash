@@ -64,7 +64,17 @@ func namespaceOf(name string, labels map[string]string) *corev1.Namespace {
 // cluster holds. The canary secret is registered, so the plugin's scrubbing and the log redact it.
 func newKubeEnv(t *testing.T, objs ...runtime.Object) *kubeEnv {
 	t.Helper()
+	return newKubeEnvWith(t, nil, objs...)
+}
+
+// newKubeEnvWith is newKubeEnv with prep run on the fake client before the plugin starts: the fake's
+// reactor chain is not safe to change while the plugin's informers read it.
+func newKubeEnvWith(t *testing.T, prep func(*kubefake.Clientset), objs ...runtime.Object) *kubeEnv {
+	t.Helper()
 	e := &kubeEnv{client: kubefake.NewClientset(objs...), logs: &syncBuf{}, reg: canaryRegistry()}
+	if prep != nil {
+		prep(e.client)
+	}
 	cfg := pluginconf.DefaultKubernetes()
 	cfg.Conventions.ProtectedLabel = protectedLabel
 	connect := func(pluginconf.Kubernetes) (*kubernetes.Connection, error) { return connectionWith(e.client), nil }
@@ -241,10 +251,11 @@ func TestKubernetesAdmissionMessageIsScrubbed(t *testing.T) {
 		{http.StatusUnprocessableEntity, model.ErrCodeInvalidInput, obs.ActionInvalid},
 	} {
 		t.Run(http.StatusText(int(tc.code)), func(t *testing.T) {
-			e := newKubeEnv(t, namespaceOf("media", nil), deployment("media", "app"))
-			e.client.PrependReactor("patch", "deployments", func(k8stesting.Action) (bool, runtime.Object, error) {
-				return true, nil, &apierrors.StatusError{ErrStatus: metav1.Status{Status: metav1.StatusFailure, Code: tc.code, Message: msg}}
-			})
+			e := newKubeEnvWith(t, func(c *kubefake.Clientset) {
+				c.PrependReactor("patch", "deployments", func(k8stesting.Action) (bool, runtime.Object, error) {
+					return true, nil, &apierrors.StatusError{ErrStatus: metav1.Status{Status: metav1.StatusFailure, Code: tc.code, Message: msg}}
+				})
+			}, namespaceOf("media", nil), deployment("media", "app"))
 			w := e.restart(rolloutOf("media", "app"))
 			wantError(t, w, int(tc.code), tc.want)
 			if !strings.Contains(w.Body.String(), "homelab guardrail: denied") {
