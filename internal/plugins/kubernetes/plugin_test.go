@@ -8,7 +8,6 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
-	goruntime "runtime"
 	"slices"
 	"sync"
 	"sync/atomic"
@@ -419,11 +418,11 @@ func TestStartsAndPublishesEverything(t *testing.T) {
 	}
 }
 
-// Every goroutine of the plugin ends with it (informers, probe, discovery, pollers, publisher and
-// the Secret watchers of its k8s: references), the last value read stays, and no request reaches
-// the fake API server or Prometheus afterwards.
+// Every goroutine of the plugin ends with it: its loops (counted by the runtime itself), its
+// informers (the Cluster says when they have all ended: Stop shuts the factories down), and the
+// Secret watchers of its k8s: references (Stop waits for them). The last value read stays. Nothing
+// is counted process-wide: other tests' goroutines come and go.
 func TestStopEndsEveryGoroutine(t *testing.T) {
-	base := goruntime.NumGoroutine()
 	refs := secret.NewK8sRefs(nil)
 	held, err := refs.Handle("k8s:dash/creds#token")
 	if err != nil {
@@ -434,25 +433,28 @@ func TestStopEndsEveryGoroutine(t *testing.T) {
 	}})
 	e.healthy()
 	swEventually(t, "the Secret watcher to read the value", reveals(held, swCanary))
-	if goruntime.NumGoroutine() <= base {
-		t.Fatal("the plugin started no goroutine")
-	}
 	p := e.plugin()
+	r := e.runtime()
+	if r.live.Load() == 0 || e.cluster.Stopped() || p.secrets == nil {
+		t.Fatalf("a running plugin: %d loops, informers stopped %v, watchers %v", r.live.Load(), e.cluster.Stopped(), p.secrets != nil)
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	if err := p.Stop(ctx); err != nil {
 		t.Fatalf("Stop: %v", err)
 	}
+	if n := r.live.Load(); n != 0 {
+		t.Errorf("%d loops still run after Stop", n)
+	}
+	if !e.cluster.Stopped() {
+		t.Error("an informer still runs after Stop")
+	}
 	if got := held.Reveal(); got != swCanary || held.Reason() != secret.ReasonKubernetesUnavailable {
 		t.Errorf("after Stop the value must stay and the reason say so: reason %q", held.Reason())
 	}
-	api, prom := e.requests.Load(), e.prom.requests()
-	time.Sleep(150 * time.Millisecond) // ten probe periods: anything still running would send a request
-	if e.requests.Load() != api || e.prom.requests() != prom {
-		t.Errorf("requests after Stop: API %d -> %d, Prometheus %d -> %d", api, e.requests.Load(), prom, e.prom.requests())
+	if err := p.Stop(ctx); err != nil {
+		t.Errorf("a second Stop: %v", err)
 	}
-	e.sup.Shutdown(context.Background())
-	waitFor(t, "the goroutines to end", func() bool { return goruntime.NumGoroutine() <= base+2 })
 }
 
 func TestStatusBeforeStartIsStarting(t *testing.T) {

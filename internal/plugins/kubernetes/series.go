@@ -35,14 +35,14 @@ func (p *Plugin) seriesSpecs() []plugin.SeriesSpec {
 			return `1 - node_memory_MemAvailable_bytes` + sel + ` / node_memory_MemTotal_bytes` + sel, nil
 		}},
 		{Name: "pod.cpu", Expr: func(a plugin.SeriesArgs) (string, error) {
-			sel, err := podSelector(a)
+			sel, err := p.podSelector(a)
 			if err != nil {
 				return "", err
 			}
 			return `sum(rate(container_cpu_usage_seconds_total{metrics_path="/metrics/cadvisor",container!="",container!="POD",` + sel + `}[2m]))`, nil
 		}},
 		{Name: "pod.mem", Expr: func(a plugin.SeriesArgs) (string, error) {
-			sel, err := podSelector(a)
+			sel, err := p.podSelector(a)
 			if err != nil {
 				return "", err
 			}
@@ -50,6 +50,10 @@ func (p *Plugin) seriesSpecs() []plugin.SeriesSpec {
 		}},
 	}
 }
+
+// errUnavailable answers a series while the plugin has no cluster (before Start, or when none is
+// configured or reachable): the node and the pod series say the same.
+func errUnavailable() error { return fmt.Errorf("%w: kubernetes is unavailable", queries.ErrBadSeries) }
 
 // nodeInstance is the node-exporter instance label of the node called name. A name that is not
 // a DNS name is a bad request and never looked up; a node the cache does not know is not found.
@@ -62,7 +66,7 @@ func (p *Plugin) nodeInstance(name string) (string, error) {
 	}
 	r := p.rt.Load()
 	if r == nil {
-		return "", fmt.Errorf("%w: kubernetes is not running", queries.ErrBadSeries)
+		return "", errUnavailable()
 	}
 	ip, ok := r.nodeAddress(name)
 	if !ok {
@@ -72,9 +76,12 @@ func (p *Plugin) nodeInstance(name string) (string, error) {
 }
 
 // podSelector is the label matcher of one pod; both names have passed ValidDNS.
-func podSelector(a plugin.SeriesArgs) (string, error) {
+func (p *Plugin) podSelector(a plugin.SeriesArgs) (string, error) {
 	if !queries.ValidDNS(a.Namespace) || !queries.ValidDNS(a.Pod) {
 		return "", fmt.Errorf("%w: namespace and pod required", queries.ErrBadSeries)
+	}
+	if p.rt.Load() == nil {
+		return "", errUnavailable()
 	}
 	return `namespace=` + strconv.Quote(a.Namespace) + `,pod=` + strconv.Quote(a.Pod), nil
 }

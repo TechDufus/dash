@@ -3,6 +3,7 @@ package kubernetes
 import (
 	"context"
 	"net/http"
+	"strings"
 	"sync"
 	"testing"
 
@@ -225,6 +226,32 @@ func TestUpstreamViaAPIServerWrapsLazily(t *testing.T) {
 	_ = resp.Body.Close()
 	if seen == nil || seen.URL.Host != "grafana.example.com" {
 		t.Errorf("a request for a host that is no service went to %v", seen)
+	}
+}
+
+// A REST config the transport cannot be built from is logged once, not on every request.
+func TestAPIServerTransportErrorIsLoggedOncePerChange(t *testing.T) {
+	e := newEnv(t, envOpts{
+		cfg: func(c *pluginconf.Kubernetes) { c.UpstreamViaAPIServer = true },
+		prefill: func(e *env) {
+			e.rest = &rest.Config{Host: "https://192.0.2.1:6443", TLSClientConfig: rest.TLSClientConfig{CAData: []byte("not a certificate")}}
+		},
+	})
+	e.healthy()
+	v, ok := e.sup.Service(ID)
+	if !ok {
+		t.Fatal("no service")
+	}
+	hook := v.(interface {
+		APIServerTransport() func(http.RoundTripper) http.RoundTripper
+	})
+	for range 50 {
+		if hook.APIServerTransport() != nil {
+			t.Fatal("a wrap from a broken REST config")
+		}
+	}
+	if got := strings.Count(e.logs.String(), "cannot route upstream requests through the API server"); got != 1 {
+		t.Errorf("the error was logged %d times for 50 requests, want once", got)
 	}
 }
 

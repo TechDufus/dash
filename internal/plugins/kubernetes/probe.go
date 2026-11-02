@@ -25,6 +25,7 @@ func (r *runtime) probeOnce() {
 	now := r.h.Now()
 	r.mu.Lock()
 	was := r.probe
+	retry := r.disc.retry
 	if err == nil {
 		r.probe = probeState{}
 	} else {
@@ -34,6 +35,14 @@ func (r *runtime) probeOnce() {
 		}
 	}
 	r.mu.Unlock()
+	if err == nil && !was.failingSince.IsZero() && retry {
+		// The API server answers again: do not wait for the backoff of a discovery that failed
+		// while it did not.
+		select {
+		case r.rediscover <- struct{}{}:
+		default:
+		}
+	}
 	switch {
 	case err == nil && !was.failingSince.IsZero():
 		r.changed("probe", "")

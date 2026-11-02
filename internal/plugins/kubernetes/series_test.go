@@ -2,8 +2,10 @@ package kubernetes
 
 import (
 	"errors"
+	"strings"
 	"testing"
 
+	"github.com/TechDufus/dash/internal/kube"
 	"github.com/TechDufus/dash/internal/plugin"
 	"github.com/TechDufus/dash/internal/pluginconf"
 	"github.com/TechDufus/dash/internal/queries"
@@ -111,18 +113,31 @@ func TestSeriesBadArguments(t *testing.T) {
 	}
 }
 
-// Before Start there is no cluster to resolve a node in; the pod series need none.
-func TestSeriesBeforeStart(t *testing.T) {
-	p := &Plugin{}
-	for _, name := range []string{"node.cpu", "node.mem"} {
-		if _, err := seriesExpr(p, name, plugin.SeriesArgs{Instance: "n1"}); !errors.Is(err, queries.ErrBadSeries) {
-			t.Errorf("%s before Start: err = %v, want ErrBadSeries", name, err)
+// Without a cluster (before Start, or when none is configured) every series answers the same
+// way: a bad series request that says kubernetes is unavailable. The pod series need no cluster
+// to build their expression, but they answer for nothing the plugin cannot read.
+func TestSeriesWithoutACluster(t *testing.T) {
+	noCluster := newEnv(t, envOpts{connErr: kube.ErrNoCluster})
+	noCluster.state(plugin.StateUnavailable)
+	for label, p := range map[string]*Plugin{"before Start": {}, "no cluster": noCluster.plugin()} {
+		for _, tc := range []struct {
+			name string
+			args plugin.SeriesArgs
+		}{
+			{"node.cpu", plugin.SeriesArgs{Instance: "n1"}},
+			{"node.mem", plugin.SeriesArgs{Instance: "n1"}},
+			{"pod.cpu", plugin.SeriesArgs{Namespace: "media", Pod: "plex-0"}},
+			{"pod.mem", plugin.SeriesArgs{Namespace: "media", Pod: "plex-0"}},
+		} {
+			_, err := seriesExpr(p, tc.name, tc.args)
+			if !errors.Is(err, queries.ErrBadSeries) || errors.Is(err, plugin.ErrNotFound) || !strings.Contains(err.Error(), "kubernetes is unavailable") {
+				t.Errorf("%s %s: err = %v, want ErrBadSeries saying kubernetes is unavailable", label, tc.name, err)
+			}
 		}
-		if _, err := seriesExpr(p, name, plugin.SeriesArgs{}); !errors.Is(err, queries.ErrBadSeries) {
-			t.Errorf("%s without a node: err = %v, want ErrBadSeries", name, err)
+		for _, name := range []string{"node.cpu", "node.mem"} {
+			if _, err := seriesExpr(p, name, plugin.SeriesArgs{}); !errors.Is(err, queries.ErrBadSeries) {
+				t.Errorf("%s %s without a node: err = %v, want ErrBadSeries", label, name, err)
+			}
 		}
-	}
-	if _, err := seriesExpr(p, "pod.cpu", plugin.SeriesArgs{Namespace: "media", Pod: "plex-0"}); err != nil {
-		t.Errorf("pod.cpu before Start: %v", err)
 	}
 }

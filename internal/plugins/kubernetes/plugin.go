@@ -17,6 +17,8 @@ import (
 	"sync/atomic"
 	"time"
 
+	"k8s.io/apimachinery/pkg/runtime/schema"
+
 	"github.com/TechDufus/dash/internal/kube"
 	"github.com/TechDufus/dash/internal/model"
 	"github.com/TechDufus/dash/internal/plugin"
@@ -180,7 +182,11 @@ func (p *Plugin) Start(ctx context.Context, h plugin.Host, cfg any) error {
 	case err != nil:
 		mode := c.ConnectionMode()
 		h.Logger().Error("cannot connect to the cluster", "mode", mode, "error", h.ScrubLog(err.Error()))
-		p.setNoConn(plugin.StateError, fmt.Sprintf("cannot connect to the cluster (plugins.kubernetes.mode %s): see the log", mode))
+		setting := "plugins.kubernetes.mode " + mode
+		if errors.Is(err, kube.ErrBadContext) {
+			setting = "plugins.kubernetes.context"
+		}
+		p.setNoConn(plugin.StateError, fmt.Sprintf("cannot connect to the cluster (%s): see the log", setting))
 		return nil
 	}
 	p.secrets = bindSecrets(ctx, conn.Cluster.Client, p.refs, h.Logger())
@@ -204,7 +210,9 @@ func (p *Plugin) setNoConn(state plugin.State, msg string) {
 	p.mu.Unlock()
 }
 
-// Stop ends every goroutine Start launched, as long as ctx allows.
+// Stop ends every goroutine Start launched, as long as ctx allows: the Secret watchers, the
+// loops, and then the informers (the factories are shut down once the loops, which may start
+// informers, have ended, so nothing of this run outlives it).
 func (p *Plugin) Stop(ctx context.Context) error {
 	p.secrets.stop()
 	r := p.rt.Load()
@@ -213,7 +221,13 @@ func (p *Plugin) Stop(ctx context.Context) error {
 	}
 	r.cancel()
 	done := make(chan struct{})
-	go func() { r.wg.Wait(); close(done) }()
+	go func() {
+		r.wg.Wait()
+		if r.cl != nil { // the demo twin has no cluster
+			r.cl.Shutdown()
+		}
+		close(done)
+	}()
 	select {
 	case <-done:
 		return nil
@@ -289,6 +303,11 @@ type runtime struct {
 	ctx    context.Context
 	cancel context.CancelFunc
 	wg     sync.WaitGroup
+	// live counts the goroutines spawn has started and not yet seen end: what Stop waits for.
+	live atomic.Int32
+	// rediscover asks the discovery loop to run now: the probe saw the API server answer again
+	// after a discovery that left a wanted resource unknown.
+	rediscover chan struct{}
 
 	conn    *Connection
 	cl      *kube.Cluster
@@ -315,11 +334,18 @@ type runtime struct {
 	cluster    *model.ClusterData // the last published payloads: the overview derives from them
 	storageD   *model.StorageData
 	logged     map[string]string // key -> the value last logged for it (once per change)
+	// had and appeared are, per wanted resource, whether the last discovery found it served and
+	// when one after the first discovery found it first: a resource that appears later gets its
+	// whole sync timeout from then.
+	had      map[schema.GroupVersionResource]bool
+	appeared map[schema.GroupVersionResource]time.Time
 
 	// seenEndpoints and seenRevision are the gatus service and its Revision as the last round saw
-	// them (only the publisher round reads or writes them).
+	// them, seenStuck the resources that were stuck (only the publisher round reads or writes
+	// them).
 	seenEndpoints any
 	seenRevision  uint64
+	seenStuck     string
 
 	wrap func(http.RoundTripper) http.RoundTripper // upstream.DevWrap of the REST config, built on first use
 
@@ -341,7 +367,8 @@ var nodeSeq atomic.Uint64
 func newRuntime(ctx context.Context, cancel context.CancelFunc, h plugin.Host, cfg pluginconf.Kubernetes, t timing, conn *Connection) *runtime {
 	r := &runtime{
 		h: h, cfg: cfg, t: t, ctx: ctx, cancel: cancel, conn: conn, cl: conn.Cluster,
-		started: h.Now(), logged: map[string]string{},
+		started: h.Now(), logged: map[string]string{}, rediscover: make(chan struct{}, 1),
+		had: map[schema.GroupVersionResource]bool{}, appeared: map[schema.GroupVersionResource]time.Time{},
 	}
 	r.svc = &service{r: r}
 	r.nodeRev.Store(nodeSeq.Add(1))
@@ -352,8 +379,10 @@ func newRuntime(ctx context.Context, cancel context.CancelFunc, h plugin.Host, c
 // spawn runs fn on Host.Go and counts it, so Stop can wait for it.
 func (r *runtime) spawn(name string, fn func()) {
 	r.wg.Add(1)
+	r.live.Add(1)
 	r.h.Go(name, func() {
 		defer r.wg.Done()
+		defer r.live.Add(-1)
 		fn()
 	})
 }

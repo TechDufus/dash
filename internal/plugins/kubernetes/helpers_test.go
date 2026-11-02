@@ -3,6 +3,7 @@ package kubernetes
 import (
 	"context"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -236,6 +237,9 @@ type fakeGatus struct {
 	hosts map[string]model.Health
 	rev   uint64
 	srcs  []model.SourceStatus
+	// reads counts the calls of Revision: the publisher makes one on each of its rounds, so a
+	// test can wait for rounds to have happened.
+	reads atomic.Int64
 }
 
 func (f *fakeGatus) ByHost(h string) (model.Health, bool) {
@@ -246,6 +250,7 @@ func (f *fakeGatus) ByHost(h string) (model.Health, bool) {
 }
 func (f *fakeGatus) ByName(string) (bool, bool) { return false, false }
 func (f *fakeGatus) Revision() uint64 {
+	f.reads.Add(1)
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return f.rev

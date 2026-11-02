@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -152,6 +154,19 @@ func TestExplicitModeWithoutClusterIsError(t *testing.T) {
 	}
 	if _, ok := e.sup.Service(ID); ok {
 		t.Error("an errored plugin exports a service")
+	}
+}
+
+// A kubeconfig without the context asked for is a fault of plugins.kubernetes.context, not of
+// the mode.
+func TestBadContextNamesTheContextSetting(t *testing.T) {
+	e := newEnv(t, envOpts{
+		cfg:     func(c *pluginconf.Kubernetes) { c.Mode = pluginconf.KubernetesModeKubeconfig; c.Context = "nope" },
+		connErr: fmt.Errorf("kubeconfig: %q: %w", "nope", kube.ErrBadContext),
+	})
+	pi := e.state(plugin.StateError)
+	if !strings.Contains(pi.Message, "plugins.kubernetes.context") || strings.Contains(pi.Message, "plugins.kubernetes.mode") {
+		t.Errorf("message = %q, want the context setting", pi.Message)
 	}
 }
 
@@ -481,37 +496,133 @@ func TestWantedGroupDiscoveryFailureDegrades(t *testing.T) {
 	e.state(plugin.StateHealthy)
 }
 
+// A group an optional.* setting names is the user's to ignore: its discovery failing does not
+// degrade the row. CNPG is not an optional.* setting, and its broken group still does.
+func TestOptionalGroupDiscoveryFailureDoesNotDegrade(t *testing.T) {
+	d := &stubDisc{}
+	d.set(groupFailure(kube.GVRCertificates.GroupVersion()), served(kube.GVRExternalSecrets, kube.GVRHTTPRoutes, kube.GVRCNPGClusters)...)
+	e := newEnv(t, envOpts{
+		cfg:     func(c *pluginconf.Kubernetes) { c.Optional.Certificates = true },
+		prefill: func(e *env) { e.discovery = d },
+	})
+	e.healthy()
+	if got := e.info(); got.State != plugin.StateHealthy || got.Message != "" {
+		t.Errorf("row = %+v: an optional group must not degrade it", got)
+	}
+
+	d.set(groupFailure(kube.GVRCNPGClusters.GroupVersion()), served(kube.GVRCertificates, kube.GVRExternalSecrets, kube.GVRHTTPRoutes)...)
+	// The next discovery is the periodic one of fastTiming (50ms).
+	pi := e.state(plugin.StateDegraded)
+	if !strings.Contains(pi.Message, "discovery failed for: cnpg") {
+		t.Errorf("message = %q", pi.Message)
+	}
+}
+
+// The backoff of a failed discovery runs from the probe period to the discovery period.
+func TestDiscoveryBackoffGrowsFromTheProbePeriodToTheDiscoveryPeriod(t *testing.T) {
+	tm := defaultTiming()
+	var got []time.Duration
+	for n := 1; n <= 9; n++ {
+		got = append(got, discoveryBackoff(tm, n))
+	}
+	want := []time.Duration{5 * time.Second, 10 * time.Second, 20 * time.Second, 40 * time.Second, 80 * time.Second,
+		160 * time.Second, 5 * time.Minute, 5 * time.Minute, 5 * time.Minute}
+	if !slices.Equal(got, want) {
+		t.Errorf("backoff = %v, want %v", got, want)
+	}
+}
+
+// A discovery that fails at Start is retried after the probe period, not at the next five-minute
+// tick: with the production intervals (only the publisher's tick is short) and the host clock
+// moved by five seconds, the resources of the groups that were unknown are published for real.
+func TestFailedDiscoveryIsRetriedAfterTheProbePeriod(t *testing.T) {
+	d := &stubDisc{}
+	d.set(errors.New("connection refused"))
+	e := newEnv(t, envOpts{
+		fakeClock: true,
+		objs:      []k8sruntime.Object{obj(kube.GVRCertificates, "app", "web-tls")},
+		timing:    func(tm *timing) { *tm = defaultTiming(); tm.tick = 10 * time.Millisecond },
+		prefill:   func(e *env) { e.discovery = d },
+	})
+	pi := e.state(plugin.StateDegraded)
+	if !strings.Contains(pi.Message, "discovery failed for: cert-manager") {
+		t.Fatalf("message = %q", pi.Message)
+	}
+	r := e.runtime()
+	if r.cl.Has(kube.GVRCertificates) {
+		t.Fatal("the failed discovery found the certificates")
+	}
+
+	d.set(nil, served(allServed...)...)
+	e.clock.advance(5 * time.Second)
+	e.healthy()
+	if !r.cl.Has(kube.GVRCertificates) {
+		t.Error("the certificates were not discovered by the retry")
+	}
+	waitFor(t, "the certificate to be listed", func() bool { return len(r.cl.List(kube.GVRCertificates)) == 1 })
+}
+
+// The first success of the probe after a failure repeats a discovery that failed meanwhile at
+// once, without waiting for its backoff (the host clock does not move here).
+func TestProbeRecoveryRepeatsAFailedDiscovery(t *testing.T) {
+	d := &stubDisc{}
+	d.set(errors.New("connection refused"))
+	e := newEnv(t, envOpts{
+		fakeClock: true,
+		timing:    func(tm *timing) { *tm = defaultTiming(); tm.tick = 10 * time.Millisecond; tm.probe = 20 * time.Millisecond },
+		prefill: func(e *env) {
+			e.discovery = d
+			e.failProbe.Store(true)
+		},
+	})
+	e.state(plugin.StateDegraded)
+	e.probeFailing()
+
+	d.set(nil, served(allServed...)...)
+	e.failProbe.Store(false)
+	e.healthy()
+}
+
 // A dynamic informer never gates Synced, so a topic waits for its own resources: the cluster
-// topic for certificates and external secrets, apps for routes, storage for CNPG.
+// topic for certificates and external secrets, apps for routes, storage for CNPG. The list is
+// held (the fake dynamic client can hold no request without holding them all, so the other
+// topics wait too) until the typed informers have synced and the publisher has made several
+// more rounds, counted by the gatus fake it asks on each; the topic must be absent then, and
+// come once the list ends. No state of the row is waited for, and no time.
 func TestKubernetesClusterTopicWaitsForItsGVRs(t *testing.T) {
-	for _, tc := range []struct {
-		resource string
-		topic    string
-	}{
+	for _, tc := range []struct{ resource, topic string }{
 		{"certificates", "kubernetes.cluster"},
 		{"externalsecrets", "kubernetes.cluster"},
 		{"httproutes", "kubernetes.apps"},
 		{"clusters", "kubernetes.storage"},
 	} {
 		t.Run(tc.resource, func(t *testing.T) {
-			release := make(chan struct{})
-			var once sync.Once
+			release, entered := make(chan struct{}), make(chan struct{})
+			var once, once2 sync.Once
 			open := func() { once.Do(func() { close(release) }) }
 			t.Cleanup(open)
 			e := newEnv(t, envOpts{prefill: func(e *env) {
 				e.dc.PrependReactor("list", tc.resource, func(clienttesting.Action) (bool, k8sruntime.Object, error) {
+					once2.Do(func() { close(entered) })
 					<-release
 					return false, nil, nil
 				})
 			}})
-			e.state(plugin.StateStarting)
-			// The other topics of the plugin are not held back by it.
-			time.Sleep(150 * time.Millisecond)
-			if _, ok := e.hub.Latest("", model.Topic(tc.topic)); ok {
+			published := func() bool { _, ok := e.hub.Latest("", model.Topic(tc.topic)); return ok }
+			select {
+			case <-entered:
+			case <-time.After(10 * time.Second):
+				t.Fatal("the informer never listed " + tc.resource)
+			}
+			r := e.runtime()
+			waitFor(t, "the typed informers to sync", r.cl.HasSynced)
+			rounds := e.gatus.reads.Load()
+			waitFor(t, "five rounds of the publisher", func() bool { return e.gatus.reads.Load() >= rounds+5 })
+			if published() {
 				t.Fatalf("%s was published while %s was not listed", tc.topic, tc.resource)
 			}
 			open()
-			waitFor(t, tc.topic, func() bool { _, ok := e.hub.Latest("", model.Topic(tc.topic)); return ok })
+			waitFor(t, tc.topic, published)
 			e.state(plugin.StateHealthy)
 		})
 	}

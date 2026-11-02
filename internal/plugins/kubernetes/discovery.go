@@ -28,22 +28,18 @@ type crd struct {
 	// absent one is not a note.
 	wantedWhenAbsent bool
 	topic            uint32 // the topic that carries its data (dirtyCluster, dirtyStorage, dirtyApps)
-	// needsList marks a resource that is served everywhere but may be refused to this client (the
-	// Ingresses need RBAC the default role lacks): when its informer has not listed within the
-	// sync timeout it counts as failed, and the topic publishes without it.
-	needsList bool
 }
 
 // crds are the resources the plugin watches, from the settings.
 func (r *runtime) crds() []crd {
 	out := []crd{
-		{kube.GVRCertificates, kube.KindCertificates, "cert-manager", r.cfg.Optional.Certificates, true, dirtyCluster, false},
-		{kube.GVRExternalSecrets, kube.KindExtSecrets, "external-secrets", r.cfg.Optional.ExternalSecrets, true, dirtyCluster, false},
-		{kube.GVRHTTPRoutes, kube.KindHTTPRoutes, "gateway-api", r.cfg.Optional.HTTPRoutes, true, dirtyApps, false},
-		{kube.GVRCNPGClusters, kube.KindCNPG, "cnpg", true, false, dirtyStorage, false},
+		{gvr: kube.GVRCertificates, kind: kube.KindCertificates, name: "cert-manager", optional: r.cfg.Optional.Certificates, wantedWhenAbsent: true, topic: dirtyCluster},
+		{gvr: kube.GVRExternalSecrets, kind: kube.KindExtSecrets, name: "external-secrets", optional: r.cfg.Optional.ExternalSecrets, wantedWhenAbsent: true, topic: dirtyCluster},
+		{gvr: kube.GVRHTTPRoutes, kind: kube.KindHTTPRoutes, name: "gateway-api", optional: r.cfg.Optional.HTTPRoutes, wantedWhenAbsent: true, topic: dirtyApps},
+		{gvr: kube.GVRCNPGClusters, kind: kube.KindCNPG, name: "cnpg", optional: true, topic: dirtyStorage},
 	}
 	if r.cfg.Apps.Ingress {
-		out = append(out, crd{kube.GVRIngresses, kube.KindIngresses, "ingress", false, true, dirtyApps, true})
+		out = append(out, crd{gvr: kube.GVRIngresses, kind: kube.KindIngresses, name: "ingress", wantedWhenAbsent: true, topic: dirtyApps})
 	}
 	return out
 }
@@ -60,39 +56,85 @@ func (r *runtime) wanted() map[schema.GroupVersionResource]kube.Kind {
 type discState struct {
 	ended  bool     // a discovery has run, whether or not it worked
 	failed []string // the group versions of the wanted resources that failed, sorted
+	// retry says the last discovery left a wanted resource unknown (it failed altogether, or for
+	// a wanted group) and is to be repeated.
+	retry bool
 }
 
-// discoveryLoop rediscovers the served resources at Start, every t.discovery, and at once when a
-// consumer asks for a resource through svc.Cluster.Watch.
+// discoveryBackoff is the wait before retry number n (1 for the first) of a failed discovery: the
+// probe period, doubled each time, up to the discovery period.
+func discoveryBackoff(t timing, n int) time.Duration {
+	d := t.probe
+	for i := 1; i < n && d < t.discovery; i++ {
+		d *= 2
+	}
+	return min(d, max(t.discovery, t.probe))
+}
+
+// discoveryLoop rediscovers the served resources at Start, every t.discovery, at once when a
+// consumer asks for a resource through svc.Cluster.Watch or the probe sees the API server answer
+// again after a discovery that failed, and, while the last discovery left a wanted group
+// unknown, with a growing wait (see discoveryBackoff). The wait runs on the host's clock, checked
+// every t.tick.
 func (r *runtime) discoveryLoop() {
-	t := time.NewTicker(r.t.discovery)
-	defer t.Stop()
+	periodic := time.NewTicker(r.t.discovery)
+	defer periodic.Stop()
+	check := time.NewTicker(r.t.tick)
+	defer check.Stop()
+	retries := 0
+	var retryAt time.Time
 	for {
-		r.discover()
-		select {
-		case <-r.ctx.Done():
-			return
-		case <-t.C:
-		case <-r.cl.DiscoveryRequests():
+		if r.discover() {
+			retries++
+			retryAt = r.h.Now().Add(discoveryBackoff(r.t, retries))
+		} else {
+			retries, retryAt = 0, time.Time{}
+		}
+		for again := false; !again; {
+			select {
+			case <-r.ctx.Done():
+				return
+			case <-periodic.C:
+				again = true
+			case <-r.cl.DiscoveryRequests():
+				again = true
+			case <-r.rediscover:
+				again = true
+			case <-check.C:
+				again = !retryAt.IsZero() && !r.h.Now().Before(retryAt)
+			}
 		}
 	}
 }
 
-// discover runs one discovery and records its outcome. A failing group that is not one the plugin
-// wants (a metrics-server APIService that is down, any aggregated API) is logged at INFO, once
-// per change, and affects nothing.
-func (r *runtime) discover() {
+// discover runs one discovery and records its outcome; it reports that the outcome left a wanted
+// resource unknown, so the loop retries. A failing group that is not one the plugin wants (a
+// metrics-server APIService that is down, any aggregated API) is logged at INFO, once per
+// change, and affects nothing.
+func (r *runtime) discover() (retry bool) {
 	err := r.cl.Discover(r.wanted())
 	if r.ctx.Err() != nil {
-		return
+		return false
 	}
 	failed := gvStrings(r.cl.FailedGroups())
+	var gd *kube.ErrGroupDiscoveryFailed
+	retry = len(failed) > 0 || (err != nil && !errors.As(err, &gd))
 	r.mu.Lock()
-	changed := !r.disc.ended || !slices.Equal(failed, r.disc.failed)
-	r.disc = discState{ended: true, failed: failed}
+	first := !r.disc.ended
+	changed := first || !slices.Equal(failed, r.disc.failed)
+	r.disc = discState{ended: true, failed: failed, retry: retry}
+	// A resource that appears after the first discovery has only now got its informer, so its
+	// time to list starts now.
+	now := r.h.Now()
+	for _, c := range r.crds() {
+		has := r.cl.Has(c.gvr)
+		if has && !r.had[c.gvr] && !first {
+			r.appeared[c.gvr] = now
+		}
+		r.had[c.gvr] = has
+	}
 	r.mu.Unlock()
 
-	var gd *kube.ErrGroupDiscoveryFailed
 	switch {
 	case errors.As(err, &gd):
 		var unwanted []string
@@ -120,6 +162,7 @@ func (r *runtime) discover() {
 	if changed {
 		r.mark(dirtyAll)
 	}
+	return retry
 }
 
 func gvStrings(gvs []schema.GroupVersion) []string {
@@ -130,45 +173,97 @@ func gvStrings(gvs []schema.GroupVersion) []string {
 	return out
 }
 
-// crdState is the state of one CRD at the last discovery: absent (served by nobody), or its
-// group's discovery failed.
-func (r *runtime) crdState(c crd) (absent, failed bool) {
+// crdFailure is why a wanted CRD's data is missing from its topic although it should be there.
+type crdFailure struct {
+	discovery bool   // discovery failed for its group
+	list      string // the informer has not listed within the sync timeout: the category of its watch error
+}
+
+func (f crdFailure) any() bool { return f.discovery || f.list != "" }
+
+// category is what a viewer reads in the topic's source note.
+func (f crdFailure) category() string {
+	if f.list != "" {
+		return f.list
+	}
+	return upstream.CategoryUnreachable
+}
+
+// crdState is the state of one CRD at the last discovery: absent (served by nobody), or failed
+// (its group's discovery failed, or it is served but its list never completes: a refused list,
+// a dead conversion webhook).
+func (r *runtime) crdState(c crd) (absent bool, fail crdFailure) {
 	r.mu.RLock()
 	d := r.disc
 	r.mu.RUnlock()
 	if !d.ended {
-		return false, false
+		return false, crdFailure{}
 	}
 	if slices.Contains(d.failed, c.gvr.GroupVersion().String()) {
-		return false, true
+		return false, crdFailure{discovery: true}
 	}
-	if absent := !r.cl.Has(c.gvr); absent || !c.needsList {
-		return absent, false
+	if !r.cl.Has(c.gvr) {
+		return true, crdFailure{}
 	}
-	return false, r.stuck(c)
+	if r.stuck(c.gvr) {
+		cat := upstream.CategoryUnreachable
+		if err := r.cl.WatchError(c.gvr); err != nil {
+			cat = kube.Category(err)
+		}
+		return false, crdFailure{list: cat}
+	}
+	return false, crdFailure{}
 }
 
-// stuck reports a served resource whose informer has not listed within the sync timeout.
-func (r *runtime) stuck(c crd) bool {
-	return !r.cl.Listed(c.gvr) && r.h.Now().Sub(r.started) >= r.t.typedSyncTimeout
+// stuck reports a served resource whose informer has not listed within the sync timeout, counted
+// from the start of the plugin, or from the moment the resource appeared when that was later.
+func (r *runtime) stuck(gvr schema.GroupVersionResource) bool {
+	if !r.cl.Has(gvr) || r.cl.Listed(gvr) {
+		return false
+	}
+	r.mu.RLock()
+	since := r.appeared[gvr]
+	r.mu.RUnlock()
+	if since.Before(r.started) {
+		since = r.started
+	}
+	return r.h.Now().Sub(since) >= r.t.typedSyncTimeout
 }
+
+// listedOrStuck is the publish gate of one resource: its first list is in the cache, or it will
+// not come in time and the topic publishes without it.
+func (r *runtime) listedOrStuck(gvr schema.GroupVersionResource) bool {
+	return r.cl.Listed(gvr) || r.stuck(gvr)
+}
+
+// stuckSignature names the resources that are stuck now, so the publisher can rebuild the topics
+// when one stops being (a list that completes with no object sends no event).
+func (r *runtime) stuckSignature() string {
+	var out []string
+	for _, c := range r.crds() {
+		if r.stuck(c.gvr) {
+			out = append(out, c.name)
+		}
+	}
+	return strings.Join(out, ",")
+}
+
+// silenced is a failure the settings say to ignore: plugins.kubernetes.optional.* marks the
+// resource as one the cluster may lack.
+func (c crd) silenced() bool { return c.optional && c.wantedWhenAbsent }
 
 // notes are the source notes of the topic(s) in mask: one per CRD the topic carries data of that
-// is not there ("not_configured") or whose discovery failed (the category), unless it is optional.
+// is not there ("not_configured") or whose data is missing (the category of the failure).
 func (r *runtime) notes(mask uint32, now time.Time) []model.SourceStatus {
 	var out []model.SourceStatus
 	for _, c := range r.crds() {
 		if c.topic&mask == 0 {
 			continue
 		}
-		absent, failed := r.crdState(c)
+		absent, fail := r.crdState(c)
 		switch {
-		case failed:
-			cat := upstream.CategoryUnreachable
-			if err := r.cl.WatchError(c.gvr); err != nil && c.needsList {
-				cat = kube.Category(err)
-			}
-			out = append(out, model.SourceStatus{Name: c.name, Error: cat, CheckedAt: now.UTC()})
+		case fail.any():
+			out = append(out, model.SourceStatus{Name: c.name, Error: fail.category(), CheckedAt: now.UTC()})
 		case absent && c.wantedWhenAbsent && !c.optional:
 			out = append(out, model.SourceStatus{Name: c.name, Error: upstream.CategoryNotConfigured, CheckedAt: now.UTC()})
 		}
@@ -176,14 +271,17 @@ func (r *runtime) notes(mask uint32, now time.Time) []model.SourceStatus {
 	return out
 }
 
-// degraded names each wanted group that is missing or failed, "" when none is.
+// degraded names each wanted group that is missing or failed, "" when none is. A group the
+// settings mark optional never makes the row degraded, missing or failed.
 func (r *runtime) degraded() string {
-	var missing, failed []string
+	var missing, failed, unlisted []string
 	for _, c := range r.crds() {
 		absent, fail := r.crdState(c)
 		switch {
-		case fail:
+		case fail.discovery && !c.silenced():
 			failed = append(failed, c.name)
+		case fail.list != "" && !c.silenced():
+			unlisted = append(unlisted, fmt.Sprintf("%s (%s)", c.name, fail.list))
 		case absent && c.wantedWhenAbsent && !c.optional:
 			missing = append(missing, c.name)
 		}
@@ -194,6 +292,9 @@ func (r *runtime) degraded() string {
 	}
 	if len(failed) > 0 {
 		parts = append(parts, fmt.Sprintf("discovery failed for: %s", strings.Join(failed, ", ")))
+	}
+	if len(unlisted) > 0 {
+		parts = append(parts, fmt.Sprintf("cannot list: %s", strings.Join(unlisted, ", ")))
 	}
 	return strings.Join(parts, "; ")
 }

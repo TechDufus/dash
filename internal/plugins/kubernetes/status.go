@@ -91,6 +91,12 @@ func (r *runtime) publishLoop() { r.every(r.t.tick, r.round) }
 // cannot have changed).
 func (r *runtime) round() {
 	r.watchEndpoints()
+	// A list that finally completes with no object sends no event, so a topic published without
+	// the resource is rebuilt when it stops being stuck.
+	if sig := r.stuckSignature(); sig != r.seenStuck {
+		r.seenStuck = sig
+		r.mark(dirtyAll)
+	}
 	if r.isUnavailable(r.h.Now()) {
 		return
 	}
@@ -107,26 +113,27 @@ func (r *runtime) round() {
 }
 
 // The publish gates: each topic waits for its own inputs, because a dynamic informer never gates
-// HasSynced. A resource discovery says is absent (or whose group failed) counts as listed.
+// HasSynced. A resource discovery says is absent (or whose group failed) counts as listed, and
+// one that is served but does not list within the sync timeout (a list the client may not make)
+// is published without, with the row degraded (see crdState).
 
 func (r *runtime) clusterReady() bool {
-	return r.cl.HasSynced() && r.cl.Listed(kube.GVRCertificates) && r.cl.Listed(kube.GVRExternalSecrets)
+	return r.cl.HasSynced() && r.listedOrStuck(kube.GVRCertificates) && r.listedOrStuck(kube.GVRExternalSecrets)
 }
 
 func (r *runtime) storageReady() bool {
 	r.mu.RLock()
 	polled := r.storageOut.polled
 	r.mu.RUnlock()
-	return r.cl.HasSynced() && r.cl.Listed(kube.GVRCNPGClusters) && polled
+	return r.cl.HasSynced() && r.listedOrStuck(kube.GVRCNPGClusters) && polled
 }
 
 func (r *runtime) appsReady() bool {
-	if !r.cl.HasSynced() || !r.cl.Listed(kube.GVRHTTPRoutes) || !r.endpointsReady() {
+	if !r.cl.HasSynced() || !r.listedOrStuck(kube.GVRHTTPRoutes) || !r.endpointsReady() {
 		return false
 	}
-	// Ingresses are read only on request, and may be refused: apps waits for them for as long as
-	// the informers get to sync, then publishes without them (and the row is degraded).
-	return !r.cfg.Apps.Ingress || r.cl.Listed(kube.GVRIngresses) || r.h.Now().Sub(r.started) >= r.t.typedSyncTimeout
+	// Ingresses are read only on request.
+	return !r.cfg.Apps.Ingress || r.listedOrStuck(kube.GVRIngresses)
 }
 
 func (r *runtime) publishCluster() bool {
