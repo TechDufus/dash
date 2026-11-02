@@ -80,7 +80,8 @@ type NodeName interface {
 
 // Cluster is what the kubernetes plugin exports: the informer caches and the dynamic client, for
 // code that reads or patches resources the plugin does not own (the Manager's flux code until the
-// flux plugin exists, then flux and cnpg). One object also implements NodeIndex.
+// flux plugin exists, then flux and cnpg). One object also implements NodeIndex, so this method is
+// GVRRevision: NodeIndex already has a Revision() uint64 of its own.
 type Cluster interface {
 	// Synced reports that the typed informers have synced: the readiness gate. A dynamic informer
 	// never gates it; Listed is its gate.
@@ -98,10 +99,10 @@ type Cluster interface {
 	// List returns the cached objects of a watched resource, all namespaces; nil while gvr is not
 	// served or not watched.
 	List(gvr schema.GroupVersionResource) []*unstructured.Unstructured
-	// Revision is bumped when a watched resource in gvrs (all of them when none are given) has an
+	// GVRRevision is bumped when a watched resource in gvrs (all of them when none are given) has an
 	// object added, changed or deleted, or when its CRD appears or goes. A consumer polls it on its
 	// own tick and republishes when it differs from the value it last saw.
-	Revision(gvrs ...schema.GroupVersionResource) uint64
+	GVRRevision(gvrs ...schema.GroupVersionResource) uint64
 	// Patch sends a JSON merge patch through the dynamic client under the field manager "dash".
 	// The error is the API server's, unwrapped.
 	Patch(ctx context.Context, gvr schema.GroupVersionResource, namespace, name string, merge []byte) error
