@@ -251,6 +251,31 @@ func TestBlockedDependentStartsWhenDependencyBecomesAvailable(t *testing.T) {
 	}
 }
 
+// A dependency that becomes unavailable while its dependent is being started must still block the
+// dependent: the availability the status loop compares against is the one the reconcile started
+// from, so the change is seen and the dependent is stopped.
+func TestDependentIsBlockedWhenItsStartMakesTheDependencyUnavailable(t *testing.T) {
+	var mu sync.Mutex
+	st := plugin.StateHealthy
+	a := plugintest.New("aa", plugintest.Requires("xx"))
+	x := plugintest.New("xx")
+	x.StatusFn = func() plugin.Status { mu.Lock(); defer mu.Unlock(); return plugin.Status{State: st, Message: "gone"} }
+	a.StartFn = func(context.Context, plugin.Host, any) error {
+		mu.Lock()
+		st = plugin.StateUnavailable
+		mu.Unlock()
+		return nil
+	}
+	e := start(t, a.Factory(), x.Factory())
+	eventually(t, "a to be stopped once xx is unavailable", func() bool { return !e.sup.Running("aa") })
+	if s, msg := e.state(t, "aa"); s != model.PluginBlocked || !strings.HasPrefix(msg, "requires xx (unavailable") {
+		t.Fatalf("a = %s %q, want blocked", s, msg)
+	}
+	if a.Starts() != 1 || a.Stops() != 1 {
+		t.Fatalf("a started %d and stopped %d times, want 1 and 1", a.Starts(), a.Stops())
+	}
+}
+
 func TestDependencyInErrorDoesNotBlock(t *testing.T) {
 	a := plugintest.New("aa", plugintest.Requires("xx"))
 	x := plugintest.New("xx", plugintest.Status(plugin.StateError, "upstream down"))

@@ -133,7 +133,7 @@ type Supervisor struct {
 
 	started   atomic.Bool // Run's first reconcile returned: every Start has
 	readyWarn sync.Once
-	avail     map[ID]bool // availability() after the last reconcile; only reconcile and loop touch it
+	avail     map[ID]bool // availability() when the last reconcile began; only reconcile and loop touch it
 
 	pubMu         sync.Mutex
 	lastPublished []model.PluginInfo
@@ -556,6 +556,21 @@ func (s *Supervisor) availability() map[ID]bool {
 	return out
 }
 
+// noteAvailability re-reads the entries of ids in the snapshot of the running reconcile: a
+// dependency started or stopped since the snapshot was taken is what its dependents are decided
+// against.
+func (s *Supervisor) noteAvailability(ids []ID) {
+	for _, id := range ids {
+		if _, ok := s.avail[id]; !ok {
+			continue
+		}
+		if dep := s.lookup(id); dep != nil {
+			st, _ := s.liveState(dep)
+			s.avail[id] = dep.isRunning() && st == StateUnavailable
+		}
+	}
+}
+
 // plan is what the configuration says about one instance, before its dependencies are looked at.
 type plan struct {
 	ic       InstanceConfig
@@ -853,6 +868,11 @@ func (s *Supervisor) reconcile() {
 	if s.down {
 		return
 	}
+	// The availability the decisions below are based on. The start phase refreshes the entries of
+	// an instance's dependencies just before it decides about the instance (noteAvailability), so
+	// a dependency that becomes unavailable while the instance is being started differs from the
+	// snapshot afterwards and the status loop reconciles again.
+	s.avail = s.availability()
 	cfgs := s.configs()
 	s.mu.RLock()
 	order := slices.Clone(s.order)
@@ -917,6 +937,7 @@ func (s *Supervisor) reconcile() {
 			s.setNotRunning(in, pl.ic, pl.state, pl.msg)
 			continue
 		}
+		s.noteAvailability(in.man.Requires)
 		if b := s.blocker(in); b != "" {
 			s.setNotRunning(in, pl.ic, StateBlocked, b)
 			continue
@@ -935,7 +956,6 @@ func (s *Supervisor) reconcile() {
 			started[in] = true
 		}
 	}
-	s.avail = s.availability()
 }
 
 func (in *instance) setEvaluated() {
