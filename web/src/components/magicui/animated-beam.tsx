@@ -39,8 +39,11 @@ export interface BeamPath {
 
 /** Vertical distance between neighbouring endpoints on one card edge, in px. */
 const ENDPOINT_GAP = 6
-/** Endpoints keep clear of the cards' rounded corners (rounded-2xl). */
-const EDGE_INSET = 16
+/**
+ * Endpoints keep clear of the cards' rounded corners: `rounded-2xl` is `--radius` (0.75rem) times
+ * 1.8 in this theme, 21.6 px.
+ */
+const EDGE_INSET = 22
 
 function slotOffset(rect: BeamRect, slot: BeamSlot | undefined): number {
   if (!slot || slot.count <= 1) return 0

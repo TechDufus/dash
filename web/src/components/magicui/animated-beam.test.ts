@@ -85,24 +85,29 @@ describe("beamPath", () => {
     }
   });
 
-  it("spreads the endpoints of a fan apart, in order and inside the card", () => {
-    const fans: [BeamRect, number][] = [
-      [host, 5],
-      [groups[2], 12], // a short card with many beams: closer together, still on the card
-    ];
-    for (const [card, count] of fans) {
-      const ys = Array.from({ length: count }, (_, index) => {
-        const out = sample(beamPath(card, groups[0], container, { fromSlot: { index, count } }).d);
-        const into = sample(beamPath(vms[0], card, container, { toSlot: { index, count } }).d);
-        expect(into[into.length - 1][1]).toBe(out[0][1]); // fan-in mirrors fan-out
-        return out[0][1];
-      });
-      expect(new Set(ys).size).toBe(count);
-      expect([...ys].sort((a, b) => a - b)).toEqual(ys); // slot order is top-to-bottom order
-      for (const y of ys) {
-        expect(y).toBeGreaterThan(top(card));
-        expect(y).toBeLessThan(bottom(card));
-      }
+  // The cards' corner radius (rounded-2xl: 0.75rem * 1.8): no endpoint may land on the curve.
+  const corner = 21.6;
+
+  it.each([
+    ["6 px apart on a roomy card", host, 5, true],
+    // 15 beams 6 px apart would span 84 px, more than the whole 72 px card.
+    ["closer together on a short card, still clear of its corners", groups[2], 15, false],
+  ])("spreads the endpoints of a fan %s, in card order", (_name, card, count, roomy) => {
+    const ys = Array.from({ length: count }, (_, index) => {
+      const out = sample(beamPath(card, groups[0], container, { fromSlot: { index, count } }).d);
+      const into = sample(beamPath(vms[0], card, container, { toSlot: { index, count } }).d);
+      expect(into[into.length - 1][1]).toBe(out[0][1]); // fan-in mirrors fan-out
+      return out[0][1];
+    });
+    expect([...ys].sort((a, b) => a - b)).toEqual(ys); // slot order is top-to-bottom order
+    for (const gap of ys.slice(1).map((y, i) => y - ys[i])) {
+      expect(gap).toBeGreaterThan(0);
+      if (roomy) expect(gap).toBeCloseTo(6);
+      else expect(gap).toBeLessThan(6);
+    }
+    for (const y of ys) {
+      expect(y - top(card)).toBeGreaterThanOrEqual(corner);
+      expect(bottom(card) - y).toBeGreaterThanOrEqual(corner);
     }
   });
 });
