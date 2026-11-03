@@ -173,7 +173,7 @@
           "x-dash-restart": true
         },
         "anonymousViewer": {
-          "description": "Let a visitor who has not signed in read the dashboard as a viewer: GET requests only, never logs, never actions. Only in auth.mode=local; dash shows administrators a warning while it is on.",
+          "description": "Let a visitor who has not signed in read the dashboard as a viewer once the administrator account exists (before setup, a visitor is sent to the setup link instead): GET requests only, never logs, never actions. Only in auth.mode=local; dash warns at every start while it is on and lists anonymous_viewer in an administrator's /api/v1/me warnings.",
           "type": "boolean",
           "x-dash-restart": true
         }

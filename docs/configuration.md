@@ -78,7 +78,7 @@ The local mode: the one administrator account and the optional read-only access 
 | Setting | Variable | Type | Default | Description |
 |---|---|---|---|---|
 | `auth.local.adminUser` | `DASH_AUTH_LOCAL_ADMIN_USER` | string | `admin` | The name of the one administrator account; a login succeeds for this name only. Changing it after setup makes dash refuse to start until it is set back or credentials.yaml is deleted to run setup again. _Restart-only._ |
-| `auth.local.anonymousViewer` | `DASH_AUTH_LOCAL_ANONYMOUS_VIEWER` | boolean | - | Let a visitor who has not signed in read the dashboard as a viewer: GET requests only, never logs, never actions. Only in auth.mode=local; dash shows administrators a warning while it is on. _Restart-only._ |
+| `auth.local.anonymousViewer` | `DASH_AUTH_LOCAL_ANONYMOUS_VIEWER` | boolean | - | Let a visitor who has not signed in read the dashboard as a viewer once the administrator account exists (before setup, a visitor is sent to the setup link instead): GET requests only, never logs, never actions. Only in auth.mode=local; dash warns at every start while it is on and lists anonymous_viewer in an administrator's /api/v1/me warnings. _Restart-only._ |
 
 ## `auth.oidc`
 
