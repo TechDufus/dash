@@ -77,6 +77,10 @@ export function SetupPage() {
     try {
       await setup(token, password);
     } catch (err) {
+      // React copies a controlled input's value into its value attribute: clear both, so the
+      // refused password is not left in the page's HTML (as the login page does).
+      setPassword("");
+      setConfirm("");
       setError(setupErrorText(err));
       setPending(false);
       return;

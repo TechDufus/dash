@@ -46,6 +46,13 @@ async function fill(password: string, confirm = password) {
   await u.click(screen.getByRole("button", { name: "Set password and sign in" }));
 }
 
+/** The refused password is in no input value and nowhere in the page's HTML. */
+function expectPasswordNowhere() {
+  expect(document.body.innerHTML).not.toContain(GOOD);
+  expect(screen.getByLabelText("New password")).toHaveValue("");
+  expect(screen.getByLabelText("Repeat the password")).toHaveValue("");
+}
+
 describe("SetupPage", () => {
   it("reads the token from the fragment and strips it from the URL before the form shows", async () => {
     open(`#token=${TOKEN}`);
@@ -155,5 +162,18 @@ describe("SetupPage", () => {
     expect(assign).not.toHaveBeenCalled();
     expect(screen.getByRole("button", { name: "Set password and sign in" })).toBeEnabled();
     expectTokenNowhere(stub);
+    expectPasswordNowhere();
+  });
+
+  it("leaves no password in the page after a network error", async () => {
+    stubFetch({
+      "POST /setup": () => {
+        throw new TypeError("Failed to fetch");
+      },
+    });
+    open(`#token=${TOKEN}`);
+    await fill(GOOD);
+    await screen.findByRole("alert");
+    expectPasswordNowhere();
   });
 });
