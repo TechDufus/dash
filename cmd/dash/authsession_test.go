@@ -224,7 +224,8 @@ func TestLocalAdminNameChangeRefusesToStart(t *testing.T) {
 }
 
 // The anonymous viewer is off unless configured: without a session a read is 401; with it on, a
-// read is the anonymous viewer and a write still 401.
+// read is the anonymous viewer and a write still 401. It waits for the account: while setup is
+// open a read is 401, so the SPA points to the setup link.
 func TestAnonymousViewerIsOffByDefaultAtStart(t *testing.T) {
 	if config.DefaultAuth().Local.AnonymousViewer {
 		t.Fatal("auth.local.anonymousViewer defaults to on")
@@ -237,7 +238,14 @@ func TestAnonymousViewerIsOffByDefaultAtStart(t *testing.T) {
 		t.Errorf("default: an unauthenticated read = %+v, want 401", f)
 	}
 	var logs logCapture
-	on, _, err := startLocal(t, localResolved(t.TempDir(), nil, func(a *config.AuthConfig) { a.Local.AnonymousViewer = true }), "", &logs)
+	pending, line, err := startLocal(t, localResolved(t.TempDir(), nil, func(a *config.AuthConfig) { a.Local.AnonymousViewer = true }), "", &logs)
+	if err != nil || line == "" {
+		t.Fatalf("setup pending: %v, line %q", err, line)
+	}
+	if _, f := pending.authn.Authenticate(httptest.NewRequest(http.MethodGet, "/api/v1/me", nil)); f == nil || f.Status != http.StatusUnauthorized {
+		t.Errorf("anonymous read while setup is open = %+v, want 401", f)
+	}
+	on, _, err := startLocal(t, localResolved(t.TempDir(), nil, func(a *config.AuthConfig) { a.Local.AnonymousViewer = true }), hashOf(t), nil)
 	if err != nil {
 		t.Fatal(err)
 	}

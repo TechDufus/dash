@@ -63,6 +63,8 @@ func newLocalChain(t *testing.T, setup, anonymous bool, envHash string) *localCh
 		}
 		c.local.Setup = tok
 	}
+	// As cmd/dash wires it: the anonymous viewer waits for the account.
+	sh.Auth = session.NewAuthenticator(session.AuthOptions{Mode: auth.ModeLocal, Sessions: sh.Sessions, Roles: sh.Roles, Anonymous: anonymous, SetupOpen: c.local.SetupOpen})
 	c.Server = newServer(func(d *Deps) {
 		opt(d)
 		d.Local = c.local
@@ -246,6 +248,22 @@ func TestAnonymousViewerHasNoLogsScope(t *testing.T) {
 	w = req{path: "/api/v1/me", header: map[string]string{"Cookie": ck.Name + "=" + ck.Value}}.do(c.Handler())
 	if json.Unmarshal(w.Body.Bytes(), &me) != nil || !slices.Contains(me.Scopes, "logs") {
 		t.Errorf("admin me = %d %s, want logs among the scopes", w.Code, w.Body)
+	}
+}
+
+// With the anonymous viewer on, a visitor before setup is not the viewer: /api answers 401 with
+// details.setup, so the SPA points to the setup link rather than to a login nobody can use yet.
+// Once the account exists, the visitor reads as the anonymous viewer.
+func TestAnonymousViewerWaitsForSetup(t *testing.T) {
+	c := newLocalChain(t, true, true, "")
+	if d := authDetailsOf(t, req{path: "/api/v1/me"}.do(c.Handler())); d != (model.AuthDetails{Mode: "local", Setup: true}) {
+		t.Errorf("before setup = %+v, want a 401 with setup true", d)
+	}
+	c.signIn(t)
+	var me model.Me
+	w := req{path: "/api/v1/me"}.do(c.Handler())
+	if w.Code != http.StatusOK || json.Unmarshal(w.Body.Bytes(), &me) != nil || me.User != "anonymous" {
+		t.Errorf("after setup = %d %s, want the anonymous viewer", w.Code, w.Body)
 	}
 }
 

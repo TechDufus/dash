@@ -117,7 +117,7 @@ func buildSessionAuth(res *config.Resolved, env sessionEnv, log *slog.Logger) (_
 			return nil, err
 		}
 		roles := auth.NewRoleHolder(auth.RoleMap{AdminUsers: []string{a.Local.AdminUser}})
-		s.authn = session.NewAuthenticator(session.AuthOptions{Mode: auth.ModeLocal, Sessions: s.sessions, Roles: roles, Anonymous: a.Local.AnonymousViewer})
+		s.authn = session.NewAuthenticator(session.AuthOptions{Mode: auth.ModeLocal, Sessions: s.sessions, Roles: roles, Anonymous: a.Local.AnonymousViewer, SetupOpen: s.local.SetupOpen})
 		log.Info("auth: local mode", "persistent", store.Persistent(), "envManaged", s.local.Account.EnvManaged(),
 			"setupOpen", s.local.SetupOpen(), "anonymousViewer", a.Local.AnonymousViewer, "sessionsSurviveRestart", durable)
 		if a.Local.AnonymousViewer {

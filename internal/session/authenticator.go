@@ -19,6 +19,11 @@ type AuthOptions struct {
 	Roles *auth.RoleHolder
 	// Anonymous turns on the anonymous viewer (auth.local.anonymousViewer; local mode only).
 	Anonymous bool
+	// SetupOpen, when set, reports that the local account does not exist yet and /setup is
+	// served (localauth.Local.SetupOpen). While it is true the anonymous viewer is not granted:
+	// the 401 carries details.setup, so the SPA points to the setup link instead of a login form
+	// nobody can use yet.
+	SetupOpen func() bool
 	// Warnings are standing warnings of the mode's configuration (oidc_open), reported through
 	// auth.Warner with admin_wildcard (from Roles) and anonymous_viewer (from Anonymous).
 	Warnings []string
@@ -29,14 +34,16 @@ type AuthOptions struct {
 // nothing else is read; a valid session cookie is a Principal{Kind: session, Via: "cookie"} with
 // the cookie's user, groups and role-claim values and the role Roles maps them to (never one from
 // the cookie); a cookie that fails is cleared and the request continues without it; then, with
-// Anonymous, a GET or HEAD is Principal{Kind: anonymous, User: "anonymous", Role: viewer,
-// Via: "anonymous"}; everything else is 401 unauthenticated (reason no_identity).
+// Anonymous and unless SetupOpen reports true, a GET or HEAD is Principal{Kind: anonymous, User:
+// "anonymous", Role: viewer, Via: "anonymous"}; everything else is 401 unauthenticated (reason
+// no_identity).
 type Authenticator struct {
 	mode     string
 	sessions *Manager
 	roles    *auth.RoleHolder
 	// anonymous is AuthOptions.Anonymous in local mode only: the viewer is never on in oidc.
 	anonymous bool
+	setupOpen func() bool
 	warnings  []string
 }
 
@@ -52,6 +59,7 @@ func NewAuthenticator(o AuthOptions) *Authenticator {
 		roles:     roles,
 		anonymous: o.Anonymous && o.Mode == auth.ModeLocal,
 		warnings:  slices.Clone(o.Warnings),
+		setupOpen: o.SetupOpen,
 	}
 }
 
@@ -87,7 +95,7 @@ func (a *Authenticator) AuthenticateCookie(r *http.Request) (auth.Principal, *ht
 			clear = a.sessions.Clear()
 		}
 	}
-	if a.anonymous && (r.Method == http.MethodGet || r.Method == http.MethodHead) {
+	if a.anonymous && (r.Method == http.MethodGet || r.Method == http.MethodHead) && (a.setupOpen == nil || !a.setupOpen()) {
 		return auth.Principal{Kind: auth.KindAnonymous, User: "anonymous", Role: auth.RoleViewer, Via: "anonymous"}, clear, nil
 	}
 	return auth.Principal{}, clear, &auth.Failure{Status: http.StatusUnauthorized, Code: auth.CodeUnauthenticated, Reason: auth.ReasonNoIdentity}
