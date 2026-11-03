@@ -213,6 +213,24 @@ describe("LoginPage", () => {
     await waitFor(() => expect(screen.queryByRole("link", { name: "OIDC sign-in" })).toBeNull());
   });
 
+  it("points to the setup line instead of a form while the local account does not exist", async () => {
+    stubFetch({
+      "GET /api/v1/me": () =>
+        json(
+          {
+            error: "authentication required",
+            code: "unauthenticated",
+            details: { mode: "local", setup: true },
+          },
+          401,
+        ),
+    });
+    renderApp(<LoginPage />, { path: "/login" });
+    expect(await screen.findByRole("status")).toHaveTextContent("setup token required");
+    expect(screen.queryByLabelText("Password")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Sign in" })).toBeNull();
+  });
+
   it("keeps the form when the probe fails, so a broken /me never locks the admin out", async () => {
     stubFetch({ "GET /api/v1/me": () => json({ error: "boom", code: "internal" }, 500) });
     renderApp(<LoginPage />, { path: "/login" });

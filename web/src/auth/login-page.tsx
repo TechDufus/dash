@@ -58,6 +58,9 @@ export function LoginPage() {
   });
   const details = probed.data && "details" in probed.data ? probed.data.details : undefined;
   const mode = probed.data && "me" in probed.data ? probed.data.me.authMode : details?.mode;
+  // The local mode before its account exists: nobody can sign in yet, and the way in is the
+  // one-time setup link dash wrote to its log at startup.
+  const awaitingSetup = mode === "local" && details?.setup === true;
 
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
@@ -102,7 +105,14 @@ export function LoginPage() {
           </a>
         </p>
       ) : null}
-      {mode !== "oidc" && mode !== "proxy" ? (
+      {awaitingSetup ? (
+        <p className="text-sm text-muted" role="status">
+          This dash has no account yet. Open the setup link dash wrote to its log when it started
+          (the line that says <span className="text-fg">setup token required</span>); restart dash
+          for a new one if the hour has passed.
+        </p>
+      ) : null}
+      {mode !== "oidc" && mode !== "proxy" && !awaitingSetup ? (
         <form className="space-y-4" onSubmit={submit}>
           <Field label="Username">
             {(id) => (
