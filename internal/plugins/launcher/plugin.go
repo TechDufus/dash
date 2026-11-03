@@ -88,6 +88,12 @@ func (*Plugin) Validate(cfg any) error {
 // applies at the next start, as before). A file that cannot be read or is malformed fails the
 // start, which shows as the plugin's row in state "error" with the cause in the dash log; the rest
 // of dash keeps running.
+//
+// Every icon is then checked against ui.iconBaseURL (pluginconf.ValidateIcons, through
+// Host.IconBaseURL), for the file's links and the inline ones alike. A link whose icon is none of
+// the allowed forms fails the start the same way, with a WARN naming the entry, and nothing is
+// published: it is the launcher's row that turns to error, not the configuration load, which a
+// patch release does not tighten. A reload that starts the plugin again repeats the check.
 func (*Plugin) Start(_ context.Context, h plugin.Host, cfg any) error {
 	c, ok := conf(cfg)
 	if !ok {
@@ -96,6 +102,10 @@ func (*Plugin) Start(_ context.Context, h plugin.Host, cfg any) error {
 	links, err := load(c)
 	if err != nil {
 		h.Logger().Error("launcher links not loaded", "error", err)
+		return err
+	}
+	if err := pluginconf.ValidateIcons(links, h.IconBaseURL()); err != nil {
+		h.Logger().Warn("launcher icon refused: the launcher row is in error and its links are not published; use an icon name, a same-origin path or an image URL under ui.iconBaseURL", "error", err)
 		return err
 	}
 	h.Publish(topicLinks, model.LauncherData{Links: links}, nil)
