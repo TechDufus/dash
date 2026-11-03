@@ -179,13 +179,18 @@ restart with `DASH_PLUGINS_PROXMOX_TOKEN_SECRET_FILE`.
 | `server.limits.sseWriteTimeout`, `.bodyReadTimeout` | `10s`, `10s` | a stalled stream write, or a request body that does not arrive, is cut off after this |
 | `server.limits.maxHeaderBytes` | `65536` | request header size of the API listener |
 | `server.csp` | `enforce` | the `Content-Security-Policy` dash sends: `enforce`, `report-only` (the browser only reports violations in its console) or `off` (none). The kill switch if a browser blanks the web UI under the policy: set `DASH_SERVER_CSP=report-only` or `off` and restart. **Prefer the environment variable:** an image rollback to a release before this setting only warns about the unknown variable, but refuses the unknown key in a config file. In a YAML file quote the value (`csp: "off"`): a bare `off` is YAML false and is refused. `X-Content-Type-Options` and `Referrer-Policy` are sent in every mode. Any other value is refused when the configuration loads |
-| `auth.mode` | `proxy` | how dash learns who makes a request: `proxy` (an identity proxy forwards the user name) or `none` (no authentication: every request is an administrator; dash warns at every start and shows a banner, so bind `127.0.0.1`). Never `none` unless you set it |
+| `auth.mode` | `local` | how dash learns who makes a request: `local` (one administrator signs in at `/login`; see [docs/auth.md](docs/auth.md)), `oidc` (sign-in at an OpenID Connect provider), `proxy` (an identity proxy forwards the user name; **set `DASH_AUTH_MODE=proxy` if you relied on the default of v0.11 and earlier**) or `none` (no authentication: every request is an administrator; dash warns at every start and shows a banner, so bind `127.0.0.1`). Never `none` unless you set it |
 | `auth.proxy.userHeaders` | `["X-Forwarded-Preferred-Username","X-Forwarded-User"]` | request headers that carry the user name, first one the proxy sets wins (a JSON list in the environment). Two lines of one header are refused |
 | `auth.proxy.groupsHeader` | empty (groups off) | the header the user's groups arrive in, comma-separated (oauth2-proxy: `X-Forwarded-Groups`); `adminGroups` needs it |
 | `auth.proxy.trustedProxies` | `["127.0.0.1/32","::1/128"]` | the TCP peers whose identity headers dash believes (`X-Forwarded-For` is never read); any other peer sending them gets 401 (a JSON list in the environment) |
 | `auth.proxy.allowAnyPeer` | `false` | the opt-in for `0.0.0.0/0` or `::/0` in `trustedProxies`, which lets every client forge an identity (a WARN at every start) |
 | `auth.proxy.adminUsers` | `[]` | user names that are administrators, exact and case-sensitive; `["*"]` makes everyone one (a WARN). **With both admin lists empty every user is a viewer: read-only, no actions.** A JSON list in the environment; applies on a reload |
-| `auth.proxy.adminGroups` | `[]` | groups whose members are administrators; needs `groupsHeader`; a JSON list in the environment; applies on a reload |
+| `auth.proxy.adminGroups` | `[]` | groups whose members are administrators; needs `groupsHeader`; a JSON list in the environment; applies on a reload. An entry no header can carry (a user over 128 bytes, a group over 256, invalid UTF-8, a control character, a comma in a group) and an `auth.proxy` admin list set while `auth.mode` is not `proxy` stop dash from starting |
+| `auth.local.adminUser` | `admin` | the one account of the local mode. The first start prints a one-time setup link (`setup token required: …`) to stderr; `DASH_ADMIN_PASSWORD_HASH` (or `_FILE`, from `dash hash-password`) supplies the hash instead. Without a writable data dir and without that variable the local mode refuses to start |
+| `auth.local.anonymousViewer` | `false` | lets a visitor who has not signed in read the dashboard as a viewer: no logs, no actions (local mode only) |
+| `auth.oidc.issuer`, `.clientID`, `.clientSecret` | empty | the OpenID Connect provider (https unless loopback) and dash's client at it; the redirect URL is `server.publicURL` + `/auth/callback`, which must be https |
+| `auth.oidc.allowedUsers`, `.allowedGroups` | `[]` | who may sign in; one is required in the oidc mode (`["*"]` admits every account the provider signs in, with a WARN) |
+| `auth.oidc.adminUsers`, `.adminGroups`, `.adminRoles` | `[]`, `[]`, `["admin"]` | who is an administrator (`adminRoles` matches the values of `roleClaim`); apply on a reload. `scopes`, `userClaim` (`preferred_username`), `groupsClaim` (`groups`) and `roleClaim` are in [docs/auth.md](docs/auth.md) |
 | `settings.ui` | `editable` | `editable` or `readonly` (fully managed) |
 | `dataDir` (`DASH_DATA_DIR`) | `/data` | where dash keeps its state and looks for `config.yaml` |
 | `plugins.prometheus.url` | empty (source not configured) | VictoriaMetrics or Prometheus; a change of any `plugins.prometheus.*` setting applies without a restart |
@@ -267,10 +272,11 @@ The launcher is a list of `name`, `href`, `icon` and `description`; `icon` is a
 `ui.iconBaseURL`. Mount a file from a ConfigMap and point `plugins.launcher.file` at it, or list
 the links in `plugins.launcher.links`. An unreadable file makes the launcher plugin report `error`
 (dash still starts); an invalid link in `plugins.launcher.links` is refused when the configuration
-loads. An `icon` outside the three forms above (another origin than `ui.iconBaseURL`, `javascript:`, `data:`)
-makes the launcher report `error` with a warning that names the entry, in the file and in the inline
-list alike, and dash still starts. A link's `href` that is not `http:` or `https:` is shown as text, not
-a link. See [`docs/launcher.example.yaml`](docs/launcher.example.yaml).
+loads, and so is an inline `icon` outside the three forms above (another origin than
+`ui.iconBaseURL`, `javascript:`, `data:`), named by its entry. Such an icon in the launcher file makes
+the launcher report `error` with a warning that names the entry, and dash still starts. A link's
+`href` that is not `http:` or `https:` is shown as text, not a link. See
+[`docs/launcher.example.yaml`](docs/launcher.example.yaml).
 
 dash also reads a few labels, annotations and metric names from the cluster. None has a default:
 while one is empty, the feature that depends on it is off.
@@ -414,15 +420,19 @@ body checks (JSON only, unknown fields refused, `required` and `enum` honoured),
 deny list where the plugin has one, the audit intent, the action, then the audit outcome. A
 refusal is audited and the action does not run.
 
-Every error answer is `{"error": "<text for a person>", "code": "<reason>", "requestId": "<id>"}`.
-Clients branch on `code`. These are sent today: `unauthenticated`, `forbidden`, `csrf_failed`,
-`not_found`, `invalid_input`, `conflict`, `too_many_streams`, `upstream_unavailable`,
-`audit_unavailable`, `unknown_host`. `rate_limited` and `internal` come from plugin action
-routes, so they appear only once a plugin enables actions. `insufficient_scope`, `invalid_token`,
-`ambiguous_credentials`, `locked_field`, `readonly_settings`, `approval_required`,
-`approval_denied`, `approval_expired` and `precondition_failed` are reserved for the client,
-settings and approval work that follows; nothing sends them in 0.5.0, and the OpenAPI document
-lists them all.
+Every error answer is `{"error": "<text for a person>", "code": "<reason>", "requestId": "<id>"}`;
+a 401 `unauthenticated` from `/api` also carries `"details": {"mode": "proxy|local|oidc", "setup":
+<bool>, "oidc": {"issuer": "<host>"}}`, so a client knows how to sign in. Clients branch on `code`.
+These are sent today: `unauthenticated`, `forbidden`, `csrf_failed`, `not_found`, `invalid_input`,
+`invalid_token` (a `Bearer` credential, and a wrong or used setup token), `rate_limited` (the
+login backoff, and plugin actions), `conflict`, `too_many_streams`, `upstream_unavailable` (502,
+or 503 when the OIDC provider cannot be reached), `audit_unavailable`, `unknown_host`; `internal`
+comes from plugin action routes. `insufficient_scope`, `ambiguous_credentials`, `locked_field`,
+`readonly_settings`, `approval_required`, `approval_denied`, `approval_expired` and
+`precondition_failed` are reserved for the client, settings and approval work that follows, and
+the OpenAPI document lists them all. The sign-in routes (`POST /login`, `POST /setup`,
+`POST /auth/logout`, `GET /auth/oidc/start`, `GET /auth/callback`) are outside `/api` and not in
+the OpenAPI document; [docs/auth.md](docs/auth.md) describes them.
 
 ### Kubernetes permissions (RBAC)
 

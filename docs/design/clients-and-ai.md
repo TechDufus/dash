@@ -283,6 +283,8 @@ Contents: PATs, OAuth grants, push subscriptions, per-user session epochs, and t
 
 There is no database. This matches ADR 0001 decision 3: writes are rare (token changes, a refresh at most every 15 minutes per client, `lastUsedAt` flushes), and browser sessions stay stateless. Revisit only past one sustained write per second.
 
+**As shipped (G4 R4, v0.12.0).** `internal/credentials` holds the local administrator (`admin: {user, hash, createdAt}`; amendment A6: not the settings store), `envHashes` (the SHA-256 fingerprint of each env-supplied hash, never the hash), the per-user `epochs`, `globalEpoch` and a random `sessionSalt`. It takes **its own** flock (`.credentials.lock`), not the settings store's `.lock`, which a read-only store does not take. An existing file with a wider mode is narrowed to 0600 when it opens. dash opens the file only in the `local` and `oidc` modes; without a writable data dir the store is in memory.
+
 ### M.8 Sessions
 
 Amends E.3:
@@ -293,11 +295,15 @@ Amends E.3:
 - Tokens follow the identity provider. Whenever dash sees a user interactively (a login in `local` or `oidc` mode; any request in `proxy` mode), it rewrites the groups and role-claim value recorded on that user's PATs and OAuth grants, only when they changed (no write otherwise). A group change therefore reaches a user's tokens at their next login (`local`, `oidc`) or next request (`proxy`); in `oidc` mode a plain request carries only the groups captured at login.
 - Offboarding: removing a user at the identity provider or proxy does not reach tokens they no longer use interactively. An admin revokes that user's dash PATs and grants (M.5, M.6).
 
+**As shipped (G4 R4, v0.12.0).** The payload is `{u, g, rc, iat, exp, ep, ge}`, sealed with XChaCha20-Poly1305 under HKDF-SHA256(`DASH_SECRET_KEY`, info `dash/session/v1|<sessionSalt>`), so deleting or restoring `credentials.yaml` or a new key ends every session (`DASH_SECRET_KEY_PREVIOUS` is not used); without the key or a writable data dir the key is random per start. `g` keeps only the groups of `adminGroups` and `allowedGroups` and `rc` only the values of `adminRoles`, and a login whose sealed cookie would exceed 3500 bytes is refused. Idle is a sliding 12 h (a request with at most 6 h left re-issues the cookie), absolute 7 d. The default logout (`scope: this`) bumps the caller's epoch, so a copied cookie dies too; `scope: user` is the same today and is where P7.2 revokes grants; `scope: all` (admins) bumps the global epoch. A changed `DASH_ADMIN_PASSWORD_HASH` bumps the account's epoch at the next start. `authn` sets the renewed or clearing cookie on every `/api` answer, refusals included.
+
 ### M.9 Login hardening
 
 - After 5 failures per peer or per user, the delay doubles from 1 s up to 15 minutes. The error message is generic, so it does not reveal whether the user exists.
 - Password hashing is argon2id with t=3, m=64 MiB, p=4 ([RFC 9106](https://www.rfc-editor.org/rfc/rfc9106)), at most 2 concurrent hashes; extra requests get 429.
 - Setup token: `dash_setup_<base64url 32 bytes>`. `/setup` returns 404 once an admin exists. The one-time setup line (E.2) is written once at startup through a writer that bypasses the log scrubber, so the operator can read it; the scrubber's prefix patterns do not include `dash_setup_` (C.6). The logs API redacts every secret shape, `dash_setup_` included, in each line it returns. `anonymousViewer` never gets logs.
+
+**As shipped (G4 R4, v0.12.0).** As written, with these specifics: the per-user key exists only for the configured account (every other attempted name shares one bucket, so cycling names cannot evict it), the peer table is capped at 4096; a refused attempt is neither hashed nor counted; an unknown name, and a password outside 12..256 bytes, run a dummy verify; the setup token travels in the URL fragment (amendment A7) and `/setup` hashes before it consumes the token. Failed logins are counted as `login_failed`/`login_throttled` and audited as denials at most once per peer and reason a minute, the attempted name as the record's target, never its actor. The anonymous viewer is 403 on every route of scope `logs` (plugin routes in `serveRoute`, core rows in `guard`).
 
 ### M.10 Proxy mode with bearer clients
 
