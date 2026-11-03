@@ -36,7 +36,8 @@ error:
 Open the URL within an hour and choose a password (12 to 256 bytes). The token is in the URL
 fragment, so it never reaches an access log, a proxy or a `Referer`; the setup page removes it
 from the address bar at once. It works once, and a restart prints a new one. dash's log scrubber
-redacts it from the pod logs the UI shows. After setup, `/setup` answers 404.
+redacts it from the pod logs the UI shows. Until then `/login` points to that log line instead of
+showing a form. After setup, `/setup` answers 404 (a plain 404 page: the link has done its job).
 
 **From the environment.** `dash hash-password` reads a password from the terminal (without echo,
 twice) or from standard input and prints its argon2id hash:
@@ -68,8 +69,10 @@ audited at most once per address and minute. Password hashing is argon2id (64 Mi
 lanes) and at most two run at once (128 MiB); a third login at the same moment gets 429 at once.
 
 **The anonymous viewer.** `auth.local.anonymousViewer: true` lets a visitor who has not signed in
-read the dashboard as a viewer: GET requests only, never a log route (403), never an action.
-Administrators see a warning while it is on.
+read the dashboard as a viewer: GET requests only, never a log route (403; its scopes are `read`
+alone, so the pod sheet offers no Logs tab), never an action. dash warns at every start while it
+is on, and `/api/v1/me` lists `anonymous_viewer` in an administrator's `warnings` (the web UI shows
+no banner for it yet).
 
 ## Sessions
 
@@ -87,9 +90,10 @@ The session key is derived from `DASH_SECRET_KEY` and a random salt in `credenti
 - deleting or restoring `credentials.yaml` signs everyone out.
 
 "Log out" ends your sessions on every device (a copied cookie stops working too); "Log out
-everywhere" (administrators) ends every session of every user. `credentials.yaml` is mode 0600,
-written atomically, never backed up (`.bak`), and locked (`.credentials.lock`) so that a second dash
-on the same data dir refuses to start.
+everywhere" (administrators) ends every session of every user. An event stream or log tail that is
+already open ends at its next heartbeat, within 15 seconds, and the page goes to sign in again.
+`credentials.yaml` is mode 0600, written atomically, never backed up (`.bak`), and locked
+(`.credentials.lock`) so that a second dash on the same data dir refuses to start.
 
 ## The oidc mode
 
@@ -114,7 +118,7 @@ auth:
 | `userClaim` | `preferred_username` | the ID token claim that names the user. `email` is accepted only with `email_verified: true` |
 | `groupsClaim` | `groups` | the claim with the groups: a list or one comma-separated string |
 | `roleClaim` | empty | a claim whose values are matched against `adminRoles` |
-| `allowedUsers`, `allowedGroups` | `[]` | who may sign in. One is required; `allowedUsers: ["*"]` admits every account the provider signs in (a warning at every start, and `oidc_open` shown to administrators) |
+| `allowedUsers`, `allowedGroups` | `[]` | who may sign in. One is required; `allowedUsers: ["*"]` admits every account the provider signs in (a warning at every start, and `oidc_open` in an administrator's `/api/v1/me` `warnings`) |
 | `adminUsers`, `adminGroups`, `adminRoles` | `[]`, `[]`, `["admin"]` | who is an administrator; these three apply on a reload |
 
 Anyone else is sent back to `/login?error=not_allowed`. Only ID-token claims are read; there is no
