@@ -92,6 +92,18 @@ func TestAuthSectionEnvNames(t *testing.T) {
 		"DASH_AUTH_PROXY_ADMIN_GROUPS":     {"auth.proxy.adminGroups", "list of strings (JSON)", "", false, `["ops"]`, []string{"ops"}},
 		"DASH_AUTH_LOCAL_ADMIN_USER":       {"auth.local.adminUser", "string", "admin", true, "root", "root"},
 		"DASH_AUTH_LOCAL_ANONYMOUS_VIEWER": {"auth.local.anonymousViewer", "boolean", "", true, "true", true},
+		"DASH_AUTH_OIDC_ISSUER":            {"auth.oidc.issuer", "string", "", true, "https://login.example.com/realms/home", "https://login.example.com/realms/home"},
+		"DASH_AUTH_OIDC_CLIENT_ID":         {"auth.oidc.clientID", "string", "", true, "dash", "dash"},
+		"DASH_AUTH_OIDC_CLIENT_SECRET":     {"auth.oidc.clientSecret", "string", "", true, "s3cret-value", "s3cret-value"},
+		"DASH_AUTH_OIDC_SCOPES":            {"auth.oidc.scopes", "list of strings (JSON)", `["openid","profile","email"]`, true, `["openid","groups"]`, []string{"openid", "groups"}},
+		"DASH_AUTH_OIDC_USER_CLAIM":        {"auth.oidc.userClaim", "string", "preferred_username", true, "sub", "sub"},
+		"DASH_AUTH_OIDC_GROUPS_CLAIM":      {"auth.oidc.groupsClaim", "string", "groups", true, "roles", "roles"},
+		"DASH_AUTH_OIDC_ROLE_CLAIM":        {"auth.oidc.roleClaim", "string", "", true, "realm_roles", "realm_roles"},
+		"DASH_AUTH_OIDC_ADMIN_ROLES":       {"auth.oidc.adminRoles", "list of strings (JSON)", `["admin"]`, false, `["dash-admin"]`, []string{"dash-admin"}},
+		"DASH_AUTH_OIDC_ALLOWED_USERS":     {"auth.oidc.allowedUsers", "list of strings (JSON)", "", true, `["alice"]`, []string{"alice"}},
+		"DASH_AUTH_OIDC_ALLOWED_GROUPS":    {"auth.oidc.allowedGroups", "list of strings (JSON)", "", true, `["family"]`, []string{"family"}},
+		"DASH_AUTH_OIDC_ADMIN_USERS":       {"auth.oidc.adminUsers", "list of strings (JSON)", "", false, `["alice"]`, []string{"alice"}},
+		"DASH_AUTH_OIDC_ADMIN_GROUPS":      {"auth.oidc.adminGroups", "list of strings (JSON)", "", false, `["ops"]`, []string{"ops"}},
 	}
 	// Nothing else is generated under auth: a key added without its row fails here.
 	for name, v := range byEnv {
@@ -111,8 +123,8 @@ func TestAuthSectionEnvNames(t *testing.T) {
 		if have != wantCols {
 			t.Errorf("%s = %v, want %v", name, have, wantCols)
 		}
-		if got.Secret {
-			t.Errorf("%s is a secret", name)
+		if got.Secret != (name == "DASH_AUTH_OIDC_CLIENT_SECRET") {
+			t.Errorf("%s: secret = %v", name, got.Secret)
 		}
 		if got.Description == "" {
 			t.Errorf("%s has no description", name)
@@ -140,7 +152,7 @@ func TestAuthSectionEnvNames(t *testing.T) {
 // The mode is an enum and nothing outside it starts: an unknown value fails startup naming the
 // key and the variable that set it.
 func TestAuthModeEnumRejectsUnknown(t *testing.T) {
-	for _, mode := range []string{"oidc", "Proxy", "none-of-them"} {
+	for _, mode := range []string{"OIDC", "Proxy", "ldap", "none-of-them"} {
 		_, _, err := resolveEnv(t, "DASH_AUTH_MODE="+mode)
 		if err == nil {
 			t.Errorf("auth.mode %q was accepted", mode)
@@ -592,5 +604,159 @@ func TestAdminPasswordHashEnv(t *testing.T) {
 	}
 	if _, log, err := resolveEnv(t, "DASH_ADMIN_PASSWORD_HASH="+hash); err != nil || strings.Contains(log, "unknown") {
 		t.Errorf("the variable warned as unknown or failed: %v\n%s", err, log)
+	}
+}
+
+// oidcEnv is a complete, valid oidc configuration in the environment, plus more.
+func oidcEnv(more ...string) []string {
+	return append([]string{
+		"DASH_AUTH_MODE=oidc", "DASH_AUTH_OIDC_ISSUER=https://login.example.com/realms/home",
+		"DASH_AUTH_OIDC_CLIENT_ID=dash", "DASH_AUTH_OIDC_CLIENT_SECRET=client-secret-value",
+	}, more...)
+}
+
+// oidcProblems is what Validate reports for an oidc-mode section changed by mutate.
+func oidcProblems(mutate func(*AuthOIDCConfig)) []pluginconf.FieldError {
+	return authProblems(func(a *AuthConfig) {
+		a.Mode = AuthModeOIDC
+		a.OIDC.Issuer, a.OIDC.ClientID = "https://login.example.com", "dash"
+		a.OIDC.ClientSecret = secret.New("client-secret-value", "")
+		a.OIDC.AllowedUsers = []string{"alice"}
+		mutate(&a.OIDC)
+	})
+}
+
+// oidc fails closed (G4-R2-B2): without an allow-list nobody is admitted on purpose, so dash does
+// not start; an explicit "*" in allowedUsers is the way to admit every account.
+func TestOIDCRequiresAnAllowListOrExplicitWildcard(t *testing.T) {
+	_, _, err := resolveLive(t, oidcEnv()...)
+	if err == nil || !strings.Contains(err.Error(), "auth.oidc.allowedUsers") || !strings.Contains(err.Error(), "allowedGroups") {
+		t.Fatalf("no allow-list: %v, want a refusal naming auth.oidc.allowedUsers", err)
+	}
+	for name, env := range map[string][]string{
+		"users":    {`DASH_AUTH_OIDC_ALLOWED_USERS=["alice"]`},
+		"groups":   {`DASH_AUTH_OIDC_ALLOWED_GROUPS=["family"]`},
+		"wildcard": {`DASH_AUTH_OIDC_ALLOWED_USERS=["*"]`},
+	} {
+		if _, _, err := resolveLive(t, oidcEnv(env...)...); err != nil {
+			t.Errorf("%s: %v", name, err)
+		}
+	}
+	// The other modes do not need one.
+	if _, _, err := resolveLive(t, "DASH_AUTH_MODE=local"); err != nil {
+		t.Errorf("local mode: %v", err)
+	}
+	// The provider and the client are required in the oidc mode, and named.
+	ps := authProblems(func(a *AuthConfig) { a.Mode = AuthModeOIDC; a.OIDC.AllowedUsers = []string{"*"} })
+	for _, path := range []string{"oidc.issuer", "oidc.clientID", "oidc.clientSecret"} {
+		if !hasProblem(ps, path, "required in auth.mode=oidc") {
+			t.Errorf("%s not required: %+v", path, ps)
+		}
+	}
+}
+
+// The issuer is https, or http only on a loopback host; the public URL the provider redirects to
+// is https the same way.
+func TestOIDCIssuerMustBeHTTPSOrLoopback(t *testing.T) {
+	for issuer, ok := range map[string]bool{
+		"https://login.example.com":             true,
+		"https://login.example.com/realms/home": true,
+		"http://127.0.0.1:5556/dex":             true,
+		"http://localhost:8080":                 true,
+		"http://[::1]:8080":                     true,
+		"http://login.example.com":              false,
+		"ftp://login.example.com":               false,
+		"https://":                              false,
+		"login.example.com":                     false,
+		"https://user:pw@login.example.com":     false,
+		"https://login.example.com/?x=1":        false,
+	} {
+		got := !hasProblem(oidcProblems(func(o *AuthOIDCConfig) { o.Issuer = issuer }), "oidc.issuer")
+		if got != ok {
+			t.Errorf("issuer %q accepted = %v, want %v", issuer, got, ok)
+		}
+	}
+	_, _, err := resolveWith(t, Sources{Environ: append(oidcEnv(`DASH_AUTH_OIDC_ALLOWED_USERS=["alice"]`), "DASH_SERVER_PUBLIC_URL=http://dash.example.com")})
+	if err == nil || !strings.Contains(err.Error(), "server.publicURL") || !strings.Contains(err.Error(), "https in auth.mode=oidc") {
+		t.Errorf("http public URL in oidc mode: %v, want refused", err)
+	}
+	if _, _, err := resolveWith(t, Sources{Environ: append(oidcEnv(`DASH_AUTH_OIDC_ALLOWED_USERS=["alice"]`), "DASH_SERVER_PUBLIC_URL=http://127.0.0.1:8080")}); err != nil {
+		t.Errorf("loopback http public URL: %v", err)
+	}
+}
+
+// listRow is one entry of an oidc list and whether Validate accepts it.
+type listRow struct {
+	entry string
+	ok    bool
+}
+
+// checkOIDCList runs rows through the list set by set, at path: an accepted entry raises no
+// problem there, a refused one raises one naming entry 2, and no message carries the entry.
+func checkOIDCList(t *testing.T, path string, set func(*AuthOIDCConfig, []string), rows []listRow) {
+	t.Helper()
+	for _, r := range rows {
+		ps := oidcProblems(func(o *AuthOIDCConfig) { set(o, []string{"fine", r.entry}) })
+		bad := hasProblem(ps, path, "entry 2")
+		if bad == r.ok {
+			t.Errorf("%s entry %q: refused = %v, want %v (%+v)", path, r.entry, bad, !r.ok, ps)
+		}
+		for _, p := range ps {
+			if strings.TrimSpace(r.entry) != "" && strings.Contains(p.Msg, strings.TrimSpace(r.entry)) && r.entry != "*" {
+				t.Errorf("%s: the message %q carries the entry", path, p.Msg)
+			}
+		}
+	}
+}
+
+// The user lists accept what the user claim can be (a valid user name) and "*"; commas are
+// fine in a name.
+var oidcUserRows = []listRow{
+	{"alice", true}, {"alice@example.com", true}, {"Smith, Jane", true}, {"*", true}, {"  padded  ", true},
+	{"", false}, {"  ", false}, {"bad\x01name", false}, {"x\xffy", false}, {strings.Repeat("u", 129), false},
+}
+
+// The group and role lists accept what claimValues keeps (a valid group name): never a comma,
+// never "*".
+var oidcValueRows = []listRow{
+	{"family", true}, {"/org/team", true}, {strings.Repeat("g", 256), true},
+	{"", false}, {"*", false}, {"a,b", false}, {"bad\x01group", false}, {strings.Repeat("g", 257), false},
+}
+
+func TestOIDCAdminUsersEntries(t *testing.T) {
+	checkOIDCList(t, "oidc.adminUsers", func(o *AuthOIDCConfig, l []string) { o.AdminUsers = l }, oidcUserRows)
+}
+
+func TestOIDCAllowedUsersEntries(t *testing.T) {
+	checkOIDCList(t, "oidc.allowedUsers", func(o *AuthOIDCConfig, l []string) { o.AllowedUsers = l }, oidcUserRows)
+}
+
+func TestOIDCAdminGroupsEntries(t *testing.T) {
+	checkOIDCList(t, "oidc.adminGroups", func(o *AuthOIDCConfig, l []string) { o.AdminGroups = l }, oidcValueRows)
+}
+
+func TestOIDCAllowedGroupsEntries(t *testing.T) {
+	checkOIDCList(t, "oidc.allowedGroups", func(o *AuthOIDCConfig, l []string) { o.AllowedGroups = l }, oidcValueRows)
+}
+
+func TestOIDCAdminRolesEntries(t *testing.T) {
+	checkOIDCList(t, "oidc.adminRoles", func(o *AuthOIDCConfig, l []string) { o.AdminRoles = l }, oidcValueRows)
+}
+
+// The group lists need the groups claim, and the list rules hold in every mode: they are load
+// errors from the start, through the real resolver too.
+func TestOIDCListRulesAtLoad(t *testing.T) {
+	for _, path := range []string{"oidc.adminGroups", "oidc.allowedGroups"} {
+		ps := oidcProblems(func(o *AuthOIDCConfig) {
+			o.GroupsClaim = ""
+			o.AdminGroups, o.AllowedGroups = []string{"ops"}, []string{"family"}
+		})
+		if !hasProblem(ps, path, "needs auth.oidc.groupsClaim") {
+			t.Errorf("%s without groupsClaim accepted: %+v", path, ps)
+		}
+	}
+	_, _, err := resolveLive(t, "DASH_AUTH_MODE=proxy", `DASH_AUTH_OIDC_ADMIN_GROUPS=["a,b-hidden"]`)
+	if err == nil || !strings.Contains(err.Error(), "auth.oidc.adminGroups") || strings.Contains(err.Error(), "b-hidden") {
+		t.Errorf("a never-matching entry outside the oidc mode: %v, want a load error without the value", err)
 	}
 }

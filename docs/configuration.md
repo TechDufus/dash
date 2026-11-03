@@ -56,7 +56,7 @@ How dash learns who is making a request and what they may do.
 
 | Setting | Variable | Type | Default | Description |
 |---|---|---|---|---|
-| `auth.mode` | `DASH_AUTH_MODE` | string | `proxy` | How dash learns who is making a request. proxy: an identity proxy in front of dash (oauth2-proxy, Authelia, Authentik) forwards the user name in a header, and dash believes it only from the peers in auth.proxy.trustedProxies. local: one administrator account (auth.local.adminUser) signs in at /login with a password; the first start prints a one-time setup link, or DASH_ADMIN_PASSWORD_HASH supplies the password hash. none: no authentication at all, every request is signed in as an administrator named anonymous; dash warns at every start and shows a banner on every page, so bind server.listen to 127.0.0.1 and keep the port reachable only from the machine itself. It is never the default. _Restart-only._ |
+| `auth.mode` | `DASH_AUTH_MODE` | string | `proxy` | How dash learns who is making a request. proxy: an identity proxy in front of dash (oauth2-proxy, Authelia, Authentik) forwards the user name in a header, and dash believes it only from the peers in auth.proxy.trustedProxies. local: one administrator account (auth.local.adminUser) signs in at /login with a password; the first start prints a one-time setup link, or DASH_ADMIN_PASSWORD_HASH supplies the password hash. oidc: users sign in at an OpenID Connect provider (auth.oidc), admitted only by auth.oidc.allowedUsers or allowedGroups. none: no authentication at all, every request is signed in as an administrator named anonymous; dash warns at every start and shows a banner on every page, so bind server.listen to 127.0.0.1 and keep the port reachable only from the machine itself. It is never the default. _Restart-only._ |
 
 ## `auth.proxy`
 
@@ -79,6 +79,25 @@ The local mode: the one administrator account and the optional read-only access 
 |---|---|---|---|---|
 | `auth.local.adminUser` | `DASH_AUTH_LOCAL_ADMIN_USER` | string | `admin` | The name of the one administrator account; a login succeeds for this name only. Changing it after setup makes dash refuse to start until it is set back or credentials.yaml is deleted to run setup again. _Restart-only._ |
 | `auth.local.anonymousViewer` | `DASH_AUTH_LOCAL_ANONYMOUS_VIEWER` | boolean | - | Let a visitor who has not signed in read the dashboard as a viewer: GET requests only, never logs, never actions. Only in auth.mode=local; dash shows administrators a warning while it is on. _Restart-only._ |
+
+## `auth.oidc`
+
+The oidc mode: the OpenID Connect provider, who may sign in, and who is an administrator.
+
+| Setting | Variable | Type | Default | Description |
+|---|---|---|---|---|
+| `auth.oidc.issuer` | `DASH_AUTH_OIDC_ISSUER` | string | - | The provider's issuer URL, exactly as its ID tokens name it (e.g. https://login.example.com/realms/home). https unless the host is a loopback address. dash discovers the provider on the first login, so an unreachable provider does not stop dash from starting. _Restart-only._ |
+| `auth.oidc.clientID` | `DASH_AUTH_OIDC_CLIENT_ID` | string | - | The client ID dash is registered under at the provider. Its redirect URL is server.publicURL followed by /auth/callback. _Restart-only._ |
+| `auth.oidc.clientSecret` | `DASH_AUTH_OIDC_CLIENT_SECRET` | string | - | The client secret: a literal, env:NAME, file:/path or k8s:<namespace>/<name>#<key>. It is read at each login, so a rotated file applies without a restart. _Secret._ _Restart-only._ |
+| `auth.oidc.scopes` | `DASH_AUTH_OIDC_SCOPES` | list of strings (JSON) | `["openid","profile","email"]` | The scopes dash asks for; openid is always added. A JSON list in the environment. _Restart-only._ |
+| `auth.oidc.userClaim` | `DASH_AUTH_OIDC_USER_CLAIM` | string | `preferred_username` | The ID token claim that names the user. preferred_username can be changed by the user at some providers: use sub there. email is accepted only with email_verified true. _Restart-only._ |
+| `auth.oidc.groupsClaim` | `DASH_AUTH_OIDC_GROUPS_CLAIM` | string | `groups` | The ID token claim that lists the user's groups: a list of strings or one comma-separated string. Empty turns groups off; adminGroups and allowedGroups need it. _Restart-only._ |
+| `auth.oidc.roleClaim` | `DASH_AUTH_OIDC_ROLE_CLAIM` | string | - | The ID token claim whose values are matched against adminRoles. Empty turns it off. _Restart-only._ |
+| `auth.oidc.adminRoles` | `DASH_AUTH_OIDC_ADMIN_ROLES` | list of strings (JSON) | `["admin"]` | Values of roleClaim that make the user an administrator. A JSON list in the environment. Applies without a restart. |
+| `auth.oidc.allowedUsers` | `DASH_AUTH_OIDC_ALLOWED_USERS` | list of strings (JSON) | - | The users who may sign in, exactly as userClaim names them. ["*"] admits every account the provider signs in (dash warns at every start). With allowedGroups empty one of the two must be set: dash does not start otherwise. A JSON list in the environment. _Restart-only._ |
+| `auth.oidc.allowedGroups` | `DASH_AUTH_OIDC_ALLOWED_GROUPS` | list of strings (JSON) | - | Groups whose members may sign in; needs groupsClaim. A JSON list in the environment. _Restart-only._ |
+| `auth.oidc.adminUsers` | `DASH_AUTH_OIDC_ADMIN_USERS` | list of strings (JSON) | - | User names that are administrators: exact and case-sensitive. ["*"] makes every user who may sign in an administrator (dash warns). A JSON list in the environment. Applies without a restart. |
+| `auth.oidc.adminGroups` | `DASH_AUTH_OIDC_ADMIN_GROUPS` | list of strings (JSON) | - | Groups whose members are administrators; needs groupsClaim. A group added here applies at the member's next login, a removed one at once. A JSON list in the environment. Applies without a restart. |
 
 ## `settings`
 

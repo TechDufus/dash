@@ -3,11 +3,14 @@ package config
 import (
 	"errors"
 	"fmt"
+	"net"
+	"net/url"
 	"slices"
 	"strings"
 
 	"github.com/TechDufus/dash/internal/auth"
 	"github.com/TechDufus/dash/internal/pluginconf"
+	"github.com/TechDufus/dash/internal/secret"
 )
 
 // Values of AuthConfig.Mode.
@@ -15,15 +18,34 @@ const (
 	AuthModeProxy = "proxy"
 	AuthModeNone  = "none"
 	AuthModeLocal = "local"
+	AuthModeOIDC  = "oidc"
 )
 
 // AuthConfig is the auth section: how dash learns who is making a request and what that person
 // may do (design E.2, E.4). Every key is a restart setting except the admin lists, which a
 // reload applies to the next request.
 type AuthConfig struct {
-	Mode  string          `json:"mode" dash:"restart,enum=proxy|none|local" doc:"How dash learns who is making a request. proxy: an identity proxy in front of dash (oauth2-proxy, Authelia, Authentik) forwards the user name in a header, and dash believes it only from the peers in auth.proxy.trustedProxies. local: one administrator account (auth.local.adminUser) signs in at /login with a password; the first start prints a one-time setup link, or DASH_ADMIN_PASSWORD_HASH supplies the password hash. none: no authentication at all, every request is signed in as an administrator named anonymous; dash warns at every start and shows a banner on every page, so bind server.listen to 127.0.0.1 and keep the port reachable only from the machine itself. It is never the default."`
+	Mode  string          `json:"mode" dash:"restart,enum=proxy|none|local|oidc" doc:"How dash learns who is making a request. proxy: an identity proxy in front of dash (oauth2-proxy, Authelia, Authentik) forwards the user name in a header, and dash believes it only from the peers in auth.proxy.trustedProxies. local: one administrator account (auth.local.adminUser) signs in at /login with a password; the first start prints a one-time setup link, or DASH_ADMIN_PASSWORD_HASH supplies the password hash. oidc: users sign in at an OpenID Connect provider (auth.oidc), admitted only by auth.oidc.allowedUsers or allowedGroups. none: no authentication at all, every request is signed in as an administrator named anonymous; dash warns at every start and shows a banner on every page, so bind server.listen to 127.0.0.1 and keep the port reachable only from the machine itself. It is never the default."`
 	Proxy AuthProxyConfig `json:"proxy" doc:"The proxy mode: which headers name the user, which peers are believed, and who is an administrator."`
 	Local AuthLocalConfig `json:"local" doc:"The local mode: the one administrator account and the optional read-only access without signing in."`
+	OIDC  AuthOIDCConfig  `json:"oidc" doc:"The oidc mode: the OpenID Connect provider, who may sign in, and who is an administrator."`
+}
+
+// AuthOIDCConfig is the oidc mode of AuthConfig. The admin lists and adminRoles apply on a
+// reload; everything else needs a restart.
+type AuthOIDCConfig struct {
+	Issuer        string       `json:"issuer" dash:"restart" doc:"The provider's issuer URL, exactly as its ID tokens name it (e.g. https://login.example.com/realms/home). https unless the host is a loopback address. dash discovers the provider on the first login, so an unreachable provider does not stop dash from starting."`
+	ClientID      string       `json:"clientID" dash:"restart" doc:"The client ID dash is registered under at the provider. Its redirect URL is server.publicURL followed by /auth/callback."`
+	ClientSecret  secret.Value `json:"clientSecret" dash:"secret,restart" doc:"The client secret: a literal, env:NAME, file:/path or k8s:<namespace>/<name>#<key>. It is read at each login, so a rotated file applies without a restart."`
+	Scopes        []string     `json:"scopes" dash:"restart" doc:"The scopes dash asks for; openid is always added. A JSON list in the environment."`
+	UserClaim     string       `json:"userClaim" dash:"restart" doc:"The ID token claim that names the user. preferred_username can be changed by the user at some providers: use sub there. email is accepted only with email_verified true."`
+	GroupsClaim   string       `json:"groupsClaim" dash:"restart" doc:"The ID token claim that lists the user's groups: a list of strings or one comma-separated string. Empty turns groups off; adminGroups and allowedGroups need it."`
+	RoleClaim     string       `json:"roleClaim" dash:"restart" doc:"The ID token claim whose values are matched against adminRoles. Empty turns it off."`
+	AdminRoles    []string     `json:"adminRoles" doc:"Values of roleClaim that make the user an administrator. A JSON list in the environment. Applies without a restart."`
+	AllowedUsers  []string     `json:"allowedUsers" dash:"restart" doc:"The users who may sign in, exactly as userClaim names them. [\"*\"] admits every account the provider signs in (dash warns at every start). With allowedGroups empty one of the two must be set: dash does not start otherwise. A JSON list in the environment."`
+	AllowedGroups []string     `json:"allowedGroups" dash:"restart" doc:"Groups whose members may sign in; needs groupsClaim. A JSON list in the environment."`
+	AdminUsers    []string     `json:"adminUsers" doc:"User names that are administrators: exact and case-sensitive. [\"*\"] makes every user who may sign in an administrator (dash warns). A JSON list in the environment. Applies without a restart."`
+	AdminGroups   []string     `json:"adminGroups" doc:"Groups whose members are administrators; needs groupsClaim. A group added here applies at the member's next login, a removed one at once. A JSON list in the environment. Applies without a restart."`
 }
 
 // AuthLocalConfig is the local mode of AuthConfig.
@@ -53,12 +75,18 @@ func DefaultAuth() AuthConfig {
 			TrustedProxies: []string{"127.0.0.1/32", "::1/128"},
 		},
 		Local: AuthLocalConfig{AdminUser: "admin"},
+		OIDC: AuthOIDCConfig{
+			Scopes:      []string{"openid", "profile", "email"},
+			UserClaim:   "preferred_username",
+			GroupsClaim: "groups",
+			AdminRoles:  []string{"admin"},
+		},
 	}
 }
 
 // authModes are the accepted values of AuthConfig.Mode, in the order the error lists them; the
 // enum tag on the field documents the same set.
-var authModes = []string{AuthModeProxy, AuthModeNone, AuthModeLocal}
+var authModes = []string{AuthModeProxy, AuthModeNone, AuthModeLocal, AuthModeOIDC}
 
 // Validate reports unusable auth settings, each at its path relative to "auth" (the problem
 // format of pluginconf.Problems). A message names the path and the problem and never echoes a
@@ -126,7 +154,81 @@ func (a AuthConfig) Validate() error {
 	if a.Local.AnonymousViewer && a.Mode != AuthModeLocal {
 		add("local.anonymousViewer", "is only available in auth.mode=local: the proxy and oidc modes never sign a visitor in without an identity")
 	}
+	a.OIDC.validate(a.Mode == AuthModeOIDC, add)
 	return errors.Join(errs...)
+}
+
+// validate reports unusable oidc settings through add. The lists are checked in every mode: an
+// entry that can never match is a mistake whatever the mode, and it is refused at load from the
+// start (these keys are new in v0.12.0, so there is no warning phase). The criteria are what the
+// OIDC claim path keeps (internal/oidcauth): a user claim only as a valid user name, group and role
+// values only as valid group names (no comma, even from a JSON list). The provider, the client and
+// the fail-closed allow-list are required only in the oidc mode. No message echoes a value.
+func (o AuthOIDCConfig) validate(active bool, add func(path, format string, args ...any)) {
+	users := func(path string, l []string) {
+		for i, u := range trimmed(l) {
+			switch {
+			case u == "":
+				add(path, "entry %d is empty", i+1)
+			case u != "*" && !auth.ValidUserName(u):
+				add(path, "entry %d can never match: dash accepts a user claim only as a name of at most 128 bytes of valid UTF-8 without control characters", i+1)
+			}
+		}
+	}
+	values := func(path, what string, l []string) {
+		for i, v := range trimmed(l) {
+			switch {
+			case v == "":
+				add(path, "entry %d is empty", i+1)
+			case v == "*":
+				add(path, "entry %d is a wildcard: \"*\" is only valid in adminUsers and allowedUsers", i+1)
+			case !auth.ValidGroupName(v):
+				add(path, "entry %d can never match: dash keeps a %s only as at most 256 bytes of valid UTF-8 without control characters or commas", i+1, what)
+			}
+		}
+	}
+	users("oidc.adminUsers", o.AdminUsers)
+	users("oidc.allowedUsers", o.AllowedUsers)
+	values("oidc.adminGroups", "group", o.AdminGroups)
+	values("oidc.allowedGroups", "group", o.AllowedGroups)
+	values("oidc.adminRoles", "role value", o.AdminRoles)
+	if strings.TrimSpace(o.GroupsClaim) == "" {
+		for path, l := range map[string][]string{"oidc.adminGroups": o.AdminGroups, "oidc.allowedGroups": o.AllowedGroups} {
+			if len(l) > 0 {
+				add(path, "needs auth.oidc.groupsClaim: without the claim no user has a group, so nobody would ever match through it")
+			}
+		}
+	}
+	if !active {
+		return
+	}
+	if strings.TrimSpace(o.Issuer) == "" {
+		add("oidc.issuer", "is required in auth.mode=oidc")
+	} else if u, err := url.Parse(strings.TrimSpace(o.Issuer)); err != nil || u.Host == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" ||
+		!(u.Scheme == "https" || (u.Scheme == "http" && loopbackHost(u.Hostname()))) {
+		add("oidc.issuer", "must be an https URL with a host and no query (http only for a loopback host such as 127.0.0.1 or localhost)")
+	}
+	if strings.TrimSpace(o.ClientID) == "" {
+		add("oidc.clientID", "is required in auth.mode=oidc")
+	}
+	if !o.ClientSecret.Present() {
+		add("oidc.clientSecret", "is required in auth.mode=oidc")
+	}
+	if strings.TrimSpace(o.UserClaim) == "" {
+		add("oidc.userClaim", "is required in auth.mode=oidc (the default is preferred_username)")
+	}
+	if len(o.AllowedUsers) == 0 && len(o.AllowedGroups) == 0 {
+		add("oidc.allowedUsers", "or auth.oidc.allowedGroups is required in auth.mode=oidc: with neither, every account the provider signs in would be admitted; set allowedUsers to [\"*\"] to admit them all on purpose")
+	}
+}
+
+// loopbackHost reports whether host is localhost or a loopback IP address.
+func loopbackHost(host string) bool {
+	if strings.EqualFold(host, "localhost") {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
 }
 
 // UnmatchableEntry is an admin list entry that no identity header can ever equal.
@@ -166,19 +268,26 @@ func trimmed(l []string) []string {
 	return out
 }
 
-// normalize trims what operators paste into the lists the authenticator reads and the local
-// account name. An empty entry stays: Validate reports it.
+// normalize trims what operators paste into the lists the authenticators read, the local account
+// name and the oidc claim names. An empty entry stays: Validate reports it.
 func (a *AuthConfig) normalize() {
-	for _, l := range []*[]string{&a.Proxy.UserHeaders, &a.Proxy.TrustedProxies, &a.Proxy.AdminUsers, &a.Proxy.AdminGroups} {
+	o := &a.OIDC
+	for _, l := range []*[]string{
+		&a.Proxy.UserHeaders, &a.Proxy.TrustedProxies, &a.Proxy.AdminUsers, &a.Proxy.AdminGroups,
+		&o.Scopes, &o.AdminRoles, &o.AllowedUsers, &o.AllowedGroups, &o.AdminUsers, &o.AdminGroups,
+	} {
 		if *l != nil {
 			*l = trimmed(*l)
 		}
 	}
 	a.Local.AdminUser = auth.TrimIdentity(a.Local.AdminUser)
+	for _, s := range []*string{&o.Issuer, &o.ClientID, &o.UserClaim, &o.GroupsClaim, &o.RoleClaim} {
+		*s = strings.TrimSpace(*s)
+	}
 }
 
 // SessionMode reports whether mode signs people in with a session cookie of dash's own.
-func SessionMode(mode string) bool { return mode == AuthModeLocal }
+func SessionMode(mode string) bool { return mode == AuthModeLocal || mode == AuthModeOIDC }
 
 // proxyKeysOutsideProxyMode lists the auth.proxy settings a layer set (the file, the environment,
 // the UI) while a session mode is selected and dev or demo does not override it: those keys are

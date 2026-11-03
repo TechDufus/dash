@@ -106,12 +106,14 @@ func (s *Server) routeTable() []Route {
 			Summary: "Run an action of a running plugin", Tag: "Plugins", Role: auth.RoleAdmin,
 		},
 
-		// The local mode's sign-in routes (docs/auth.md). They are outside /api, so authn does not
-		// run (logout reads the session itself) and the guard has no role to enforce; csrf, the
-		// host check and the security headers (no-store) apply as everywhere.
+		// The sign-in routes of the session modes (docs/auth.md). They are outside /api, so authn
+		// does not run (logout reads the session itself) and the guard has no role to enforce;
+		// csrf, the host check and the security headers (no-store) apply as everywhere.
 		{Method: "POST", Path: "/login", Infra: true, Handler: s.login},
 		{Method: "POST", Path: "/setup", Infra: true, Handler: s.setup},
 		{Method: "POST", Path: "/auth/logout", Infra: true, Handler: s.logout},
+		{Method: "GET", Path: "/auth/oidc/start", Infra: true, Handler: s.oidcStart},
+		{Method: "GET", Path: "/auth/callback", Infra: true, Handler: s.oidcCallback},
 
 		{Path: "/api/", Infra: true, Handler: func(w http.ResponseWriter, _ *http.Request) {
 			writeErr(w, http.StatusNotFound, model.ErrCodeNotFound, "not found")

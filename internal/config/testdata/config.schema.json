@@ -142,14 +142,19 @@
         },
         "mode": {
           "default": "proxy",
-          "description": "How dash learns who is making a request. proxy: an identity proxy in front of dash (oauth2-proxy, Authelia, Authentik) forwards the user name in a header, and dash believes it only from the peers in auth.proxy.trustedProxies. local: one administrator account (auth.local.adminUser) signs in at /login with a password; the first start prints a one-time setup link, or DASH_ADMIN_PASSWORD_HASH supplies the password hash. none: no authentication at all, every request is signed in as an administrator named anonymous; dash warns at every start and shows a banner on every page, so bind server.listen to 127.0.0.1 and keep the port reachable only from the machine itself. It is never the default.",
+          "description": "How dash learns who is making a request. proxy: an identity proxy in front of dash (oauth2-proxy, Authelia, Authentik) forwards the user name in a header, and dash believes it only from the peers in auth.proxy.trustedProxies. local: one administrator account (auth.local.adminUser) signs in at /login with a password; the first start prints a one-time setup link, or DASH_ADMIN_PASSWORD_HASH supplies the password hash. oidc: users sign in at an OpenID Connect provider (auth.oidc), admitted only by auth.oidc.allowedUsers or allowedGroups. none: no authentication at all, every request is signed in as an administrator named anonymous; dash warns at every start and shows a banner on every page, so bind server.listen to 127.0.0.1 and keep the port reachable only from the machine itself. It is never the default.",
           "enum": [
             "proxy",
             "none",
-            "local"
+            "local",
+            "oidc"
           ],
           "type": "string",
           "x-dash-restart": true
+        },
+        "oidc": {
+          "$ref": "#/$defs/AuthOIDCConfig",
+          "description": "The oidc mode: the OpenID Connect provider, who may sign in, and who is an administrator."
         },
         "proxy": {
           "$ref": "#/$defs/AuthProxyConfig",
@@ -170,6 +175,99 @@
         "anonymousViewer": {
           "description": "Let a visitor who has not signed in read the dashboard as a viewer: GET requests only, never logs, never actions. Only in auth.mode=local; dash shows administrators a warning while it is on.",
           "type": "boolean",
+          "x-dash-restart": true
+        }
+      },
+      "type": "object"
+    },
+    "AuthOIDCConfig": {
+      "additionalProperties": false,
+      "properties": {
+        "adminGroups": {
+          "description": "Groups whose members are administrators; needs groupsClaim. A group added here applies at the member's next login, a removed one at once. A JSON list in the environment. Applies without a restart.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "adminRoles": {
+          "default": [
+            "admin"
+          ],
+          "description": "Values of roleClaim that make the user an administrator. A JSON list in the environment. Applies without a restart.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "adminUsers": {
+          "description": "User names that are administrators: exact and case-sensitive. [\"*\"] makes every user who may sign in an administrator (dash warns). A JSON list in the environment. Applies without a restart.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "allowedGroups": {
+          "description": "Groups whose members may sign in; needs groupsClaim. A JSON list in the environment.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array",
+          "x-dash-restart": true
+        },
+        "allowedUsers": {
+          "description": "The users who may sign in, exactly as userClaim names them. [\"*\"] admits every account the provider signs in (dash warns at every start). With allowedGroups empty one of the two must be set: dash does not start otherwise. A JSON list in the environment.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array",
+          "x-dash-restart": true
+        },
+        "clientID": {
+          "description": "The client ID dash is registered under at the provider. Its redirect URL is server.publicURL followed by /auth/callback.",
+          "type": "string",
+          "x-dash-restart": true
+        },
+        "clientSecret": {
+          "description": "The client secret: a literal, env:NAME, file:/path or k8s:<namespace>/<name>#<key>. It is read at each login, so a rotated file applies without a restart.",
+          "type": "string",
+          "writeOnly": true,
+          "x-dash-restart": true,
+          "x-dash-secret": true
+        },
+        "groupsClaim": {
+          "default": "groups",
+          "description": "The ID token claim that lists the user's groups: a list of strings or one comma-separated string. Empty turns groups off; adminGroups and allowedGroups need it.",
+          "type": "string",
+          "x-dash-restart": true
+        },
+        "issuer": {
+          "description": "The provider's issuer URL, exactly as its ID tokens name it (e.g. https://login.example.com/realms/home). https unless the host is a loopback address. dash discovers the provider on the first login, so an unreachable provider does not stop dash from starting.",
+          "type": "string",
+          "x-dash-restart": true
+        },
+        "roleClaim": {
+          "description": "The ID token claim whose values are matched against adminRoles. Empty turns it off.",
+          "type": "string",
+          "x-dash-restart": true
+        },
+        "scopes": {
+          "default": [
+            "openid",
+            "profile",
+            "email"
+          ],
+          "description": "The scopes dash asks for; openid is always added. A JSON list in the environment.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array",
+          "x-dash-restart": true
+        },
+        "userClaim": {
+          "default": "preferred_username",
+          "description": "The ID token claim that names the user. preferred_username can be changed by the user at some providers: use sub there. email is accepted only with email_verified true.",
+          "type": "string",
           "x-dash-restart": true
         }
       },

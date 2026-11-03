@@ -68,8 +68,12 @@ func authDenialReason(f *auth.Failure) obs.AuthReason {
 }
 
 // authDetails is the details of a 401 unauthenticated (design D13): the mode, so the SPA knows
-// how to sign the user in without an unauthenticated discovery endpoint, and whether the local
-// mode is still waiting for its setup.
+// how to sign the user in without an unauthenticated discovery endpoint, whether the local mode is
+// still waiting for its setup, and in the oidc mode the provider's host for the login page.
 func (s *Server) authDetails() model.AuthDetails {
-	return model.AuthDetails{Mode: s.authMode(auth.Principal{}), Setup: s.d.Local.SetupOpen()}
+	d := model.AuthDetails{Mode: s.authMode(auth.Principal{}), Setup: s.d.Local.SetupOpen()}
+	if s.d.OIDC != nil {
+		d.OIDC = &model.AuthDetailsOIDC{Issuer: s.d.OIDC.IssuerHost()}
+	}
+	return d
 }

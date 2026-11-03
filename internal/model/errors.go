@@ -27,7 +27,7 @@ const (
 	ErrCodeReadonlySettings     = "readonly_settings"     // 409: the settings store is read-only
 	ErrCodeRateLimited          = "rate_limited"          // 429
 	ErrCodeTooManyStreams       = "too_many_streams"      // 429, 503
-	ErrCodeUpstreamUnavailable  = "upstream_unavailable"  // 502
+	ErrCodeUpstreamUnavailable  = "upstream_unavailable"  // 502 or 503 (the OIDC provider cannot be reached)
 	ErrCodeApprovalRequired     = "approval_required"     // 202: an agent action waits for its approval
 	ErrCodeApprovalDenied       = "approval_denied"       // 403
 	ErrCodeApprovalExpired      = "approval_expired"      // 410

@@ -117,8 +117,8 @@ func (b *specBuilder) build() object {
 				},
 				"sessionCookie": object{
 					"type": "apiKey", "in": "cookie", "name": "__Host-dash_session",
-					"description": "The session of auth.mode local, set by POST /login. The cookie is __Host-dash_session when server.publicURL " +
-						"is https and dash_session otherwise; HttpOnly, SameSite=Lax. A write also needs X-Dash-Csrf: 1 and the public Origin.",
+					"description": "The session of auth.mode local (POST /login) and oidc (GET /auth/callback). The cookie is __Host-dash_session " +
+						"when server.publicURL is https and dash_session otherwise; HttpOnly, SameSite=Lax. A write also needs X-Dash-Csrf: 1 and the public Origin.",
 				},
 			},
 			"headers": object{

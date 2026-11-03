@@ -6,6 +6,7 @@ import (
 	"io"
 	"log/slog"
 	"net/url"
+	"slices"
 	"strings"
 	"time"
 
@@ -14,6 +15,7 @@ import (
 	"github.com/TechDufus/dash/internal/config"
 	"github.com/TechDufus/dash/internal/credentials"
 	"github.com/TechDufus/dash/internal/localauth"
+	"github.com/TechDufus/dash/internal/oidcauth"
 	"github.com/TechDufus/dash/internal/secret"
 	"github.com/TechDufus/dash/internal/session"
 )
@@ -34,7 +36,7 @@ type processAuth struct {
 func (p processAuth) deps(d *api.Deps) {
 	d.Auth = p.authn
 	if s := p.sess; s != nil {
-		d.Sessions, d.Credentials, d.Local = s.sessions, s.store, s.local
+		d.Sessions, d.Credentials, d.Local, d.OIDC = s.sessions, s.store, s.local, s.oidc
 	}
 }
 
@@ -74,7 +76,11 @@ type sessionAuth struct {
 	authn    *session.Authenticator
 	store    *credentials.Store
 	sessions *session.Manager
-	local    *localauth.Local // auth.mode=local
+	local    *localauth.Local   // auth.mode=local
+	oidc     *oidcauth.Provider // auth.mode=oidc
+	// roles is the live role map of the oidc mode, which a reload replaces (reloadOIDC); nil in
+	// the local mode, whose one account is the administrator.
+	roles *auth.RoleHolder
 }
 
 // buildSessionAuth opens the credential store of the data dir (another dash holding it is
@@ -117,6 +123,12 @@ func buildSessionAuth(res *config.Resolved, env sessionEnv, log *slog.Logger) (_
 		if a.Local.AnonymousViewer {
 			log.Warn("auth.local.anonymousViewer is on: anyone who can reach dash can read it without signing in (never logs, never actions)")
 		}
+	case config.AuthModeOIDC:
+		if err := s.buildOIDC(res, env, log); err != nil {
+			return nil, err
+		}
+		log.Info("auth: oidc mode", "issuer", s.oidc.IssuerHost(), "allowedUsers", len(a.OIDC.AllowedUsers), "allowedGroups", len(a.OIDC.AllowedGroups),
+			"adminUsers", len(a.OIDC.AdminUsers), "adminGroups", len(a.OIDC.AdminGroups), "adminRoles", len(a.OIDC.AdminRoles), "sessionsSurviveRestart", durable)
 	default:
 		return nil, fmt.Errorf("auth.mode %q is not a session mode", a.Mode)
 	}
@@ -167,6 +179,79 @@ func buildLocal(c config.AuthLocalConfig, store *credentials.Store, env sessionE
 		return nil, fmt.Errorf("setup token: %w", err)
 	}
 	return l, nil
+}
+
+// oidcOpenWarning is the startup WARN for auth.oidc.allowedUsers: ["*"].
+const oidcOpenWarning = `auth.oidc.allowedUsers contains "*": every account the provider signs in may read dash, logs included`
+
+// oidcAdminWildcardWarning is the startup and reload WARN for auth.oidc.adminUsers: ["*"].
+const oidcAdminWildcardWarning = `auth.oidc.adminUsers contains "*": every user who may sign in is an administrator`
+
+// buildOIDC is the oidc mode: the provider (discovered on the first login, so an unreachable one
+// does not stop the start), a state codec of its own key, and the session authenticator. Both
+// share one role holder, which the reload replaces, so a mapping change applies to the next
+// request and to what the next login keeps in its cookie.
+func (s *sessionAuth) buildOIDC(res *config.Resolved, env sessionEnv, log *slog.Logger) error {
+	o := res.Tree.Auth.OIDC
+	stateKey, _, err := sessionKey(res.Keys, s.store, session.PurposeOIDCState)
+	if err != nil {
+		return fmt.Errorf("oidc state key: %w", err)
+	}
+	state, err := session.NewCodec(stateKey)
+	if err != nil {
+		return fmt.Errorf("oidc state key: %w", err)
+	}
+	s.roles = auth.NewRoleHolder(oidcRoleMap(o))
+	publicURL := strings.TrimSuffix(res.Config.PublicURL, "/")
+	s.oidc, err = oidcauth.New(oidcauth.Config{
+		Issuer: o.Issuer, ClientID: o.ClientID, ClientSecret: o.ClientSecret, Scopes: slices.Clone(o.Scopes),
+		UserClaim: o.UserClaim, GroupsClaim: o.GroupsClaim, RoleClaim: o.RoleClaim,
+		AllowedUsers: cleanNames(o.AllowedUsers), AllowedGroups: cleanNames(o.AllowedGroups), Roles: s.roles,
+		RedirectURL: publicURL + oidcauth.CallbackPath, Secure: httpsURL(publicURL), Now: env.now,
+	}, s.sessions, state)
+	if err != nil {
+		return err
+	}
+	var warnings []string
+	if slices.Contains(o.AllowedUsers, "*") {
+		warnings = append(warnings, auth.WarningOIDCOpen)
+		log.Warn(oidcOpenWarning)
+	}
+	if s.roles.Wildcard() {
+		log.Warn(oidcAdminWildcardWarning)
+	}
+	s.authn = session.NewAuthenticator(session.AuthOptions{Mode: auth.ModeOIDC, Sessions: s.sessions, Roles: s.roles, Warnings: warnings})
+	return nil
+}
+
+// oidcRoleMap is the role mapping of the oidc settings: users, groups and role values matched
+// exactly, cleaned of surrounding space and empty entries.
+func oidcRoleMap(o config.AuthOIDCConfig) auth.RoleMap {
+	return auth.RoleMap{AdminUsers: cleanNames(o.AdminUsers), AdminGroups: cleanNames(o.AdminGroups), AdminRoles: cleanNames(o.AdminRoles)}
+}
+
+// reloadOIDC makes the oidc mapping live: when the auth section changes the next request (and the
+// next login's cookie) uses the new adminUsers, adminGroups and adminRoles. h is nil outside the
+// oidc mode, which has nothing to reload here.
+func (f *framework) reloadOIDC(h *auth.RoleHolder) {
+	if h == nil {
+		return
+	}
+	f.reloader.Subscribe(func(c config.Change) {
+		if c.Section == "auth" {
+			applyOIDCReload(h, f.reloader.Tree().Auth.OIDC)
+		}
+	})
+}
+
+// applyOIDCReload hands the live oidc mapping to the running authenticator.
+func applyOIDCReload(h *auth.RoleHolder, o config.AuthOIDCConfig) {
+	m := oidcRoleMap(o)
+	h.Store(m)
+	slog.Info("auth: oidc admin mapping reloaded", "adminUsers", len(m.AdminUsers), "adminGroups", len(m.AdminGroups), "adminRoles", len(m.AdminRoles))
+	if m.Wildcard() {
+		slog.Warn(oidcAdminWildcardWarning)
+	}
 }
 
 // sessionKey is the key of purpose: derived from DASH_SECRET_KEY and the store's salt when both

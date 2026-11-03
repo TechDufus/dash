@@ -119,6 +119,9 @@ func run(reg *secret.Registry) error {
 	fw := newFramework(res, store, config.ReloadOptions{}, reg, refs, transport, cfg.Demo)
 	h, sup, reloader := fw.hub, fw.sup, fw.reloader
 	fw.reloadAuth(pa.proxy)
+	if pa.sess != nil {
+		fw.reloadOIDC(pa.sess.roles)
+	}
 	reloaderDone := make(chan struct{})
 	go func() { defer close(reloaderDone); reloader.Run(ctx) }()
 	defer func() { stop(); <-reloaderDone }()

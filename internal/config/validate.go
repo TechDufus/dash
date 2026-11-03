@@ -125,6 +125,11 @@ func validate(t Tree, dev, demo bool, prov map[string]Provenance) error {
 	for _, path := range refused {
 		v.fail(path, "is set, but auth.mode is %s and the proxy admin lists are read only in auth.mode=proxy: set DASH_AUTH_MODE=proxy if dash runs behind an identity proxy, or remove this setting", t.Auth.Mode)
 	}
+	if t.Auth.Mode == AuthModeOIDC && !dev && !demo && s.PublicURL != "" {
+		if u, err := url.Parse(s.PublicURL); err == nil && u.Scheme != "https" && !loopbackHost(u.Hostname()) {
+			v.fail("server.publicURL", "must be https in auth.mode=oidc: the provider sends the browser back to it with the login code (http only for a loopback host)")
+		}
+	}
 	for _, sec := range t.PluginSections() {
 		if val, ok := sec.Value.(interface{ Validate() error }); ok {
 			v.section("plugins."+sec.Name, val.Validate())
