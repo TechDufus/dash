@@ -331,7 +331,7 @@ export function TopologyPanel({ topology, sources, className }: TopologyPanelPro
           <div className="pointer-events-none absolute inset-0 z-0">
             <Beams topology={topology} container={container} getRef={ref} />
           </div>
-          <div className="relative z-10 grid grid-cols-3 gap-x-12 xl:gap-x-16">
+          <div className="relative z-10 grid grid-cols-3 gap-x-12 2xl:gap-x-16">
             <div className="flex flex-col justify-center">
               <div ref={ref(`host:${topology.host.name}`)} className={card}>
                 <HostCard host={topology.host} className="z-auto" />
