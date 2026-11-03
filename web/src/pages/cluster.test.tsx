@@ -70,8 +70,13 @@ describe("the cluster page", () => {
     stream.close();
   });
 
-  async function show(role: string, row: PluginInfo, payload: ClusterData = cluster()) {
-    const stub = stubFetch({ "GET /api/v1/me": me(role) });
+  async function show(
+    role: string,
+    row: PluginInfo,
+    payload: ClusterData = cluster(),
+    meReply: unknown = me(role),
+  ) {
+    const stub = stubFetch({ "GET /api/v1/me": meReply as never });
     stream = connectStream();
     renderApp(
       <>
@@ -165,6 +170,14 @@ describe("the cluster page", () => {
     await show("admin", kubernetes());
     expect(actionsHeader()).not.toBeNull();
     await waitFor(() => expect(restartButtons()).toHaveLength(1));
+    for (const r of bodyRows()) expect(within(r).getAllByRole("cell")).toHaveLength(7);
+  });
+
+  it("keeps the Actions column while /me is still loading", async () => {
+    // No Headlamp link and no available action for the role (a viewer), but the role is not known yet:
+    // the column that always existed must not flicker out and back.
+    await show("viewer", kubernetes(), cluster(), () => new Promise(() => {}));
+    expect(actionsHeader()).not.toBeNull();
     for (const r of bodyRows()) expect(within(r).getAllByRole("cell")).toHaveLength(7);
   });
 

@@ -43,6 +43,7 @@ func TestValidateIcons(t *testing.T) {
 		"subdomain trick":             {"https://cdn.example.com.evil.net/png/x.png", cdn, false},
 		"different port":              {"https://cdn.example.com:8443/png/x.png", cdn, false},
 		"different scheme":            {"http://cdn.example.com/png/x.png", cdn, false},
+		"different scheme, same port": {"http://cdn.example.com:443/png/x.png", cdn, false},
 		"base with a port":            {"https://cdn.example.com:8443/png/x.png", "https://cdn.example.com:8443/png", true},
 		"base port, url without":      {"https://cdn.example.com/png/x.png", "https://cdn.example.com:8443/png", false},
 		"path-prefix trick":           {"https://cdn.example.com/pngx/x.png", cdn, false},

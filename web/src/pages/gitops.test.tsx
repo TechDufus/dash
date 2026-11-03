@@ -92,8 +92,16 @@ describe("the GitOps page", () => {
   });
   afterEach(() => stream.close());
 
-  async function show(role: string, rows: PluginInfo[], payload: FluxData | null = data()) {
-    const stub = stubFetch({ "GET /api/v1/me": me(role), [RECONCILE]: { status: "accepted" } });
+  async function show(
+    role: string,
+    rows: PluginInfo[],
+    payload: FluxData | null = data(),
+    meReply: unknown = me(role),
+  ) {
+    const stub = stubFetch({
+      "GET /api/v1/me": meReply as never,
+      [RECONCILE]: { status: "accepted" },
+    });
     renderApp(<GitOpsPage />, { path: "/gitops" });
     stream.plugins(rows);
     if (payload) stream.send("flux.objects", payload);
@@ -245,6 +253,13 @@ describe("the GitOps page", () => {
         screen.getByRole("button", { name: "Reconcile Kustomization gitops/root" }),
       ).toBeTruthy(),
     );
+    for (const r of bodyRows()) expect(within(r).getAllByRole("cell")).toHaveLength(6);
+  });
+
+  it("keeps the Actions column while /me is still loading", async () => {
+    // No Headlamp link and no available action while the role is unknown: the column stays.
+    await show("viewer", [row()], data(), () => new Promise(() => {}));
+    expect(actionsHeader()).not.toBeNull();
     for (const r of bodyRows()) expect(within(r).getAllByRole("cell")).toHaveLength(6);
   });
 
