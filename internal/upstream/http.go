@@ -61,6 +61,18 @@ func newStreamClient(base string, rt http.RoundTripper, opts ...Option) client {
 	return c
 }
 
+// readOnlyPost is the header of a POST that only reads (a query sent as a form body because an
+// expression can outgrow a URL). net/http sends a request again on a new connection, when a
+// pooled one turns out to have been closed by the server, only if the request is replayable: a
+// GET, HEAD, OPTIONS or TRACE, or one with an Idempotency-Key entry. A POST has none of those, so
+// the closed connection surfaced as a bare "EOF" for a query that is safe to repeat. The entry has
+// no value, which marks the request without sending a header line (Header.Clone keeps it). The
+// body must be a *strings.Reader, *bytes.Reader or *bytes.Buffer: http.NewRequest then sets the
+// GetBody the second attempt needs. Never use it for a request that changes something upstream.
+func readOnlyPost(contentType string) http.Header {
+	return http.Header{"Content-Type": {contentType}, "Idempotency-Key": nil}
+}
+
 // open sends the request and returns the response with its body still open;
 // a non-2xx answer is closed and returned as *StatusError. path must already
 // be escaped.

@@ -44,7 +44,7 @@ type promResponse struct {
 }
 
 func (p *Prom) query(ctx context.Context, path string, form url.Values, wantType string) (*promResponse, error) {
-	hdr := http.Header{"Content-Type": {"application/x-www-form-urlencoded"}}
+	hdr := readOnlyPost("application/x-www-form-urlencoded")
 	var r promResponse
 	if err := p.c.getJSON(ctx, http.MethodPost, path, nil, strings.NewReader(form.Encode()), hdr, &r); err != nil {
 		return nil, err
