@@ -6,8 +6,16 @@ import { connectStream, type TestStream } from "@/plugins/test-util";
 import { FakeEventSource, pluginInfo, renderApp, stubFetch } from "@/test/harness";
 import { PodSheet } from "./pod-sheet";
 
-// The Logs tab is the victorialogs plugin's: it follows the plugin's row. The rows are built here
-// (not taken from test/shims.ts), so the test does not depend on which plugins are real yet.
+// The Logs tab is the victorialogs plugin's: it follows the plugin's row, and the principal's
+// logs scope. The rows are built here (not taken from test/shims.ts), so the test does not depend
+// on which plugins are real yet.
+
+const meWith = (scopes: string[]) => ({
+  user: "u",
+  role: "viewer",
+  scopes,
+  ui: { iconBaseUrl: "" },
+});
 
 const detail = {
   pod: {
@@ -42,7 +50,10 @@ const logsRow = (state: string = "healthy") =>
 describe("the pod sheet's Logs tab", () => {
   let stream: TestStream;
   beforeEach(() => {
-    stubFetch({ "GET /api/v1/plugins/kubernetes/pods/media/plex-0": detail });
+    stubFetch({
+      "GET /api/v1/plugins/kubernetes/pods/media/plex-0": detail,
+      "GET /api/v1/me": meWith(["read", "logs"]),
+    });
     stream = connectStream();
   });
   afterEach(() => stream.close());
@@ -53,7 +64,9 @@ describe("the pod sheet's Logs tab", () => {
     renderApp(<PodSheet ns="media" name="plex-0" />);
     stream.plugins([logsRow()]);
     await screen.findByRole("tab", { name: "Overview" });
-    expect(tabNames()).toEqual(["Overview", "Logs", "Metrics", "Events", "Links"]);
+    await waitFor(() =>
+      expect(tabNames()).toEqual(["Overview", "Logs", "Metrics", "Events", "Links"]),
+    );
 
     stream.plugins([logsRow("disabled")]);
     await waitFor(() => expect(tabNames()).toEqual(["Overview", "Metrics", "Events", "Links"]));
@@ -95,6 +108,19 @@ describe("the pod sheet's Logs tab", () => {
 
     const tail = FakeEventSource.instances.find((es) => es.url.includes("/logs/tail"));
     expect(tail?.url).toBe("/api/v1/plugins/victorialogs/logs/tail?ns=media&pod=plex-0");
+  });
+
+  it("is not offered to a principal without the logs scope (the anonymous viewer)", async () => {
+    const me = stubFetch({
+      "GET /api/v1/plugins/kubernetes/pods/media/plex-0": detail,
+      "GET /api/v1/me": { ...meWith(["read"]), user: "anonymous" },
+    });
+    renderApp(<PodSheet ns="media" name="plex-0" />);
+    stream.plugins([logsRow()]);
+    await screen.findByRole("tab", { name: "Overview" });
+    await waitFor(() => expect(me.callsTo("GET /api/v1/me")).toHaveLength(1));
+    await act(async () => {}); // /me has been read into the query cache
+    expect(tabNames()).toEqual(["Overview", "Metrics", "Events", "Links"]);
   });
 });
 

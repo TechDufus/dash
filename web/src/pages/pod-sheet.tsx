@@ -2,7 +2,7 @@ import { ArrowRight, CircleCheck, CircleHelp, CircleX, RotateCw } from "lucide-r
 import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useLocation, useSearchParams } from "wouter";
 import { ApiError, errorMessage } from "@/api/client";
-import { usePodDetail } from "@/api/queries";
+import { useMe, usePodDetail } from "@/api/queries";
 import { useTopicData } from "@/api/stream";
 import type { ClusterData, Condition, Container, Event, OwnerRef, Pod } from "@/api/types";
 import { ui } from "@/api/ui-store";
@@ -86,9 +86,11 @@ function PodBody({ ns, name, open }: { ns: string; name: string; open: boolean }
   const [params] = useSearchParams();
   const [chosen, setTab] = useState<SheetTab>("overview");
   // The Logs tab belongs to the victorialogs plugin: it is there while the plugin's pages are
-  // visible and gone when it is disabled or not configured. A chosen tab that went away reads as
-  // Overview.
-  const logsOn = usePluginVisible("victorialogs") === true;
+  // visible and the principal holds the logs scope (the anonymous viewer does not), and gone
+  // when the plugin is disabled or not configured. A chosen tab that went away reads as Overview.
+  const me = useMe();
+  const logsOn =
+    usePluginVisible("victorialogs") === true && me.data?.scopes?.includes("logs") === true;
   const tabs = logsOn ? TABS : TABS.filter((t) => t.value !== "logs");
   const tab = tabs.some((t) => t.value === chosen) ? chosen : "overview";
   const detail = usePodDetail(ns, name);

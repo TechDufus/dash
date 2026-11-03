@@ -232,6 +232,23 @@ func TestMeWarnsAdminsOfTheAnonymousViewer(t *testing.T) {
 	}
 }
 
+// The anonymous viewer is never told it may read logs (every log route refuses it): its scopes
+// are read only. A signed-in viewer or admin keeps logs.
+func TestAnonymousViewerHasNoLogsScope(t *testing.T) {
+	c := newLocalChain(t, true, true, "")
+	ck := c.signIn(t)
+	var me model.Me
+	w := req{path: "/api/v1/me"}.do(c.Handler())
+	if json.Unmarshal(w.Body.Bytes(), &me) != nil || me.User != "anonymous" || !slices.Equal(me.Scopes, []string{"read"}) {
+		t.Errorf("anonymous me = %d %s, want scopes [read]", w.Code, w.Body)
+	}
+	me = model.Me{}
+	w = req{path: "/api/v1/me", header: map[string]string{"Cookie": ck.Name + "=" + ck.Value}}.do(c.Handler())
+	if json.Unmarshal(w.Body.Bytes(), &me) != nil || !slices.Contains(me.Scopes, "logs") {
+		t.Errorf("admin me = %d %s, want logs among the scopes", w.Code, w.Body)
+	}
+}
+
 // The anonymous viewer reads what a viewer reads, except every route of scope logs: 403, one
 // denial, the stream never opened.
 func TestAnonymousViewerNeverGetsLogs(t *testing.T) {

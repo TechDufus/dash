@@ -184,13 +184,18 @@ func firstOf(r *http.Request, keys ...string) string {
 	return ""
 }
 
-// me answers GET /api/v1/me (design L.4). Scopes are what the role allows: read and logs, and
-// actions:<plugin> for each instance with mounted actions. mcp, push and oauth are phase 7.
+// me answers GET /api/v1/me (design L.4). Scopes are what the role allows: read and logs (not
+// logs for the anonymous viewer, which every log route refuses), and actions:<plugin> for each
+// instance with mounted actions. mcp, push and oauth are phase 7.
 func (s *Server) me(w http.ResponseWriter, r *http.Request) {
 	p := principalFrom(r.Context())
+	scopes := []string{"read", "logs"}
+	if p.Kind == auth.KindAnonymous {
+		scopes = []string{"read"}
+	}
 	me := model.Me{
 		User: p.User, Role: string(p.Role), AuthMode: s.authMode(p), Audience: "api", Version: s.d.Version,
-		Scopes:   []string{"read", "logs"},
+		Scopes:   scopes,
 		UI:       model.MeUI{IconBaseURL: s.d.Cfg.IconBaseURL},
 		Warnings: []string{},
 	}
