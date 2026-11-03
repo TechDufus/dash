@@ -305,9 +305,18 @@ func (h *Hub) Last(topic model.Topic) (Event, bool) {
 
 // AllRunning is a HostProvider in which every instance runs. Publish prefixes the topic with
 // "<instance>." (core: "core.") and forwards it to p. It checks nothing else.
-func AllRunning(p plugin.Publisher) plugin.HostProvider { return allRunning{p} }
+func AllRunning(p plugin.Publisher) plugin.HostProvider { return allRunning{p: p} }
 
-type allRunning struct{ p plugin.Publisher }
+// AllRunningWithIconBase is AllRunning whose Hosts report iconBase from Host.IconBaseURL, as
+// Options.IconBase makes the supervisor's do.
+func AllRunningWithIconBase(p plugin.Publisher, iconBase string) plugin.HostProvider {
+	return allRunning{p: p, iconBase: iconBase}
+}
+
+type allRunning struct {
+	p        plugin.Publisher
+	iconBase string
+}
 
 func (a allRunning) HostFor(id plugin.ID) plugin.Host { return runningHost{a, id} }
 func (a allRunning) Running(plugin.ID) bool           { return true }
@@ -328,6 +337,7 @@ func (h runningHost) HTTPClient(c plugin.HTTPConfig) (*http.Client, error) {
 func (h runningHost) Service(plugin.ID) (any, bool) { return nil, false }
 func (h runningHost) ScrubLog(s string) string      { return s }
 func (h runningHost) Links() plugin.LinkResolver    { return plugin.NoLinks }
+func (h runningHost) IconBaseURL() string           { return h.a.iconBase }
 func (h runningHost) Now() time.Time                { return time.Now() }
 func (h runningHost) Go(_ string, fn func()) {
 	go func() {

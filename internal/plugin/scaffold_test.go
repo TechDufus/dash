@@ -192,6 +192,30 @@ func TestScrubLogUsesTheOption(t *testing.T) {
 	}
 }
 
+func TestIconBaseURLUsesTheOption(t *testing.T) {
+	const base = "https://cdn.example.com/icons/png"
+	f := plugintest.New("aa")
+	e := newEnv(t, func(o *plugin.Options) { o.IconBase = base }, f.Factory()).run(t)
+	if got := f.Host().IconBaseURL(); got != base {
+		t.Errorf("IconBaseURL = %q, want %q", got, base)
+	}
+	if got := e.sup.HostFor(plugin.Core).IconBaseURL(); got != base {
+		t.Errorf("core IconBaseURL = %q, want %q", got, base)
+	}
+	plain := plugintest.New("bb")
+	start(t, plain.Factory())
+	if got := plain.Host().IconBaseURL(); got != "" {
+		t.Errorf("without the option IconBaseURL = %q, want empty", got)
+	}
+	hub := &plugintest.Hub{}
+	if got := plugintest.AllRunningWithIconBase(hub, base).HostFor("aa").IconBaseURL(); got != base {
+		t.Errorf("plugintest IconBaseURL = %q, want %q", got, base)
+	}
+	if got := plugintest.AllRunning(hub).HostFor("aa").IconBaseURL(); got != "" {
+		t.Errorf("plugintest default IconBaseURL = %q, want empty", got)
+	}
+}
+
 func TestDemoModeRunsTheTwin(t *testing.T) {
 	cfgFn := plugintest.Config(func() any { return &cfg{} })
 	real := plugintest.New("aa", cfgFn, plugintest.Topics("t"), func(f *plugintest.Fake) {

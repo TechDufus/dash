@@ -45,6 +45,7 @@ func (h *stubHost) HTTPClient(plugin.HTTPConfig) (*http.Client, error) {
 }
 func (h *stubHost) ScrubLog(s string) string   { return s }
 func (h *stubHost) Links() plugin.LinkResolver { return plugin.NoLinks }
+func (h *stubHost) IconBaseURL() string        { return "" }
 func (h *stubHost) Now() time.Time             { return t0 }
 func (h *stubHost) Service(id plugin.ID) (any, bool) {
 	h.lookups.Add(1)

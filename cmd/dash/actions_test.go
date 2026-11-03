@@ -329,3 +329,21 @@ func TestNewFrameworkWiresScrubbingAndTransport(t *testing.T) {
 		t.Errorf("ScrubLog without a registry = %q, want the line unchanged", got)
 	}
 }
+
+// ui.iconBaseURL reaches every plugin through Host.IconBaseURL.
+func TestNewFrameworkFeedsTheIconBase(t *testing.T) {
+	startEnv(t, t.TempDir())
+	t.Setenv("DASH_UI_ICON_BASE_URL", "https://cdn.example.com/icons/png")
+	res, store, err := loadConfig(secret.NewRegistry(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+	fw := newFramework(res, store, config.ReloadOptions{Interval: time.Millisecond}, nil, nil, nil, false)
+	f := plugintest.New("grafana")
+	startFake(t, fw, f)
+	waitFor(t, func() bool { return fw.sup.Running("grafana") })
+	if got := f.Host().IconBaseURL(); got != "https://cdn.example.com/icons/png" {
+		t.Errorf("IconBaseURL = %q, want ui.iconBaseURL", got)
+	}
+}

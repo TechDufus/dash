@@ -77,6 +77,7 @@ type stubHost struct {
 func (h *stubHost) Publish(string, any, []model.SourceStatus) { h.pubs.Add(1) }
 func (h *stubHost) Now() time.Time                            { return time.Date(2026, 11, 2, 12, 0, 0, 0, time.UTC) }
 func (h *stubHost) Links() plugin.LinkResolver                { return plugin.NoLinks }
+func (h *stubHost) IconBaseURL() string                       { return "" }
 func (h *stubHost) Go(_ string, fn func()) {
 	h.live.Add(1)
 	go func() { defer h.live.Add(-1); fn() }()

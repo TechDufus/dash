@@ -302,6 +302,11 @@ type Host interface {
 	// Links resolves the deep links the running link providers offer for an object (design A.9:
 	// a plugin never imports another). The providers are read when Links is called.
 	Links() LinkResolver
+	// IconBaseURL is ui.iconBaseURL as the process started with it (Options.IconBase): the
+	// origin and path launcher icon names resolve against and the only place an absolute icon
+	// URL may come from. Empty means no icon base is configured. Like the setting, it is fixed
+	// for the life of the process.
+	IconBaseURL() string
 	// Service returns what a Provider exports, only for ids in Requires/Uses whose instance is
 	// running.
 	Service(id ID) (any, bool)

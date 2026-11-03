@@ -48,6 +48,7 @@ func (restartHost) ScrubLog(s string) string {
 	return strings.ReplaceAll(s, restartSecret, "[redacted]")
 }
 func (restartHost) Links() plugin.LinkResolver    { return nil }
+func (restartHost) IconBaseURL() string           { return "" }
 func (restartHost) Service(plugin.ID) (any, bool) { return nil, false }
 func (restartHost) Now() time.Time                { return restartClock }
 func (restartHost) Go(_ string, fn func())        { go fn() }

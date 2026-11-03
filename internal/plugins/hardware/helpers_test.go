@@ -477,6 +477,7 @@ func (h *stubHost) advance(d time.Duration) {
 func (h *stubHost) Logger() *slog.Logger       { return slog.New(slog.DiscardHandler) }
 func (h *stubHost) ScrubLog(s string) string   { return s }
 func (h *stubHost) Links() plugin.LinkResolver { return plugin.NoLinks }
+func (h *stubHost) IconBaseURL() string        { return "" }
 func (h *stubHost) Go(_ string, fn func())     { go fn() }
 
 // stubRuntime is a plugin and its runtime over a stub host, ready for a tick to be called by

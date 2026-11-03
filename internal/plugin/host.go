@@ -92,6 +92,8 @@ func (h *host) ScrubLog(s string) string { return h.s.scrubLog(s) }
 
 func (h *host) Links() LinkResolver { return h.s.Links() }
 
+func (h *host) IconBaseURL() string { return h.s.opt.IconBase }
+
 // Service returns what the Provider instance id exports, to an instance that lists id in its
 // Requires or Uses while that instance is running.
 func (h *host) Service(id ID) (any, bool) {
@@ -196,6 +198,8 @@ func (c coreHost) Service(ID) (any, bool) { return nil, false }
 func (c coreHost) ScrubLog(s string) string { return c.s.scrubLog(s) }
 
 func (c coreHost) Links() LinkResolver { return c.s.Links() }
+
+func (c coreHost) IconBaseURL() string { return c.s.opt.IconBase }
 
 func (c coreHost) Go(name string, fn func()) {
 	go func() {

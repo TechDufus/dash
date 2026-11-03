@@ -36,6 +36,9 @@ type Options struct {
 	// ScrubLog is Host.ScrubLog: it removes every secret the core knows from a log line. nil
 	// returns the line unchanged.
 	ScrubLog func(string) string
+	// IconBase is ui.iconBaseURL: what Host.IconBaseURL returns to every instance. Empty means
+	// none is configured.
+	IconBase string
 	// Demo makes the supervisor run the demo twin (the Demo interface) of every plugin that has
 	// one, with its actions enabled, and leaves the rest disabled (design 1.9).
 	Demo bool

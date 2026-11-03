@@ -179,6 +179,7 @@ func (connHost) Logger() *slog.Logger                               { return slo
 func (connHost) HTTPClient(plugin.HTTPConfig) (*http.Client, error) { return http.DefaultClient, nil }
 func (connHost) ScrubLog(s string) string                           { return s }
 func (connHost) Links() plugin.LinkResolver                         { return plugin.NoLinks }
+func (connHost) IconBaseURL() string                                { return "" }
 func (connHost) Service(plugin.ID) (any, bool)                      { return nil, false }
 func (connHost) Now() time.Time                                     { return time.Now() }
 func (connHost) Go(_ string, fn func())                             { go fn() }
