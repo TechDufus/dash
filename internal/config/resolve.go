@@ -98,6 +98,10 @@ func Resolve(src Sources) (*Resolved, error) {
 	if err := validate(r.tree, dev, demo, r.prov); err != nil {
 		return nil, err
 	}
+	for _, u := range r.tree.Auth.Unmatchable() {
+		r.log.Warn("an admin list entry can never match an identity header and is ignored: a user is at most 128 bytes and a group at most 256, both valid UTF-8 without control characters, and a group has no comma",
+			"setting", u.List, "entry", u.Position)
+	}
 	return &Resolved{Tree: r.tree, Provenance: r.prov, Config: r.tree.config(dev, demo), Keys: src.Keys, src: src}, nil
 }
 

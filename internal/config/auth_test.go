@@ -384,67 +384,87 @@ func TestAdminListEntriesAreValidated(t *testing.T) {
 	}
 }
 
-// An admin entry that no header could ever carry grants nothing, silently: the user header is cut
-// at 128 bytes of clean UTF-8 and a group at 256 (and the groups header is split at commas), so an
-// entry beyond that is refused at load, by position and never echoed.
-func TestAdminEntriesThatCanNeverMatchAreRefused(t *testing.T) {
-	withHeader := func(f func(*AuthConfig)) func(*AuthConfig) {
-		return func(a *AuthConfig) { a.Proxy.GroupsHeader = "X-Forwarded-Groups"; f(a) }
+// An admin entry that no header could ever carry grants nothing: the user header is cut at 128
+// bytes of clean UTF-8 and a group at 256 (and the groups header is split at commas). A patch
+// release adds no startup error, so such an entry is reported (Unmatchable), by list and position,
+// and Validate still accepts it.
+func TestAdminEntriesThatCanNeverMatchAreReported(t *testing.T) {
+	withHeader := func(f func(*AuthConfig)) AuthConfig {
+		a := DefaultAuth()
+		a.Proxy.GroupsHeader = "X-Forwarded-Groups"
+		f(&a)
+		return a
 	}
-	users := func(l ...string) func(*AuthConfig) {
-		return withHeader(func(a *AuthConfig) { a.Proxy.AdminUsers = l })
-	}
-	groups := func(l ...string) func(*AuthConfig) {
-		return withHeader(func(a *AuthConfig) { a.Proxy.AdminGroups = l })
-	}
+	users := func(l ...string) AuthConfig { return withHeader(func(a *AuthConfig) { a.Proxy.AdminUsers = l }) }
+	groups := func(l ...string) AuthConfig { return withHeader(func(a *AuthConfig) { a.Proxy.AdminGroups = l }) }
+	const U, G = "auth.proxy.adminUsers", "auth.proxy.adminGroups"
 	for name, c := range map[string]struct {
-		set  func(*AuthConfig)
-		path string // "" = valid
-		msg  string
+		a    AuthConfig
+		want []UnmatchableEntry // nil = every entry can match
 	}{
-		"user of 128 bytes":           {users(strings.Repeat("a", 128)), "", ""},
-		"user of 129 bytes":           {users("ok", strings.Repeat("a", 129)), "proxy.adminUsers", "entry 2 can never match"},
-		"user of 64 two-byte runes":   {users(strings.Repeat("é", 64)), "", ""},
-		"user of 65 two-byte runes":   {users(strings.Repeat("é", 65)), "proxy.adminUsers", "entry 1 can never match"},
-		"user with a tab inside":      {users("al\tice"), "proxy.adminUsers", "entry 1 can never match"},
-		"user with a newline":         {users("alice\nbob"), "proxy.adminUsers", "entry 1 can never match"},
-		"user with DEL":               {users("al\x7fice"), "proxy.adminUsers", "entry 1 can never match"},
-		"user with a C1 control":      {users("al\u0085ice"), "proxy.adminUsers", "entry 1 can never match"},
-		"user that is not UTF-8":      {users("al\xffice"), "proxy.adminUsers", "entry 1 can never match"},
-		"user with a comma":           {users("smith, john"), "", ""},
-		"padding is trimmed first":    {users(" \t" + strings.Repeat("a", 128) + "\t "), "", ""},
-		"wildcard user":               {users("*"), "", ""},
-		"group of 256 bytes":          {groups(strings.Repeat("g", 256)), "", ""},
-		"group of 257 bytes":          {groups("ops", strings.Repeat("g", 257)), "proxy.adminGroups", "entry 2 can never match"},
-		"group with a comma":          {groups("ops", "a,b"), "proxy.adminGroups", "entry 2 can never match"},
-		"group with a control":        {groups("o\x00ps"), "proxy.adminGroups", "entry 1 can never match"},
-		"group that is not UTF-8":     {groups("o\xc3ps"), "proxy.adminGroups", "entry 1 can never match"},
-		"group with a C1 control":     {groups("o\u009fps"), "proxy.adminGroups", "entry 1 can never match"},
-		"group with a no-break space": {groups("\u00a0ops"), "", ""},
+		"user of 128 bytes":           {users(strings.Repeat("a", 128)), nil},
+		"user of 129 bytes":           {users("ok", strings.Repeat("a", 129)), []UnmatchableEntry{{U, 2}}},
+		"user of 64 two-byte runes":   {users(strings.Repeat("é", 64)), nil},
+		"user of 65 two-byte runes":   {users(strings.Repeat("é", 65)), []UnmatchableEntry{{U, 1}}},
+		"user with a tab inside":      {users("al\tice"), []UnmatchableEntry{{U, 1}}},
+		"user with a newline":         {users("alice\nbob"), []UnmatchableEntry{{U, 1}}},
+		"user with DEL":               {users("al\x7fice"), []UnmatchableEntry{{U, 1}}},
+		"user with a C1 control":      {users("al\u0085ice"), []UnmatchableEntry{{U, 1}}},
+		"user that is not UTF-8":      {users("al\xffice"), []UnmatchableEntry{{U, 1}}},
+		"user with a comma":           {users("smith, john"), nil},
+		"padding is trimmed first":    {users(" \t" + strings.Repeat("a", 128) + "\t "), nil},
+		"wildcard user":               {users("*"), nil},
+		"group of 256 bytes":          {groups(strings.Repeat("g", 256)), nil},
+		"group of 257 bytes":          {groups("ops", strings.Repeat("g", 257)), []UnmatchableEntry{{G, 2}}},
+		"group with a comma":          {groups("ops", "a,b"), []UnmatchableEntry{{G, 2}}},
+		"group with a control":        {groups("o\x00ps"), []UnmatchableEntry{{G, 1}}},
+		"group that is not UTF-8":     {groups("o\xc3ps"), []UnmatchableEntry{{G, 1}}},
+		"group with a C1 control":     {groups("o\u009fps"), []UnmatchableEntry{{G, 1}}},
+		"group with a no-break space": {groups("\u00a0ops"), nil},
+		"both lists, in order": {withHeader(func(a *AuthConfig) {
+			a.Proxy.AdminUsers = []string{"a\x01", "b"}
+			a.Proxy.AdminGroups = []string{"x", "y,z"}
+		}), []UnmatchableEntry{{U, 1}, {G, 2}}},
+		"empty and wildcard are Validate's": {withHeader(func(a *AuthConfig) { a.Proxy.AdminGroups = []string{"", "*"} }), nil},
 	} {
-		ps := authProblems(c.set)
-		if c.path == "" {
-			if len(ps) != 0 {
-				t.Errorf("%s: problems %+v", name, ps)
+		if got := c.a.Unmatchable(); !slices.Equal(got, c.want) {
+			t.Errorf("%s: Unmatchable = %+v, want %+v", name, got, c.want)
+		}
+		if len(c.want) > 0 {
+			if err := c.a.Validate(); err != nil {
+				t.Errorf("%s: Validate refuses an entry a patch release must only warn about: %v", name, err)
 			}
-			continue
-		}
-		if !hasProblem(ps, c.path, c.msg) || len(ps) != 1 {
-			t.Errorf("%s: problems %+v, want one at %s containing %q", name, ps, c.path, c.msg)
 		}
 	}
+}
 
-	// The message names the entry by position and never repeats it.
-	secret := "hunter2-\x01-secret"
-	ps := authProblems(func(a *AuthConfig) { a.Proxy.AdminUsers = []string{secret} })
-	if len(ps) != 1 || strings.Contains(ps[0].Msg, "hunter2") {
-		t.Errorf("an unusable admin user is echoed or unreported: %+v", ps)
+// The warning reaches the startup log (and `dash config validate`, which prints the same log), the
+// configuration still loads, and the line carries the list and the position and nothing of the value.
+func TestUnmatchableAdminEntriesWarnAtLoad(t *testing.T) {
+	const secret = "hunter2\x01-secret"
+	res, log, err := resolveEnv(t, `DASH_AUTH_PROXY_ADMIN_USERS=["alice","hunter2\u0001-secret"]`,
+		"DASH_AUTH_PROXY_GROUPS_HEADER=X-Forwarded-Groups", `DASH_AUTH_PROXY_ADMIN_GROUPS=["ops","a,b-secret"]`)
+	if err != nil {
+		t.Fatalf("the configuration must still load: %v", err)
+	}
+	if got := res.Tree.Auth.Proxy.AdminUsers; !slices.Equal(got, []string{"alice", secret}) {
+		t.Errorf("adminUsers = %q: the entries are kept (they simply never match)", got)
+	}
+	lines := strings.Split(strings.TrimSpace(log), "\n")
+	if len(lines) != 2 {
+		t.Fatalf("want two warnings, got %d:\n%s", len(lines), log)
+	}
+	for i, want := range []string{"setting=auth.proxy.adminUsers entry=2", "setting=auth.proxy.adminGroups entry=2"} {
+		if !strings.Contains(lines[i], "WARN") || !strings.Contains(lines[i], want) {
+			t.Errorf("warning %d = %q, want a WARN holding %q", i, lines[i], want)
+		}
+	}
+	if strings.Contains(log, "hunter2") || strings.Contains(log, "b-secret") {
+		t.Errorf("a warning carries the value:\n%s", log)
 	}
 
-	// From the environment the problem names the variable too.
-	_, _, err := resolveEnv(t, `DASH_AUTH_PROXY_ADMIN_USERS=["alice","bad\u0001name"]`)
-	if err == nil || !strings.Contains(err.Error(), "auth.proxy.adminUsers") ||
-		!strings.Contains(err.Error(), "(env DASH_AUTH_PROXY_ADMIN_USERS)") || !strings.Contains(err.Error(), "entry 2 can never match") {
-		t.Errorf("an unusable adminUsers entry from the environment: error %v", err)
+	// A valid list says nothing.
+	if _, log, err := resolveEnv(t, `DASH_AUTH_PROXY_ADMIN_USERS=["alice"]`); err != nil || strings.Contains(log, "never match") {
+		t.Errorf("a valid list warned or failed: %v\n%s", err, log)
 	}
 }

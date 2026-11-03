@@ -93,24 +93,45 @@ func (a AuthConfig) Validate() error {
 	for i, u := range trimmed(p.AdminUsers) {
 		if u == "" {
 			add("proxy.adminUsers", "entry %d is empty", i+1)
-		} else if !auth.ValidUserName(u) {
-			add("proxy.adminUsers", "entry %d can never match a user: a name is at most 128 bytes of valid UTF-8 without control characters, so no header could carry it", i+1)
 		}
 	}
 	for i, g := range trimmed(p.AdminGroups) {
-		switch {
-		case g == "":
+		switch g {
+		case "":
 			add("proxy.adminGroups", "entry %d is empty", i+1)
-		case g == "*":
+		case "*":
 			add("proxy.adminGroups", "entry %d is a wildcard: \"*\" is only valid in adminUsers", i+1)
-		case !auth.ValidGroupName(g):
-			add("proxy.adminGroups", "entry %d can never match a group: a name is at most 256 bytes of valid UTF-8 without control characters or commas (the groups header is split at commas), so no header could carry it", i+1)
 		}
 	}
 	if len(p.AdminGroups) > 0 && groups == "" {
 		add("proxy.adminGroups", "needs auth.proxy.groupsHeader: without the header no user has a group, so nobody would ever be an administrator through it")
 	}
 	return errors.Join(errs...)
+}
+
+// UnmatchableEntry is an admin list entry that no identity header can ever equal.
+type UnmatchableEntry struct {
+	List     string // the setting, e.g. "auth.proxy.adminUsers"
+	Position int    // 1-based; the value is never carried
+}
+
+// Unmatchable lists the admin entries that can never match: a user over 128 bytes, with invalid
+// UTF-8 or a control character, or a group over 256 bytes, with such a character or with a comma
+// (the groups header is split at commas). They grant nothing, as before; v0.11.1 only warns, since
+// a patch release adds no startup error. Empty entries and the wildcard are Validate's.
+func (a AuthConfig) Unmatchable() []UnmatchableEntry {
+	var out []UnmatchableEntry
+	for i, u := range trimmed(a.Proxy.AdminUsers) {
+		if u != "" && !auth.ValidUserName(u) {
+			out = append(out, UnmatchableEntry{"auth.proxy.adminUsers", i + 1})
+		}
+	}
+	for i, g := range trimmed(a.Proxy.AdminGroups) {
+		if g != "" && g != "*" && !auth.ValidGroupName(g) {
+			out = append(out, UnmatchableEntry{"auth.proxy.adminGroups", i + 1})
+		}
+	}
+	return out
 }
 
 // trimmed returns the entries of l without surrounding space or tab, the same rule that trims a
