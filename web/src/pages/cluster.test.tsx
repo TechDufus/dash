@@ -70,7 +70,7 @@ describe("the cluster page", () => {
     stream.close();
   });
 
-  async function show(role: string, row: PluginInfo) {
+  async function show(role: string, row: PluginInfo, payload: ClusterData = cluster()) {
     const stub = stubFetch({ "GET /api/v1/me": me(role) });
     stream = connectStream();
     renderApp(
@@ -81,7 +81,7 @@ describe("the cluster page", () => {
       { path: "/cluster" },
     );
     stream.plugins([row]);
-    stream.send("kubernetes.cluster", cluster());
+    stream.send("kubernetes.cluster", payload);
     await waitFor(() => expect(stub.callsTo("GET /api/v1/me")).toHaveLength(1));
     await act(async () => {}); // /me has been read into the query cache
     await userEvent.click(screen.getByRole("tab", { name: /Workloads/ }));
@@ -126,6 +126,46 @@ describe("the cluster page", () => {
     await waitFor(() => expect(restartButtons()).toHaveLength(1));
     stream.plugins([kubernetes([])]);
     await waitFor(() => expect(restartButtons()).toHaveLength(0));
+  });
+
+  // The Actions column is the table's last one: header and cells appear together, or not at all.
+  const actionsHeader = () => screen.queryByRole("columnheader", { name: "Actions" });
+  const bodyRows = () => within(screen.getByRole("table")).getAllByRole("row").slice(1);
+  const withHeadlamp = (): ClusterData => {
+    const data = cluster();
+    data.workloads[0] = workload("plex", {
+      links: [{ label: "Headlamp", href: "https://headlamp.example.com/plex", kind: "headlamp" }],
+    });
+    return data;
+  };
+
+  it("draws no Actions column for a viewer with no Headlamp link", async () => {
+    await show("viewer", kubernetes());
+    expect(actionsHeader()).toBeNull();
+    expect(screen.queryByRole("link", { name: "Open in Headlamp" })).toBeNull();
+    const headers = within(screen.getByRole("table")).getAllByRole("columnheader");
+    expect(headers).toHaveLength(6);
+    for (const r of bodyRows()) expect(within(r).getAllByRole("cell")).toHaveLength(6);
+  });
+
+  it("draws no Actions column when actions.enabled is off and there is no Headlamp link", async () => {
+    await show("admin", kubernetes([]));
+    expect(actionsHeader()).toBeNull();
+  });
+
+  it("keeps the Actions column for a viewer when a row has a Headlamp link", async () => {
+    await show("viewer", kubernetes(), withHeadlamp());
+    expect(actionsHeader()).not.toBeNull();
+    expect(screen.getAllByRole("link", { name: "Open in Headlamp" })).toHaveLength(1);
+    expect(restartButtons()).toHaveLength(0);
+    for (const r of bodyRows()) expect(within(r).getAllByRole("cell")).toHaveLength(7);
+  });
+
+  it("keeps the Actions column with its Restart button for an admin", async () => {
+    await show("admin", kubernetes());
+    expect(actionsHeader()).not.toBeNull();
+    await waitFor(() => expect(restartButtons()).toHaveLength(1));
+    for (const r of bodyRows()) expect(within(r).getAllByRole("cell")).toHaveLength(7);
   });
 
   it("opens the confirmation for the workload", async () => {

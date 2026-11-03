@@ -1,8 +1,9 @@
 import { Lock, RotateCw } from "lucide-react";
 import { useMemo, useState } from "react";
+import { useMe } from "@/api/queries";
 import type { ClusterData, SourceStatus } from "@/api/types";
 import { ui } from "@/api/ui-store";
-import { HeadlampIcon } from "@/components/links";
+import { HeadlampIcon, headlampLink } from "@/components/links";
 import { Empty, Panel, PanelHeader, PanelSkeleton } from "@/components/panel";
 import { HealthBadge } from "@/components/status";
 import { Badge } from "@/components/ui/badge";
@@ -34,6 +35,8 @@ export function WorkloadsTab({
   const [all, setAll] = useState(false);
   // Restart is offered while the kubernetes plugin lists it (actions.enabled) and the role may run it.
   const canRestart = useActionAvailable("kubernetes", "restart");
+  // While /me is pending the column stays (as it always did); it goes only once the role is known.
+  const mePending = useMe().isPending;
   const { ns, needle, health } = filters;
 
   const namespaces = useMemo(
@@ -59,6 +62,9 @@ export function WorkloadsTab({
 
   if (!data) return <PanelSkeleton lines={6} />;
   const shown = all ? rows : rows.slice(0, ROW_CAP);
+  // An empty Actions column is noise: keep it only while a shown row has a button or link for this user.
+  const showActions =
+    mePending || shown.some((w) => (w.restartable && canRestart) || headlampLink(w.links));
 
   return (
     <Panel>
@@ -84,9 +90,11 @@ export function WorkloadsTab({
               <TableHead className={TH}>
                 <span className="sr-only">Protected</span>
               </TableHead>
-              <TableHead className={`${TH} text-right`}>
-                <span className="sr-only">Actions</span>
-              </TableHead>
+              {showActions && (
+                <TableHead className={`${TH} text-right`}>
+                  <span className="sr-only">Actions</span>
+                </TableHead>
+              )}
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -118,29 +126,31 @@ export function WorkloadsTab({
                       </Badge>
                     )}
                   </TableCell>
-                  <TableCell className={`${TD} text-right`}>
-                    <div className="flex items-center justify-end gap-1">
-                      {w.restartable && canRestart && (
-                        <Button
-                          variant="ghost"
-                          size="xs"
-                          aria-label={`Restart ${w.name}`}
-                          onClick={() =>
-                            ui.openRestart({
-                              kind: w.kind,
-                              namespace: w.namespace,
-                              name: w.name,
-                              protected: w.protected,
-                            })
-                          }
-                        >
-                          <RotateCw aria-hidden="true" />
-                          Restart
-                        </Button>
-                      )}
-                      <HeadlampIcon links={w.links} />
-                    </div>
-                  </TableCell>
+                  {showActions && (
+                    <TableCell className={`${TD} text-right`}>
+                      <div className="flex items-center justify-end gap-1">
+                        {w.restartable && canRestart && (
+                          <Button
+                            variant="ghost"
+                            size="xs"
+                            aria-label={`Restart ${w.name}`}
+                            onClick={() =>
+                              ui.openRestart({
+                                kind: w.kind,
+                                namespace: w.namespace,
+                                name: w.name,
+                                protected: w.protected,
+                              })
+                            }
+                          >
+                            <RotateCw aria-hidden="true" />
+                            Restart
+                          </Button>
+                        )}
+                        <HeadlampIcon links={w.links} />
+                      </div>
+                    </TableCell>
+                  )}
                 </TableRow>
               );
             })}

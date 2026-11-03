@@ -1,8 +1,9 @@
 import { GitBranch, LoaderCircle, RefreshCw, Search, ShieldAlert, ShieldCheck } from "lucide-react";
 import { useMemo, useState } from "react";
+import { useMe } from "@/api/queries";
 import { useTopic } from "@/api/stream";
 import type { FluxKind, FluxObj, FluxSourceRef } from "@/api/types";
-import { HeadlampIcon } from "@/components/links";
+import { HeadlampIcon, headlampLink } from "@/components/links";
 import { Page, Reveal } from "@/components/page";
 import { Empty, Panel, PanelHeader, PanelSkeleton } from "@/components/panel";
 import { HealthBadge } from "@/components/status";
@@ -222,7 +223,11 @@ function FluxTable({
   canReconcile: boolean;
   now: number;
 }) {
+  // While /me is pending the column stays (as it always did); it goes only once the role is known.
+  const mePending = useMe().isPending;
   if (items.length === 0) return <Empty>Nothing matches.</Empty>;
+  // An empty Actions column is noise: keep it only while a row has a button or link for this user.
+  const showActions = mePending || canReconcile || items.some((o) => headlampLink(o.links));
   return (
     <Table className="min-w-[860px]">
       <TableHeader>
@@ -233,9 +238,11 @@ function FluxTable({
           {showVerified && <TableHead className="text-xs text-muted">Verified</TableHead>}
           <TableHead className="text-xs text-muted">Message</TableHead>
           <TableHead className="text-xs text-muted">Changed</TableHead>
-          <TableHead className="w-20 text-right text-xs text-muted">
-            <span className="sr-only">Actions</span>
-          </TableHead>
+          {showActions && (
+            <TableHead className="w-20 text-right text-xs text-muted">
+              <span className="sr-only">Actions</span>
+            </TableHead>
+          )}
         </TableRow>
       </TableHeader>
       <TableBody>
@@ -286,14 +293,16 @@ function FluxTable({
             <TableCell className="text-xs text-muted" title={formatDateTime(o.lastTransition)}>
               {formatRelative(o.lastTransition, now)}
             </TableCell>
-            <TableCell>
-              <div className="flex items-center justify-end gap-0.5">
-                {canReconcile && (
-                  <ReconcileButton kind={o.kind} namespace={o.namespace} name={o.name} />
-                )}
-                <HeadlampIcon links={o.links} />
-              </div>
-            </TableCell>
+            {showActions && (
+              <TableCell>
+                <div className="flex items-center justify-end gap-0.5">
+                  {canReconcile && (
+                    <ReconcileButton kind={o.kind} namespace={o.namespace} name={o.name} />
+                  )}
+                  <HeadlampIcon links={o.links} />
+                </div>
+              </TableCell>
+            )}
           </TableRow>
         ))}
       </TableBody>

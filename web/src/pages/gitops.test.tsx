@@ -202,6 +202,52 @@ describe("the GitOps page", () => {
     await waitFor(() => expect(reconcileButtons()).toHaveLength(0));
   });
 
+  // The Actions column is the table's last one: header and cells appear together, or not at all.
+  const actionsHeader = () => screen.queryByRole("columnheader", { name: "Actions" });
+  const bodyRows = () => within(screen.getByRole("table")).getAllByRole("row").slice(1);
+  const withHeadlamp = () =>
+    data({
+      kustomizations: [
+        obj("Kustomization", "gitops", "root", {
+          links: [
+            { label: "Headlamp", href: "https://headlamp.example.com/root", kind: "headlamp" },
+          ],
+        }),
+      ],
+    });
+
+  it("draws no Actions column for a viewer with no Headlamp link", async () => {
+    await show("viewer", [row()]);
+    expect(actionsHeader()).toBeNull();
+    expect(screen.queryByRole("link", { name: "Open in Headlamp" })).toBeNull();
+    expect(within(screen.getByRole("table")).getAllByRole("columnheader")).toHaveLength(5);
+    for (const r of bodyRows()) expect(within(r).getAllByRole("cell")).toHaveLength(5);
+  });
+
+  it("draws no Actions column while actions.enabled is off and there is no Headlamp link", async () => {
+    await show("admin", [row([])]);
+    expect(actionsHeader()).toBeNull();
+  });
+
+  it("keeps the Actions column for a viewer when a row has a Headlamp link", async () => {
+    await show("viewer", [row()], withHeadlamp());
+    expect(actionsHeader()).not.toBeNull();
+    expect(screen.getAllByRole("link", { name: "Open in Headlamp" })).toHaveLength(1);
+    expect(reconcileButtons()).toHaveLength(0);
+    for (const r of bodyRows()) expect(within(r).getAllByRole("cell")).toHaveLength(6);
+  });
+
+  it("keeps the Actions column with its Reconcile button for an admin", async () => {
+    await show("admin", [row()]);
+    expect(actionsHeader()).not.toBeNull();
+    await waitFor(() =>
+      expect(
+        screen.getByRole("button", { name: "Reconcile Kustomization gitops/root" }),
+      ).toBeTruthy(),
+    );
+    for (const r of bodyRows()) expect(within(r).getAllByRole("cell")).toHaveLength(6);
+  });
+
   it("carries no lab name: nothing on the page comes from a literal", async () => {
     await show("admin", [row()]);
     expect(document.body.textContent).not.toContain("flux-system");
