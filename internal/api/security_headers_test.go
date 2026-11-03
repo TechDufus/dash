@@ -1,6 +1,8 @@
 package api
 
 import (
+	"bytes"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"regexp"
@@ -112,15 +114,36 @@ func TestCSPNonceMatchesTheMetaAndDiffersPerResponse(t *testing.T) {
 	}
 }
 
-// The policy never carries an origin the operator did not configure, whatever the page.
+// The policy never carries an origin the operator did not configure, whatever the page. The nonce
+// is random base64 and may contain "//", so it is removed before the origin checks; the fixed case
+// is a nonce that encodes to nothing but slashes. No test in this package runs in parallel, so
+// swapping nonceSource is safe.
 func TestDocumentCSPContainsNoThirdPartyOriginByDefault(t *testing.T) {
-	w := req{path: "/"}.do(cspServer("", ""))
-	pol := w.Header().Get("Content-Security-Policy")
-	if strings.Contains(pol, "http:") || strings.Contains(pol, "https:") || strings.Contains(pol, "//") {
-		t.Errorf("a default policy names an origin: %s", pol)
-	}
-	if strings.Contains(pol, "unsafe-inline") || strings.Contains(pol, "unsafe-eval") {
-		t.Errorf("the policy loosens script or style: %s", pol)
+	for _, tc := range []struct {
+		name   string
+		source func() io.Reader
+	}{
+		{"a random nonce", func() io.Reader { return nonceSource }},
+		{"a nonce that encodes to slashes", func() io.Reader { return bytes.NewReader(bytes.Repeat([]byte{0xff}, 16)) }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			orig := nonceSource
+			t.Cleanup(func() { nonceSource = orig })
+			nonceSource = tc.source()
+
+			w := req{path: "/"}.do(cspServer("", ""))
+			pol := w.Header().Get("Content-Security-Policy")
+			if !nonceInPolicy.MatchString(pol) {
+				t.Fatalf("no nonce in %q", pol)
+			}
+			rest := nonceInPolicy.ReplaceAllString(pol, "")
+			if strings.Contains(rest, "http:") || strings.Contains(rest, "https:") || strings.Contains(rest, "//") {
+				t.Errorf("a default policy names an origin: %s", pol)
+			}
+			if strings.Contains(pol, "unsafe-inline") || strings.Contains(pol, "unsafe-eval") {
+				t.Errorf("the policy loosens script or style: %s", pol)
+			}
+		})
 	}
 }
 
