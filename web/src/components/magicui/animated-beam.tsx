@@ -163,12 +163,17 @@ export const AnimatedBeam: React.FC<AnimatedBeamProps> = ({
       updatePath()
     })
 
-    // Observe the container element and both endpoints (cards change height with data)
+    // Observe the container element and both endpoints (cards change height with data).
+    // dash local change: also their siblings. In a vertically centred column a card that grows
+    // (a group's "+N more") moves the others without resizing them or the container.
     if (containerRef.current) {
       resizeObserver.observe(containerRef.current)
     }
-    if (fromRef.current) resizeObserver.observe(fromRef.current)
-    if (toRef.current) resizeObserver.observe(toRef.current)
+    for (const end of [fromRef.current, toRef.current]) {
+      for (const card of end?.parentElement?.children ?? []) {
+        resizeObserver.observe(card)
+      }
+    }
 
     // Call the updatePath initially to set the initial path
     updatePath()

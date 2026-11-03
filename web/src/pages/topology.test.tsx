@@ -315,4 +315,25 @@ describe("the topology beams between laid-out cards", () => {
       expect(card).toHaveClass("bg-panel-solid");
     }
   });
+
+  it("moves the beams into a card when a card above it in the column grows", () => {
+    const { cards, beams } = layOut();
+    const [platform, apps, tenants] = cards.groups;
+    const intoTenants = () =>
+      beams
+        .map(ends)
+        .filter((b) => b.from[0] === 448 && inside(b.to[1], tenants))
+        .map((b) => b.to[1]);
+    const before = intoTenants();
+    expect(before).toHaveLength(3);
+    // Platform's "+N more" grows it by 60 px. The column is centred, so Platform moves up 30 px
+    // and Apps and Tenants move down 30 px: only Platform changes size, not they or the container.
+    boxes.set(platform, { left: 496, top: 10, width: 200, height: 160 });
+    for (const card of [apps, tenants]) {
+      const box = boxes.get(card) as Box;
+      boxes.set(card, { ...box, top: box.top + 30 });
+    }
+    fireResize(platform);
+    expect(intoTenants()).toEqual(before.map((y) => y + 30));
+  });
 });
