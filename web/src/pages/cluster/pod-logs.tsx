@@ -75,11 +75,10 @@ export function PodLogs({ ns, pod, containers, active }: PodLogsProps) {
   useEffect(() => {
     if (!active || !live) return;
     setLiveRows([]);
-    setStream("connecting");
     const params = new URLSearchParams({ ns, pod });
     if (containerParam) params.set("container", containerParam);
     if (qParam) params.set("q", qParam);
-    const es = new EventSource(`/api/v1/plugins/victorialogs/logs/tail?${params.toString()}`);
+    let es: EventSource | null = null;
     let buffer: Row[] = [];
     let nextId = 0;
     let timer: ReturnType<typeof setTimeout> | undefined;
@@ -93,23 +92,52 @@ export function PodLogs({ ns, pod, containers, active }: PodLogsProps) {
         return merged.length > MAX_LIVE_LINES ? merged.slice(-MAX_LIVE_LINES) : merged;
       });
     };
-    es.onopen = () => setStream("streaming");
-    es.addEventListener("line", (ev) => {
-      let line: LogLine;
-      try {
-        line = JSON.parse((ev as MessageEvent<string>).data) as LogLine;
-      } catch {
-        return;
-      }
-      setStream("streaming");
-      buffer.push({ id: nextId++, line });
-      if (timer === undefined) timer = setTimeout(flush, FLUSH_MS);
-    });
-    // EventSource retries on its own; a CLOSED socket (e.g. HTTP error) will not.
-    es.onerror = () => setStream(es.readyState === EventSource.CLOSED ? "closed" : "reconnecting");
-    return () => {
-      es.close();
+    const connect = () => {
+      setStream("connecting");
+      const next = new EventSource(`/api/v1/plugins/victorialogs/logs/tail?${params.toString()}`);
+      es = next;
+      next.onopen = () => setStream("streaming");
+      next.addEventListener("line", (ev) => {
+        let line: LogLine;
+        try {
+          line = JSON.parse((ev as MessageEvent<string>).data) as LogLine;
+        } catch {
+          return;
+        }
+        setStream("streaming");
+        buffer.push({ id: nextId++, line });
+        if (timer === undefined) timer = setTimeout(flush, FLUSH_MS);
+      });
+      // EventSource retries on its own; a CLOSED socket (e.g. HTTP error) will not.
+      next.onerror = () =>
+        setStream(next.readyState === EventSource.CLOSED ? "closed" : "reconnecting");
+    };
+    const disconnect = () => {
+      es?.close();
+      es = null;
       clearTimeout(timer);
+      timer = undefined;
+    };
+    connect();
+
+    // A page in the back/forward cache keeps its connections open, and each counts against the
+    // user's tail cap. The tail closes as the page is cached and starts again, from now, when it
+    // comes back; the lines already shown stay.
+    const onPageHide = (ev: PageTransitionEvent) => {
+      if (!ev.persisted || !es) return;
+      if (timer !== undefined) flush();
+      disconnect();
+      setStream("reconnecting");
+    };
+    const onPageShow = (ev: PageTransitionEvent) => {
+      if (ev.persisted && !es) connect();
+    };
+    addEventListener("pagehide", onPageHide);
+    addEventListener("pageshow", onPageShow);
+    return () => {
+      removeEventListener("pagehide", onPageHide);
+      removeEventListener("pageshow", onPageShow);
+      disconnect();
     };
   }, [active, live, ns, pod, containerParam, qParam]);
 

@@ -23,6 +23,8 @@ let version = 0;
 let connection: ConnectionState = "connecting";
 let source: EventSource | null = null;
 let retryTimer: ReturnType<typeof setTimeout> | undefined;
+/** True while the page sits in the back/forward cache with its stream closed; pageshow reopens it. */
+let suspended = false;
 
 function emit() {
   version++;
@@ -120,6 +122,7 @@ async function seedTopic(es: EventSource, name: string) {
 
 function open() {
   source?.close();
+  suspended = false;
   listening.clear();
   visibleTopics = new Set();
   firstPlugins = true;
@@ -142,16 +145,43 @@ function open() {
   for (const topic of BOOT) listen(es, topic);
 }
 
+/**
+ * A page the browser keeps in the back/forward cache stays frozen with its connections open, and the
+ * server counts each one against the user's stream cap, so a few tabs of history starve the next
+ * page with 429s. Leaving into the cache closes the stream; coming back opens a fresh one (the
+ * server sends every topic's current state on connect). A page that is really unloaded needs no
+ * help: the browser closes its connections.
+ */
+function onPageHide(ev: PageTransitionEvent) {
+  if (!ev.persisted || !source) return;
+  clearTimeout(retryTimer);
+  source.close();
+  source = null;
+  suspended = true;
+}
+
+function onPageShow(ev: PageTransitionEvent) {
+  if (!ev.persisted || !suspended) return;
+  setConnection("reconnecting");
+  open();
+}
+
 /** Opens the single shared EventSource (idempotent). */
 export function startStream() {
   if (!source) open();
+  // Re-adding the same listener is a no-op, so repeat calls register nothing twice.
+  addEventListener("pagehide", onPageHide);
+  addEventListener("pageshow", onPageShow);
 }
 
 /** Closes the stream and forgets everything it delivered (tests; the app never calls it). */
 export function stopStream() {
+  removeEventListener("pagehide", onPageHide);
+  removeEventListener("pageshow", onPageShow);
   clearTimeout(retryTimer);
   source?.close();
   source = null;
+  suspended = false;
   listening.clear();
   visibleTopics = new Set();
   firstPlugins = true;
