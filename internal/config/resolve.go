@@ -68,6 +68,14 @@ type Sources struct {
 	// means no kubernetes plugin to read them: a k8s: reference is then an error.
 	// `dash config validate` passes a throwaway one, which checks the syntax only.
 	K8s *secret.K8sRefs
+
+	// strictUI makes the resolution a candidate's (Reloader.Candidate). A problem with a UI
+	// value is an error naming its path when the value differs from the one strictUI (the
+	// store's values) holds there, and stays a warning where they agree, so a stored key of
+	// another version cannot refuse every later write. A k8s: reference that K8s has not
+	// handed out is checked for syntax and gets no handle. Nil, the default: every UI problem
+	// is a warning.
+	strictUI map[string]any
 }
 
 // Resolved is the outcome of Resolve.
@@ -83,6 +91,45 @@ type Resolved struct {
 
 	src Sources // what produced this resolution, for the reloader
 }
+
+// FieldError is a problem with one configuration path.
+type FieldError struct{ Path, Message string }
+
+// Error is "path: message".
+func (e *FieldError) Error() string { return e.Path + ": " + e.Message }
+
+// FieldErrors returns, in order, every *FieldError in err's tree (errors.Join and %w chains);
+// nil if there is none. A strict candidate (Reloader.Candidate) reports its per-path UI
+// problems this way.
+func FieldErrors(err error) []FieldError {
+	var out []FieldError
+	var walk func(error)
+	walk = func(err error) {
+		switch e := err.(type) {
+		case nil:
+		case *FieldError:
+			out = append(out, *e)
+		case interface{ Unwrap() []error }:
+			for _, c := range e.Unwrap() {
+				walk(c)
+			}
+		case interface{ Unwrap() error }:
+			walk(e.Unwrap())
+		}
+	}
+	walk(err)
+	return out
+}
+
+// fieldError is an error whose text stays as it is ("path (env NAME): message") while
+// FieldErrors and errors.As still find its path. It unwraps to the FieldError alone, not to a
+// list: callers that flatten errors.Join trees (dash config validate) must see one problem.
+type fieldError struct {
+	error
+	field *FieldError
+}
+
+func (e *fieldError) Unwrap() error { return e.field }
 
 // Resolve layers the sources, validates the result and maps it onto the flat Config. An invalid
 // file or environment is an error; stale or UI-ineligible UI values are ignored with a warning
@@ -136,20 +183,24 @@ func layer(src Sources) (r *resolver, dev, demo bool, err error) {
 	env := envMap(src.Environ)
 	dev, demo = envTrue(env["DASH_DEV"]), envTrue(env["DASH_DEMO"])
 
-	r = &resolver{tree: defaults(dev, demo), prov: map[string]Provenance{}, raw: map[string]string{}, plain: map[string]string{}, keys: src.Keys, log: log, skipSecrets: src.SkipSecrets, k8s: src.K8s}
+	r = &resolver{tree: defaults(dev, demo), prov: map[string]Provenance{}, raw: map[string]string{}, plain: map[string]string{}, keys: src.Keys, log: log, skipSecrets: src.SkipSecrets, k8s: src.K8s, strictUI: src.strictUI}
 	for _, l := range schema.leaves {
 		r.prov[l.path] = Provenance{Source: SourceDefault}
 	}
+	var uiErrs []error // only a strict resolution has any
 	if src.UI != nil {
-		r.applyMap(schema.root, "", src.UI, Provenance{Source: SourceUI, Ref: src.UIRef}, true)
+		uiErrs = r.applyMap(schema.root, "", src.UI, Provenance{Source: SourceUI, Ref: src.UIRef}, true)
 	}
 	if src.File != nil {
 		if err := r.applyFile(src.File); err != nil {
+			if len(uiErrs) > 0 {
+				err = errors.Join(append(uiErrs, err)...)
+			}
 			return nil, false, false, err
 		}
 	}
 	entries, envErr := envLayer(env, log)
-	errs := []error{envErr}
+	errs := append(uiErrs, envErr)
 	for _, e := range entries {
 		if err := r.set(schema.byPath[e.path], e.data, Provenance{Source: SourceEnv, Ref: e.ref}); err != nil {
 			errs = append(errs, fmt.Errorf("%s: %w", e.ref, err))
@@ -172,6 +223,8 @@ type resolver struct {
 	// skipSecrets leaves env: and file: references unread (Sources.SkipSecrets).
 	skipSecrets bool
 	k8s         *secret.K8sRefs
+	// strictUI turns UI problems into errors (Sources.strictUI).
+	strictUI map[string]any
 
 	// sealedErrs are the stored enc:v1: secrets that cannot be decrypted. They are collected,
 	// not logged as ignored UI settings like other stale values: a stored credential is never
@@ -197,26 +250,30 @@ func (r *resolver) applyFile(f *File) error {
 }
 
 // applyMap walks a nested map against the schema. For the UI layer (ui) problems are warnings:
-// that store is written by dash and may hold keys of another version.
+// that store is written by dash and may hold keys of another version. A strict resolution
+// reports those of changed values as errors (Sources.strictUI).
 func (r *resolver) applyMap(n *node, prefix string, m map[string]any, p Provenance, ui bool) []error {
 	var errs []error
-	problem := func(path, msg string) {
-		if ui {
+	problem := func(path string, v any, msg string) {
+		switch {
+		case !ui:
+			errs = append(errs, fmt.Errorf("%s: %s", path, msg))
+		case r.strictChanged(path, v):
+			errs = append(errs, &FieldError{Path: path, Message: msg})
+		default:
 			r.log.Warn("ignoring UI setting", "path", path, "reason", msg)
-			return
 		}
-		errs = append(errs, fmt.Errorf("%s: %s", path, msg))
 	}
 	for _, key := range slices.Sorted(maps.Keys(m)) {
 		path, v := prefix+key, m[key]
 		if ui && uiIneligible(path) {
-			r.warnIneligible(path, v)
+			errs = append(errs, r.ineligible(path, v)...)
 			continue
 		}
 		c := n.child(key)
 		switch {
 		case c == nil:
-			problem(path, "unknown field")
+			problem(path, v, "unknown field")
 		case v == nil:
 			// "key:" with no value leaves the lower layers alone.
 		case c.leaf != nil:
@@ -225,12 +282,12 @@ func (r *resolver) applyMap(n *node, prefix string, m map[string]any, p Provenan
 				err = r.set(c.leaf, data, p)
 			}
 			if err != nil {
-				problem(path, strings.TrimPrefix(err.Error(), c.leaf.path+": "))
+				problem(path, v, strings.TrimPrefix(err.Error(), c.leaf.path+": "))
 			}
 		default:
 			sub, ok := v.(map[string]any)
 			if !ok {
-				problem(path, "expected a section (a map of settings)")
+				problem(path, v, "expected a section (a map of settings)")
 				continue
 			}
 			errs = append(errs, r.applyMap(c, path+".", sub, p, ui)...)
@@ -239,15 +296,58 @@ func (r *resolver) applyMap(n *node, prefix string, m map[string]any, p Provenan
 	return errs
 }
 
-// warnIneligible warns once per leaf under a UI value at a path the UI may not set.
-func (r *resolver) warnIneligible(path string, v any) {
-	if m, ok := v.(map[string]any); ok {
+// ineligible warns once per leaf under a UI value at a path the UI may not set. In a strict
+// resolution a leaf whose value changed is an error instead. It descends into sections only: a
+// map given for a leaf (a secret, say) is that leaf's value, and its keys never become part of a
+// path.
+func (r *resolver) ineligible(path string, v any) []error {
+	if m, ok := v.(map[string]any); ok && schema.byPath[path] == nil {
+		var errs []error
 		for _, k := range slices.Sorted(maps.Keys(m)) {
-			r.warnIneligible(path+"."+k, m[k])
+			errs = append(errs, r.ineligible(path+"."+k, m[k])...)
 		}
-		return
+		return errs
 	}
-	r.log.Warn("ignoring UI setting", "path", path, "reason", "server, auth, settings.ui and dataDir cannot be set from the UI")
+	const reason = "server, auth, settings.ui and dataDir cannot be set from the UI"
+	if r.strictChanged(path, v) {
+		return []error{&FieldError{Path: path, Message: reason}}
+	}
+	r.log.Warn("ignoring UI setting", "path", path, "reason", reason)
+	return nil
+}
+
+// strictChanged reports whether a strict resolution refuses the UI value v at path: v differs
+// from what the store holds there. Values compare by their JSON, so 1 and 1.0 are equal.
+func (r *resolver) strictChanged(path string, v any) bool {
+	if r.strictUI == nil {
+		return false
+	}
+	var cur any = r.strictUI
+	for _, k := range strings.Split(path, ".") {
+		m, ok := cur.(map[string]any)
+		if !ok {
+			return true
+		}
+		if cur, ok = m[k]; !ok {
+			return true
+		}
+	}
+	was, errWas := json.Marshal(cur)
+	now, errNow := json.Marshal(v)
+	return errWas != nil || errNow != nil || !bytes.Equal(was, now)
+}
+
+// k8sHandle is the holder of a k8s: reference. A strict resolution must not change what runs,
+// and a new handle is announced to the kubernetes plugin, which would watch a Secret nobody
+// saved; so a reference not handed out yet is only parsed, into a pending Value of its own.
+func (r *resolver) k8sHandle(raw string) (secret.Value, error) {
+	if r.strictUI != nil && !slices.ContainsFunc(r.k8s.Refs(), func(k secret.K8sRef) bool { return k.Raw == raw }) {
+		if _, err := secret.ParseK8sRef(raw); err != nil {
+			return secret.Value{}, err
+		}
+		return secret.New("", raw), nil
+	}
+	return r.k8s.Handle(raw)
 }
 
 // set decodes JSON data into the leaf, strictly, and records its provenance.
@@ -339,8 +439,13 @@ func (r *resolver) resolveSecrets(reg *secret.Registry) error {
 			} else if r.k8s != nil && strings.HasPrefix(raw, "k8s:") {
 				// A pending handle: the kubernetes plugin fills it. The error names the field
 				// and never the reference.
-				if v, err = r.k8s.Handle(raw); err != nil {
-					errs = append(errs, fmt.Errorf("%s%s: %w", l.path, where(r.prov, l.path), err))
+				if v, err = r.k8sHandle(raw); err != nil {
+					err = fmt.Errorf("%s%s: %w", l.path, where(r.prov, l.path), err)
+					if r.strictUI != nil && r.prov[l.path].Source == SourceUI {
+						// A candidate's reference: the UI form shows it at its field.
+						err = &fieldError{error: err, field: &FieldError{Path: l.path, Message: errors.Unwrap(err).Error()}}
+					}
+					errs = append(errs, err)
 					continue
 				}
 			} else if v, err = secret.Resolve(raw, l.path+where(r.prov, l.path)); err != nil {

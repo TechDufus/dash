@@ -63,8 +63,18 @@ type Reloader struct {
 	logger   *slog.Logger
 	live     func(section string) bool
 
+	// lock serialises a tick with WithLock's critical section. It is a channel rather than a
+	// sync.Mutex so that a tick waiting on it is durably blocked for testing/synctest.
+	lock chan struct{}
+
+	// notifyMu serialises one reload with the notification of its changes, so that a Reload
+	// outside WithLock and a tick never run the subscribers at the same time, and the
+	// subscribers hear the changes of consecutive reloads in order. The lock order is lock,
+	// notifyMu, mu; mu is never held while the subscribers run.
+	notifyMu sync.Mutex
+
 	mu       sync.Mutex // guards the fields below
-	prev     Tree       // the last valid resolution, to tell what a reload changed
+	cur      *Resolved  // the last valid resolution, to tell what a reload changed; never nil
 	watch    map[string]fileState
 	revision uint64 // of the settings store at the last resolution
 	lastErr  string // the invalid state already logged; "" when the last resolution was valid
@@ -77,8 +87,8 @@ type Reloader struct {
 func NewReloader(res *Resolved, store *settings.Store, opts ReloadOptions) *Reloader {
 	r := &Reloader{
 		base: res.src, store: store, reg: res.src.Registry, startup: res,
-		interval: opts.Interval, logger: opts.Log, live: opts.Live, prev: res.Tree,
-		watch: map[string]fileState{},
+		interval: opts.Interval, logger: opts.Log, live: opts.Live, cur: res,
+		lock: make(chan struct{}, 1), watch: map[string]fileState{},
 	}
 	r.base.File, r.base.UI, r.base.Registry = nil, nil, nil
 	r.base.Log = slog.New(slog.DiscardHandler) // startup already said what it had to say
@@ -103,8 +113,10 @@ func (r *Reloader) log() *slog.Logger {
 	return slog.Default()
 }
 
-// Subscribe registers fn to receive every Change. It is called from the reloader's goroutine,
-// after the new state is in place, so it must not block.
+// Subscribe registers fn to receive every Change. It is called from the goroutine that runs the
+// reload (Run's, or Reload's caller), after the new state is in place, and never concurrently
+// with itself. It must not block, and must not call Reload or WithLock: either deadlocks. It
+// may call Resolved, Tree and RestartRequired.
 func (r *Reloader) Subscribe(fn func(Change)) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -122,11 +134,62 @@ func (r *Reloader) RestartRequired() []string {
 
 // Tree is the last valid resolution: what a reload applied or noted, not necessarily what the
 // process started with. A Change only names sections; the plugin supervisor reads the
-// sections through this.
+// sections through this. It is always Resolved().Tree.
 func (r *Reloader) Tree() Tree {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	return r.prev
+	return r.cur.Tree
+}
+
+// Resolved is the last valid resolution with its provenance, never nil: the startup one until a
+// reload puts another into effect. It is shared; callers must not modify it.
+func (r *Reloader) Resolved() *Resolved {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.cur
+}
+
+// WithLock runs fn while no tick can run, so that a sequence such as Candidate,
+// settings.Store.Apply and Reload cannot interleave with a poll: a tick that comes due waits
+// until fn returns. Inside fn call Reload, which does not take this lock, and never WithLock.
+func (r *Reloader) WithLock(fn func() error) error {
+	r.lock <- struct{}{}
+	defer func() { <-r.lock }()
+	return fn()
+}
+
+// Reload runs a check now instead of at the next tick: it reads the files and the store again,
+// puts a valid resolution into effect and calls the subscribers before it returns. It fails
+// only when the resolution does (an invalid file or environment, or a setting that does not
+// validate); the running configuration then stays in force, as on a tick. It serialises with
+// a tick's reload and notification. It does not take the WithLock lock, so it can run inside
+// WithLock; R6 calls it there. A subscriber must not call it: that deadlocks.
+func (r *Reloader) Reload() error {
+	r.notifyMu.Lock()
+	defer r.notifyMu.Unlock()
+	changes, subs, err := r.check()
+	notify(changes, subs)
+	return err
+}
+
+// Candidate resolves the configuration as it would be with ui as the settings store's values:
+// the environment and keys as at startup, the config file as it is now. It changes nothing
+// that runs: no secret is updated or registered, no new k8s: reference gets a handle, and
+// neither Tree nor Resolved moves. Unlike a reload, a UI value that is not valid is an error
+// naming its path ("plugins.gatus.url: expected a string, got number"), unless it equals what
+// the store holds now: a stored key of another version stays a warning, so that it cannot
+// refuse every later write.
+func (r *Reloader) Candidate(ui map[string]any) (*Resolved, error) {
+	src := r.base
+	f, err := readConfigFile(src.Environ)
+	if err != nil {
+		return nil, err
+	}
+	src.File, src.UI, src.strictUI = f, ui, map[string]any{}
+	if r.store != nil {
+		src.UIRef, src.strictUI = r.store.Path(), r.store.Values()
+	}
+	return Resolve(src)
 }
 
 func (r *Reloader) isLive(section string) bool { return r.live != nil && r.live(section) }
@@ -147,9 +210,17 @@ func (r *Reloader) Run(ctx context.Context) {
 
 // poll is one tick: look at the files and the store, reload if one changed or the last reload
 // was invalid (the cause of an invalid state, such as a secret file that does not exist yet,
-// may be outside the watched files).
+// may be outside the watched files). It waits while WithLock runs.
 func (r *Reloader) poll() {
-	changes, subs := r.check()
+	r.lock <- struct{}{}
+	defer func() { <-r.lock }()
+	r.notifyMu.Lock()
+	defer r.notifyMu.Unlock()
+	changes, subs, _ := r.check() // check logged the error
+	notify(changes, subs)
+}
+
+func notify(changes []Change, subs []func(Change)) {
 	for _, c := range changes {
 		for _, fn := range subs {
 			fn(c)
@@ -157,7 +228,9 @@ func (r *Reloader) poll() {
 	}
 }
 
-func (r *Reloader) check() ([]Change, []func(Change)) {
+// check reloads if something changed, logging a failed resolution once per distinct error, and
+// returns the changes for the subscribers or the resolution error.
+func (r *Reloader) check() ([]Change, []func(Change), error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
@@ -171,7 +244,7 @@ func (r *Reloader) check() ([]Change, []func(Change)) {
 		changed = true
 	}
 	if !changed && r.lastErr == "" {
-		return nil, nil
+		return nil, nil, nil
 	}
 
 	var rev uint64
@@ -184,7 +257,7 @@ func (r *Reloader) check() ([]Change, []func(Change)) {
 			r.log().Error("configuration reload failed; the running configuration stays in force", "error", msg)
 			r.lastErr = msg
 		}
-		return nil, nil
+		return nil, nil, err
 	}
 	r.lastErr, r.revision = "", rev
 
@@ -196,7 +269,7 @@ func (r *Reloader) check() ([]Change, []func(Change)) {
 		}
 	}
 	maps.DeleteFunc(r.watch, func(p string, _ fileState) bool { return !slices.Contains(want, p) })
-	return changes, slices.Clone(r.subs)
+	return changes, slices.Clone(r.subs), nil
 }
 
 // resolve layers the sources again: the environment and keys as at startup, the file and the
@@ -220,7 +293,7 @@ func (r *Reloader) apply(next *Resolved) []Change {
 	var changed []string
 	restart := map[string]bool{}
 	for _, l := range schema.leaves {
-		was, now := l.field(&r.prev), l.field(&next.Tree)
+		was, now := l.field(&r.cur.Tree), l.field(&next.Tree)
 		start := l.field(&r.startup.Tree)
 		if l.secret {
 			ov, nv, running := was.Interface().(secret.Value), now.Interface().(secret.Value), start.Interface().(secret.Value)
@@ -256,14 +329,18 @@ func (r *Reloader) apply(next *Resolved) []Change {
 			}
 			continue
 		}
-		if !reflect.DeepEqual(was.Interface(), now.Interface()) {
+		// A url leaf of a plugin that keeps its value but moves into or out of the UI layer is a
+		// change too: where a URL comes from decides whether it may reach loopback.
+		uiFlip := l.url && strings.HasPrefix(l.path, "plugins.") &&
+			(r.cur.Provenance[l.path].Source == SourceUI) != (next.Provenance[l.path].Source == SourceUI)
+		if uiFlip || !reflect.DeepEqual(was.Interface(), now.Interface()) {
 			changed = append(changed, l.path)
 		}
 		if !reflect.DeepEqual(start.Interface(), now.Interface()) && (l.restart || !r.isLive(sectionOf(l.path))) {
 			restart[l.path] = true
 		}
 	}
-	r.prev = next.Tree
+	r.cur = next // the tree and its provenance together
 
 	if added := slices.DeleteFunc(slices.Sorted(maps.Keys(restart)), func(p string) bool { return slices.Contains(r.restart, p) }); len(added) > 0 {
 		r.log().Warn("configuration changed; these settings apply after a restart", "settings", added)

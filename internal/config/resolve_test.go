@@ -372,3 +372,26 @@ func TestProcessSourcesLayerFileAndEnv(t *testing.T) {
 		t.Errorf("launcher file = %q, want %q", res.Tree.Plugins.Launcher.File, launcher)
 	}
 }
+
+// A map given for a UI-ineligible leaf (a secret) is that leaf's value: its keys never become
+// part of the error's path or the warning's, in a candidate or at a reload.
+func TestIneligibleLeafGivenAMapKeepsItsPath(t *testing.T) {
+	const canary = "INELIGIBLECANARY"
+	ui := map[string]any{"auth": map[string]any{"oidc": map[string]any{"clientSecret": map[string]any{canary: canary}}}}
+	log, buf := logBuf()
+	_, err := Resolve(Sources{Environ: []string{"DASH_DEMO=true"}, UI: ui, Log: log, strictUI: map[string]any{}})
+	fes := FieldErrors(err)
+	if len(fes) != 1 || fes[0].Path != "auth.oidc.clientSecret" {
+		t.Fatalf("FieldErrors = %+v, want one at auth.oidc.clientSecret (err %v)", fes, err)
+	}
+	if strings.Contains(err.Error(), canary) {
+		t.Errorf("the candidate's error carries the map's key or value: %v", err)
+	}
+
+	if _, err := Resolve(Sources{Environ: []string{"DASH_DEMO=true"}, UI: ui, Log: log}); err != nil {
+		t.Fatalf("a reload refused a stale UI value: %v", err)
+	}
+	if strings.Contains(buf.String(), canary) || !strings.Contains(buf.String(), "path=auth.oidc.clientSecret") {
+		t.Errorf("the warning should name auth.oidc.clientSecret and nothing under it:\n%s", buf.String())
+	}
+}

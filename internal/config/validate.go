@@ -48,7 +48,9 @@ func (v *validator) fail(path, format string, args ...any) {
 		v.failed = map[string]bool{}
 	}
 	v.failed[path] = true
-	v.errs = append(v.errs, fmt.Errorf("%s%s: %s", path, where(v.prov, path), fmt.Sprintf(format, args...)))
+	// The text keeps the layer; FieldErrors finds the path (a candidate's form shows it there).
+	msg := fmt.Sprintf(format, args...)
+	v.errs = append(v.errs, &fieldError{error: fmt.Errorf("%s%s: %s", path, where(v.prov, path), msg), field: &FieldError{Path: path, Message: msg}})
 }
 
 // section reports what a pluginconf section's Validate found, each problem at its full path
