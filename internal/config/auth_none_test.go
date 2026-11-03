@@ -7,17 +7,18 @@ import (
 )
 
 // The mode that turns authentication off exists only when someone sets it: with no environment
-// and no file the mode is proxy, and so is the default of the built-in layer.
+// and no file the mode is local (v0.12.0; proxy before), and so is the default of the built-in
+// layer.
 func TestNoneModeIsNeverTheDefaultSetting(t *testing.T) {
-	if got := DefaultAuth().Mode; got != AuthModeProxy {
-		t.Errorf("DefaultAuth().Mode = %q, want %q", got, AuthModeProxy)
+	if got := DefaultAuth().Mode; got != AuthModeLocal {
+		t.Errorf("DefaultAuth().Mode = %q, want %q", got, AuthModeLocal)
 	}
 	res, err := Resolve(Sources{Environ: []string{"DASH_SERVER_PUBLIC_URL=https://dash.example.com"}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := res.Tree.Auth.Mode; got != AuthModeProxy {
-		t.Errorf("auth.mode with no file and no environment = %q, want %q", got, AuthModeProxy)
+	if got := res.Tree.Auth.Mode; got != AuthModeLocal {
+		t.Errorf("auth.mode with no file and no environment = %q, want %q", got, AuthModeLocal)
 	}
 	if p := res.Provenance["auth.mode"]; p.Source != SourceDefault {
 		t.Errorf("auth.mode provenance = %+v, want the default", p)

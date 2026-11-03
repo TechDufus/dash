@@ -64,12 +64,13 @@ type AuthProxyConfig struct {
 	AdminGroups    []string `json:"adminGroups" doc:"Groups whose members are administrators; needs groupsHeader. A JSON list in the environment. Applies without a restart."`
 }
 
-// DefaultAuth is the built-in layer of the auth section: the proxy mode, believing the
-// loopback peers a sidecar proxy connects from, and nobody an administrator; the local mode's
-// account is named admin and the anonymous viewer is off.
+// DefaultAuth is the built-in layer of the auth section: the local mode (design J.6; v0.11.x
+// defaulted to proxy, so an install behind an identity proxy sets DASH_AUTH_MODE=proxy), with an
+// account named admin and no anonymous viewer; the proxy mode believes the loopback peers a
+// sidecar proxy connects from and makes nobody an administrator.
 func DefaultAuth() AuthConfig {
 	return AuthConfig{
-		Mode: AuthModeProxy,
+		Mode: AuthModeLocal,
 		Proxy: AuthProxyConfig{
 			UserHeaders:    []string{"X-Forwarded-Preferred-Username", "X-Forwarded-User"},
 			TrustedProxies: []string{"127.0.0.1/32", "::1/128"},
@@ -128,17 +129,24 @@ func (a AuthConfig) Validate() error {
 		add("proxy.trustedProxies", "0.0.0.0/0 or ::/0 would believe an identity header from every client; set allowAnyPeer to true to accept that")
 	}
 
+	// An admin entry no identity header can carry is refused (it was a startup warning in
+	// v0.11.1, which as a patch release added no load error): by position, never by value.
 	for i, u := range trimmed(p.AdminUsers) {
-		if u == "" {
+		switch {
+		case u == "":
 			add("proxy.adminUsers", "entry %d is empty", i+1)
+		case u != "*" && !auth.ValidUserName(u):
+			add("proxy.adminUsers", "entry %d can never match a user: a name is at most 128 bytes of valid UTF-8 without control characters, so no header could carry it", i+1)
 		}
 	}
 	for i, g := range trimmed(p.AdminGroups) {
-		switch g {
-		case "":
+		switch {
+		case g == "":
 			add("proxy.adminGroups", "entry %d is empty", i+1)
-		case "*":
+		case g == "*":
 			add("proxy.adminGroups", "entry %d is a wildcard: \"*\" is only valid in adminUsers", i+1)
+		case !auth.ValidGroupName(g):
+			add("proxy.adminGroups", "entry %d can never match a group: a name is at most 256 bytes of valid UTF-8 without control characters or commas (the groups header is split at commas), so no header could carry it", i+1)
 		}
 	}
 	if len(p.AdminGroups) > 0 && groups == "" {
@@ -229,31 +237,6 @@ func loopbackHost(host string) bool {
 	}
 	ip := net.ParseIP(host)
 	return ip != nil && ip.IsLoopback()
-}
-
-// UnmatchableEntry is an admin list entry that no identity header can ever equal.
-type UnmatchableEntry struct {
-	List     string // the setting, e.g. "auth.proxy.adminUsers"
-	Position int    // 1-based; the value is never carried
-}
-
-// Unmatchable lists the admin entries that can never match: a user over 128 bytes, with invalid
-// UTF-8 or a control character, or a group over 256 bytes, with such a character or with a comma
-// (the groups header is split at commas). They grant nothing, as before; v0.11.1 only warns, since
-// a patch release adds no startup error. Empty entries and the wildcard are Validate's.
-func (a AuthConfig) Unmatchable() []UnmatchableEntry {
-	var out []UnmatchableEntry
-	for i, u := range trimmed(a.Proxy.AdminUsers) {
-		if u != "" && !auth.ValidUserName(u) {
-			out = append(out, UnmatchableEntry{"auth.proxy.adminUsers", i + 1})
-		}
-	}
-	for i, g := range trimmed(a.Proxy.AdminGroups) {
-		if g != "" && g != "*" && !auth.ValidGroupName(g) {
-			out = append(out, UnmatchableEntry{"auth.proxy.adminGroups", i + 1})
-		}
-	}
-	return out
 }
 
 // trimmed returns the entries of l without surrounding space or tab, the same rule that trims a

@@ -1,6 +1,7 @@
 package config
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -37,16 +38,17 @@ next:
 	return false
 }
 
-// No env and no file: the proxy mode, the two user headers, groups off, the loopback believed and
-// nobody an administrator. The expectation is written out, not derived from DefaultAuth.
+// No env and no file: the local mode (v0.12.0), and for the proxy mode the two user headers,
+// groups off, the loopback believed and nobody an administrator. The expectation is written out,
+// not derived from DefaultAuth.
 func TestAuthDefaults(t *testing.T) {
 	res, _, err := resolveEnv(t)
 	if err != nil {
 		t.Fatal(err)
 	}
 	a := res.Tree.Auth
-	if a.Mode != "proxy" {
-		t.Errorf("auth.mode = %q, want proxy", a.Mode)
+	if a.Mode != "local" {
+		t.Errorf("auth.mode = %q, want local", a.Mode)
 	}
 	p := a.Proxy
 	if want := []string{"X-Forwarded-Preferred-Username", "X-Forwarded-User"}; !reflect.DeepEqual(p.UserHeaders, want) {
@@ -83,7 +85,7 @@ func TestAuthSectionEnvNames(t *testing.T) {
 		want           any    // what the tree holds after setting it
 	}
 	rows := map[string]row{
-		"DASH_AUTH_MODE":                   {"auth.mode", "string", "proxy", true, "proxy", "proxy"},
+		"DASH_AUTH_MODE":                   {"auth.mode", "string", "local", true, "proxy", "proxy"},
 		"DASH_AUTH_PROXY_USER_HEADERS":     {"auth.proxy.userHeaders", "list of strings (JSON)", `["X-Forwarded-Preferred-Username","X-Forwarded-User"]`, true, `["X-Email"]`, []string{"X-Email"}},
 		"DASH_AUTH_PROXY_GROUPS_HEADER":    {"auth.proxy.groupsHeader", "string", "", true, "X-Forwarded-Groups", "X-Forwarded-Groups"},
 		"DASH_AUTH_PROXY_TRUSTED_PROXIES":  {"auth.proxy.trustedProxies", "list of strings (JSON)", `["127.0.0.1/32","::1/128"]`, true, `["10.0.0.0/8"]`, []string{"10.0.0.0/8"}},
@@ -405,86 +407,72 @@ func TestAdminListEntriesAreValidated(t *testing.T) {
 	}
 }
 
-// An admin entry that no header could ever carry grants nothing: the user header is cut at 128
-// bytes of clean UTF-8 and a group at 256 (and the groups header is split at commas). A patch
-// release adds no startup error, so such an entry is reported (Unmatchable), by list and position,
-// and Validate still accepts it.
-func TestAdminEntriesThatCanNeverMatchAreReported(t *testing.T) {
-	withHeader := func(f func(*AuthConfig)) AuthConfig {
-		a := DefaultAuth()
-		a.Proxy.GroupsHeader = "X-Forwarded-Groups"
-		f(&a)
-		return a
+// An admin entry that no header could ever carry is a load error, by list and position: the user
+// header is cut at 128 bytes of clean UTF-8 and a group at 256 (and the groups header is split at
+// commas). v0.11.1 only warned (a patch release adds no load error); v0.12.0 refuses.
+func TestAdminEntriesThatCanNeverMatchAreRefused(t *testing.T) {
+	type at struct {
+		path  string
+		entry int
 	}
-	users := func(l ...string) AuthConfig { return withHeader(func(a *AuthConfig) { a.Proxy.AdminUsers = l }) }
-	groups := func(l ...string) AuthConfig { return withHeader(func(a *AuthConfig) { a.Proxy.AdminGroups = l }) }
-	const U, G = "auth.proxy.adminUsers", "auth.proxy.adminGroups"
+	users := func(l ...string) func(*AuthConfig) { return func(a *AuthConfig) { a.Proxy.AdminUsers = l } }
+	groups := func(l ...string) func(*AuthConfig) {
+		return func(a *AuthConfig) { a.Proxy.GroupsHeader, a.Proxy.AdminGroups = "X-Forwarded-Groups", l }
+	}
+	const U, G = "proxy.adminUsers", "proxy.adminGroups"
 	for name, c := range map[string]struct {
-		a    AuthConfig
-		want []UnmatchableEntry // nil = every entry can match
+		set  func(*AuthConfig)
+		want []at // nil = every entry can match
 	}{
 		"user of 128 bytes":           {users(strings.Repeat("a", 128)), nil},
-		"user of 129 bytes":           {users("ok", strings.Repeat("a", 129)), []UnmatchableEntry{{U, 2}}},
+		"user of 129 bytes":           {users("ok", strings.Repeat("a", 129)), []at{{U, 2}}},
 		"user of 64 two-byte runes":   {users(strings.Repeat("é", 64)), nil},
-		"user of 65 two-byte runes":   {users(strings.Repeat("é", 65)), []UnmatchableEntry{{U, 1}}},
-		"user with a tab inside":      {users("al\tice"), []UnmatchableEntry{{U, 1}}},
-		"user with a newline":         {users("alice\nbob"), []UnmatchableEntry{{U, 1}}},
-		"user with DEL":               {users("al\x7fice"), []UnmatchableEntry{{U, 1}}},
-		"user with a C1 control":      {users("al\u0085ice"), []UnmatchableEntry{{U, 1}}},
-		"user that is not UTF-8":      {users("al\xffice"), []UnmatchableEntry{{U, 1}}},
+		"user of 65 two-byte runes":   {users(strings.Repeat("é", 65)), []at{{U, 1}}},
+		"user with a tab inside":      {users("al\tice"), []at{{U, 1}}},
+		"user with a newline":         {users("alice\nbob"), []at{{U, 1}}},
+		"user with DEL":               {users("al\x7fice"), []at{{U, 1}}},
+		"user with a C1 control":      {users("al\u0085ice"), []at{{U, 1}}},
+		"user that is not UTF-8":      {users("al\xffice"), []at{{U, 1}}},
 		"user with a comma":           {users("smith, john"), nil},
 		"padding is trimmed first":    {users(" \t" + strings.Repeat("a", 128) + "\t "), nil},
 		"wildcard user":               {users("*"), nil},
 		"group of 256 bytes":          {groups(strings.Repeat("g", 256)), nil},
-		"group of 257 bytes":          {groups("ops", strings.Repeat("g", 257)), []UnmatchableEntry{{G, 2}}},
-		"group with a comma":          {groups("ops", "a,b"), []UnmatchableEntry{{G, 2}}},
-		"group with a control":        {groups("o\x00ps"), []UnmatchableEntry{{G, 1}}},
-		"group that is not UTF-8":     {groups("o\xc3ps"), []UnmatchableEntry{{G, 1}}},
-		"group with a C1 control":     {groups("o\u009fps"), []UnmatchableEntry{{G, 1}}},
+		"group of 257 bytes":          {groups("ops", strings.Repeat("g", 257)), []at{{G, 2}}},
+		"group with a comma":          {groups("ops", "a,b"), []at{{G, 2}}},
+		"group with a control":        {groups("o\x00ps"), []at{{G, 1}}},
+		"group that is not UTF-8":     {groups("o\xc3ps"), []at{{G, 1}}},
+		"group with a C1 control":     {groups("o\u009fps"), []at{{G, 1}}},
 		"group with a no-break space": {groups("\u00a0ops"), nil},
-		"both lists, in order": {withHeader(func(a *AuthConfig) {
-			a.Proxy.AdminUsers = []string{"a\x01", "b"}
-			a.Proxy.AdminGroups = []string{"x", "y,z"}
-		}), []UnmatchableEntry{{U, 1}, {G, 2}}},
-		"empty and wildcard are Validate's": {withHeader(func(a *AuthConfig) { a.Proxy.AdminGroups = []string{"", "*"} }), nil},
 	} {
-		if got := c.a.Unmatchable(); !slices.Equal(got, c.want) {
-			t.Errorf("%s: Unmatchable = %+v, want %+v", name, got, c.want)
+		ps := authProblems(c.set)
+		if len(ps) != len(c.want) {
+			t.Errorf("%s: problems %+v, want %d", name, ps, len(c.want))
+			continue
 		}
-		if len(c.want) > 0 {
-			if err := c.a.Validate(); err != nil {
-				t.Errorf("%s: Validate refuses an entry a patch release must only warn about: %v", name, err)
+		for i, w := range c.want {
+			if ps[i].Path != w.path || !strings.Contains(ps[i].Msg, fmt.Sprintf("entry %d can never match", w.entry)) {
+				t.Errorf("%s: problem %+v, want entry %d of %s", name, ps[i], w.entry, w.path)
 			}
 		}
 	}
 }
 
-// The warning reaches the startup log (and `dash config validate`, which prints the same log), the
-// configuration still loads, and the line carries the list and the position and nothing of the value.
-func TestUnmatchableAdminEntriesWarnAtLoad(t *testing.T) {
-	const secret = "hunter2\x01-secret"
-	res, log, err := resolveEnv(t, `DASH_AUTH_PROXY_ADMIN_USERS=["alice","hunter2\u0001-secret"]`,
+// The refusal reaches the load (and `dash config validate`) naming the setting, the variable and
+// the position, and nothing of the value.
+func TestUnmatchableAdminEntriesFailTheLoad(t *testing.T) {
+	_, _, err := resolveEnv(t, `DASH_AUTH_PROXY_ADMIN_USERS=["alice","hunter2\u0001-secret"]`,
 		"DASH_AUTH_PROXY_GROUPS_HEADER=X-Forwarded-Groups", `DASH_AUTH_PROXY_ADMIN_GROUPS=["ops","a,b-secret"]`)
-	if err != nil {
-		t.Fatalf("the configuration must still load: %v", err)
+	if err == nil {
+		t.Fatal("entries that can never match loaded")
 	}
-	if got := res.Tree.Auth.Proxy.AdminUsers; !slices.Equal(got, []string{"alice", secret}) {
-		t.Errorf("adminUsers = %q: the entries are kept (they simply never match)", got)
-	}
-	lines := strings.Split(strings.TrimSpace(log), "\n")
-	if len(lines) != 2 {
-		t.Fatalf("want two warnings, got %d:\n%s", len(lines), log)
-	}
-	for i, want := range []string{"setting=auth.proxy.adminUsers entry=2", "setting=auth.proxy.adminGroups entry=2"} {
-		if !strings.Contains(lines[i], "WARN") || !strings.Contains(lines[i], want) {
-			t.Errorf("warning %d = %q, want a WARN holding %q", i, lines[i], want)
+	for _, want := range []string{"auth.proxy.adminUsers (env DASH_AUTH_PROXY_ADMIN_USERS): entry 2 can never match", "auth.proxy.adminGroups (env DASH_AUTH_PROXY_ADMIN_GROUPS): entry 2 can never match"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error %q lacks %q", err, want)
 		}
 	}
-	if strings.Contains(log, "hunter2") || strings.Contains(log, "b-secret") {
-		t.Errorf("a warning carries the value:\n%s", log)
+	if strings.Contains(err.Error(), "hunter2") || strings.Contains(err.Error(), "b-secret") {
+		t.Errorf("the error carries a value: %v", err)
 	}
-
-	// A valid list says nothing.
 	if _, log, err := resolveEnv(t, `DASH_AUTH_PROXY_ADMIN_USERS=["alice"]`); err != nil || strings.Contains(log, "never match") {
 		t.Errorf("a valid list warned or failed: %v\n%s", err, log)
 	}
@@ -758,5 +746,65 @@ func TestOIDCListRulesAtLoad(t *testing.T) {
 	_, _, err := resolveLive(t, "DASH_AUTH_MODE=proxy", `DASH_AUTH_OIDC_ADMIN_GROUPS=["a,b-hidden"]`)
 	if err == nil || !strings.Contains(err.Error(), "auth.oidc.adminGroups") || strings.Contains(err.Error(), "b-hidden") {
 		t.Errorf("a never-matching entry outside the oidc mode: %v, want a load error without the value", err)
+	}
+}
+
+// The default flip to local keeps every pinned deployment loading: v0.8 to v0.10 set no auth key
+// (they load in the local mode, whose missing account is a run-time refusal, not a load error) and
+// v0.11 sets proxy. Nothing warns about the auth section.
+func TestOldDeploymentPinsStillLoadAfterTheDefaultFlip(t *testing.T) {
+	for file, mode := range map[string]string{
+		deploymentEnvFileV08: AuthModeLocal, deploymentEnvFileV09: AuthModeLocal,
+		deploymentEnvFileV010: AuthModeLocal, deploymentEnvFileV011: AuthModeProxy,
+	} {
+		res, log, err := resolveWith(t, Sources{Environ: deploymentEnv(t, file)})
+		if err != nil {
+			t.Errorf("%s does not load: %v", file, err)
+			continue
+		}
+		if res.Tree.Auth.Mode != mode || strings.Contains(log, "auth.") {
+			t.Errorf("%s: mode %q, log %q; want %s and no auth warning", file, res.Tree.Auth.Mode, log, mode)
+		}
+	}
+}
+
+// The homelab environment without its DASH_AUTH_MODE line no longer loads: its proxy admin list
+// would be ignored in the new default mode, so the load names the line to add.
+func TestHomelabEnvWithoutAuthModeIsRefusedAtLoad(t *testing.T) {
+	var env []string
+	for _, kv := range deploymentEnv(t, deploymentEnvFileV011) {
+		if !strings.HasPrefix(kv, "DASH_AUTH_MODE=") {
+			env = append(env, kv)
+		}
+	}
+	_, _, err := resolveWith(t, Sources{Environ: env})
+	if err == nil || !strings.Contains(err.Error(), "auth.proxy.adminUsers (env DASH_AUTH_PROXY_ADMIN_USERS)") || !strings.Contains(err.Error(), "set DASH_AUTH_MODE=proxy") {
+		t.Errorf("the homelab env without its mode: %v, want the refusal naming DASH_AUTH_MODE=proxy", err)
+	}
+}
+
+// An inline launcher icon outside the allowed forms fails the load (v0.11.1 only turned the
+// launcher row to error), naming the entry and not the icon; the allowed forms load.
+func TestLauncherIconOutsideTheAllowedFormsFailsTheLoad(t *testing.T) {
+	const base = "DASH_UI_ICON_BASE_URL=https://cdn.example.com/png"
+	for icon, ok := range map[string]bool{
+		"proxmox":                            true,
+		"/icons/x.svg":                       true,
+		"https://cdn.example.com/png/x.png":  true,
+		"javascript:alert(1)":                false,
+		"data:image/png;base64,AAAA":         false,
+		"https://evil.example.com/png/x.png": false,
+		"//evil.example.com/x.png":           false,
+	} {
+		links := fmt.Sprintf(`DASH_PLUGINS_LAUNCHER_LINKS=[{"name":"a","href":"https://a.example.com"},{"name":"b","href":"https://b.example.com","icon":%q}]`, icon)
+		_, _, err := resolveLive(t, base, links)
+		switch {
+		case ok && err != nil:
+			t.Errorf("icon %q: %v, want it to load", icon, err)
+		case !ok && (err == nil || !strings.Contains(err.Error(), "plugins.launcher.links") || !strings.Contains(err.Error(), "entry 2")):
+			t.Errorf("icon %q: %v, want a load error naming entry 2", icon, err)
+		case !ok && strings.Contains(err.Error(), icon):
+			t.Errorf("icon %q: the error carries the icon: %v", icon, err)
+		}
 	}
 }

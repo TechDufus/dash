@@ -16,11 +16,14 @@ import (
 	"github.com/TechDufus/dash/internal/settings"
 )
 
-// startEnv is the environment of a plain production start with the given data directory.
+// startEnv is the environment of a plain production start with the given data directory, behind
+// an identity proxy (auth.mode proxy, set explicitly as a deployment does since local became the
+// default); more may override any of it.
 func startEnv(t *testing.T, dataDir string, more ...string) {
 	t.Helper()
 	t.Setenv("DASH_SERVER_PUBLIC_URL", "https://dash.example.com")
 	t.Setenv("DASH_DATA_DIR", dataDir)
+	t.Setenv("DASH_AUTH_MODE", "proxy")
 	for _, kv := range more {
 		k, v, _ := strings.Cut(kv, "=")
 		t.Setenv(k, v)

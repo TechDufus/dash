@@ -98,10 +98,6 @@ func Resolve(src Sources) (*Resolved, error) {
 	if err := validate(r.tree, dev, demo, r.prov); err != nil {
 		return nil, err
 	}
-	for _, u := range r.tree.Auth.Unmatchable() {
-		r.log.Warn("an admin list entry can never match an identity header and is ignored: a user is at most 128 bytes and a group at most 256, both valid UTF-8 without control characters, and a group has no comma",
-			"setting", u.List, "entry", u.Position)
-	}
 	if _, ignored := proxyKeysOutsideProxyMode(r.tree, r.prov, dev, demo); len(ignored) > 0 {
 		r.log.Warn("auth.proxy settings are ignored: auth.mode is not proxy; set DASH_AUTH_MODE=proxy if dash runs behind an identity proxy",
 			"mode", r.tree.Auth.Mode, "settings", ignored)

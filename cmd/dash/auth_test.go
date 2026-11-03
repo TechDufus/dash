@@ -12,6 +12,7 @@ import (
 
 	"github.com/TechDufus/dash/internal/auth"
 	"github.com/TechDufus/dash/internal/config"
+	"github.com/TechDufus/dash/internal/session"
 )
 
 // logCapture is a slog.Logger that keeps its records for the test to read.
@@ -50,10 +51,12 @@ func (c *logCapture) with(t *testing.T, level, msg string) []map[string]any {
 	return out
 }
 
-// resolvedAuth is a resolved configuration with the default auth section, changed by mod, and the
-// process flags dev and demo.
+// resolvedAuth is a resolved configuration with the default auth section in the proxy mode (what
+// most of these tests build; the default mode is local), changed by mod, and the process flags
+// dev and demo.
 func resolvedAuth(dev, demo bool, mod func(*config.AuthConfig)) *config.Resolved {
 	a := config.DefaultAuth()
+	a.Mode = config.AuthModeProxy
 	if mod != nil {
 		mod(&a)
 	}
@@ -490,20 +493,25 @@ func TestNoneModeWarnsHarderOnNonLoopback(t *testing.T) {
 	}
 }
 
-// none is impossible without the setting: the default section builds the proxy authenticator, and
-// a mode that is empty or misspelled is an error, never none.
+// none is impossible without the setting: the default section is the local mode, which signs
+// nobody in without a credential (identity headers included), and a mode that is empty or
+// misspelled is an error, never none.
 func TestNoneModeIsNeverTheDefault(t *testing.T) {
+	if m := config.DefaultAuth().Mode; m != config.AuthModeLocal {
+		t.Fatalf("default auth.mode = %q, want local", m)
+	}
+	res := localResolved(t.TempDir(), nil, func(a *config.AuthConfig) { *a = config.DefaultAuth() })
+	pa, _, err := startLocal(t, res, "", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := pa.authn.(*session.Authenticator); !ok {
+		t.Fatalf("default authenticator is %T, want the session authenticator", pa.authn)
+	}
+	if got, f := pa.authn.Authenticate(authRequest("127.0.0.1:1", "X-Forwarded-User", "alice")); f == nil {
+		t.Errorf("the default configuration signed a request with no credential in: %+v", got)
+	}
 	var logs logCapture
-	a, p, err := buildAuthenticator(resolvedAuth(false, false, nil), logs.logger())
-	if err != nil || p == nil {
-		t.Fatalf("default: %v %v", p, err)
-	}
-	if _, ok := a.(*auth.Proxy); !ok || p == nil {
-		t.Fatalf("default authenticator is %T, want the proxy", a)
-	}
-	if got, f := a.Authenticate(authRequest("192.0.2.1:1")); f == nil {
-		t.Errorf("the default configuration signed a request with no credentials in: %+v", got)
-	}
 	for _, mode := range []string{"", "None", "off", "no-auth", "disabled"} {
 		if a, _, err := buildAuthenticator(resolvedAuth(false, false, func(c *config.AuthConfig) { c.Mode = mode }), logs.logger()); err == nil || a != nil {
 			t.Errorf("mode %q built %v (%v), want an error", mode, a, err)

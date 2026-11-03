@@ -90,10 +90,11 @@ func (*Plugin) Validate(cfg any) error {
 // of dash keeps running.
 //
 // Every icon is then checked against ui.iconBaseURL (pluginconf.ValidateIcons, through
-// Host.IconBaseURL), for the file's links and the inline ones alike. A link whose icon is none of
-// the allowed forms fails the start the same way, with a WARN naming the entry, and nothing is
-// published: it is the launcher's row that turns to error, not the configuration load, which a
-// patch release does not tighten. A reload that starts the plugin again repeats the check.
+// Host.IconBaseURL). The inline links are already checked when the configuration loads, which
+// refuses a bad one; this check is what catches the file's links, which only the start reads. A
+// link whose icon is none of the allowed forms fails the start the same way, with a WARN naming
+// the entry, and nothing is published: the launcher's row turns to error. A reload that starts the
+// plugin again repeats the check.
 func (*Plugin) Start(_ context.Context, h plugin.Host, cfg any) error {
 	c, ok := conf(cfg)
 	if !ok {

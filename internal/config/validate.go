@@ -130,6 +130,12 @@ func validate(t Tree, dev, demo bool, prov map[string]Provenance) error {
 			v.fail("server.publicURL", "must be https in auth.mode=oidc: the provider sends the browser back to it with the login code (http only for a loopback host)")
 		}
 	}
+	// An inline launcher icon outside the allowed forms is a load error (the links of a launcher
+	// file are only read by the launcher's start, which turns its row to error instead). The
+	// message names the entry, never the icon.
+	if err := pluginconf.ValidateIcons(t.Plugins.Launcher.Links, t.UI.IconBaseURL); err != nil && !v.failed["plugins.launcher.links"] {
+		v.fail("plugins.launcher.links", "%v; use an icon name, a same-origin path or an image URL under ui.iconBaseURL", err)
+	}
 	for _, sec := range t.PluginSections() {
 		if val, ok := sec.Value.(interface{ Validate() error }); ok {
 			v.section("plugins."+sec.Name, val.Validate())

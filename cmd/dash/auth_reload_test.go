@@ -20,8 +20,8 @@ import (
 func TestAdminUsersReloadAppliesOnTheNextRequest(t *testing.T) {
 	dir := t.TempDir()
 	cfgPath := filepath.Join(dir, "config.yaml")
-	writeTestFile(t, cfgPath, "auth:\n  proxy:\n    adminUsers: [alice]\n")
-	startEnv(t, dir, "DASH_CONFIG="+cfgPath)
+	writeTestFile(t, cfgPath, "auth:\n  mode: proxy\n  proxy:\n    adminUsers: [alice]\n")
+	startEnv(t, dir, "DASH_CONFIG="+cfgPath, "DASH_AUTH_MODE=") // the file sets the mode
 
 	reg := secret.NewRegistry()
 	res, store, err := loadConfig(reg, nil)
@@ -60,7 +60,7 @@ func TestAdminUsersReloadAppliesOnTheNextRequest(t *testing.T) {
 		t.Fatalf("before the reload alice = %s", got)
 	}
 
-	writeTestFile(t, cfgPath, "auth:\n  proxy:\n    adminUsers: [bob]\n")
+	writeTestFile(t, cfgPath, "auth:\n  mode: proxy\n  proxy:\n    adminUsers: [bob]\n")
 	waitFor(t, func() bool {
 		select {
 		case c := <-events:
@@ -86,8 +86,8 @@ func TestAdminUsersReloadAppliesOnTheNextRequest(t *testing.T) {
 func TestOtherAuthKeysNeedARestart(t *testing.T) {
 	dir := t.TempDir()
 	cfgPath := filepath.Join(dir, "config.yaml")
-	writeTestFile(t, cfgPath, "auth:\n  proxy:\n    adminUsers: [alice]\n")
-	startEnv(t, dir, "DASH_CONFIG="+cfgPath)
+	writeTestFile(t, cfgPath, "auth:\n  mode: proxy\n  proxy:\n    adminUsers: [alice]\n")
+	startEnv(t, dir, "DASH_CONFIG="+cfgPath, "DASH_AUTH_MODE=") // the file sets the mode, and the reload changes it
 
 	reg := secret.NewRegistry()
 	res, store, err := loadConfig(reg, nil)
