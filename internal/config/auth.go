@@ -14,14 +14,22 @@ import (
 const (
 	AuthModeProxy = "proxy"
 	AuthModeNone  = "none"
+	AuthModeLocal = "local"
 )
 
 // AuthConfig is the auth section: how dash learns who is making a request and what that person
-// may do (design E.2, E.4). Every key is a restart setting except the two admin lists, which a
+// may do (design E.2, E.4). Every key is a restart setting except the admin lists, which a
 // reload applies to the next request.
 type AuthConfig struct {
-	Mode  string          `json:"mode" dash:"restart,enum=proxy|none" doc:"How dash learns who is making a request. proxy: an identity proxy in front of dash (oauth2-proxy, Authelia, Authentik) forwards the user name in a header, and dash believes it only from the peers in auth.proxy.trustedProxies. none: no authentication at all, every request is signed in as an administrator named anonymous; dash warns at every start and shows a banner on every page, so bind server.listen to 127.0.0.1 and keep the port reachable only from the machine itself. It is never the default."`
+	Mode  string          `json:"mode" dash:"restart,enum=proxy|none|local" doc:"How dash learns who is making a request. proxy: an identity proxy in front of dash (oauth2-proxy, Authelia, Authentik) forwards the user name in a header, and dash believes it only from the peers in auth.proxy.trustedProxies. local: one administrator account (auth.local.adminUser) signs in at /login with a password; the first start prints a one-time setup link, or DASH_ADMIN_PASSWORD_HASH supplies the password hash. none: no authentication at all, every request is signed in as an administrator named anonymous; dash warns at every start and shows a banner on every page, so bind server.listen to 127.0.0.1 and keep the port reachable only from the machine itself. It is never the default."`
 	Proxy AuthProxyConfig `json:"proxy" doc:"The proxy mode: which headers name the user, which peers are believed, and who is an administrator."`
+	Local AuthLocalConfig `json:"local" doc:"The local mode: the one administrator account and the optional read-only access without signing in."`
+}
+
+// AuthLocalConfig is the local mode of AuthConfig.
+type AuthLocalConfig struct {
+	AdminUser       string `json:"adminUser" dash:"restart" doc:"The name of the one administrator account; a login succeeds for this name only. Changing it after setup makes dash refuse to start until it is set back or credentials.yaml is deleted to run setup again."`
+	AnonymousViewer bool   `json:"anonymousViewer" dash:"restart" doc:"Let a visitor who has not signed in read the dashboard as a viewer: GET requests only, never logs, never actions. Only in auth.mode=local; dash shows administrators a warning while it is on."`
 }
 
 // AuthProxyConfig is the proxy mode of AuthConfig.
@@ -35,7 +43,8 @@ type AuthProxyConfig struct {
 }
 
 // DefaultAuth is the built-in layer of the auth section: the proxy mode, believing the
-// loopback peers a sidecar proxy connects from, and nobody an administrator.
+// loopback peers a sidecar proxy connects from, and nobody an administrator; the local mode's
+// account is named admin and the anonymous viewer is off.
 func DefaultAuth() AuthConfig {
 	return AuthConfig{
 		Mode: AuthModeProxy,
@@ -43,12 +52,13 @@ func DefaultAuth() AuthConfig {
 			UserHeaders:    []string{"X-Forwarded-Preferred-Username", "X-Forwarded-User"},
 			TrustedProxies: []string{"127.0.0.1/32", "::1/128"},
 		},
+		Local: AuthLocalConfig{AdminUser: "admin"},
 	}
 }
 
 // authModes are the accepted values of AuthConfig.Mode, in the order the error lists them; the
 // enum tag on the field documents the same set.
-var authModes = []string{AuthModeProxy, AuthModeNone}
+var authModes = []string{AuthModeProxy, AuthModeNone, AuthModeLocal}
 
 // Validate reports unusable auth settings, each at its path relative to "auth" (the problem
 // format of pluginconf.Problems). A message names the path and the problem and never echoes a
@@ -106,6 +116,16 @@ func (a AuthConfig) Validate() error {
 	if len(p.AdminGroups) > 0 && groups == "" {
 		add("proxy.adminGroups", "needs auth.proxy.groupsHeader: without the header no user has a group, so nobody would ever be an administrator through it")
 	}
+
+	switch u := auth.TrimIdentity(a.Local.AdminUser); {
+	case u == "":
+		add("local.adminUser", "is empty: the local mode's administrator account needs a name")
+	case !auth.ValidUserName(u):
+		add("local.adminUser", "can never be a user name: a name is at most 128 bytes of valid UTF-8 without control characters")
+	}
+	if a.Local.AnonymousViewer && a.Mode != AuthModeLocal {
+		add("local.anonymousViewer", "is only available in auth.mode=local: the proxy and oidc modes never sign a visitor in without an identity")
+	}
 	return errors.Join(errs...)
 }
 
@@ -146,12 +166,38 @@ func trimmed(l []string) []string {
 	return out
 }
 
-// normalize trims what operators paste into the lists the authenticator reads. An empty entry
-// stays: Validate reports it.
+// normalize trims what operators paste into the lists the authenticator reads and the local
+// account name. An empty entry stays: Validate reports it.
 func (a *AuthConfig) normalize() {
 	for _, l := range []*[]string{&a.Proxy.UserHeaders, &a.Proxy.TrustedProxies, &a.Proxy.AdminUsers, &a.Proxy.AdminGroups} {
 		if *l != nil {
 			*l = trimmed(*l)
 		}
 	}
+	a.Local.AdminUser = auth.TrimIdentity(a.Local.AdminUser)
+}
+
+// SessionMode reports whether mode signs people in with a session cookie of dash's own.
+func SessionMode(mode string) bool { return mode == AuthModeLocal }
+
+// proxyKeysOutsideProxyMode lists the auth.proxy settings a layer set (the file, the environment,
+// the UI) while a session mode is selected and dev or demo does not override it: those keys are
+// never read there. The admin lists are refused (Validate's caller), because an install that
+// relied on the implicit proxy default would otherwise lose its administrators silently; the
+// other keys only warn (Resolve). Paths only, in schema order, never a value.
+func proxyKeysOutsideProxyMode(t Tree, prov map[string]Provenance, dev, demo bool) (refused, ignored []string) {
+	if dev || demo || !SessionMode(t.Auth.Mode) {
+		return nil, nil
+	}
+	for _, l := range schema.leaves {
+		if !strings.HasPrefix(l.path, "auth.proxy.") || prov[l.path].Source == SourceDefault || prov[l.path].Source == "" {
+			continue
+		}
+		if l.path == "auth.proxy.adminUsers" || l.path == "auth.proxy.adminGroups" {
+			refused = append(refused, l.path)
+		} else {
+			ignored = append(ignored, l.path)
+		}
+	}
+	return refused, ignored
 }

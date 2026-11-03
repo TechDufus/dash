@@ -33,11 +33,14 @@ func (s *Server) routeGuard() plugin.RouteGuard {
 }
 
 // serveRoute applies the read policy to one plugin route, in this order: the role, the
-// namespace the request targets against the instance's ReadDenyNamespaces (403, audited), then
-// for a plain route its handler, and for a stream the stream pipeline. The namespace check comes
-// before a stream takes a slot, so a denied tail answers 403 even when every slot is taken.
+// anonymous viewer's exclusion from every route of scope logs (the log reads and tails: a visitor
+// who never signed in reads the dashboard, never logs), the namespace the request targets against
+// the instance's ReadDenyNamespaces (403, audited), then for a plain route its handler, and for a
+// stream the stream pipeline. The namespace check comes before a stream takes a slot, so a denied
+// tail answers 403 even when every slot is taken.
 func (s *Server) serveRoute(w http.ResponseWriter, r *http.Request, mr plugin.MountedRoute, next http.HandlerFunc) {
-	if !principalFrom(r.Context()).Role.AtLeast(auth.RoleViewer) {
+	p := principalFrom(r.Context())
+	if !p.Role.AtLeast(auth.RoleViewer) || (p.Kind == auth.KindAnonymous && mr.Info.Spec.Scope == "logs") {
 		s.denyRoute(r, obs.AuthForbidden, mr.Instance)
 		writeErr(w, http.StatusForbidden, model.ErrCodeForbidden, "forbidden")
 		return

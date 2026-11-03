@@ -55,7 +55,10 @@ func command(args []string, out io.Writer) error {
 	if len(args) >= 1 && args[0] == "api" {
 		return apiCommand(args[1:], out)
 	}
-	return fmt.Errorf("unknown command %q; usage: %s | %s | %s", strings.Join(args, " "), configUsage, auditUsage, apiUsage)
+	if len(args) >= 1 && args[0] == "hash-password" {
+		return hashPasswordCommand(args[1:], os.Stdin, out)
+	}
+	return fmt.Errorf("unknown command %q; usage: %s | %s | %s | %s", strings.Join(args, " "), configUsage, auditUsage, apiUsage, hashPasswordUsage)
 }
 
 // exitCode is the exit status of a subcommand that returned err: 1 when it ran and found a
@@ -84,10 +87,15 @@ func run(reg *secret.Registry) error {
 	defer alog.Close()
 	cfg := res.Config
 	warnSettledRequirements(res.Tree, cfg.ReadyRequires)
-	authn, proxy, err := buildAuthenticator(res, slog.Default())
+	adminHash, err := config.AdminPasswordHash(os.Environ(), reg)
 	if err != nil {
 		return err
 	}
+	pa, err := startAuth(res, sessionEnv{adminHash: adminHash, stderr: os.Stderr}, slog.Default())
+	if err != nil {
+		return err
+	}
+	defer pa.close()
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
@@ -110,7 +118,7 @@ func run(reg *secret.Registry) error {
 	}
 	fw := newFramework(res, store, config.ReloadOptions{}, reg, refs, transport, cfg.Demo)
 	h, sup, reloader := fw.hub, fw.sup, fw.reloader
-	fw.reloadAuth(proxy)
+	fw.reloadAuth(pa.proxy)
 	reloaderDone := make(chan struct{})
 	go func() { defer close(reloaderDone); reloader.Run(ctx) }()
 	defer func() { stop(); <-reloaderDone }()
@@ -132,10 +140,12 @@ func run(reg *secret.Registry) error {
 	if err := fw.start(ctx, registry(refs), func() { ov.Run(ctx) }); err != nil {
 		return err
 	}
-	srv := api.New(api.Deps{
+	deps := api.Deps{
 		Cfg: cfg, Version: version, Hub: h, Plugins: sup,
-		Health: sup, Metrics: metrics, Secrets: reg, Audit: alog, Auth: authn,
-	})
+		Health: sup, Metrics: metrics, Secrets: reg, Audit: alog,
+	}
+	pa.deps(&deps)
+	srv := api.New(deps)
 	handler := srv.Handler()
 	if cfg.Demo {
 		slog.Info("demo mode: serving fake data, no cluster or upstreams are contacted")

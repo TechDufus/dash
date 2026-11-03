@@ -106,7 +106,7 @@ func (b *specBuilder) build() object {
 		"servers":  []object{{"url": "/", "description": "The dash instance that served this document."}},
 		"tags":     tags,
 		"paths":    b.paths,
-		"security": []object{{"identityProxy": []string{}}},
+		"security": []object{{"identityProxy": []string{}}, {"sessionCookie": []string{}}},
 		"components": object{
 			"schemas": schemas,
 			"securitySchemes": object{
@@ -114,6 +114,11 @@ func (b *specBuilder) build() object {
 					"type": "apiKey", "in": "header", "name": "X-Forwarded-Preferred-Username",
 					"description": "The user the identity proxy in front of dash authenticated. dash believes the header only from a TCP peer in " +
 						"auth.proxy.trustedProxies (X-Forwarded-For is never read), so a client cannot send it itself. Dev, demo and auth.mode none supply a fixed user.",
+				},
+				"sessionCookie": object{
+					"type": "apiKey", "in": "cookie", "name": "__Host-dash_session",
+					"description": "The session of auth.mode local, set by POST /login. The cookie is __Host-dash_session when server.publicURL " +
+						"is https and dash_session otherwise; HttpOnly, SameSite=Lax. A write also needs X-Dash-Csrf: 1 and the public Origin.",
 				},
 			},
 			"headers": object{

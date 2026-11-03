@@ -121,6 +121,10 @@ func validate(t Tree, dev, demo bool, prov map[string]Provenance) error {
 	// links, ...); the ones still in this package are checked above.
 	v.section("ui", t.UI.Validate())
 	v.section("auth", t.Auth.Validate())
+	refused, _ := proxyKeysOutsideProxyMode(t, prov, dev, demo)
+	for _, path := range refused {
+		v.fail(path, "is set, but auth.mode is %s and the proxy admin lists are read only in auth.mode=proxy: set DASH_AUTH_MODE=proxy if dash runs behind an identity proxy, or remove this setting", t.Auth.Mode)
+	}
 	for _, sec := range t.PluginSections() {
 		if val, ok := sec.Value.(interface{ Validate() error }); ok {
 			v.section("plugins."+sec.Name, val.Validate())

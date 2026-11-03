@@ -131,7 +131,12 @@ func writeJSON(w http.ResponseWriter, code int, v any) {
 // writeErr answers the L.2 error envelope: msg is text for a person, code one of model.ErrCode*.
 // The request id is the one requestID put on the response.
 func writeErr(w http.ResponseWriter, status int, code, msg string) {
-	writeJSON(w, status, model.APIError{Error: msg, Code: code, RequestID: w.Header().Get(requestIDHeader)})
+	writeErrDetails(w, status, code, msg, nil)
+}
+
+// writeErrDetails is writeErr with the envelope's details (omitted when nil).
+func writeErrDetails(w http.ResponseWriter, status int, code, msg string, details any) {
+	writeJSON(w, status, model.APIError{Error: msg, Code: code, RequestID: w.Header().Get(requestIDHeader), Details: details})
 }
 
 // maxBody caps JSON request bodies.
@@ -189,9 +194,16 @@ func (s *Server) me(w http.ResponseWriter, r *http.Request) {
 		UI:       model.MeUI{IconBaseURL: s.d.Cfg.IconBaseURL},
 		Warnings: []string{},
 	}
-	// Standing warnings of the authenticator (admin_wildcard), for the SPA's banners.
+	// Standing warnings of the authenticator, for the SPA's banners. admin_wildcard and auth_none
+	// go to everyone, as they always did; anonymous_viewer and oidc_open are for administrators,
+	// who can act on them.
 	if w, ok := s.d.Auth.(auth.Warner); ok {
-		me.Warnings = append(me.Warnings, w.Warnings()...)
+		for _, code := range w.Warnings() {
+			if adminOnlyWarning(code) && !p.Role.AtLeast(auth.RoleAdmin) {
+				continue
+			}
+			me.Warnings = append(me.Warnings, code)
+		}
 	}
 	if s.d.Plugins != nil {
 		for _, pi := range s.d.Plugins.Infos() {
@@ -204,6 +216,11 @@ func (s *Server) me(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	writeJSON(w, http.StatusOK, me)
+}
+
+// adminOnlyWarning reports whether Me carries the warning to administrators only.
+func adminOnlyWarning(code string) bool {
+	return code == auth.WarningAnonymousViewer || code == auth.WarningOIDCOpen
 }
 
 // errInvalid reports whether err is an upstream input validation failure.

@@ -1,12 +1,15 @@
 package config
 
 import (
+	"os"
+	"path/filepath"
 	"reflect"
 	"slices"
 	"strings"
 	"testing"
 
 	"github.com/TechDufus/dash/internal/pluginconf"
+	"github.com/TechDufus/dash/internal/secret"
 )
 
 // authProblems is what AuthConfig.Validate reports for a default section changed by mutate,
@@ -80,13 +83,15 @@ func TestAuthSectionEnvNames(t *testing.T) {
 		want           any    // what the tree holds after setting it
 	}
 	rows := map[string]row{
-		"DASH_AUTH_MODE":                  {"auth.mode", "string", "proxy", true, "proxy", "proxy"},
-		"DASH_AUTH_PROXY_USER_HEADERS":    {"auth.proxy.userHeaders", "list of strings (JSON)", `["X-Forwarded-Preferred-Username","X-Forwarded-User"]`, true, `["X-Email"]`, []string{"X-Email"}},
-		"DASH_AUTH_PROXY_GROUPS_HEADER":   {"auth.proxy.groupsHeader", "string", "", true, "X-Forwarded-Groups", "X-Forwarded-Groups"},
-		"DASH_AUTH_PROXY_TRUSTED_PROXIES": {"auth.proxy.trustedProxies", "list of strings (JSON)", `["127.0.0.1/32","::1/128"]`, true, `["10.0.0.0/8"]`, []string{"10.0.0.0/8"}},
-		"DASH_AUTH_PROXY_ALLOW_ANY_PEER":  {"auth.proxy.allowAnyPeer", "boolean", "", true, "true", true},
-		"DASH_AUTH_PROXY_ADMIN_USERS":     {"auth.proxy.adminUsers", "list of strings (JSON)", "", false, `["alice"]`, []string{"alice"}},
-		"DASH_AUTH_PROXY_ADMIN_GROUPS":    {"auth.proxy.adminGroups", "list of strings (JSON)", "", false, `["ops"]`, []string{"ops"}},
+		"DASH_AUTH_MODE":                   {"auth.mode", "string", "proxy", true, "proxy", "proxy"},
+		"DASH_AUTH_PROXY_USER_HEADERS":     {"auth.proxy.userHeaders", "list of strings (JSON)", `["X-Forwarded-Preferred-Username","X-Forwarded-User"]`, true, `["X-Email"]`, []string{"X-Email"}},
+		"DASH_AUTH_PROXY_GROUPS_HEADER":    {"auth.proxy.groupsHeader", "string", "", true, "X-Forwarded-Groups", "X-Forwarded-Groups"},
+		"DASH_AUTH_PROXY_TRUSTED_PROXIES":  {"auth.proxy.trustedProxies", "list of strings (JSON)", `["127.0.0.1/32","::1/128"]`, true, `["10.0.0.0/8"]`, []string{"10.0.0.0/8"}},
+		"DASH_AUTH_PROXY_ALLOW_ANY_PEER":   {"auth.proxy.allowAnyPeer", "boolean", "", true, "true", true},
+		"DASH_AUTH_PROXY_ADMIN_USERS":      {"auth.proxy.adminUsers", "list of strings (JSON)", "", false, `["alice"]`, []string{"alice"}},
+		"DASH_AUTH_PROXY_ADMIN_GROUPS":     {"auth.proxy.adminGroups", "list of strings (JSON)", "", false, `["ops"]`, []string{"ops"}},
+		"DASH_AUTH_LOCAL_ADMIN_USER":       {"auth.local.adminUser", "string", "admin", true, "root", "root"},
+		"DASH_AUTH_LOCAL_ANONYMOUS_VIEWER": {"auth.local.anonymousViewer", "boolean", "", true, "true", true},
 	}
 	// Nothing else is generated under auth: a key added without its row fails here.
 	for name, v := range byEnv {
@@ -116,6 +121,10 @@ func TestAuthSectionEnvNames(t *testing.T) {
 		if name == "DASH_AUTH_PROXY_ADMIN_GROUPS" {
 			// adminGroups is only valid beside a groups header.
 			env = append(env, "DASH_AUTH_PROXY_GROUPS_HEADER=X-Forwarded-Groups")
+		}
+		if name == "DASH_AUTH_LOCAL_ANONYMOUS_VIEWER" {
+			// The anonymous viewer exists only in the local mode.
+			env = append(env, "DASH_AUTH_MODE=local")
 		}
 		res, _, err := resolveEnv(t, env...)
 		if err != nil {
@@ -466,5 +475,122 @@ func TestUnmatchableAdminEntriesWarnAtLoad(t *testing.T) {
 	// A valid list says nothing.
 	if _, log, err := resolveEnv(t, `DASH_AUTH_PROXY_ADMIN_USERS=["alice"]`); err != nil || strings.Contains(log, "never match") {
 		t.Errorf("a valid list warned or failed: %v\n%s", err, log)
+	}
+}
+
+// resolveLive resolves outside dev and demo, where the session-mode rules apply, with a public URL.
+func resolveLive(t *testing.T, env ...string) (*Resolved, string, error) {
+	t.Helper()
+	log, buf := logBuf()
+	res, err := Resolve(Sources{Environ: append([]string{"DASH_SERVER_PUBLIC_URL=https://dash.example.com"}, env...), Log: log})
+	return res, buf.String(), err
+}
+
+// The local mode's keys: the account is named admin and the anonymous viewer is off unless set.
+func TestAnonymousViewerIsOffByDefault(t *testing.T) {
+	res, _, err := resolveLive(t, "DASH_AUTH_MODE=local")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if l := res.Tree.Auth.Local; l.AnonymousViewer || l.AdminUser != "admin" {
+		t.Errorf("auth.local = %+v, want adminUser admin and no anonymous viewer", l)
+	}
+	if _, _, err := resolveLive(t, "DASH_AUTH_MODE=local", "DASH_AUTH_LOCAL_ANONYMOUS_VIEWER=true"); err != nil {
+		t.Errorf("anonymous viewer in local mode: %v", err)
+	}
+	// Outside the local mode it would be silently meaningless: refused.
+	_, _, err = resolveLive(t, "DASH_AUTH_MODE=proxy", "DASH_AUTH_LOCAL_ANONYMOUS_VIEWER=true")
+	if err == nil || !strings.Contains(err.Error(), "auth.local.anonymousViewer") || !strings.Contains(err.Error(), "only available in auth.mode=local") {
+		t.Errorf("anonymous viewer in proxy mode: %v, want refused", err)
+	}
+	for _, bad := range []string{"", " ", "a\x01b", strings.Repeat("x", 129)} {
+		if !hasProblem(authProblems(func(a *AuthConfig) { a.Local.AdminUser = bad }), "local.adminUser") {
+			t.Errorf("adminUser %q accepted", bad)
+		}
+	}
+}
+
+// Proxy settings beside a session mode are never read: dash says so at load, naming the settings
+// and never their values; outside a session mode, and in dev or demo, it says nothing.
+func TestProxyKeysWithoutProxyModeWarn(t *testing.T) {
+	env := []string{`DASH_AUTH_PROXY_USER_HEADERS=["X-Secret-Header"]`, `DASH_AUTH_PROXY_TRUSTED_PROXIES=["10.9.8.0/24"]`}
+	_, log, err := resolveLive(t, append([]string{"DASH_AUTH_MODE=local"}, env...)...)
+	if err != nil {
+		t.Fatalf("the configuration must load: %v", err)
+	}
+	if !strings.Contains(log, "WARN") || !strings.Contains(log, "auth.proxy settings are ignored") ||
+		!strings.Contains(log, "auth.proxy.userHeaders") || !strings.Contains(log, "auth.proxy.trustedProxies") || !strings.Contains(log, "mode=local") {
+		t.Errorf("log = %q, want one WARN naming both settings", log)
+	}
+	if strings.Contains(log, "X-Secret-Header") || strings.Contains(log, "10.9.8.0") {
+		t.Errorf("the warning carries a value:\n%s", log)
+	}
+	if _, log, _ := resolveLive(t, append([]string{"DASH_AUTH_MODE=proxy"}, env...)...); strings.Contains(log, "are ignored") {
+		t.Errorf("proxy mode warned: %s", log)
+	}
+	if _, log, _ := resolveEnv(t, append([]string{"DASH_AUTH_MODE=local"}, env...)...); strings.Contains(log, "are ignored") {
+		t.Errorf("demo mode warned: %s", log)
+	}
+	if _, log, _ := resolveLive(t, "DASH_AUTH_MODE=local"); strings.Contains(log, "are ignored") {
+		t.Errorf("defaults alone warned: %s", log)
+	}
+}
+
+// The proxy admin lists beside a session mode refuse to load: an install that relied on the
+// implicit proxy mode would otherwise lose its administrators without a word.
+func TestProxyAdminListsWithoutProxyModeRefuse(t *testing.T) {
+	for name, env := range map[string][]string{
+		"auth.proxy.adminUsers":  {`DASH_AUTH_PROXY_ADMIN_USERS=["owner-name"]`},
+		"auth.proxy.adminGroups": {"DASH_AUTH_PROXY_GROUPS_HEADER=X-Forwarded-Groups", `DASH_AUTH_PROXY_ADMIN_GROUPS=["owner-group"]`},
+	} {
+		_, _, err := resolveLive(t, append([]string{"DASH_AUTH_MODE=local"}, env...)...)
+		if err == nil {
+			t.Errorf("%s with auth.mode=local loaded", name)
+			continue
+		}
+		msg := err.Error()
+		for _, want := range []string{name, "(env DASH_AUTH_PROXY_ADMIN_", "DASH_AUTH_MODE=proxy"} {
+			if !strings.Contains(msg, want) {
+				t.Errorf("%s: error %q lacks %q", name, msg, want)
+			}
+		}
+		if strings.Contains(msg, "owner-") {
+			t.Errorf("%s: error carries the value: %q", name, msg)
+		}
+		if _, _, err := resolveLive(t, append([]string{"DASH_AUTH_MODE=proxy"}, env...)...); err != nil {
+			t.Errorf("%s with auth.mode=proxy: %v", name, err)
+		}
+		if _, _, err := resolveEnv(t, append([]string{"DASH_AUTH_MODE=local"}, env...)...); err != nil {
+			t.Errorf("%s in demo mode (the mode is ignored): %v", name, err)
+		}
+	}
+}
+
+// DASH_ADMIN_PASSWORD_HASH is process environment: read directly or from its _FILE, never both,
+// registered for scrubbing, and never an unknown-variable warning.
+func TestAdminPasswordHashEnv(t *testing.T) {
+	const hash = "$argon2id$v=19$m=65536,t=3,p=4$c2FsdHNhbHRzYWx0c2FsdA$aGFzaGhhc2hoYXNoaGFzaGhhc2hoYXNoaGFzaGhhc2g"
+	reg := secret.NewRegistry()
+	if got, err := AdminPasswordHash([]string{"DASH_ADMIN_PASSWORD_HASH= " + hash + " "}, reg); err != nil || got != hash {
+		t.Errorf("direct = %q %v", got, err)
+	}
+	if out := reg.Scrub("x " + hash + " y"); strings.Contains(out, hash) {
+		t.Errorf("the hash is not registered: %q", out)
+	}
+	file := filepath.Join(t.TempDir(), "hash")
+	if err := os.WriteFile(file, []byte(hash+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := AdminPasswordHash([]string{"DASH_ADMIN_PASSWORD_HASH_FILE=" + file}, nil); err != nil || got != hash {
+		t.Errorf("file = %q %v", got, err)
+	}
+	if _, err := AdminPasswordHash([]string{"DASH_ADMIN_PASSWORD_HASH=" + hash, "DASH_ADMIN_PASSWORD_HASH_FILE=" + file}, nil); err == nil || strings.Contains(err.Error(), hash) {
+		t.Errorf("both set: %v, want an error without the value", err)
+	}
+	if got, err := AdminPasswordHash(nil, nil); err != nil || got != "" {
+		t.Errorf("unset = %q %v", got, err)
+	}
+	if _, log, err := resolveEnv(t, "DASH_ADMIN_PASSWORD_HASH="+hash); err != nil || strings.Contains(log, "unknown") {
+		t.Errorf("the variable warned as unknown or failed: %v\n%s", err, log)
 	}
 }

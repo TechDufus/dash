@@ -56,7 +56,7 @@ How dash learns who is making a request and what they may do.
 
 | Setting | Variable | Type | Default | Description |
 |---|---|---|---|---|
-| `auth.mode` | `DASH_AUTH_MODE` | string | `proxy` | How dash learns who is making a request. proxy: an identity proxy in front of dash (oauth2-proxy, Authelia, Authentik) forwards the user name in a header, and dash believes it only from the peers in auth.proxy.trustedProxies. none: no authentication at all, every request is signed in as an administrator named anonymous; dash warns at every start and shows a banner on every page, so bind server.listen to 127.0.0.1 and keep the port reachable only from the machine itself. It is never the default. _Restart-only._ |
+| `auth.mode` | `DASH_AUTH_MODE` | string | `proxy` | How dash learns who is making a request. proxy: an identity proxy in front of dash (oauth2-proxy, Authelia, Authentik) forwards the user name in a header, and dash believes it only from the peers in auth.proxy.trustedProxies. local: one administrator account (auth.local.adminUser) signs in at /login with a password; the first start prints a one-time setup link, or DASH_ADMIN_PASSWORD_HASH supplies the password hash. none: no authentication at all, every request is signed in as an administrator named anonymous; dash warns at every start and shows a banner on every page, so bind server.listen to 127.0.0.1 and keep the port reachable only from the machine itself. It is never the default. _Restart-only._ |
 
 ## `auth.proxy`
 
@@ -70,6 +70,15 @@ The proxy mode: which headers name the user, which peers are believed, and who i
 | `auth.proxy.allowAnyPeer` | `DASH_AUTH_PROXY_ALLOW_ANY_PEER` | boolean | - | Allow 0.0.0.0/0 or ::/0 in trustedProxies. Every client could then forge an identity, so it needs this explicit opt-in and dash warns at every start. _Restart-only._ |
 | `auth.proxy.adminUsers` | `DASH_AUTH_PROXY_ADMIN_USERS` | list of strings (JSON) | - | User names that are administrators: exact and case-sensitive. ["*"] makes every user an administrator (dash warns). With both admin lists empty every user is a viewer: read-only, no actions. A JSON list in the environment. Applies without a restart. |
 | `auth.proxy.adminGroups` | `DASH_AUTH_PROXY_ADMIN_GROUPS` | list of strings (JSON) | - | Groups whose members are administrators; needs groupsHeader. A JSON list in the environment. Applies without a restart. |
+
+## `auth.local`
+
+The local mode: the one administrator account and the optional read-only access without signing in.
+
+| Setting | Variable | Type | Default | Description |
+|---|---|---|---|---|
+| `auth.local.adminUser` | `DASH_AUTH_LOCAL_ADMIN_USER` | string | `admin` | The name of the one administrator account; a login succeeds for this name only. Changing it after setup makes dash refuse to start until it is set back or credentials.yaml is deleted to run setup again. _Restart-only._ |
+| `auth.local.anonymousViewer` | `DASH_AUTH_LOCAL_ANONYMOUS_VIEWER` | boolean | - | Let a visitor who has not signed in read the dashboard as a viewer: GET requests only, never logs, never actions. Only in auth.mode=local; dash shows administrators a warning while it is on. _Restart-only._ |
 
 ## `settings`
 

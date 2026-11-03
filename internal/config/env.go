@@ -26,6 +26,9 @@ var processEnv = map[string]bool{
 	// The secret-key variables are read by SecretKeys (keys.go), not by the tree.
 	"DASH_SECRET_KEY": true, "DASH_SECRET_KEY_FILE": true,
 	"DASH_SECRET_KEY_PREVIOUS": true, "DASH_SECRET_KEY_PREVIOUS_FILE": true,
+	// The local account's password hash is read by AdminPasswordHash (keys.go): a credential
+	// that never belongs in the settings.
+	"DASH_ADMIN_PASSWORD_HASH": true, "DASH_ADMIN_PASSWORD_HASH_FILE": true,
 }
 
 // serviceLinkRE matches the variables Kubernetes injects for a Service named "dash" in the same

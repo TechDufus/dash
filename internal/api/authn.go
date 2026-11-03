@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/TechDufus/dash/internal/auth"
+	"github.com/TechDufus/dash/internal/model"
 	"github.com/TechDufus/dash/internal/obs"
 )
 
@@ -30,7 +31,11 @@ func (s *Server) authn(next http.Handler) http.Handler {
 			if fail.WWWAuth != "" {
 				w.Header().Set("WWW-Authenticate", fail.WWWAuth)
 			}
-			writeErr(w, fail.Status, fail.Code, strings.ReplaceAll(fail.Code, "_", " "))
+			var details any
+			if fail.Code == auth.CodeUnauthenticated {
+				details = s.authDetails()
+			}
+			writeErrDetails(w, fail.Status, fail.Code, strings.ReplaceAll(fail.Code, "_", " "), details)
 			return
 		}
 		s.probe.see(p, peerOf(r))
@@ -60,4 +65,11 @@ func authDenialReason(f *auth.Failure) obs.AuthReason {
 		return obs.AuthAmbiguousIdentity
 	}
 	return obs.AuthUnauthenticated
+}
+
+// authDetails is the details of a 401 unauthenticated (design D13): the mode, so the SPA knows
+// how to sign the user in without an unauthenticated discovery endpoint, and whether the local
+// mode is still waiting for its setup.
+func (s *Server) authDetails() model.AuthDetails {
+	return model.AuthDetails{Mode: s.authMode(auth.Principal{}), Setup: s.d.Local.SetupOpen()}
 }

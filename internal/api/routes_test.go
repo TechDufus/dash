@@ -170,12 +170,13 @@ func TestMovedCorePathsAre404WithCode(t *testing.T) {
 	}
 }
 
-// Every API route refuses an unauthenticated request with the envelope, a code and the id.
+// Every API route refuses an unauthenticated request with the envelope, a code and the id. The
+// routes outside /api (the SPA, the sign-in routes) are public.
 func TestEveryTableRouteRefusesTheUnauthenticatedWithCodeAndRequestID(t *testing.T) {
 	s := newServer(nil)
 	h := s.Handler()
 	for _, r := range s.routeTable() {
-		if r.Path == "/" { // the SPA is public
+		if r.Path != "/api/" && !strings.HasPrefix(r.Path, "/api/") {
 			continue
 		}
 		method := r.Method

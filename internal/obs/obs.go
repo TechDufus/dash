@@ -74,7 +74,6 @@ var (
 
 	// AuthLoginFailed is a refused login or setup attempt (wrong password, unknown account, wrong
 	// setup token); AuthLoginThrottled one refused by the login backoff without being tried.
-	// Declared for the local mode; they join AuthReasons with the commit that counts them.
 	AuthLoginFailed    = AuthReason{"login_failed"}
 	AuthLoginThrottled = AuthReason{"login_throttled"}
 )
@@ -101,7 +100,7 @@ var (
 	// ActionOutcomes is every value of dash_actions_total's outcome label.
 	ActionOutcomes = []string{ActionOK, ActionError, ActionDenied, ActionInvalid, ActionRateLimited}
 	// AuthReasons is every value of dash_auth_failures_total's reason label.
-	AuthReasons = []AuthReason{AuthUnauthenticated, AuthCSRF, AuthForbidden, AuthRateLimit, AuthNamespaceDenied, AuthStreamLimit, AuthUntrustedPeer, AuthAmbiguousIdentity}
+	AuthReasons = []AuthReason{AuthUnauthenticated, AuthCSRF, AuthForbidden, AuthRateLimit, AuthNamespaceDenied, AuthStreamLimit, AuthUntrustedPeer, AuthAmbiguousIdentity, AuthLoginFailed, AuthLoginThrottled}
 	// StreamKinds is every value of dash_sse_streams' kind label.
 	StreamKinds = []string{StreamEvents, StreamTail}
 	// PluginStates is every value of dash_plugin_state's state label.

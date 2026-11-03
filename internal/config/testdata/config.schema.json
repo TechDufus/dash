@@ -136,12 +136,17 @@
     "AuthConfig": {
       "additionalProperties": false,
       "properties": {
+        "local": {
+          "$ref": "#/$defs/AuthLocalConfig",
+          "description": "The local mode: the one administrator account and the optional read-only access without signing in."
+        },
         "mode": {
           "default": "proxy",
-          "description": "How dash learns who is making a request. proxy: an identity proxy in front of dash (oauth2-proxy, Authelia, Authentik) forwards the user name in a header, and dash believes it only from the peers in auth.proxy.trustedProxies. none: no authentication at all, every request is signed in as an administrator named anonymous; dash warns at every start and shows a banner on every page, so bind server.listen to 127.0.0.1 and keep the port reachable only from the machine itself. It is never the default.",
+          "description": "How dash learns who is making a request. proxy: an identity proxy in front of dash (oauth2-proxy, Authelia, Authentik) forwards the user name in a header, and dash believes it only from the peers in auth.proxy.trustedProxies. local: one administrator account (auth.local.adminUser) signs in at /login with a password; the first start prints a one-time setup link, or DASH_ADMIN_PASSWORD_HASH supplies the password hash. none: no authentication at all, every request is signed in as an administrator named anonymous; dash warns at every start and shows a banner on every page, so bind server.listen to 127.0.0.1 and keep the port reachable only from the machine itself. It is never the default.",
           "enum": [
             "proxy",
-            "none"
+            "none",
+            "local"
           ],
           "type": "string",
           "x-dash-restart": true
@@ -149,6 +154,23 @@
         "proxy": {
           "$ref": "#/$defs/AuthProxyConfig",
           "description": "The proxy mode: which headers name the user, which peers are believed, and who is an administrator."
+        }
+      },
+      "type": "object"
+    },
+    "AuthLocalConfig": {
+      "additionalProperties": false,
+      "properties": {
+        "adminUser": {
+          "default": "admin",
+          "description": "The name of the one administrator account; a login succeeds for this name only. Changing it after setup makes dash refuse to start until it is set back or credentials.yaml is deleted to run setup again.",
+          "type": "string",
+          "x-dash-restart": true
+        },
+        "anonymousViewer": {
+          "description": "Let a visitor who has not signed in read the dashboard as a viewer: GET requests only, never logs, never actions. Only in auth.mode=local; dash shows administrators a warning while it is on.",
+          "type": "boolean",
+          "x-dash-restart": true
         }
       },
       "type": "object"

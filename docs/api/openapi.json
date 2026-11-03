@@ -2566,6 +2566,12 @@
         "in": "header",
         "name": "X-Forwarded-Preferred-Username",
         "type": "apiKey"
+      },
+      "sessionCookie": {
+        "description": "The session of auth.mode local, set by POST /login. The cookie is __Host-dash_session when server.publicURL is https and dash_session otherwise; HttpOnly, SameSite=Lax. A write also needs X-Dash-Csrf: 1 and the public Origin.",
+        "in": "cookie",
+        "name": "__Host-dash_session",
+        "type": "apiKey"
       }
     }
   },
@@ -3394,6 +3400,9 @@
   "security": [
     {
       "identityProxy": []
+    },
+    {
+      "sessionCookie": []
     }
   ],
   "servers": [
