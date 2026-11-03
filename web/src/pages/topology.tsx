@@ -87,7 +87,7 @@ function HostCard({ host, className }: { host: TopologyHost; className?: string 
 
 function VMCard({ vm, className }: { vm: TopologyVM; className?: string }) {
   return (
-    <Panel className={cn("relative z-10 p-3", !vm.running && "opacity-60", className)}>
+    <Panel className={cn("relative z-10 p-3", className)}>
       <div className="flex items-center gap-2">
         <StatusDot health={vm.running ? vm.health : "unknown"} />
         <span className="truncate text-sm font-medium text-fg">{vm.name}</span>
@@ -339,7 +339,12 @@ export function TopologyPanel({ topology, sources, className }: TopologyPanelPro
             </div>
             <div className="flex flex-col justify-center gap-3">
               {topology.vms.map((vm) => (
-                <div key={vm.vmid} ref={ref(`vm:${vm.vmid}`)} className={card}>
+                <div
+                  key={vm.vmid}
+                  ref={ref(`vm:${vm.vmid}`)}
+                  // Dim the opaque base too, or a stopped card looks almost like a running one.
+                  className={cn(card, !vm.running && "opacity-60")}
+                >
                   <VMCard vm={vm} className="z-auto" />
                 </div>
               ))}
