@@ -19,6 +19,7 @@ func TestIconSourceConvertsAnInternationalHost(t *testing.T) {
 		"https://xn--bcher-kva.example/png":      "https://xn--bcher-kva.example/png/",
 		"https://cdn.example.com/icons/png":      "https://cdn.example.com/icons/png/",
 		"https://user:pw@cdn.example.com/p?q=1#": "https://cdn.example.com/p/",
+		"https://cdn.example.com./png":           "https://cdn.example.com./png/", // the root's dot may stay
 	} {
 		if got := iconSource(base); got != want {
 			t.Errorf("iconSource(%q) = %q, want %q", base, got, want)
@@ -37,6 +38,13 @@ func TestIconSourceRefusesWhatItCannotCarry(t *testing.T) {
 		"https://cdn.example.com:80a/png",
 		"ftp://cdn.example.com/png",
 		"https://-.example/x\x00y",
+		// The conversion empties these hosts or a label of them: no source, never "https:///png/"
+		// or "https://.example/png/".
+		"https://xn--/png",
+		"https://\u00ad/png",
+		"https://\u200b/png",
+		"https://xn--.example/png",
+		"https://cdn.xn--.example/png",
 	} {
 		if got := iconSource(base); got != "" {
 			t.Errorf("iconSource(%q) = %q, want none", base, got)
@@ -44,14 +52,17 @@ func TestIconSourceRefusesWhatItCannotCarry(t *testing.T) {
 	}
 }
 
+// hostile lists bases whose host the IDN conversion empties, wholly or in one label.
+var hostile = []string{"https://xn--/png", "https://\u00ad/png", "https://xn--.example/png"}
+
 func TestUnusableIconBaseWarnsOnceWithSchemeAndHostOnly(t *testing.T) {
-	for _, base := range []string{
+	for _, base := range append([]string{
 		"https://[2001:db8::1]/png",
 		"https://my_cdn.example/png",
 		"https://user:hunter2@my_cdn.example/a;b?token=sekret#frag",
-	} {
+	}, hostile...) {
 		log, buf := iconLogger()
-		if got := iconSourceOrWarn(base, log); got != "" {
+		if got := iconSourceOrWarn(base, cspEnforce, log); got != "" {
 			t.Errorf("%q: source = %q, want none", base, got)
 		}
 		lines := strings.Split(strings.TrimSpace(buf.String()), "\n")
@@ -67,10 +78,41 @@ func TestUnusableIconBaseWarnsOnceWithSchemeAndHostOnly(t *testing.T) {
 	}
 }
 
+// The warning says what the mode does to the icons: off sends no policy, so nothing is blocked
+// and nothing is said; report-only reports them; enforce, and a mode nobody validated, blocks.
+func TestIconBaseWarningFollowsThePolicyMode(t *testing.T) {
+	for _, tc := range []struct {
+		mode      cspMode
+		want      string // "" = no output at all
+		wantNever string
+	}{
+		{cspOff, "", ""},
+		{cspReportOnly, "report every icon from it as a violation", "block every icon"},
+		{cspEnforce, "block every icon", "report every icon"},
+		{"", "block every icon", "report every icon"},
+	} {
+		for _, base := range append([]string{"https://my_cdn.example/png"}, hostile...) {
+			log, buf := iconLogger()
+			if got := iconSourceOrWarn(base, tc.mode, log); got != "" {
+				t.Errorf("mode %q, %q: source = %q, want none", tc.mode, base, got)
+			}
+			out := buf.String()
+			switch {
+			case tc.want == "" && out != "":
+				t.Errorf("mode %q, %q warned:\n%s", tc.mode, base, out)
+			case tc.want != "" && (strings.Count(out, "level=WARN") != 1 || !strings.Contains(out, tc.want)):
+				t.Errorf("mode %q, %q: want one WARN saying %q, got:\n%s", tc.mode, base, tc.want, out)
+			case tc.wantNever != "" && strings.Contains(out, tc.wantNever):
+				t.Errorf("mode %q, %q: the warning says %q:\n%s", tc.mode, base, tc.wantNever, out)
+			}
+		}
+	}
+}
+
 func TestUsableOrEmptyIconBaseDoesNotWarn(t *testing.T) {
 	for _, base := range []string{"", "   ", "https://cdn.example.com/png", "https://bücher.example/png"} {
 		log, buf := iconLogger()
-		iconSourceOrWarn(base, log)
+		iconSourceOrWarn(base, cspEnforce, log)
 		if buf.Len() != 0 {
 			t.Errorf("%q warned:\n%s", base, buf)
 		}

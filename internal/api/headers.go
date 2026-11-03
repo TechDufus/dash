@@ -188,18 +188,28 @@ func onlyBytes(s string, ok func(byte) bool) bool {
 
 // iconSourceOrWarn is iconSource for the server's startup: a non-empty base that yields no source
 // (an IPv6 host, a name with an underscore, a path or port the policy cannot carry) is logged
-// once, because under the enforced policy every icon from it is then blocked. The line carries the
-// scheme and the host only, never the path, the query or any userinfo.
-func iconSourceOrWarn(base string, log *slog.Logger) string {
+// once, with what the policy mode does to its icons: enforce blocks them, report-only reports
+// them as violations, and off sends no policy, so there is nothing to warn about. The line carries
+// the scheme and the host only, never the path, the query or any userinfo.
+func iconSourceOrWarn(base string, mode cspMode, log *slog.Logger) string {
 	src := iconSource(base)
 	if src != "" || strings.TrimSpace(base) == "" {
 		return src
+	}
+	var effect string
+	switch mode.headerName() {
+	case "":
+		return ""
+	case cspReportOnlyHeader:
+		effect = "the browser will report every icon from it as a violation (report-only does not block it, the enforced policy would)"
+	default:
+		effect = "the browser will block every icon from it"
 	}
 	scheme, host := "", ""
 	if u, err := url.Parse(strings.TrimSpace(base)); err == nil {
 		scheme, host = u.Scheme, u.Hostname()
 	}
-	log.Warn("ui.iconBaseURL cannot be written as a Content-Security-Policy source, so the browser will block every icon from it; use a DNS host name (an international name is converted), a plain port and a path of letters, digits and - . _ ~",
+	log.Warn("ui.iconBaseURL cannot be written as a Content-Security-Policy source, so "+effect+"; use a DNS host name (an international name is converted), a plain port and a path of letters, digits and - . _ ~",
 		"scheme", scheme, "host", host)
 	return ""
 }
@@ -226,6 +236,12 @@ func iconSource(base string) string {
 	}
 	host = strings.ToLower(host)
 	if !onlyBytes(host, func(c byte) bool { return isAlnum(c) || c == '.' || c == '-' }) {
+		return ""
+	}
+	// The conversion can empty a label ("xn--", a soft hyphen or a zero-width space), leaving an
+	// empty host or one like ".example" that is no DNS name and matches nothing as a source. A
+	// single trailing dot (the root) may stay.
+	if h := strings.TrimSuffix(host, "."); h == "" || strings.HasPrefix(h, ".") || strings.Contains(h, "..") {
 		return ""
 	}
 	src := u.Scheme + "://" + host

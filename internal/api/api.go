@@ -89,7 +89,7 @@ func New(d Deps) *Server {
 	l := withDefaultLimits(d.Cfg.Limits)
 	return &Server{
 		d: d, static: dist, now: time.Now, heartbeat: 15 * time.Second, cspMode: cspMode(d.Cfg.CSP),
-		iconSrc: iconSourceOrWarn(d.Cfg.IconBaseURL, slog.Default()),
+		iconSrc: iconSourceOrWarn(d.Cfg.IconBaseURL, cspMode(d.Cfg.CSP), slog.Default()),
 		events:  newStreamLimiter(l.StreamsPerUser, l.Streams),
 		tails:   newStreamLimiter(l.TailsPerUser, l.Tails),
 		tailMax: l.TailMaxDuration, sseWrite: l.SSEWriteTimeout, bodyTimeout: l.BodyReadTimeout,
