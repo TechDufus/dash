@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"log/slog"
 	"slices"
-	"strings"
 
 	"github.com/TechDufus/dash/internal/auth"
 	"github.com/TechDufus/dash/internal/config"
@@ -92,7 +91,7 @@ func roleMapOf(c config.AuthProxyConfig) auth.RoleMap {
 func cleanNames(in []string) []string {
 	var out []string
 	for _, s := range in {
-		if s = strings.TrimSpace(s); s != "" {
+		if s = auth.TrimIdentity(s); s != "" {
 			out = append(out, s)
 		}
 	}

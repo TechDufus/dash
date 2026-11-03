@@ -87,7 +87,7 @@ func (p ProxyIdentity) From(h http.Header) (user string, groups []string, via st
 		lines := h.Values(name)
 		present := false
 		for _, l := range lines {
-			if strings.TrimSpace(l) != "" {
+			if TrimIdentity(l) != "" {
 				present = true
 				break
 			}
@@ -98,7 +98,7 @@ func (p ProxyIdentity) From(h http.Header) (user string, groups []string, via st
 		if len(lines) > 1 {
 			return "", nil, "", ErrAmbiguousIdentity
 		}
-		v := strings.TrimSpace(lines[0])
+		v := TrimIdentity(lines[0])
 		if !cleanValue(v, maxUserBytes) {
 			return "", nil, "", nil
 		}
@@ -128,7 +128,7 @@ func (p ProxyIdentity) groups(h http.Header) ([]string, error) {
 	var out []string
 	seen := map[string]struct{}{}
 	for _, g := range strings.Split(lines[0], ",") {
-		g = strings.TrimSpace(g)
+		g = TrimIdentity(g)
 		if g == "" || !cleanValue(g, maxGroupBytes) {
 			continue
 		}
@@ -152,3 +152,10 @@ func cleanValue(v string, limit int) bool {
 	}
 	return !strings.ContainsFunc(v, unicode.IsControl)
 }
+
+// TrimIdentity strips what HTTP itself strips around a field value, spaces and tabs, and nothing
+// else. Unicode space (a no-break space, an ideographic space) is part of a name: a different
+// user than the one without it, so it must never fold into an admin's exact name. Every place
+// that compares a user or group name, in a header or in a configured list, trims with it, so a
+// padded entry and a padded header value are judged the same way.
+func TrimIdentity(s string) string { return strings.Trim(s, " \t") }

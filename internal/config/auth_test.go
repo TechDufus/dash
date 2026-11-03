@@ -2,6 +2,7 @@ package config
 
 import (
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 
@@ -279,6 +280,22 @@ func TestUserHeadersRefuseReservedNames(t *testing.T) {
 		if !strings.Contains(err.Error(), w) {
 			t.Errorf("error %q does not contain %q", err, w)
 		}
+	}
+}
+
+// The admin lists are exact names: surrounding space and tab are pasted padding, but a Unicode
+// space is part of the name and stays, as it does in a header value (auth.TrimIdentity).
+func TestAdminListsKeepUnicodeSpace(t *testing.T) {
+	a := AuthConfig{Proxy: AuthProxyConfig{
+		AdminUsers:  []string{" alice\t", "\u00a0bob", "carol\u3000"},
+		AdminGroups: []string{"\u00a0ops", " dev "},
+	}}
+	a.normalize()
+	if want := []string{"alice", "\u00a0bob", "carol\u3000"}; !slices.Equal(a.Proxy.AdminUsers, want) {
+		t.Errorf("adminUsers = %q, want %q", a.Proxy.AdminUsers, want)
+	}
+	if want := []string{"\u00a0ops", "dev"}; !slices.Equal(a.Proxy.AdminGroups, want) {
+		t.Errorf("adminGroups = %q, want %q", a.Proxy.AdminGroups, want)
 	}
 }
 

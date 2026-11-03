@@ -237,7 +237,7 @@ func roleOf(t *testing.T, a auth.Authenticator, user, groups string) auth.Role {
 func TestRoleMappingFromConfig(t *testing.T) {
 	var logs logCapture
 	a, _, err := buildAuthenticator(resolvedAuth(false, false, func(c *config.AuthConfig) {
-		c.Proxy.AdminUsers = []string{"TechDufus", "  padded  ", ""}
+		c.Proxy.AdminUsers = []string{"TechDufus", "  padded  ", "", "\u00a0nbsp"}
 		c.Proxy.AdminGroups = []string{"ops"}
 		c.Proxy.GroupsHeader = "X-Forwarded-Groups"
 	}), logs.logger())
@@ -250,7 +250,9 @@ func TestRoleMappingFromConfig(t *testing.T) {
 	}{
 		{"TechDufus", "", auth.RoleAdmin},
 		{"techdufus", "", auth.RoleViewer}, // exact and case-sensitive
-		{"padded", "", auth.RoleAdmin},     // list entries are trimmed
+		{"padded", "", auth.RoleAdmin},     // list entries are trimmed of space and tab
+		{"\u00a0nbsp", "", auth.RoleAdmin}, // a no-break space is part of the name
+		{"nbsp", "", auth.RoleViewer},      // so the plain name is another user
 		{"dash-verify", "", auth.RoleViewer},
 		{"dash-verify", "dev,ops", auth.RoleAdmin},
 		{"dash-verify", "dev,Ops", auth.RoleViewer},

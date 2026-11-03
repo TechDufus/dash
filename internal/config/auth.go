@@ -109,12 +109,14 @@ func (a AuthConfig) Validate() error {
 	return errors.Join(errs...)
 }
 
-// trimmed returns the entries of l without surrounding space, so Validate judges what the
-// authenticator will use; normalize belongs to the resolver, which this does not wait for.
+// trimmed returns the entries of l without surrounding space or tab, the same rule that trims a
+// header value (auth.TrimIdentity), so a padded entry names exactly the user or group a padded
+// header value does and a no-break space is never silently dropped from an admin's name.
+// normalize belongs to the resolver, which this does not wait for.
 func trimmed(l []string) []string {
 	out := make([]string, len(l))
 	for i, s := range l {
-		out[i] = strings.TrimSpace(s)
+		out[i] = auth.TrimIdentity(s)
 	}
 	return out
 }

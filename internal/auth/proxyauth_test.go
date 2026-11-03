@@ -345,6 +345,47 @@ func TestGroupsHeaderParsing(t *testing.T) {
 	}
 }
 
+// A Unicode space around a name is part of the name: it never folds into an admin's exact name
+// (D7), in the user header or in a group.
+func TestUnicodeSpaceDoesNotFoldIntoAnAdminName(t *testing.T) {
+	p := NewProxy(loopbackOnly,
+		ProxyIdentity{UserHeaders: testIdentity.UserHeaders, GroupsHeader: "X-Forwarded-Groups"},
+		RoleMap{AdminUsers: []string{"alice"}, AdminGroups: []string{"ops"}})
+	for _, tc := range []struct {
+		name, user, groups string
+		wantUser           string
+		want               Role
+	}{
+		{"plain admin", "alice", "", "alice", RoleAdmin},
+		{"space and tab are trimmed", " alice\t", "", "alice", RoleAdmin},
+		{"no-break space before", "\u00a0alice", "", "\u00a0alice", RoleViewer},
+		{"no-break space after", "alice\u00a0", "", "alice\u00a0", RoleViewer},
+		{"ideographic space before", "\u3000alice", "", "\u3000alice", RoleViewer},
+		{"line separator after", "alice\u2028", "", "alice\u2028", RoleViewer},
+		{"group, plain", "bob", "dev,ops", "bob", RoleAdmin},
+		{"group, no-break space", "bob", "dev,\u00a0ops", "bob", RoleViewer},
+		{"group, ideographic space", "bob", "ops\u3000", "bob", RoleViewer},
+	} {
+		kv := []string{"X-Forwarded-User", tc.user}
+		if tc.groups != "" {
+			kv = append(kv, "X-Forwarded-Groups", tc.groups)
+		}
+		got, f := p.Authenticate(request("127.0.0.1:1", kv...))
+		if f != nil {
+			t.Errorf("%s: refused %+v", tc.name, f)
+			continue
+		}
+		if got.User != tc.wantUser || got.Role != tc.want {
+			t.Errorf("%s: user %q role %q, want %q %q", tc.name, got.User, got.Role, tc.wantUser, tc.want)
+		}
+	}
+	// A C1 control character at the edge is refused, as one in the middle is.
+	for _, u := range []string{"\u0085alice", "alice\u0085", "al\u0085ice"} {
+		_, f := p.Authenticate(request("127.0.0.1:1", "X-Forwarded-User", u))
+		wantFailure(t, f, CodeUnauthenticated, ReasonNoIdentity)
+	}
+}
+
 func TestFixedIgnoresHeadersPeersAndBearer(t *testing.T) {
 	a := Fixed(Principal{Kind: KindDev, User: "dev", Role: RoleAdmin})
 	for _, r := range []*http.Request{

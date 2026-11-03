@@ -5,7 +5,6 @@ import (
 	"log/slog"
 	"net/http"
 	"slices"
-	"strings"
 	"sync"
 	"time"
 )
@@ -147,7 +146,7 @@ func (p *Proxy) warnIfDisagree(h http.Header, user, via string) {
 			continue
 		}
 		for _, l := range h.Values(name) {
-			if v := strings.TrimSpace(l); v != "" && v != user {
+			if v := TrimIdentity(l); v != "" && v != user {
 				clash = append(clash, name)
 				break
 			}
