@@ -36,8 +36,10 @@ error:
 Open the URL within an hour and choose a password (12 to 256 bytes). The token is in the URL
 fragment, so it never reaches an access log, a proxy or a `Referer`; the setup page removes it
 from the address bar at once. It works once, and a restart prints a new one. dash's log scrubber
-redacts it from the pod logs the UI shows. Until then `/login` points to that log line instead of
-showing a form. After setup, `/setup` answers 404 (a plain 404 page: the link has done its job).
+redacts it from the pod logs the UI shows. Until an account exists, `/login` points to that log
+line instead of showing a form, also once the hour has passed: the setup page then says the link
+has expired, and a restart of dash prints a new one. After setup, `/setup` answers 404 (a plain 404
+page: the link has done its job).
 
 **From the environment.** `dash hash-password` reads a password from the terminal (without echo,
 twice) or from standard input and prints its argon2id hash:
@@ -69,8 +71,8 @@ audited at most once per address and minute. Password hashing is argon2id (64 Mi
 lanes) and at most two run at once (128 MiB); a third login at the same moment gets 429 at once.
 
 **The anonymous viewer.** `auth.local.anonymousViewer: true` lets a visitor who has not signed in
-read the dashboard as a viewer, once the account exists (while setup is open, a visitor gets the
-401 that points to the setup link): GET requests only, never a log route (403; its scopes are `read`
+read the dashboard as a viewer, once the account exists (until then a visitor gets the 401 that
+points to the setup link): GET requests only, never a log route (403; its scopes are `read`
 alone, so the pod sheet offers no Logs tab), never an action. dash warns at every start while it
 is on, and `/api/v1/me` lists `anonymous_viewer` in an administrator's `warnings` (the web UI shows
 no banner for it yet).
