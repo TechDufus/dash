@@ -631,6 +631,35 @@ func TestOIDCNextIsValidated(t *testing.T) {
 	}
 }
 
+// A next that a browser would normalize into a protocol-relative URL ("/.//evil.example/x" is
+// "//evil.example/x" once its dot segments are removed) is refused at the start, and whatever the
+// callback writes into Location stays on this origin.
+func TestOIDCNextThatNormalizesOffTheOriginIsRefused(t *testing.T) {
+	e := newOIDCEnv(t, oidcOpts{})
+	for _, bad := range []string{
+		"/.//evil.example/x", "/%2e//evil.example/x", "/a/..//evil.example/x", "/%2E%2E//evil.example/x",
+		"/./%09/evil.example", "/%5C/evil.example",
+	} {
+		if w := e.start(bad); w.Code != http.StatusBadRequest || respCookie(w, oidcauth.StateCookiePlain) != nil {
+			t.Errorf("next %q = %d (state cookie %v), want 400 and none", bad, w.Code, respCookie(w, oidcauth.StateCookiePlain) != nil)
+		}
+	}
+	base, _ := url.Parse("https://dash.example.com/auth/callback")
+	for next, want := range map[string]string{"/./alerts": "/alerts", "/a/../alerts": "/alerts"} {
+		authURL, st := e.begin(next)
+		code, state := e.idp.Authorize(t, authURL, claims("preferred_username", "alice"))
+		w := e.callback(code, state, st)
+		e.session(w)
+		loc, err := url.Parse(w.Header().Get("Location"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := base.ResolveReference(loc); got.Host != base.Host || got.Path != want {
+			t.Errorf("next %q: Location %q resolves to %s, want %s on this origin", next, loc, got, want)
+		}
+	}
+}
+
 func TestOIDCStateCookieSurvivesACrossSiteTopLevelRedirect(t *testing.T) {
 	for _, tc := range []struct {
 		secure bool
