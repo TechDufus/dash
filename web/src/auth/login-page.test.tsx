@@ -107,6 +107,25 @@ describe("LoginPage", () => {
   });
 
   it.each([
+    [500, "internal"],
+    [403, "csrf_failed"],
+    [503, "upstream_unavailable"],
+  ])("shows the fixed text for a %i %s, never the server's words", async (status, code) => {
+    stubFetch({
+      "GET /api/v1/me": ME_LOCAL,
+      "POST /login": () => json({ error: `server says ${code}`, code }, status),
+    });
+    renderApp(<LoginPage />, { path: "/login" });
+    await signIn();
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Signing in failed. Reload the page and try again.",
+    );
+    expect(document.body.textContent).not.toContain("server says");
+    expect(screen.getByLabelText("Password")).toHaveValue("");
+    expect(assign).not.toHaveBeenCalled();
+  });
+
+  it.each([
     ["30", "Too many attempts. Try again in 30 seconds."],
     ["1", "Too many attempts. Try again in 1 second."],
     ["60", "Too many attempts. Try again in 1 minute."],

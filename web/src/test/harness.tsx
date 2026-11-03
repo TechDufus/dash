@@ -171,6 +171,8 @@ export interface RenderAppOptions {
   /** The initial location (default "/"). */
   path?: string;
   queryClient?: QueryClient;
+  /** Renders inside StrictMode, outermost, as main.tsx does (the providers inside it). */
+  strict?: boolean;
 }
 
 export interface RenderAppResult extends RenderResult {
@@ -185,12 +187,16 @@ export interface RenderAppResult extends RenderResult {
  * Renders `ui` inside what the real app provides: a QueryClient without retries, a wouter memory
  * location, tooltips, and Motion with animations off (so transitions never hide an element).
  */
-export function renderApp(ui: ReactElement, { path = "/", queryClient }: RenderAppOptions = {}) {
+export function renderApp(
+  ui: ReactElement,
+  { path = "/", queryClient, strict = false }: RenderAppOptions = {},
+) {
   const client =
     queryClient ??
     new QueryClient({ defaultOptions: { queries: { retry: false, refetchOnWindowFocus: false } } });
   const location = memoryLocation({ path, record: true });
   const result = render(ui, {
+    reactStrictMode: strict,
     wrapper: ({ children }) => (
       <QueryClientProvider client={client}>
         <MotionConfig reducedMotion="always">

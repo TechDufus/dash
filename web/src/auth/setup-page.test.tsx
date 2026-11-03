@@ -1,6 +1,5 @@
 import { screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { StrictMode } from "react";
 import { afterEach, beforeEach, describe, expect, it, type MockInstance, vi } from "vitest";
 import { type FetchStub, json, renderApp, stubFetch } from "@/test/harness";
 import { browserNav } from "./handle401";
@@ -20,9 +19,9 @@ afterEach(() => {
 });
 
 /** Opens /setup with `fragment` as the browser would after following dash's setup line. */
-function open(fragment: string, ui = <SetupPage />) {
+function open(fragment: string, { strict = false } = {}) {
   window.history.replaceState(null, "", `/setup${fragment}`);
-  return renderApp(ui, { path: "/setup" });
+  return renderApp(<SetupPage />, { path: "/setup", strict });
 }
 
 /** Everything the page could have leaked the token into. */
@@ -83,14 +82,11 @@ describe("SetupPage", () => {
     expectTokenNowhere(stub);
   });
 
+  // StrictMode outermost, as main.tsx renders it: React then runs every effect twice (inside the
+  // providers it would not), so a page that read the token in an effect would lose it.
   it("keeps the token through StrictMode's second effect run", async () => {
     const stub = stubFetch({ "POST /setup": undefined });
-    open(
-      `#token=${TOKEN}`,
-      <StrictMode>
-        <SetupPage />
-      </StrictMode>,
-    );
+    open(`#token=${TOKEN}`, { strict: true });
     await fill(GOOD);
     await waitFor(() => expect(assign).toHaveBeenCalledWith("/"));
     expect(stub.callsTo("POST /setup")[0].body).toEqual({ token: TOKEN, password: GOOD });
