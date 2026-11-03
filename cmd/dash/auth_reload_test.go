@@ -80,20 +80,22 @@ func TestAdminUsersReloadAppliesOnTheNextRequest(t *testing.T) {
 	}
 }
 
-// The other auth keys are not live: a change to the trusted proxies is reported as needing a
-// restart, and the running authenticator keeps what it started with.
+// The other auth keys are not live: a change to the mode or the trusted proxies is reported as
+// needing a restart, and the running authenticator keeps what it started with: still the proxy
+// mode, still believing only the startup peers.
 func TestOtherAuthKeysNeedARestart(t *testing.T) {
 	dir := t.TempDir()
 	cfgPath := filepath.Join(dir, "config.yaml")
 	writeTestFile(t, cfgPath, "auth:\n  proxy:\n    adminUsers: [alice]\n")
 	startEnv(t, dir, "DASH_CONFIG="+cfgPath)
 
-	res, store, err := loadConfig(secret.NewRegistry(), nil)
+	reg := secret.NewRegistry()
+	res, store, err := loadConfig(reg, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer store.Close()
-	_, proxy, err := buildAuthenticator(res, slog.New(slog.DiscardHandler))
+	a, proxy, err := buildAuthenticator(res, slog.New(slog.DiscardHandler))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -104,9 +106,38 @@ func TestOtherAuthKeysNeedARestart(t *testing.T) {
 	go func() { defer close(done); fw.reloader.Run(ctx) }()
 	defer func() { cancel(); <-done }()
 
-	writeTestFile(t, cfgPath, "auth:\n  proxy:\n    adminUsers: [alice]\n    trustedProxies: [\"10.0.0.0/8\"]\n")
-	waitFor(t, func() bool { return len(fw.reloader.RestartRequired()) > 0 })
-	if got := fw.reloader.RestartRequired(); len(got) != 1 || got[0] != "auth.proxy.trustedProxies" {
-		t.Errorf("restart required = %v, want auth.proxy.trustedProxies", got)
+	srv := api.New(api.Deps{Cfg: res.Config, Hub: fw.hub, Secrets: reg, Health: fw.sup, Plugins: fw.sup, Auth: a})
+	// meFrom asks /api/v1/me from peer, as user when it is not empty.
+	meFrom := func(peer, user string) *httptest.ResponseRecorder {
+		r := httptest.NewRequest(http.MethodGet, res.Config.PublicURL+"/api/v1/me", nil)
+		r.RemoteAddr = peer
+		if user != "" {
+			r.Header.Set("X-Forwarded-Preferred-Username", user)
+		}
+		w := httptest.NewRecorder()
+		srv.Handler().ServeHTTP(w, r)
+		return w
 	}
+	check := func(when string) {
+		t.Helper()
+		if w := meFrom("127.0.0.1:41000", "alice"); w.Code != http.StatusOK || !strings.Contains(w.Body.String(), `"authMode":"proxy"`) || !strings.Contains(w.Body.String(), `"role":"admin"`) {
+			t.Errorf("%s: alice from the startup peer = %d %s, want the proxy-mode admin", when, w.Code, w.Body)
+		}
+		// A peer the new file would trust, and no identity at all (what none mode would accept):
+		// both are still refused.
+		if w := meFrom("10.0.0.5:41000", "alice"); w.Code != http.StatusUnauthorized {
+			t.Errorf("%s: alice from 10.0.0.5 = %d %s, want 401 (not a startup peer)", when, w.Code, w.Body)
+		}
+		if w := meFrom("127.0.0.1:41000", ""); w.Code != http.StatusUnauthorized {
+			t.Errorf("%s: no identity header = %d %s, want 401 (the mode is still proxy)", when, w.Code, w.Body)
+		}
+	}
+	check("before the reload")
+
+	writeTestFile(t, cfgPath, "auth:\n  mode: none\n  proxy:\n    adminUsers: [alice]\n    trustedProxies: [\"10.0.0.0/8\"]\n")
+	waitFor(t, func() bool { return len(fw.reloader.RestartRequired()) > 0 })
+	if got := fw.reloader.RestartRequired(); len(got) != 2 || got[0] != "auth.mode" || got[1] != "auth.proxy.trustedProxies" {
+		t.Errorf("restart required = %v, want auth.mode and auth.proxy.trustedProxies", got)
+	}
+	check("after the reload")
 }
