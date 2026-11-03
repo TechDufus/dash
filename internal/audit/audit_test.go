@@ -776,7 +776,7 @@ func TestDenialTableIsBounded(t *testing.T) {
 	}
 }
 
-func TestScrubAppliesToFileErrorOnly(t *testing.T) {
+func TestScrubAppliesToOutcomeErrorInFile(t *testing.T) {
 	dir := t.TempDir()
 	var buf bytes.Buffer
 	l := open(t, dir, Options{

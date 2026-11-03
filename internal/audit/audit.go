@@ -117,8 +117,10 @@ type Options struct {
 	// Logger receives the slog side of every record (default slog.Default(), resolved
 	// per call so a later slog.SetDefault is honoured).
 	Logger *slog.Logger
-	// Scrub is applied to error text before it is written to the file. The slog side
-	// is scrubbed by the logger's own handler; the file has no such layer.
+	// Scrub is applied to the texts of a record that can come from a request (its error,
+	// action, target, request id and actor names; see scrubbed) before the record is written
+	// to the file or kept in memory. The slog side is scrubbed by the logger's own handler;
+	// the file and the rings have no such layer.
 	Scrub func(string) string
 }
 
@@ -273,7 +275,7 @@ func (l *Log) Intent(rec Record) (Pending, error) {
 	rec.ID = newID()
 	rec.Result, rec.Error, rec.Reason = "", "", ""
 	rec.Time = l.now()
-	if err := l.append(rec); err != nil {
+	if err := l.append(l.scrubbed(rec)); err != nil {
 		l.logger().Error("audit write failed", "kind", string(KindIntent), "action", rec.Action, "error", err.Error())
 		return Pending{}, fmt.Errorf("audit intent: %w", err)
 	}
@@ -379,10 +381,20 @@ func (l *Log) bestEffort(rec Record) {
 	}
 }
 
+// scrubbed is rec as the file and the rings keep it, and as the chain hashes it: every text that
+// can come from a request or another outside party goes through Scrub. That is the error, the
+// action (a denial's is the client's request line), the target (an attempted login name, the
+// object a stream names), the request id a proxy sent, and the actor's user and client ids. Kind,
+// ID and the values the Log or the server sets themselves (result, source, auth mode, reason,
+// peer address, plugin instance, changed config paths) are kept as they are.
 func (l *Log) scrubbed(rec Record) Record {
-	if l != nil && l.opts.Scrub != nil {
-		rec.Error = l.opts.Scrub(rec.Error)
+	if l == nil || l.opts.Scrub == nil {
+		return rec
 	}
+	s := l.opts.Scrub
+	rec.Action, rec.Error, rec.RequestID = s(rec.Action), s(rec.Error), s(rec.RequestID)
+	rec.Target.Kind, rec.Target.Namespace, rec.Target.Name = s(rec.Target.Kind), s(rec.Target.Namespace), s(rec.Target.Name)
+	rec.Actor.User, rec.Actor.ClientID = s(rec.Actor.User), s(rec.Actor.ClientID)
 	return rec
 }
 
