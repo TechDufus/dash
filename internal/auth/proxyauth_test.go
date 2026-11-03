@@ -179,6 +179,17 @@ func TestBearerIgnoresIdentityHeaders(t *testing.T) {
 	if f != nil || got.User != "alice" {
 		t.Errorf("Basic: %+v %+v, want alice", got, f)
 	}
+
+	// A Bearer on a later line is refused too: a Basic line in front does not hide it.
+	for _, kv := range [][]string{
+		{"Authorization", "Basic YWxpY2U6cHc=", "Authorization", "Bearer x", "X-Forwarded-User", "alice"},
+		{"Authorization", "Bearer x", "Authorization", "Basic YWxpY2U6cHc=", "X-Forwarded-User", "alice"},
+	} {
+		got, f := p.Authenticate(request("127.0.0.1:1", kv...))
+		if f == nil || f.Status != http.StatusUnauthorized || f.Code != CodeInvalidToken || f.Reason != ReasonBearerRefused || got.User != "" {
+			t.Errorf("%q: %+v %+v, want 401 invalid_token/bearer_refused", kv, got, f)
+		}
+	}
 }
 
 func TestTwoUserHeaderLinesAreRefused(t *testing.T) {

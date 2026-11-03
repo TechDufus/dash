@@ -50,12 +50,23 @@ type Warner interface {
 	Warnings() []string
 }
 
-// Bearer extracts a bearer token. present is true only when the Authorization header's scheme
-// is Bearer (case-insensitive); every other scheme, or no header, is ignored (not present) so an
-// upstream proxy that forwards Basic credentials changes nothing. The token is the trimmed
-// remainder and may be empty when present.
+// Bearer extracts a bearer token. present is true when ANY Authorization header line has the
+// Bearer scheme (case-insensitive), so a Basic line in front of a Bearer one cannot hide it;
+// every other scheme, or no header, is ignored (not present) so an upstream proxy that forwards
+// Basic credentials changes nothing. The token is the trimmed remainder of the first Bearer line
+// and may be empty when present.
 func Bearer(r *http.Request) (token string, present bool) {
-	v := strings.TrimSpace(r.Header.Get("Authorization"))
+	for _, line := range r.Header.Values("Authorization") {
+		if token, present = bearerLine(line); present {
+			return token, true
+		}
+	}
+	return "", false
+}
+
+// bearerLine parses one Authorization value.
+func bearerLine(line string) (token string, present bool) {
+	v := strings.TrimSpace(line)
 	const scheme = "bearer"
 	if len(v) < len(scheme) || !strings.EqualFold(v[:len(scheme)], scheme) {
 		return "", false

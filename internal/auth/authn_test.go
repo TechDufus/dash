@@ -45,3 +45,31 @@ func TestBearer(t *testing.T) {
 		})
 	}
 }
+
+// Any line may carry the Bearer: an earlier Basic line does not hide it.
+func TestBearerOnAnyAuthorizationLine(t *testing.T) {
+	for _, c := range []struct {
+		name  string
+		lines []string
+		token string
+		want  bool
+	}{
+		{"Basic then Bearer", []string{"Basic dXNlcjpwYXNz", "Bearer x"}, "x", true},
+		{"Bearer then Basic", []string{"Bearer x", "Basic dXNlcjpwYXNz"}, "x", true},
+		{"empty then Bearer", []string{"", "Bearer x"}, "x", true},
+		{"two Bearers, the first token", []string{"Bearer a", "Bearer b"}, "a", true},
+		{"Basic then Basic", []string{"Basic a", "Basic b"}, "", false},
+		{"Basic then a lookalike", []string{"Basic a", "Bearerx b"}, "", false},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			r := &http.Request{Header: http.Header{}}
+			for _, l := range c.lines {
+				r.Header.Add("Authorization", l)
+			}
+			tok, ok := Bearer(r)
+			if ok != c.want || tok != c.token {
+				t.Errorf("Bearer(%q) = (%q, %v), want (%q, %v)", c.lines, tok, ok, c.token, c.want)
+			}
+		})
+	}
+}
