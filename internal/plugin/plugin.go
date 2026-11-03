@@ -333,6 +333,10 @@ type InstanceConfig struct {
 	// denyNamespaces, e.g. plugins.victorialogs.denyNamespaces): the core answers 403 for a
 	// route whose RouteSpec.Namespace names one of them.
 	ReadDenyNamespaces []string
+	// FromUI is set when a URL of the section came from the UI layer: every client the instance
+	// builds with Host.HTTPClient then refuses loopback too, as HTTPConfig.FromUI does (design
+	// A.3, K.22). Like any field, a change restarts the instance, so its clients are rebuilt.
+	FromUI bool
 }
 
 // Settings is the configuration as the supervisor sees it.

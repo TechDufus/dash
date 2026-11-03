@@ -252,7 +252,7 @@ func fileDoc(path, value string) string {
 }
 
 // Every setting of plugins.proxmox and plugins.hardware arrives, through the real environment and
-// file layers, treeSettings.Instances() and the supervisor, in the configuration the plugin is
+// file layers, resolvedSettings.Instances() and the supervisor, in the configuration the plugin is
 // started with, and a reload of the file layer restarts the instance with the new value. The
 // tables cover the whole sections (and the keys of the hosts and machines entries), so a key
 // added without a row here fails.
@@ -373,7 +373,7 @@ func settingsReachThePlugin(t *testing.T, id plugin.ID, leaves []reachLeaf, pl p
 
 			// The instance the supervisor is given.
 			var ic *plugin.InstanceConfig
-			for _, x := range (treeSettings{func() config.Tree { return res.Tree }}).Instances() {
+			for _, x := range (resolvedSettings{func() *config.Resolved { return res }}).Instances() {
 				if x.Name == id {
 					ic = &x
 				}

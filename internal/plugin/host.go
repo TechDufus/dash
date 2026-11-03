@@ -74,9 +74,16 @@ func (h *host) Logger() *slog.Logger { return h.logger() }
 
 func (h *host) Now() time.Time { return h.s.opt.Now() }
 
+// HTTPClient builds the guarded client. For an instance whose URL came from the UI
+// (InstanceConfig.FromUI) it refuses loopback whatever c says.
 func (h *host) HTTPClient(c HTTPConfig) (*http.Client, error) {
 	if c.InsecureSkipVerify {
 		h.logger().Warn("TLS certificate verification is disabled for this plugin's upstream")
+	}
+	if h.in != nil {
+		h.in.mu.RLock()
+		c.FromUI = c.FromUI || h.in.cfg.FromUI
+		h.in.mu.RUnlock()
 	}
 	cl, err := newHTTPClient(c)
 	if err != nil {

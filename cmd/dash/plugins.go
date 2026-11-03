@@ -35,15 +35,19 @@ type actionsConfigurer interface{ ActionsConfig() pluginconf.Actions }
 // (plugins.victorialogs.denyNamespaces).
 type readDenyConfigurer interface{ ReadDenyConfig() []string }
 
-// treeSettings is the plugin framework's view of the configuration: the current plugins.*
-// sections of the last valid resolution.
-type treeSettings struct{ tree func() config.Tree }
+// resolvedSettings is the plugin framework's view of the configuration: the current plugins.*
+// sections of the last valid resolution, with the provenance of their URLs.
+type resolvedSettings struct{ res func() *config.Resolved }
 
-// Instances implements plugin.Settings.
-func (s treeSettings) Instances() []plugin.InstanceConfig {
+// Instances implements plugin.Settings. The tree and the provenance come from one resolution,
+// so FromUI always describes the URL the instance is given.
+func (s resolvedSettings) Instances() []plugin.InstanceConfig {
+	res := s.res()
 	var out []plugin.InstanceConfig
-	for _, sec := range s.tree().PluginSections() {
-		out = append(out, instanceConfig(sec))
+	for _, sec := range res.Tree.PluginSections() {
+		ic := instanceConfig(sec)
+		ic.FromUI = res.FromUI("plugins." + sec.Name)
+		out = append(out, ic)
 	}
 	return out
 }
@@ -125,7 +129,7 @@ func newFramework(res *config.Resolved, store *settings.Store, opts config.Reloa
 		ready[i] = plugin.ID(id)
 	}
 	f.sup = plugin.NewSupervisor(plugin.Options{
-		Publisher: f.hub, Settings: treeSettings{f.reloader.Tree}, ReadyRequires: ready, ReadyTimeout: res.Config.ReadyTimeout,
+		Publisher: f.hub, Settings: resolvedSettings{f.reloader.Resolved}, ReadyRequires: ready, ReadyTimeout: res.Config.ReadyTimeout,
 		Transport: transport, ScrubLog: reg.ScrubLogLine, Demo: demo, IconBase: res.Config.IconBaseURL,
 	})
 	f.hub.SetOrder(f.sup.TopicOrder)

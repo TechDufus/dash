@@ -1,0 +1,68 @@
+package plugin_test
+
+import (
+	"errors"
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"testing"
+
+	"github.com/TechDufus/dash/internal/plugin"
+	"github.com/TechDufus/dash/internal/plugin/plugintest"
+)
+
+// hostGet sends one GET of url through a client the running fake's Host builds.
+func hostGet(t *testing.T, f *plugintest.Fake, url string) error {
+	t.Helper()
+	c, err := f.Host().HTTPClient(plugin.HTTPConfig{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp, err := c.Get(url)
+	if err != nil {
+		return err
+	}
+	_, _ = io.Copy(io.Discard, resp.Body)
+	return resp.Body.Close()
+}
+
+// A URL from the UI (InstanceConfig.FromUI) makes every client the instance builds refuse
+// loopback; the same URL from the file or the environment dials. A change of FromUI restarts the
+// instance, so its next client follows it either way.
+func TestFromUIURLRefusesLoopbackAtDial(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { _, _ = io.WriteString(w, "ok") }))
+	defer srv.Close()
+	f := plugintest.New("aa")
+	e := start(t, f.Factory())
+	eventually(t, "aa to run", func() bool { return e.sup.Running("aa") })
+
+	if err := hostGet(t, f, srv.URL); err != nil {
+		t.Fatalf("a loopback URL from the file or env: %v", err)
+	}
+	e.set.Set(plugin.InstanceConfig{Name: "aa", FromUI: true})
+	e.reloadUntil(t, "a restart with FromUI", func() bool { return f.Starts() == 2 && e.sup.Running("aa") })
+	if err := hostGet(t, f, srv.URL); !errors.Is(err, plugin.ErrBlockedAddress) {
+		t.Fatalf("a loopback URL from the UI: err = %v, want ErrBlockedAddress", err)
+	}
+	e.set.Set(plugin.InstanceConfig{Name: "aa"})
+	e.reloadUntil(t, "a restart without FromUI", func() bool { return f.Starts() == 3 && e.sup.Running("aa") })
+	if err := hostGet(t, f, srv.URL); err != nil {
+		t.Fatalf("the URL back in the file or env: %v", err)
+	}
+}
+
+// The link-local and metadata addresses are refused whatever the URL's source.
+func TestMetadataAddressRefusedForEverySource(t *testing.T) {
+	for _, fromUI := range []bool{false, true} {
+		f := plugintest.New("aa")
+		e := newEnv(t, nil, f.Factory())
+		e.set.Set(plugin.InstanceConfig{Name: "aa", FromUI: fromUI})
+		e.run(t)
+		eventually(t, "aa to run", func() bool { return e.sup.Running("aa") })
+		for _, u := range []string{"http://169.254.169.254/latest/meta-data", "http://[fd00:ec2::254]/"} {
+			if err := hostGet(t, f, u); !errors.Is(err, plugin.ErrBlockedAddress) {
+				t.Errorf("fromUI=%v: GET %s err = %v, want ErrBlockedAddress", fromUI, u, err)
+			}
+		}
+	}
+}

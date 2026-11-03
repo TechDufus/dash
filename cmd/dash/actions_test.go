@@ -50,7 +50,7 @@ func mounted(fw *framework, id plugin.ID, action string) bool {
 }
 
 // plugins.alertmanager.actions.enabled, set in the environment, is what mounts silence.create:
-// env -> config tree -> treeSettings -> supervisor. Without it the plugin runs and the action
+// env -> config tree -> resolvedSettings -> supervisor. Without it the plugin runs and the action
 // is not offered.
 func TestActionsEnvMountsTheAction(t *testing.T) {
 	for name, tc := range map[string]struct {
@@ -79,7 +79,7 @@ func TestActionsEnvMountsTheAction(t *testing.T) {
 }
 
 // plugins.flux.actions, set in the environment, is what mounts flux/reconcile and hands its deny
-// list to the action ref: env -> config tree -> treeSettings -> supervisor. Without it the plugin
+// list to the action ref: env -> config tree -> resolvedSettings -> supervisor. Without it the plugin
 // runs and the action is not offered.
 func TestFluxActionsEnvMountsReconcile(t *testing.T) {
 	for name, tc := range map[string]struct {
@@ -150,7 +150,7 @@ func TestVictoriaLogsDenyNamespacesReachTheRoutes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ts := treeSettings{func() config.Tree { return res.Tree }}
+	ts := resolvedSettings{func() *config.Resolved { return res }}
 	var ic plugin.InstanceConfig
 	for _, c := range ts.Instances() {
 		if c.Name == "victorialogs" {
@@ -222,7 +222,7 @@ func TestActionPolicyOfASectionReachesTheActionRef(t *testing.T) {
 func TestInstanceConfigPolicyFollowsTheSection(t *testing.T) {
 	tree := config.DefaultTree()
 	instance := func(name string) plugin.InstanceConfig {
-		for _, ic := range (treeSettings{func() config.Tree { return tree }}).Instances() {
+		for _, ic := range (resolvedSettings{func() *config.Resolved { return &config.Resolved{Tree: tree} }}).Instances() {
 			if string(ic.Name) == name {
 				return ic
 			}

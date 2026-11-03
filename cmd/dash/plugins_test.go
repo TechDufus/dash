@@ -3,6 +3,8 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -23,14 +25,15 @@ import (
 	"github.com/TechDufus/dash/internal/pluginconf"
 	"github.com/TechDufus/dash/internal/plugins/launcher"
 	"github.com/TechDufus/dash/internal/secret"
+	"github.com/TechDufus/dash/internal/settings"
 )
 
 // Every plugins.* section of the tree is an instance, of the type its plugin's Config returns.
-func TestTreeSettingsListsEverySectionOnce(t *testing.T) {
+func TestResolvedSettingsListsEverySectionOnce(t *testing.T) {
 	off := false
 	tree := config.DefaultTree()
 	tree.Plugins.Flux.Enabled = &off
-	ics := treeSettings{func() config.Tree { return tree }}.Instances()
+	ics := resolvedSettings{func() *config.Resolved { return &config.Resolved{Tree: tree} }}.Instances()
 
 	manifests := map[plugin.ID]plugin.Manifest{}
 	for _, m := range builtinManifests() {
@@ -54,6 +57,91 @@ func TestTreeSettingsListsEverySectionOnce(t *testing.T) {
 		if (ic.Name == "flux") != (ic.Enabled != nil && !*ic.Enabled) {
 			t.Errorf("%s: enabled = %v", ic.Name, ic.Enabled)
 		}
+	}
+}
+
+// FromUI of an instance follows the provenance of its section's URL in the same resolution: a
+// URL stored from the UI sets it, one from the environment (over a UI value too) does not.
+func TestResolvedSettingsMarksURLsFromTheUI(t *testing.T) {
+	res, err := config.Resolve(config.Sources{
+		Environ: []string{"DASH_DEV=true", "DASH_PLUGINS_GATUS_URL=http://127.0.0.1:8080"},
+		UI: map[string]any{"plugins": map[string]any{
+			"prometheus": map[string]any{"url": "http://127.0.0.1:9090"},
+			"gatus":      map[string]any{"url": "http://127.0.0.1:9999"},
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	fromUI := map[plugin.ID]bool{}
+	for _, ic := range (resolvedSettings{func() *config.Resolved { return res }}).Instances() {
+		fromUI[ic.Name] = ic.FromUI
+	}
+	for id, want := range map[plugin.ID]bool{"prometheus": true, "gatus": false, "alertmanager": false} {
+		if fromUI[id] != want {
+			t.Errorf("%s: FromUI = %v, want %v", id, fromUI[id], want)
+		}
+	}
+}
+
+// A plugin URL that keeps its value but moves between the config file and the UI store restarts
+// the instance with the new FromUI: from the UI its loopback dial is refused, from the file it
+// is allowed again.
+func TestPluginRestartsWhenItsURLMovesIntoOrOutOfTheUI(t *testing.T) {
+	up := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { _, _ = io.WriteString(w, "ok") }))
+	defer up.Close()
+	get := func(f *plugintest.Fake) error {
+		c, err := f.Host().HTTPClient(plugin.HTTPConfig{})
+		if err != nil {
+			return err
+		}
+		resp, err := c.Get(up.URL)
+		if err != nil {
+			return err
+		}
+		_, _ = io.Copy(io.Discard, resp.Body)
+		return resp.Body.Close()
+	}
+
+	dir := t.TempDir()
+	st, err := settings.Open(dir, settings.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.Set("plugins.grafana.url", up.URL); err != nil {
+		t.Fatal(err)
+	}
+	st.Close()
+	cfgPath := filepath.Join(dir, "config.yaml")
+	inFile := "plugins:\n  grafana:\n    url: " + up.URL + "\n"
+	writeTestFile(t, cfgPath, inFile)
+	startEnv(t, dir, "DASH_CONFIG="+cfgPath)
+	fw, res := loadFramework(t)
+	if res.FromUI("plugins.grafana") {
+		t.Fatal("at startup the file's URL wins")
+	}
+	f := plugintest.New("grafana")
+	startFake(t, fw, f)
+	waitFor(t, func() bool { return f.Starts() == 1 && fw.sup.Running("grafana") })
+	if err := get(f); err != nil {
+		t.Fatalf("a loopback URL from the file: %v", err)
+	}
+
+	// The URL leaves the file; the store holds the same value.
+	writeTestFile(t, cfgPath, "plugins: {}\n")
+	waitFor(t, func() bool { return f.Starts() == 2 && fw.sup.Running("grafana") })
+	if !fw.reloader.Resolved().FromUI("plugins.grafana") {
+		t.Fatal("the URL now comes from the UI")
+	}
+	if err := get(f); !errors.Is(err, plugin.ErrBlockedAddress) {
+		t.Fatalf("a loopback URL from the UI: err = %v, want ErrBlockedAddress", err)
+	}
+
+	// It comes back to the file.
+	writeTestFile(t, cfgPath, inFile)
+	waitFor(t, func() bool { return f.Starts() == 3 && fw.sup.Running("grafana") })
+	if err := get(f); err != nil {
+		t.Fatalf("a loopback URL from the file again: %v", err)
 	}
 }
 

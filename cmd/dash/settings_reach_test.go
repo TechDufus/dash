@@ -33,7 +33,7 @@ func proxmoxEnv(url string) map[string]string {
 }
 
 // Every setting of plugins.proxmox set in the environment arrives, through the real environment
-// layer and treeSettings.Instances(), in the configuration the plugin is started with, and the
+// layer and resolvedSettings.Instances(), in the configuration the plugin is started with, and the
 // ones that shape a payload (criticalVMs) show in what the running plugin publishes.
 func TestPR2SettingsReachTheProxmoxPlugin(t *testing.T) {
 	pve := newFakePVE(t)
@@ -70,7 +70,7 @@ func TestPR2SettingsReachTheProxmoxPlugin(t *testing.T) {
 	store.Close() // the second load below takes the data directory's lock again
 
 	var got *plugin.InstanceConfig
-	for _, ic := range (treeSettings{func() config.Tree { return res.Tree }}).Instances() {
+	for _, ic := range (resolvedSettings{func() *config.Resolved { return res }}).Instances() {
 		if ic.Name == "proxmox" {
 			got = &ic
 		}
