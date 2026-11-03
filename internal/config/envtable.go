@@ -108,8 +108,9 @@ marked in the RESTART column: that plugin restarts, and so do the plugins that u
 (a prometheus change restarts proxmox, hardware, kubernetes, cnpg and rustfs; a gatus change restarts hardware
 and kubernetes; a proxmox change restarts hardware; a kubernetes change restarts proxmox, flux and cnpg;
 a grafana change restarts alertmanager). A change to any section that is not a plugin's needs a
-restart. A rotated secret (a changed file: reference) applies live. A plugin whose enabled is unset
-turns on when it has the settings it needs, except that rustfs is off unless enabled: true.
+restart, except auth.proxy.adminUsers and auth.proxy.adminGroups, which apply without one. A
+rotated secret (a changed file: reference) applies live. A plugin whose enabled is unset turns on
+when it has the settings it needs, except that rustfs is off unless enabled: true.
 `)
 	return err
 }
@@ -160,7 +161,7 @@ for prometheus, alertmanager, gatus, victorialogs, proxmox, hardware, kubernetes
 except for a setting marked "restart-only": that plugin restarts, and so do the plugins that use or require it
 (a prometheus change restarts proxmox, hardware, kubernetes, cnpg and rustfs; a gatus change restarts hardware and
 kubernetes; a proxmox change restarts hardware; a kubernetes change restarts proxmox, flux and cnpg; a grafana change
-restarts alertmanager). A change to any section that is not a plugin's needs a restart. A rotated
+restarts alertmanager). A change to any section that is not a plugin's needs a restart, except ` + "`auth.proxy.adminUsers`" + ` and ` + "`auth.proxy.adminGroups`" + `, which apply without one. A rotated
 secret file applies live. A plugin whose ` + "`enabled`" + ` is unset turns on when it has the settings it needs, except that rustfs is off unless ` + "`enabled: true`" + `.
 `)
 	docs := sectionDocs()

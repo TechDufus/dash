@@ -87,10 +87,10 @@ func TestEnabledDocNamesTheUsers(t *testing.T) {
 	}{
 		{"the enabled doc tag", field.Tag.Get("doc"), tagWants},
 		{"dash config env", table.String(), []string{
-			"applies live for " + joinWith(live, "and") + ",", restarts + ". A change to any section that is not a plugin's needs a restart.",
+			"applies live for " + joinWith(live, "and") + ",", restarts + ". A change to any section that is not a plugin's needs a restart, except auth.proxy.adminUsers and auth.proxy.adminGroups, which apply without one.",
 		}},
 		{"the generated page", page.String(), []string{
-			"applies live for " + joinWith(live, "and") + ",", restarts + ". A change to any section that is not a plugin's needs a restart.",
+			"applies live for " + joinWith(live, "and") + ",", restarts + ". A change to any section that is not a plugin's needs a restart, except auth.proxy.adminUsers and auth.proxy.adminGroups, which apply without one.",
 		}},
 		{"the README row", string(readme), []string{"That is how " + joinWith(live, "and") + " behave", restarts + "."}},
 	} {
