@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -38,7 +39,7 @@ func main() {
 	// credential-shaped tokens.
 	reg := secret.NewRegistry()
 	slog.SetDefault(slog.New(secret.NewHandler(slog.NewJSONHandler(os.Stderr, nil), reg)))
-	if err := run(reg); err != nil {
+	if err := run(reg, nil); err != nil {
 		slog.Error("fatal", "error", err)
 		os.Exit(1)
 	}
@@ -70,7 +71,9 @@ func exitCode(err error) int {
 	return 2
 }
 
-func run(reg *secret.Registry) error {
+// run starts dash and serves until a signal; onBound, when not nil, receives the addresses both
+// listeners bound (a test that listens on port 0 learns them there).
+func run(reg *secret.Registry, onBound func(api, health net.Addr)) error {
 	// One per process: the k8s: references of every resolution (the reloader's too) share its
 	// holders, and the kubernetes plugin reads the Secrets they name.
 	refs := secret.NewK8sRefs(reg)
@@ -158,5 +161,5 @@ func run(reg *secret.Registry) error {
 	baseCtx, cancelStreams := context.WithCancel(context.Background())
 	defer cancelStreams()
 	apiSrv, healthSrv := newServers(cfg, handler, srv.HealthHandler(), baseCtx, cancelStreams)
-	return serve(ctx, apiSrv, healthSrv, srv.MarkServing, cancelStreams)
+	return serve(ctx, apiSrv, healthSrv, srv.MarkServing, cancelStreams, onBound)
 }

@@ -35,20 +35,27 @@ func newServers(cfg config.Config, api, health http.Handler, baseCtx context.Con
 	return apiSrv, healthSrv
 }
 
-// serve binds both listeners, calls markServing (readiness: the sockets are open), then serves
-// until ctx ends or a listener fails. Binding first means an address in use is an error before
-// /readyz can say ok. On return both servers are shut down, within 10 seconds.
-func serve(ctx context.Context, apiSrv, healthSrv *http.Server, markServing func(), cancelStreams func()) error {
-	apiLn, err := net.Listen("tcp", apiSrv.Addr)
+// listen opens serve's listeners; a test replaces it to see the listeners serve opened.
+var listen = net.Listen
+
+// serve binds both listeners, calls onBound (when not nil) with their addresses, calls
+// markServing (readiness: the sockets are open), then serves until ctx ends or a listener fails.
+// Binding first means an address in use is an error before /readyz can say ok. On return both
+// servers are shut down, within 10 seconds.
+func serve(ctx context.Context, apiSrv, healthSrv *http.Server, markServing func(), cancelStreams func(), onBound func(api, health net.Addr)) error {
+	apiLn, err := listen("tcp", apiSrv.Addr)
 	if err != nil {
 		cancelStreams()
 		return err
 	}
-	healthLn, err := net.Listen("tcp", healthSrv.Addr)
+	healthLn, err := listen("tcp", healthSrv.Addr)
 	if err != nil {
 		_ = apiLn.Close()
 		cancelStreams()
 		return err
+	}
+	if onBound != nil {
+		onBound(apiLn.Addr(), healthLn.Addr())
 	}
 	markServing()
 

@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"errors"
 	"io"
 	"log/slog"
 	"net"
@@ -15,16 +16,8 @@ import (
 	"github.com/TechDufus/dash/internal/config"
 )
 
-// freeAddr is a loopback address nothing listens on right now.
-func freeAddr(t *testing.T) string {
-	t.Helper()
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer ln.Close()
-	return ln.Addr().String()
-}
+// anyPort lets the kernel choose a free loopback port; serve reports the one it bound.
+const anyPort = "127.0.0.1:0"
 
 func servers(t *testing.T, apiAddr, healthAddr string, h http.Handler) (*http.Server, *http.Server) {
 	t.Helper()
@@ -43,41 +36,50 @@ func TestServeMarksServingOnlyOnceBothListenersAreBound(t *testing.T) {
 	for _, tc := range []struct {
 		name        string
 		api, health string
+		opened      int // listeners serve binds before the failing one
 	}{
-		{"api address in use", taken.Addr().String(), freeAddr(t)},
-		{"health address in use", freeAddr(t), taken.Addr().String()},
+		{"api address in use", taken.Addr().String(), anyPort, 0},
+		{"health address in use", anyPort, taken.Addr().String(), 1},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
+			// Keep every listener serve opens: one that bound must be released when the other
+			// fails.
+			var opened []net.Listener
+			defer func(orig func(string, string) (net.Listener, error)) { listen = orig }(listen)
+			listen = func(network, addr string) (net.Listener, error) {
+				ln, err := net.Listen(network, addr)
+				if err == nil {
+					opened = append(opened, ln)
+				}
+				return ln, err
+			}
 			apiSrv, healthSrv := servers(t, tc.api, tc.health, http.NotFoundHandler())
-			var marked, cancelled atomic.Bool
-			err := serve(context.Background(), apiSrv, healthSrv, func() { marked.Store(true) }, func() { cancelled.Store(true) })
+			var marked, cancelled, bound atomic.Bool
+			err := serve(context.Background(), apiSrv, healthSrv, func() { marked.Store(true) }, func() { cancelled.Store(true) },
+				func(net.Addr, net.Addr) { bound.Store(true) })
 			if err == nil {
 				t.Fatal("serve returned nil with an address in use")
 			}
-			if marked.Load() {
-				t.Error("marked serving although a listener failed to bind")
+			if marked.Load() || bound.Load() {
+				t.Errorf("marked serving %v, reported bound %v, although a listener failed to bind", marked.Load(), bound.Load())
 			}
 			if !cancelled.Load() {
 				t.Error("open streams were not cancelled")
 			}
-			// The listener that did bind is released.
-			for _, addr := range []string{tc.api, tc.health} {
-				if addr == taken.Addr().String() {
-					continue
+			if len(opened) != tc.opened {
+				t.Fatalf("serve opened %d listeners, want %d", len(opened), tc.opened)
+			}
+			for _, ln := range opened {
+				if err := ln.Close(); !errors.Is(err, net.ErrClosed) {
+					t.Errorf("the listener on %s was left open (Close = %v)", ln.Addr(), err)
 				}
-				ln, err := net.Listen("tcp", addr)
-				if err != nil {
-					t.Errorf("%s still bound: %v", addr, err)
-					continue
-				}
-				_ = ln.Close()
 			}
 		})
 	}
 }
 
 func TestServeServesAfterMarkingAndStopsWithTheContext(t *testing.T) {
-	apiAddr, healthAddr := freeAddr(t), freeAddr(t)
+	apiAddr, healthAddr := anyPort, anyPort
 	var serving atomic.Bool
 	health := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		if serving.Load() {
@@ -92,7 +94,8 @@ func TestServeServesAfterMarkingAndStopsWithTheContext(t *testing.T) {
 	marked := make(chan struct{})
 	done := make(chan error, 1)
 	go func() {
-		done <- serve(ctx, apiSrv, healthSrv, func() { serving.Store(true); close(marked) }, func() {})
+		done <- serve(ctx, apiSrv, healthSrv, func() { serving.Store(true); close(marked) }, func() {},
+			func(api, health net.Addr) { apiAddr, healthAddr = api.String(), health.String() })
 	}()
 
 	select {

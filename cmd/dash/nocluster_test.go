@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"io"
+	"net"
 	"net/http"
 	"os"
 	"syscall"
@@ -21,17 +22,27 @@ import (
 // viewer can ask who they are. SIGTERM ends run() cleanly.
 func TestStartsWithoutACluster(t *testing.T) {
 	pve := newFakePVE(t)
-	apiAddr, healthAddr := freeAddr(t), freeAddr(t)
+	type addrs struct{ api, health string }
+	bound := make(chan addrs, 1)
 	startEnv(t, t.TempDir(),
 		// No kubeconfig, and no in-cluster environment: client-go answers rest.ErrNotInCluster.
 		"KUBECONFIG=", "KUBERNETES_SERVICE_HOST=", "KUBERNETES_SERVICE_PORT=",
-		"DASH_SERVER_LISTEN="+apiAddr, "DASH_SERVER_HEALTH_LISTEN="+healthAddr,
+		"DASH_SERVER_LISTEN="+anyPort, "DASH_SERVER_HEALTH_LISTEN="+anyPort,
 		`DASH_SERVER_READY_REQUIRES=["kubernetes","proxmox"]`,
 		"DASH_PLUGINS_PROXMOX_URL="+pve.URL, "DASH_PLUGINS_PROXMOX_TOKEN_ID=u@pve!t",
 		"DASH_PLUGINS_PROXMOX_TOKEN_SECRET=token-secret-0123456789")
 
 	done := make(chan error, 1)
-	go func() { done <- run(secret.NewRegistry()) }()
+	go func() {
+		done <- run(secret.NewRegistry(), func(api, health net.Addr) { bound <- addrs{api.String(), health.String()} })
+	}()
+	var apiAddr, healthAddr string
+	select {
+	case a := <-bound:
+		apiAddr, healthAddr = a.api, a.health
+	case err := <-done:
+		t.Fatalf("run returned before binding: %v", err)
+	}
 	stopped := false
 	stop := func() {
 		if stopped {
