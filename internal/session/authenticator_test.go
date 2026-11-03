@@ -218,6 +218,25 @@ func TestAnonymousViewerWaitsForSetup(t *testing.T) {
 	}
 }
 
+// With OnlyUser (the local mode's adminUser) a session of any other user is refused and cleared,
+// never mapped to a viewer; the anonymous viewer, when on, still answers the GET.
+func TestOnlyUserRefusesOtherUsersSessions(t *testing.T) {
+	f := newAuthFixture(t, auth.RoleMap{AdminUsers: []string{"alice"}})
+	a := session.NewAuthenticator(session.AuthOptions{Mode: auth.ModeLocal, Sessions: f.m, Roles: f.roles, OnlyUser: "alice"})
+	if p, _, fail := a.AuthenticateCookie(withCookies(issue(t, f.m, "alice"))); fail != nil || p.Role != auth.RoleAdmin {
+		t.Fatalf("alice: %+v %v, want admin", p, fail)
+	}
+	_, clear, fail := a.AuthenticateCookie(withCookies(issue(t, f.m, "bob")))
+	wantFailure(t, fail, auth.CodeUnauthenticated, auth.ReasonNoIdentity)
+	if clear == nil || clear.MaxAge >= 0 {
+		t.Errorf("bob's cookie was not cleared: %v", clear)
+	}
+	anon := session.NewAuthenticator(session.AuthOptions{Mode: auth.ModeLocal, Sessions: f.m, Roles: f.roles, OnlyUser: "alice", Anonymous: true})
+	if p, _, fail := anon.AuthenticateCookie(withCookies(issue(t, f.m, "bob"))); fail != nil || p.Kind != auth.KindAnonymous {
+		t.Errorf("bob with the anonymous viewer on: %+v %v, want the anonymous viewer", p, fail)
+	}
+}
+
 func TestAuthenticatorModeAndWarnings(t *testing.T) {
 	f := newAuthFixture(t, auth.RoleMap{AdminUsers: []string{"alice"}})
 	for _, tc := range []struct {

@@ -96,7 +96,10 @@ func buildSessionAuth(res *config.Resolved, env sessionEnv, log *slog.Logger) (_
 			_ = store.Close()
 		}
 	}()
-	key, durable, err := sessionKey(res.Keys, store, session.PurposeSession)
+	// The session key is bound to the mode (local and oidc derive different keys), so a cookie of
+	// one mode never opens in the other after a switch on the same data dir and DASH_SECRET_KEY:
+	// an IdP account named like the local admin, or the local admin past the oidc allow-list.
+	key, durable, err := sessionKey(res.Keys, store, session.PurposeSession+"/"+res.Tree.Auth.Mode)
 	if err != nil {
 		return nil, fmt.Errorf("session key: %w", err)
 	}
@@ -117,7 +120,7 @@ func buildSessionAuth(res *config.Resolved, env sessionEnv, log *slog.Logger) (_
 			return nil, err
 		}
 		roles := auth.NewRoleHolder(auth.RoleMap{AdminUsers: []string{a.Local.AdminUser}})
-		s.authn = session.NewAuthenticator(session.AuthOptions{Mode: auth.ModeLocal, Sessions: s.sessions, Roles: roles, Anonymous: a.Local.AnonymousViewer, SetupNeeded: s.local.SetupNeeded})
+		s.authn = session.NewAuthenticator(session.AuthOptions{Mode: auth.ModeLocal, Sessions: s.sessions, Roles: roles, Anonymous: a.Local.AnonymousViewer, SetupNeeded: s.local.SetupNeeded, OnlyUser: a.Local.AdminUser})
 		log.Info("auth: local mode", "persistent", store.Persistent(), "envManaged", s.local.Account.EnvManaged(),
 			"setupNeeded", s.local.SetupNeeded(), "anonymousViewer", a.Local.AnonymousViewer, "sessionsSurviveRestart", durable)
 		if a.Local.AnonymousViewer {

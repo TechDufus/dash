@@ -24,6 +24,10 @@ type AuthOptions struct {
 	// carries details.setup, so the SPA points to the setup link instead of a login form nobody
 	// can use yet.
 	SetupNeeded func() bool
+	// OnlyUser, when set (the local mode: auth.local.adminUser), is the one user a session may
+	// name; a session of any other user is refused and cleared like an invalid cookie, never
+	// mapped to a viewer. The local mode only ever issues sessions for its account.
+	OnlyUser string
 	// Warnings are standing warnings of the mode's configuration (oidc_open), reported through
 	// auth.Warner with admin_wildcard (from Roles) and anonymous_viewer (from Anonymous).
 	Warnings []string
@@ -33,7 +37,8 @@ type AuthOptions struct {
 // D3): an Authorization Bearer line is refused 401 invalid_token (reason bearer_refused) and
 // nothing else is read; a valid session cookie is a Principal{Kind: session, Via: "cookie"} with
 // the cookie's user, groups and role-claim values and the role Roles maps them to (never one from
-// the cookie); a cookie that fails is cleared and the request continues without it; then, with
+// the cookie); a session of another user than OnlyUser (when set) fails; a cookie that fails is
+// cleared and the request continues without it; then, with
 // Anonymous and unless SetupNeeded reports true, a GET or HEAD is Principal{Kind: anonymous, User:
 // "anonymous", Role: viewer, Via: "anonymous"}; everything else is 401 unauthenticated (reason
 // no_identity).
@@ -44,6 +49,7 @@ type Authenticator struct {
 	// anonymous is AuthOptions.Anonymous in local mode only: the viewer is never on in oidc.
 	anonymous   bool
 	setupNeeded func() bool
+	onlyUser    string
 	warnings    []string
 }
 
@@ -60,6 +66,7 @@ func NewAuthenticator(o AuthOptions) *Authenticator {
 		anonymous:   o.Anonymous && o.Mode == auth.ModeLocal,
 		warnings:    slices.Clone(o.Warnings),
 		setupNeeded: o.SetupNeeded,
+		onlyUser:    o.OnlyUser,
 	}
 }
 
@@ -78,6 +85,9 @@ func (a *Authenticator) AuthenticateCookie(r *http.Request) (auth.Principal, *ht
 	var clear *http.Cookie
 	if a.sessions != nil {
 		s, renew, err := a.sessions.Read(r)
+		if err == nil && a.onlyUser != "" && s.User != a.onlyUser {
+			err = ErrInvalid
+		}
 		if err == nil {
 			if role := a.roles.RoleForClaims(s.User, s.Groups, s.RoleClaim); role != "" {
 				return auth.Principal{

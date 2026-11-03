@@ -283,3 +283,67 @@ func TestOtherModesOpenNoCredentialStore(t *testing.T) {
 		t.Errorf("a credential file was created outside a session mode: %v", m)
 	}
 }
+
+// oidcIn is localResolved switched to auth.mode=oidc on dataDir and keys, with allowed as the
+// allow-list (the issuer is never contacted: dash asks it at the first login, not at start).
+func oidcIn(dataDir string, keys *secret.Keyring, allowed ...string) *config.Resolved {
+	return localResolved(dataDir, keys, func(a *config.AuthConfig) {
+		a.Mode = config.AuthModeOIDC
+		a.OIDC.Issuer, a.OIDC.ClientID = "https://127.0.0.1:1/realms/none", "dash"
+		a.OIDC.ClientSecret = secret.New("client-secret-value", "")
+		a.OIDC.AllowedUsers = allowed
+	})
+}
+
+// A session never survives a switch between the session modes on one data dir and one
+// DASH_SECRET_KEY: the session key is bound to the mode. Otherwise an IdP account named like the
+// local admin would be the local admin after oidc → local, and the local admin's cookie would
+// pass the oidc allow-list after local → oidc. In the local mode a session of any other user than
+// auth.local.adminUser is refused, never a viewer. (From the v0.12.0 security verification.)
+func TestSessionsDoNotSurviveAModeSwitch(t *testing.T) {
+	dir, keys := t.TempDir(), testKeyring(t)
+	o, _, err := startLocal(t, oidcIn(dir, keys, "*"), "", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// What the callback issues for an IdP account whose preferred_username is "admin".
+	idpAdmin, err := o.sess.sessions.Issue(session.Identity{User: "admin"}, session.Keep{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := sessionRole(o.authn, idpAdmin); got != auth.RoleViewer {
+		t.Fatalf("in oidc mode the IdP's admin is %q, want viewer", got)
+	}
+	o.close()
+
+	l, _, err := startLocal(t, localResolved(dir, keys, nil), hashOf(t), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := sessionRole(l.authn, idpAdmin); got != "" {
+		t.Errorf("oidc → local: the oidc session of %q is %q in local mode, want refused", "admin", got)
+	}
+	localAdmin, err := l.sess.sessions.Issue(session.Identity{User: "admin"}, session.Keep{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := sessionRole(l.authn, localAdmin); got != auth.RoleAdmin {
+		t.Fatalf("the local admin's own session is %q, want admin", got)
+	}
+	other, err := l.sess.sessions.Issue(session.Identity{User: "bob"}, session.Keep{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := sessionRole(l.authn, other); got != "" {
+		t.Errorf("a local session of another user than adminUser is %q, want refused", got)
+	}
+	l.close()
+
+	o2, _, err := startLocal(t, oidcIn(dir, keys, "alice"), "", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := sessionRole(o2.authn, localAdmin); got != "" {
+		t.Errorf("local → oidc: the local admin's session is %q with allowedUsers [alice], want refused", got)
+	}
+}

@@ -39,6 +39,8 @@ const (
 	CookiePlain  = "dash_session"
 
 	// PurposeSession and PurposeOIDCState are the HKDF info prefixes of the two sealed cookies.
+	// cmd/dash derives the session key for PurposeSession+"/"+auth.mode, so a session of the
+	// local mode never opens in the oidc mode or the other way round.
 	// The phase 7 OAuth server uses "dash/oauth-access/v1", never these.
 	PurposeSession   = "dash/session/v1"
 	PurposeOIDCState = "dash/oidc-state/v1"
