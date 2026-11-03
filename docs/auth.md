@@ -19,7 +19,13 @@ change to the admin lists applies on the next request.
 **Upgrading from v0.11 or earlier:** the default used to be `proxy`. If dash sits behind an
 identity proxy and you never set the mode, set `DASH_AUTH_MODE=proxy` together with the new image.
 An `auth.proxy.adminUsers` or `adminGroups` without that line stops dash from starting, with a
-message that says so; any other `auth.proxy` setting without it is a warning.
+message that says so (and that `local` is the default since v0.12.0); any other `auth.proxy`
+setting without it is a warning.
+
+**Rolling back to v0.11:** with `DASH_AUTH_MODE=proxy`, the image alone. An install that set
+`local` or `oidc` must remove `DASH_AUTH_MODE` together with the image (v0.11 refuses the value);
+v0.11 then runs in proxy mode, ignores `credentials.yaml` (left untouched, and kept by a later
+v0.12) and warns about the new variables. Sessions issued by v0.12 do not carry over.
 
 ## The local mode
 
