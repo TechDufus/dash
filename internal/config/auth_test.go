@@ -383,3 +383,68 @@ func TestAdminListEntriesAreValidated(t *testing.T) {
 		t.Errorf("an empty adminUsers entry from the environment: error %v", err)
 	}
 }
+
+// An admin entry that no header could ever carry grants nothing, silently: the user header is cut
+// at 128 bytes of clean UTF-8 and a group at 256 (and the groups header is split at commas), so an
+// entry beyond that is refused at load, by position and never echoed.
+func TestAdminEntriesThatCanNeverMatchAreRefused(t *testing.T) {
+	withHeader := func(f func(*AuthConfig)) func(*AuthConfig) {
+		return func(a *AuthConfig) { a.Proxy.GroupsHeader = "X-Forwarded-Groups"; f(a) }
+	}
+	users := func(l ...string) func(*AuthConfig) {
+		return withHeader(func(a *AuthConfig) { a.Proxy.AdminUsers = l })
+	}
+	groups := func(l ...string) func(*AuthConfig) {
+		return withHeader(func(a *AuthConfig) { a.Proxy.AdminGroups = l })
+	}
+	for name, c := range map[string]struct {
+		set  func(*AuthConfig)
+		path string // "" = valid
+		msg  string
+	}{
+		"user of 128 bytes":           {users(strings.Repeat("a", 128)), "", ""},
+		"user of 129 bytes":           {users("ok", strings.Repeat("a", 129)), "proxy.adminUsers", "entry 2 can never match"},
+		"user of 64 two-byte runes":   {users(strings.Repeat("é", 64)), "", ""},
+		"user of 65 two-byte runes":   {users(strings.Repeat("é", 65)), "proxy.adminUsers", "entry 1 can never match"},
+		"user with a tab inside":      {users("al\tice"), "proxy.adminUsers", "entry 1 can never match"},
+		"user with a newline":         {users("alice\nbob"), "proxy.adminUsers", "entry 1 can never match"},
+		"user with DEL":               {users("al\x7fice"), "proxy.adminUsers", "entry 1 can never match"},
+		"user with a C1 control":      {users("al\u0085ice"), "proxy.adminUsers", "entry 1 can never match"},
+		"user that is not UTF-8":      {users("al\xffice"), "proxy.adminUsers", "entry 1 can never match"},
+		"user with a comma":           {users("smith, john"), "", ""},
+		"padding is trimmed first":    {users(" \t" + strings.Repeat("a", 128) + "\t "), "", ""},
+		"wildcard user":               {users("*"), "", ""},
+		"group of 256 bytes":          {groups(strings.Repeat("g", 256)), "", ""},
+		"group of 257 bytes":          {groups("ops", strings.Repeat("g", 257)), "proxy.adminGroups", "entry 2 can never match"},
+		"group with a comma":          {groups("ops", "a,b"), "proxy.adminGroups", "entry 2 can never match"},
+		"group with a control":        {groups("o\x00ps"), "proxy.adminGroups", "entry 1 can never match"},
+		"group that is not UTF-8":     {groups("o\xc3ps"), "proxy.adminGroups", "entry 1 can never match"},
+		"group with a C1 control":     {groups("o\u009fps"), "proxy.adminGroups", "entry 1 can never match"},
+		"group with a no-break space": {groups("\u00a0ops"), "", ""},
+	} {
+		ps := authProblems(c.set)
+		if c.path == "" {
+			if len(ps) != 0 {
+				t.Errorf("%s: problems %+v", name, ps)
+			}
+			continue
+		}
+		if !hasProblem(ps, c.path, c.msg) || len(ps) != 1 {
+			t.Errorf("%s: problems %+v, want one at %s containing %q", name, ps, c.path, c.msg)
+		}
+	}
+
+	// The message names the entry by position and never repeats it.
+	secret := "hunter2-\x01-secret"
+	ps := authProblems(func(a *AuthConfig) { a.Proxy.AdminUsers = []string{secret} })
+	if len(ps) != 1 || strings.Contains(ps[0].Msg, "hunter2") {
+		t.Errorf("an unusable admin user is echoed or unreported: %+v", ps)
+	}
+
+	// From the environment the problem names the variable too.
+	_, _, err := resolveEnv(t, `DASH_AUTH_PROXY_ADMIN_USERS=["alice","bad\u0001name"]`)
+	if err == nil || !strings.Contains(err.Error(), "auth.proxy.adminUsers") ||
+		!strings.Contains(err.Error(), "(env DASH_AUTH_PROXY_ADMIN_USERS)") || !strings.Contains(err.Error(), "entry 2 can never match") {
+		t.Errorf("an unusable adminUsers entry from the environment: error %v", err)
+	}
+}

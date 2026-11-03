@@ -93,14 +93,18 @@ func (a AuthConfig) Validate() error {
 	for i, u := range trimmed(p.AdminUsers) {
 		if u == "" {
 			add("proxy.adminUsers", "entry %d is empty", i+1)
+		} else if !auth.ValidUserName(u) {
+			add("proxy.adminUsers", "entry %d can never match a user: a name is at most 128 bytes of valid UTF-8 without control characters, so no header could carry it", i+1)
 		}
 	}
 	for i, g := range trimmed(p.AdminGroups) {
-		switch g {
-		case "":
+		switch {
+		case g == "":
 			add("proxy.adminGroups", "entry %d is empty", i+1)
-		case "*":
+		case g == "*":
 			add("proxy.adminGroups", "entry %d is a wildcard: \"*\" is only valid in adminUsers", i+1)
+		case !auth.ValidGroupName(g):
+			add("proxy.adminGroups", "entry %d can never match a group: a name is at most 256 bytes of valid UTF-8 without control characters or commas (the groups header is split at commas), so no header could carry it", i+1)
 		}
 	}
 	if len(p.AdminGroups) > 0 && groups == "" {

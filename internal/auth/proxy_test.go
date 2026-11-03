@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -203,5 +204,34 @@ func TestHeaderNameRules(t *testing.T) {
 				t.Fatalf("Validate() = %v, want error containing %q", err, c.wantErr)
 			}
 		})
+	}
+}
+
+// ValidUserName and ValidGroupName are what config uses to refuse an admin entry that no header
+// could carry; they must say exactly what From would accept, so the two never drift.
+func TestValidNamesAgreeWithFrom(t *testing.T) {
+	pi := ProxyIdentity{UserHeaders: []string{"X-User"}, GroupsHeader: "X-Groups"}
+	for _, s := range []string{
+		"alice", strings.Repeat("a", 128), strings.Repeat("a", 129), strings.Repeat("é", 64), strings.Repeat("é", 65),
+		"al\tice", "al\x7fice", "al\u0085ice", "al\xffice", "smith, john", "\u00a0alice", "a b",
+	} {
+		user, _, _, err := pi.From(hdr("X-User", s))
+		if err != nil {
+			t.Fatalf("From(%q): %v", s, err)
+		}
+		if got, want := user == s, ValidUserName(s); got != want {
+			t.Errorf("user %q: From returns it = %v, ValidUserName = %v", s, got, want)
+		}
+	}
+	for _, s := range []string{
+		"ops", strings.Repeat("g", 256), strings.Repeat("g", 257), "a,b", "o\x00ps", "o\xc3ps", "o\u009fps", "\u00a0ops", "a b",
+	} {
+		_, groups, _, err := pi.From(hdr("X-User", "alice", "X-Groups", s))
+		if err != nil {
+			t.Fatalf("From(groups %q): %v", s, err)
+		}
+		if got, want := slices.Contains(groups, s), ValidGroupName(s); got != want {
+			t.Errorf("group %q: From returns it = %v, ValidGroupName = %v", s, got, want)
+		}
 	}
 }

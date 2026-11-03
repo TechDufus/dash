@@ -153,6 +153,18 @@ func cleanValue(v string, limit int) bool {
 	return !strings.ContainsFunc(v, unicode.IsControl)
 }
 
+// ValidUserName reports whether a trimmed user name can ever be the identity From returns: at
+// most 128 bytes, valid UTF-8, no control character. A configured admin user that fails it can
+// never match a header, so it would silently grant nothing.
+func ValidUserName(s string) bool { return cleanValue(s, maxUserBytes) }
+
+// ValidGroupName reports whether a trimmed group name can ever be one of the groups From
+// returns: the header is split at commas, so a name holding one never occurs; the rest is
+// cleanValue with the group bound of 256 bytes.
+func ValidGroupName(s string) bool {
+	return !strings.Contains(s, ",") && cleanValue(s, maxGroupBytes)
+}
+
 // TrimIdentity strips what HTTP itself strips around a field value, spaces and tabs, and nothing
 // else. Unicode space (a no-break space, an ideographic space) is part of a name: a different
 // user than the one without it, so it must never fold into an admin's exact name. Every place
