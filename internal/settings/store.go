@@ -206,7 +206,7 @@ func (s *Store) set(path string, v any, scrub bool) error {
 	if err := setIn(next, segs, nv); err != nil {
 		return err
 	}
-	return s.commit(next, segs, scrub)
+	return s.commit(next, scrubbed(segs, scrub))
 }
 
 func (s *Store) delete(path string, scrub bool) error {
@@ -223,11 +223,19 @@ func (s *Store) delete(path string, scrub bool) error {
 	if !deleteIn(next, segs) {
 		if scrub {
 			// Not in the live file, but a backup may still hold it.
-			return s.scrubBackups(segs)
+			return s.scrubBackups([][]string{segs})
 		}
 		return nil
 	}
-	return s.commit(next, segs, scrub)
+	return s.commit(next, scrubbed(segs, scrub))
+}
+
+// scrubbed is the scrub list of a single-key write.
+func scrubbed(segs []string, scrub bool) [][]string {
+	if !scrub {
+		return nil
+	}
+	return [][]string{segs}
 }
 
 func (s *Store) writableLocked() error {
@@ -240,18 +248,19 @@ func (s *Store) writableLocked() error {
 	return nil
 }
 
-// commit writes next as the new document. In-memory state advances only if the file was replaced,
-// so a failed write leaves the store exactly as it was.
-func (s *Store) commit(next map[string]any, segs []string, scrub bool) error {
+// commit writes next as the new document, removing every scrub path from the retained backups
+// first. In-memory state advances only if the file was replaced, so a failed write leaves the
+// store exactly as it was.
+func (s *Store) commit(next map[string]any, scrub [][]string) error {
 	backup := s.raw
-	if scrub {
+	if len(scrub) > 0 {
 		// Scrub the retained backups first, and the bytes about to become .bak.1, so the old
 		// value is never on disk in a backup, even for a moment, after the new one is written.
-		if err := s.scrubBackups(segs); err != nil {
+		if err := s.scrubBackups(scrub); err != nil {
 			return err
 		}
 		var err error
-		if backup, err = s.scrubRaw(backup, segs); err != nil {
+		if backup, err = s.scrubRaw(backup, scrub); err != nil {
 			return err
 		}
 	}
@@ -345,9 +354,9 @@ func (s *Store) rotate(backup []byte) error {
 	return s.replaceFile(s.backupName(1), backup)
 }
 
-// scrubRaw returns data with the path removed, re-encoded at the current schema. Going through
-// decode means a backup written under an older schema is migrated before the path is looked up.
-func (s *Store) scrubRaw(data []byte, segs []string) ([]byte, error) {
+// scrubRaw returns data with the paths removed, re-encoded at the current schema. Going through
+// decode means a backup written under an older schema is migrated before the paths are looked up.
+func (s *Store) scrubRaw(data []byte, paths [][]string) ([]byte, error) {
 	if len(data) == 0 {
 		return nil, nil
 	}
@@ -355,13 +364,15 @@ func (s *Store) scrubRaw(data []byte, segs []string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	deleteIn(doc.Values, segs)
+	for _, segs := range paths {
+		deleteIn(doc.Values, segs)
+	}
 	return encode(doc)
 }
 
-// scrubBackups removes the path from every retained .bak.N. A backup that cannot be parsed
+// scrubBackups removes the paths from every retained .bak.N. A backup that cannot be parsed
 // cannot be proven clean, so it is deleted rather than left holding a retired secret.
-func (s *Store) scrubBackups(segs []string) error {
+func (s *Store) scrubBackups(paths [][]string) error {
 	for i := 1; i <= backups; i++ {
 		name := s.backupName(i)
 		data, err := s.fs.ReadFile(name)
@@ -371,7 +382,7 @@ func (s *Store) scrubBackups(segs []string) error {
 		if err != nil {
 			return fmt.Errorf("settings: read backup %s: %w", name, err)
 		}
-		clean, err := s.scrubRaw(data, segs)
+		clean, err := s.scrubRaw(data, paths)
 		if err != nil {
 			if err := s.fs.Remove(name); err != nil {
 				return fmt.Errorf("settings: remove unreadable backup %s: %w", name, err)
