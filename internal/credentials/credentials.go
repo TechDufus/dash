@@ -23,6 +23,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"log/slog"
 	"maps"
 	"os"
 	"path/filepath"
@@ -50,11 +51,15 @@ var ErrLocked = errors.New("credentials store is locked by another dash instance
 // errClosed is returned by writes after Close.
 var errClosed = errors.New("credentials: store is closed")
 
+// ErrFileChanged means credentials.yaml was removed or replaced while dash runs. The store does
+// not write it again (that would put the old salt and account back); a restart reads the disk.
+var ErrFileChanged = errors.New("credentials: credentials.yaml was removed or replaced while dash runs; restart dash")
+
 // tempPattern names the temporary files of the atomic write; Open removes the ones a crash left.
 const tempPattern = ".credentials.yaml.tmp-*"
 
 const header = "# Managed by dash: the local administrator account and the session epochs. Do not edit.\n" +
-	"# Deleting this file ends every session and reopens /setup.\n"
+	"# Stop dash, then delete this file to end every session and reopen /setup.\n"
 
 // Admin is the local administrator account (auth.mode=local).
 type Admin struct {
@@ -86,6 +91,10 @@ type Store struct {
 	closed bool
 	doc    document
 	salt   []byte
+	// file is the file this store read or last wrote (os.SameFile identity); a file that is
+	// gone or another one since is never written over (ErrFileChanged). warned: said so once.
+	file   os.FileInfo
+	warned bool
 }
 
 // Open opens the store of dir. A writable dir gives a persistent store: it takes the flock
@@ -178,7 +187,7 @@ func (s *Store) load() error {
 			return err
 		}
 		s.doc, s.salt = doc, salt
-		return nil
+		return s.remember()
 	}
 	doc, salt, err := decode(data)
 	if err != nil {
@@ -191,7 +200,27 @@ func (s *Store) load() error {
 		}
 	}
 	s.doc, s.salt = doc, salt
+	return s.remember()
+}
+
+// remember notes the identity of the file on disk, after a load or a committed write.
+func (s *Store) remember() error {
+	fi, err := os.Stat(s.path)
+	if err != nil {
+		return fmt.Errorf("credentials: stat %s: %w", s.path, err)
+	}
+	s.file = fi
 	return nil
+}
+
+// changedOnDisk reports whether the file this store knows was removed or replaced since. Another
+// stat error is left to the write, which reports it.
+func (s *Store) changedOnDisk() bool {
+	fi, err := os.Stat(s.path)
+	if errors.Is(err, fs.ErrNotExist) {
+		return true
+	}
+	return err == nil && s.file != nil && !os.SameFile(fi, s.file)
 }
 
 // decode parses and checks a document. It never repairs one: the caller refuses to start rather
@@ -320,9 +349,29 @@ func (s *Store) update(keepOnFailure bool, change func(*document) bool) error {
 		s.doc = next
 		return nil
 	}
+	// Deleting (or restoring) the file while dash runs must not be undone by the next write,
+	// which would put the old salt back and keep every session. A bump still applies to this
+	// process, so a logout keeps working; the rest waits for a restart.
+	if s.changedOnDisk() {
+		if !s.warned {
+			s.warned = true
+			slog.Warn("credentials.yaml was removed or replaced while dash runs; dash does not write it again, so restart dash to end every session (stop dash before deleting the file)", "path", s.path)
+		}
+		if keepOnFailure {
+			s.doc = next
+			return nil
+		}
+		return ErrFileChanged
+	}
 	committed, err := s.persist(next)
 	if committed || keepOnFailure {
 		s.doc = next
+	}
+	if committed {
+		// The rename made a new file: remember it, or the next write would think it replaced.
+		if fi, serr := os.Stat(s.path); serr == nil {
+			s.file = fi
+		}
 	}
 	return err
 }

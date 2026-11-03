@@ -7,6 +7,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -345,5 +346,38 @@ func TestSessionsDoNotSurviveAModeSwitch(t *testing.T) {
 	}
 	if got := sessionRole(o2.authn, localAdmin); got != "" {
 		t.Errorf("local → oidc: the local admin's session is %q with allowedUsers [alice], want refused", got)
+	}
+}
+
+// Deleting credentials.yaml while dash runs: the next write (any epoch bump) does not bring the
+// file back with the old salt, and after a restart the session from before the deletion is
+// refused. (From the v0.12.0 security verification.)
+func TestCredentialsDeletedWhileRunningStayDeleted(t *testing.T) {
+	dir, keys := t.TempDir(), testKeyring(t)
+	first, _, err := startLocal(t, localResolved(dir, keys, nil), hashOf(t), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	c, err := first.sess.sessions.Issue(session.Identity{User: "admin"}, session.Keep{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(dir, credentials.FileName)
+	if err := os.Remove(path); err != nil {
+		t.Fatal(err)
+	}
+	if err := first.sess.store.BumpEpoch("someone"); err != nil {
+		t.Fatalf("an epoch bump after the deletion: %v", err)
+	}
+	if _, err := os.Stat(path); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("credentials.yaml came back after a write: %v", err)
+	}
+	first.close()
+	again, _, err := startLocal(t, localResolved(dir, keys, nil), hashOf(t), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := sessionRole(again.authn, c); got != "" {
+		t.Errorf("after the deletion and a restart the old session is %q, want refused", got)
 	}
 }

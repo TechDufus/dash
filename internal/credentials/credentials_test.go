@@ -340,6 +340,49 @@ func TestFailedWriteKeepsBumpsButNotTheAccount(t *testing.T) {
 	}
 }
 
+// A credentials.yaml removed or replaced while dash runs is never written again: that would put
+// the old salt back and keep every session. A bump still applies in memory (a logout keeps
+// working, no error), an account change fails, and a write after a normal one still succeeds
+// (the atomic rename makes a new file every time). (From the v0.12.0 security verification.)
+func TestRemovedFileIsNotRecreated(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, FileName)
+	s := open(t, dir)
+	must(t, s.BumpEpoch("alice"))
+	must(t, s.BumpEpoch("alice")) // a second write after a rename is not taken for a replacement
+	must(t, os.Remove(path))
+	if err := s.BumpEpoch("alice"); err != nil {
+		t.Errorf("BumpEpoch after the removal: %v, want the in-memory bump without an error", err)
+	}
+	if err := s.BumpGlobal(); err != nil {
+		t.Errorf("BumpGlobal after the removal: %v", err)
+	}
+	if s.Epoch("alice") != 3 || s.GlobalEpoch() != 1 {
+		t.Errorf("epochs alice=%d global=%d, want 3 1 (revocation holds in memory)", s.Epoch("alice"), s.GlobalEpoch())
+	}
+	if err := s.SetAdmin(Admin{User: "alice", Hash: "h"}); !errors.Is(err, ErrFileChanged) {
+		t.Errorf("SetAdmin after the removal: %v, want ErrFileChanged", err)
+	}
+	if _, err := os.Stat(path); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("the removed credentials.yaml was written again: %v", err)
+	}
+
+	// A file put back by hand (a restore) is not overwritten either.
+	other := t.TempDir()
+	r := open(t, other)
+	restored := filepath.Join(other, FileName)
+	before, err := os.ReadFile(restored)
+	must(t, err)
+	must(t, os.Remove(restored))
+	must(t, os.WriteFile(restored, before, 0o600))
+	if err := r.BumpEpoch("bob"); err != nil {
+		t.Errorf("BumpEpoch after a restore: %v", err)
+	}
+	if after, _ := os.ReadFile(restored); !bytes.Equal(after, before) {
+		t.Error("a restored credentials.yaml was overwritten")
+	}
+}
+
 func TestConcurrentBumpsAreAllCounted(t *testing.T) {
 	dir := t.TempDir()
 	s := open(t, dir)

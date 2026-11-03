@@ -65,7 +65,8 @@ refuses to start: `auth.mode=local needs a writable data dir (DASH_DATA_DIR) or
 DASH_ADMIN_PASSWORD_HASH`.
 
 If you change `auth.local.adminUser` after setup, dash refuses to start and names both names: set
-the name back, or delete `credentials.yaml` to run setup again (which also ends every session).
+the name back, or stop dash and delete `credentials.yaml` to run setup again (which also ends every
+session).
 
 **Login protection.** A wrong name and a wrong password get the same answer. After five failures
 from one address, or for the account, further attempts are refused with 429 and `Retry-After`
@@ -91,12 +92,16 @@ and the groups and role values the mapping can use, sealed (XChaCha20-Poly1305),
 session lasts 12 hours from the last request that renewed it (a request in the second half of that
 window renews it) and at most 7 days from the login.
 
-The session key is derived from `DASH_SECRET_KEY` and a random salt in `credentials.yaml`. So:
+The session key is derived from `DASH_SECRET_KEY`, a random salt in `credentials.yaml`, and the
+mode (a session of the local mode never opens in the oidc mode, or the other way round). So:
 
 - without `DASH_SECRET_KEY` or without a writable data dir the key is random for each start, and
   every restart signs everyone out (dash says so in its log);
 - a new `DASH_SECRET_KEY` signs everyone out (`DASH_SECRET_KEY_PREVIOUS` is not used for sessions);
-- deleting or restoring `credentials.yaml` signs everyone out.
+- switching between `local` and `oidc` signs everyone out;
+- deleting or restoring `credentials.yaml` signs everyone out: **stop dash, then delete (or
+  restore) the file, then start it.** A file removed or replaced while dash runs is not written
+  again; dash logs a warning and the sessions end at the next restart.
 
 "Log out" ends your sessions on every device (a copied cookie stops working too); "Log out
 everywhere" (administrators) ends every session of every user. An event stream or log tail that is
