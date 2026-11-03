@@ -278,6 +278,72 @@ func TestDisagreeingUserHeadersWarn(t *testing.T) {
 	}
 }
 
+// The comparison behind the WARN: a header disagrees when it holds a non-empty value, after the
+// same trim a header value gets, that is not the user the first header named. The line names the
+// clashing headers (canonical, once each, never the one that supplied the user) and no value.
+func TestDisagreeingHeadersComparison(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		headers  []string // configured user headers, in order
+		kv       []string
+		user     string
+		wantUsed string
+		clash    []string // nil = no warning
+	}{
+		{"agreeing values", []string{"X-A", "X-B"}, []string{"X-A", "alice", "X-B", "alice"}, "alice", "X-A", nil},
+		{"padding is not a disagreement", []string{"X-A", "X-B"}, []string{"X-A", "alice", "X-B", " \talice\t "}, "alice", "X-A", nil},
+		{"padding on the used header", []string{"X-A", "X-B"}, []string{"X-A", "\talice ", "X-B", "alice"}, "alice", "X-A", nil},
+		{"a no-break space is another user", []string{"X-A", "X-B"}, []string{"X-A", "alice", "X-B", "alice\u00a0"}, "alice", "X-A", []string{"X-B"}},
+		{"case is another user", []string{"X-A", "X-B"}, []string{"X-A", "alice", "X-B", "Alice"}, "alice", "X-A", []string{"X-B"}},
+		{"a blank header is no value", []string{"X-A", "X-B"}, []string{"X-A", "alice", "X-B", " \t"}, "alice", "X-A", nil},
+		{"an absent header is no value", []string{"X-A", "X-B", "X-C"}, []string{"X-A", "alice"}, "alice", "X-A", nil},
+		{"every clashing header is named, the used one is not", []string{"X-A", "X-B", "X-C"}, []string{"X-A", "alice", "X-B", "bob", "X-C", "carol"}, "alice", "X-A", []string{"X-B", "X-C"}},
+		{"only the clashing one is named", []string{"X-A", "X-B", "X-C"}, []string{"X-A", "alice", "X-B", "alice", "X-C", "carol"}, "alice", "X-A", []string{"X-C"}},
+		{"a blank first header makes the second the user", []string{"X-A", "X-B", "X-C"}, []string{"X-A", " ", "X-B", "bob", "X-C", "carol"}, "bob", "X-B", []string{"X-C"}},
+		{"a name configured twice is named once", []string{"X-A", "X-B", "x-b"}, []string{"X-A", "alice", "X-B", "bob"}, "alice", "X-A", []string{"X-B"}},
+		{"configured names are canonicalised", []string{"x-a", "x-b"}, []string{"X-A", "alice", "X-B", "bob"}, "alice", "X-A", []string{"X-B"}},
+		{"two lines of a later header name it once", []string{"X-A", "X-B"}, []string{"X-A", "alice", "X-B", "bob", "X-B", "carol"}, "alice", "X-A", []string{"X-B"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var buf logBuf
+			clock := newStepClock()
+			p := NewProxy(loopbackOnly, ProxyIdentity{UserHeaders: tc.headers}, RoleMap{}, WithLogger(buf.logger()), WithClock(clock.now))
+			got, f := p.Authenticate(request("127.0.0.1:1", tc.kv...))
+			if f != nil {
+				t.Fatalf("refused: %+v", f)
+			}
+			if got.User != tc.user || got.Via != tc.wantUsed {
+				t.Fatalf("principal = %q via %q, want %q via %q", got.User, got.Via, tc.user, tc.wantUsed)
+			}
+			lines := buf.lines()
+			if tc.clash == nil {
+				if len(lines) != 0 {
+					t.Fatalf("warned without a disagreement:\n%s", &buf)
+				}
+				return
+			}
+			if len(lines) != 1 {
+				t.Fatalf("want one warning, got %d:\n%s", len(lines), &buf)
+			}
+			line := lines[0]
+			if want := "disagreeing=\"[" + strings.Join(tc.clash, " ") + "]\""; len(tc.clash) > 1 && !strings.Contains(line, want) {
+				t.Errorf("warning lacks %s: %s", want, line)
+			}
+			if len(tc.clash) == 1 && !strings.Contains(line, "disagreeing=["+tc.clash[0]+"]") {
+				t.Errorf("warning lacks disagreeing=[%s]: %s", tc.clash[0], line)
+			}
+			if !strings.Contains(line, "used="+tc.wantUsed) {
+				t.Errorf("warning lacks used=%s: %s", tc.wantUsed, line)
+			}
+			for _, v := range []string{"alice", "bob", "carol"} {
+				if strings.Contains(line, v) {
+					t.Errorf("warning carries the value %q: %s", v, line)
+				}
+			}
+		})
+	}
+}
+
 func TestViaNamesTheHeader(t *testing.T) {
 	for _, tc := range []struct {
 		name string
