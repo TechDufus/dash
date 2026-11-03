@@ -2,6 +2,7 @@ import { Boxes, Container, ExternalLink, Layers, RotateCw } from "lucide-react";
 import { lazy } from "react";
 import type { AppsData, ClusterData, StorageData } from "@/api/types";
 import { ui } from "@/api/ui-store";
+import { safeHref } from "@/lib/safe-href";
 import { definePlugin, type PaletteGroup, topic } from "../../types";
 
 const ClusterPage = lazy(() =>
@@ -93,7 +94,9 @@ export default definePlugin({
           icon: ExternalLink,
           onSelect: () => {
             ctx.close();
-            window.open(a.href, "_blank", "noopener,noreferrer");
+            // The href is server-supplied: only http(s) is opened, anything else does nothing.
+            const href = safeHref(a.href);
+            if (href !== undefined) window.open(href, "_blank", "noopener,noreferrer");
           },
         })),
       },

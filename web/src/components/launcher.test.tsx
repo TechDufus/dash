@@ -133,3 +133,56 @@ describe("the launcher's icons", () => {
     expect(sources()).toEqual(["/icons/local.png"]);
   });
 });
+
+describe("the launcher's hrefs", () => {
+  let stream: TestStream;
+  afterEach(() => stream.close());
+
+  const unsafe = ["javascript:alert(1)", "  JaVaScRiPt:alert(1)", "data:text/html,x", "vbscript:x"];
+
+  async function show(apps: App[], links: LauncherData["links"]) {
+    stubFetch({
+      "GET /api/v1/me": { user: "u", role: "admin", scopes: ["read"], ui: { iconBaseUrl: "" } },
+    });
+    stream = connectStream();
+    renderApp(
+      <>
+        <AppsSection query="" />
+        <InfraSection query="" />
+      </>,
+    );
+    stream.plugins(rows);
+    stream.send("kubernetes.apps", { apps } satisfies AppsData);
+    stream.send("launcher.links", { links } satisfies LauncherData);
+    await screen.findByText(apps[0]?.name ?? "");
+  }
+
+  it("keeps an http(s) app and link as anchors", async () => {
+    await show(
+      [app("grafana", "")],
+      [{ name: "NAS", href: "https://nas.example.com", icon: "", description: "" }],
+    );
+    await screen.findByText("NAS");
+    const hrefs = screen.getAllByRole("link").map((a) => a.getAttribute("href"));
+    expect(hrefs.sort()).toEqual(["https://grafana.example.com", "https://nas.example.com"]);
+  });
+
+  it.each(unsafe)("draws an app whose href is %j as text, not a link", async (href) => {
+    await show([{ ...app("evil", ""), href }], []);
+    expect(screen.getByText("evil")).toBeInTheDocument();
+    expect(screen.queryByRole("link")).toBeNull();
+    expect(document.querySelector("[href]")).toBeNull();
+  });
+
+  it.each(unsafe)(
+    "draws an infrastructure link whose href is %j as text, not a link",
+    async (href) => {
+      await show([app("grafana", "")], [{ name: "Evil", href, icon: "", description: "" }]);
+      await screen.findByText("Evil");
+      expect(screen.getAllByRole("link").map((a) => a.getAttribute("href"))).toEqual([
+        "https://grafana.example.com",
+      ]);
+      expect(document.querySelectorAll("[href]")).toHaveLength(1);
+    },
+  );
+});

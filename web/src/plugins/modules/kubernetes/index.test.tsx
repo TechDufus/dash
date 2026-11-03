@@ -34,14 +34,14 @@ const cluster = {
 
 const apps = { apps: [{ name: "Wiki", href: "https://wiki.example.com", group: "docs" }] };
 
-function ctxWith(available: boolean) {
+function ctxWith(available: boolean, appsData: typeof apps = apps) {
   const calls: string[] = [];
   const ctx: PaletteCtx = {
     topic: ((name: string) =>
       name === "kubernetes.cluster"
         ? cluster
         : name === "kubernetes.apps"
-          ? apps
+          ? appsData
           : undefined) as PaletteCtx["topic"],
     go: (to) => calls.push(to),
     close: vi.fn(),
@@ -98,6 +98,27 @@ describe("the kubernetes module", () => {
         "_blank",
         "noopener,noreferrer",
       );
+    } finally {
+      open.mockRestore();
+    }
+  });
+
+  it.each([
+    "javascript:alert(1)",
+    "  JaVaScRiPt:alert(1)",
+    "data:text/html,<script>alert(1)</script>",
+    "vbscript:msgbox(1)",
+    "http://[",
+  ])("does not open an app whose href is %j", (href) => {
+    const { ctx, calls } = ctxWith(true, { apps: [{ name: "Evil", href, group: "docs" }] });
+    const open = vi.spyOn(window, "open").mockReturnValue(null);
+    try {
+      const groups = kubernetes.palette?.(ctx) ?? [];
+      const item = groups.find((g) => g.id === "apps")?.items[0];
+      expect(item?.label).toBe("Evil");
+      item?.onSelect();
+      expect(open).not.toHaveBeenCalled();
+      expect(calls).toEqual(["available:kubernetes/restart"]);
     } finally {
       open.mockRestore();
     }

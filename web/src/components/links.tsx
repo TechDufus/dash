@@ -1,6 +1,7 @@
 import { Boxes, ExternalLink, LayoutGrid, type LucideIcon } from "lucide-react";
 import type { Link } from "@/api/types";
 import { Button } from "@/components/ui/button";
+import { safeHref } from "@/lib/safe-href";
 import { cn } from "@/lib/utils";
 import { MODULES } from "@/plugins/registry";
 
@@ -37,9 +38,21 @@ export function LinkButtons({
     <div className={cn("flex flex-wrap gap-2", className)}>
       {links.map((l) => {
         const Icon = linkIcon(l.kind);
+        const href = safeHref(l.href);
+        // A href that is not http(s) is shown as text: it must never reach an anchor.
+        if (href === undefined) {
+          return (
+            <span
+              key={`${l.kind}:${l.href}`}
+              className="inline-flex items-center px-2 text-xs text-muted"
+            >
+              {l.label}
+            </span>
+          );
+        }
         return (
           <Button key={`${l.kind}:${l.href}`} asChild variant="outline" size={size}>
-            <a href={l.href} target="_blank" rel="noreferrer noopener">
+            <a href={href} target="_blank" rel="noreferrer noopener">
               <Icon aria-hidden="true" />
               {l.label}
             </a>
@@ -50,18 +63,19 @@ export function LinkButtons({
   );
 }
 
-/** The first Headlamp link of a list (row actions). */
+/** The first Headlamp link of a list that is safe to open (row actions); `undefined` when none is. */
 export function headlampLink(links: Link[] | undefined): Link | undefined {
-  return links?.find((l) => l.kind === "headlamp");
+  return links?.find((l) => l.kind === "headlamp" && safeHref(l.href) !== undefined);
 }
 
 /** A compact icon-only link button (for table rows). */
 export function HeadlampIcon({ links }: { links: Link[] | undefined }) {
   const l = headlampLink(links);
-  if (!l) return null;
+  const href = safeHref(l?.href);
+  if (!l || href === undefined) return null;
   return (
     <Button asChild variant="ghost" size="icon-xs" title="Open in Headlamp">
-      <a href={l.href} target="_blank" rel="noreferrer noopener" aria-label="Open in Headlamp">
+      <a href={href} target="_blank" rel="noreferrer noopener" aria-label="Open in Headlamp">
         <Boxes aria-hidden="true" />
       </a>
     </Button>

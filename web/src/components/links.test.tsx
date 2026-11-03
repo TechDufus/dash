@@ -2,7 +2,7 @@ import { screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import type { Link } from "@/api/types";
 import { renderApp } from "@/test/harness";
-import { LinkButtons } from "./links";
+import { HeadlampIcon, headlampLink, LinkButtons } from "./links";
 
 const link = (kind: string, label = kind): Link => ({
   kind,
@@ -53,4 +53,48 @@ describe("LinkButtons", () => {
     const { container } = renderApp(<LinkButtons links={[]} />);
     expect(container).toBeEmptyDOMElement();
   });
+
+  it.each([
+    "javascript:alert(1)",
+    "  JaVaScRiPt:alert(1)",
+    "data:text/html,<script>alert(1)</script>",
+    "vbscript:msgbox(1)",
+  ])("draws a link whose href is %j as text, not an anchor", (href) => {
+    const { container } = renderApp(
+      <LinkButtons links={[{ kind: "grafana", label: "Dash", href }]} />,
+    );
+    expect(screen.getByText("Dash")).toBeInTheDocument();
+    expect(screen.queryByRole("link")).toBeNull();
+    expect(container.querySelector("a")).toBeNull();
+    expect(container.querySelector("[href]")).toBeNull();
+  });
+});
+
+describe("headlampLink and HeadlampIcon", () => {
+  const headlamp = (href: string): Link => ({ kind: "headlamp", label: "Headlamp", href });
+
+  it("returns the first headlamp link that is safe to open, skipping an unsafe one", () => {
+    const safe = headlamp("https://headlamp.example.com/x");
+    expect(headlampLink([link("grafana"), safe])).toBe(safe);
+    expect(headlampLink([headlamp("javascript:alert(1)"), safe])).toBe(safe);
+    expect(headlampLink([headlamp("javascript:alert(1)")])).toBeUndefined();
+    expect(headlampLink([headlamp("data:text/html,x")])).toBeUndefined();
+    expect(headlampLink(undefined)).toBeUndefined();
+  });
+
+  it("renders the icon anchor for a safe link", () => {
+    renderApp(<HeadlampIcon links={[headlamp("https://headlamp.example.com/x")]} />);
+    expect(screen.getByRole("link", { name: "Open in Headlamp" })).toHaveAttribute(
+      "href",
+      "https://headlamp.example.com/x",
+    );
+  });
+
+  it.each(["javascript:alert(1)", "  JaVaScRiPt:alert(1)", "vbscript:msgbox(1)"])(
+    "renders nothing for a headlamp link whose href is %j",
+    (href) => {
+      const { container } = renderApp(<HeadlampIcon links={[headlamp(href)]} />);
+      expect(container).toBeEmptyDOMElement();
+    },
+  );
 });

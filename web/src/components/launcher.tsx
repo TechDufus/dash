@@ -5,6 +5,7 @@ import type { App, Group } from "@/api/types";
 import { Panel, SourceChips } from "@/components/panel";
 import { Skeleton } from "@/components/ui/skeleton";
 import { type InfraLink, iconSrc, useIconBase, useInfraLinks } from "@/config/links";
+import { safeHref } from "@/lib/safe-href";
 import { cn } from "@/lib/utils";
 import { usePluginsState, usePluginVisible, useTopicAvailable } from "@/plugins/state";
 
@@ -88,29 +89,35 @@ interface TileProps {
 }
 
 function Tile({ name, description, href, icon, health, compact }: TileProps) {
-  return (
-    <a href={href} target="_blank" rel="noreferrer" className="group block rounded-2xl">
-      <Panel interactive className="flex h-full items-start gap-3 p-3">
-        <TileIcon key={icon} src={icon} />
-        <span className="min-w-0 flex-1">
-          <span className="flex items-center gap-2">
-            <span className="truncate text-sm font-medium text-fg">{name}</span>
-            {health && (
-              <span className="ml-auto">
-                <HealthMark name={name} healthy={health.healthy} />
-              </span>
-            )}
-          </span>
-          <span
-            className={cn(
-              "mt-0.5 block text-xs text-muted",
-              compact ? "line-clamp-1" : "line-clamp-2",
-            )}
-          >
-            {description}
-          </span>
+  const safe = safeHref(href);
+  const body = (
+    <Panel interactive={safe !== undefined} className="flex h-full items-start gap-3 p-3">
+      <TileIcon key={icon} src={icon} />
+      <span className="min-w-0 flex-1">
+        <span className="flex items-center gap-2">
+          <span className="truncate text-sm font-medium text-fg">{name}</span>
+          {health && (
+            <span className="ml-auto">
+              <HealthMark name={name} healthy={health.healthy} />
+            </span>
+          )}
         </span>
-      </Panel>
+        <span
+          className={cn(
+            "mt-0.5 block text-xs text-muted",
+            compact ? "line-clamp-1" : "line-clamp-2",
+          )}
+        >
+          {description}
+        </span>
+      </span>
+    </Panel>
+  );
+  // A href that is not http(s) never reaches an anchor: the tile is drawn as text.
+  if (safe === undefined) return <div className="block rounded-2xl">{body}</div>;
+  return (
+    <a href={safe} target="_blank" rel="noreferrer" className="group block rounded-2xl">
+      {body}
     </a>
   );
 }
