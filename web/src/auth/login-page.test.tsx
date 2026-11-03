@@ -68,6 +68,22 @@ describe("LoginPage", () => {
     ["an absolute next", "/login?next=https%3A%2F%2Fevil.example", "/"],
     ["a javascript: next", "/login?next=javascript%3Aalert(1)", "/"],
     ["a next back to /login", "/login?next=%2Flogin", "/"],
+    [
+      "a next that normalizes to //evil",
+      `/login?next=${encodeURIComponent("/.//evil.example/x")}`,
+      "/",
+    ],
+    [
+      "an encoded-dot next to //evil",
+      `/login?next=${encodeURIComponent("/%2e//evil.example/x")}`,
+      "/",
+    ],
+    [
+      "a parent-segment next to //evil",
+      `/login?next=${encodeURIComponent("/a/..//evil.example/x")}`,
+      "/",
+    ],
+    ["a dot-segment next to a page", `/login?next=${encodeURIComponent("/./alerts")}`, "/alerts"],
   ])("loads / for %s", async (_name, path, want) => {
     stubFetch({ "GET /api/v1/me": ME_LOCAL, "POST /login": undefined });
     renderApp(<LoginPage />, { path });
@@ -164,6 +180,30 @@ describe("LoginPage", () => {
     renderApp(<LoginPage />, { path: "/login?next=%2F%2Fevil.example" });
     const link = await screen.findByRole("link", { name: "OIDC sign-in" });
     expect(link).toHaveAttribute("href", "/auth/oidc/start?next=%2F");
+  });
+
+  it("gives the OIDC button and the proxy Continue link the validated next, never a normalized //", async () => {
+    const evil = `/login?next=${encodeURIComponent("/.//evil.example/x")}`;
+    stubFetch({ "GET /api/v1/me": ME_OIDC });
+    const oidc = renderApp(<LoginPage />, { path: evil });
+    expect(await screen.findByRole("link", { name: "OIDC sign-in" })).toHaveAttribute(
+      "href",
+      "/auth/oidc/start?next=%2F",
+    );
+    oidc.unmount();
+    stubFetch({
+      "GET /api/v1/me": () =>
+        json(
+          {
+            error: "authentication required",
+            code: "unauthenticated",
+            details: { mode: "proxy", setup: false },
+          },
+          401,
+        ),
+    });
+    renderApp(<LoginPage />, { path: evil });
+    expect(await screen.findByRole("link", { name: "Continue" })).toHaveAttribute("href", "/");
   });
 
   it("has no OIDC button in local mode", async () => {

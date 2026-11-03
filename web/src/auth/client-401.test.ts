@@ -208,8 +208,28 @@ describe("next validation", () => {
     ["/setup", "the setup page"],
     ["/a/../login", "a dot segment that resolves to the login page"],
     [`/${"a".repeat(MAX_NEXT_LENGTH)}`, "longer than the limit"],
+    // Inputs that pass the raw checks but normalize into something unsafe: the output is checked.
+    ["/.//evil.example/x", "a dot segment that normalizes to //evil.example/x"],
+    ["/%2e//evil.example/x", "an encoded dot segment that normalizes to //evil.example/x"],
+    ["/a/..//evil.example/x", "a parent segment that normalizes to //evil.example/x"],
+    ["/%2E%2E//evil.example/x", "an encoded parent segment that normalizes to //evil.example/x"],
+    ["/./%09/evil.example", "an encoded tab in the normalized path"],
+    ["/%5C/evil.example", "an encoded backslash in the path"],
   ])("refuses %j (%s)", (raw) => {
     expect(validNext(raw, ORIGIN)).toBeUndefined();
+  });
+
+  it("never returns something that leaves the origin, for any input of the refused shapes", () => {
+    for (const raw of [
+      "/.//evil.example/x",
+      "/%2e//evil.example/x",
+      "/a/..//evil.example/x",
+      "/%2E%2E//evil.example/x",
+    ]) {
+      const out = validNext(raw, ORIGIN);
+      expect(out === undefined || new URL(out, ORIGIN).origin === ORIGIN).toBe(true);
+      expect(safeNext({ pathname: raw, search: "" }, ORIGIN)).toBe("/");
+    }
   });
 
   it.each([
@@ -220,6 +240,7 @@ describe("next validation", () => {
     ["/a/./b/../c", "/a/c"],
     ["/%2F%2Fevil", "/%2F%2Fevil"],
     ["/loginx", "/loginx"],
+    ["/./alerts", "/alerts"],
   ])("accepts %j as %j", (raw, want) => {
     expect(validNext(raw, ORIGIN)).toBe(want);
   });

@@ -42,7 +42,11 @@ function hasControl(s: string): boolean {
  * validNext returns the same-origin path to navigate to after signing in, or undefined when `raw`
  * is not one: it must start with a single "/", contain no backslash and no control character, stay
  * on `origin` once parsed, and not lead back to a public page (that would be a loop). The result
- * is the parsed path, query and fragment, so what is followed is exactly what was checked.
+ * is the parsed path, query and fragment, and it is validated again **after** that normalization:
+ * dot segments can turn an innocent-looking input (`/.//evil.example/x`, `/%2e//…`, `/a/..//…`)
+ * into `//evil.example/x`, which a browser follows as a protocol-relative URL. So the output must
+ * not start with `//`, must hold no backslash or control character (also percent-encoded, in the
+ * path), must parse back to itself on `origin`, and is what every caller navigates to.
  */
 export function validNext(
   raw: string | null | undefined,
@@ -59,7 +63,30 @@ export function validNext(
   }
   if (url.origin !== origin || isPublicPath(url.pathname)) return undefined;
   const out = url.pathname + url.search + url.hash;
-  return out.length > MAX_NEXT_LENGTH ? undefined : out;
+  if (out.length > MAX_NEXT_LENGTH || !safeOutput(out, url.pathname, origin)) return undefined;
+  return out;
+}
+
+/**
+ * safeOutput is the check of a normalized next: not protocol-relative, no backslash or control
+ * character (in the path also after percent-decoding, since a server or a browser may decode
+ * it), and a fixed point: parsed again on `origin` it stays on `origin` and gives itself back.
+ */
+function safeOutput(out: string, pathname: string, origin: string): boolean {
+  if (out[0] !== "/" || out[1] === "/" || out.includes("\\") || hasControl(out)) return false;
+  let decoded: string;
+  try {
+    decoded = decodeURIComponent(pathname);
+  } catch {
+    return false;
+  }
+  if (decoded.includes("\\") || hasControl(decoded)) return false;
+  try {
+    const again = new URL(out, origin);
+    return again.origin === origin && again.pathname + again.search + again.hash === out;
+  } catch {
+    return false;
+  }
 }
 
 /** The current page as a `next` value: its path and query when valid, "/" otherwise. */
