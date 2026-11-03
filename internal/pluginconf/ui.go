@@ -21,7 +21,8 @@ func (u UI) Validate() error {
 	if s := u.IconBaseURL; s != "" {
 		parsed, err := url.Parse(s)
 		if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Hostname() == "" || strings.ContainsAny(s, "?#") {
-			p.add("iconBaseURL", "%q must be an http(s) URL with a host and without query or fragment, e.g. https://cdn.example.com/icons", s)
+			// The message never repeats the value: a URL can carry a password.
+			p.add("iconBaseURL", "must be an http(s) URL with a host and without query or fragment, e.g. https://cdn.example.com/icons")
 		}
 	}
 	return p.err()

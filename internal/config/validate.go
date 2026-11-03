@@ -82,8 +82,9 @@ func validate(t Tree, dev, demo bool, prov map[string]Provenance) error {
 		if !l.url {
 			continue
 		}
+		// The message never repeats the value: a URL can carry a password (user:password@host).
 		if u := l.field(&t).String(); u != "" && !httpURL(u) {
-			v.fail(l.path, "%q must be an http(s) URL with a host, e.g. https://example.com", u)
+			v.fail(l.path, "must be an http(s) URL with a host, e.g. https://example.com")
 		}
 	}
 	if dev && !LoopbackAddr(s.Listen) {
