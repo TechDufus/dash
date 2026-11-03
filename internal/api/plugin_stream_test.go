@@ -525,8 +525,20 @@ func TestPluginStreamEndsWhenItsPluginIsReconfigured(t *testing.T) {
 	h.sup.Reload()
 	s.all() // fails if the stream is still open after a few seconds
 	h.eventually(t, "the slot to be released", func() bool { return h.openTails() == 0 })
-	if w := h.get(tailPath); w.Code != http.StatusForbidden {
-		t.Errorf("a new open for the denied namespace = %d, want 403", w.Code)
+	// The restarted plugin may not be mounted yet (404). A tail that answers at once keeps the GET
+	// from blocking for tailMax if the new deny list were ever missed.
+	h.tail = beginOnly
+	var codes []int
+	h.eventually(t, "the restarted plugin to refuse the denied namespace", func() bool {
+		code := h.get(tailPath).Code
+		if code != http.StatusNotFound && code != http.StatusForbidden {
+			codes = append(codes, code)
+			return true
+		}
+		return code == http.StatusForbidden
+	})
+	if len(codes) != 0 {
+		t.Errorf("a new open for the denied namespace = %d, want 404 then 403", codes[0])
 	}
 }
 
