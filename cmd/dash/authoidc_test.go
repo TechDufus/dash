@@ -1,17 +1,20 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"slices"
 	"testing"
+	"time"
 
 	"github.com/TechDufus/dash/internal/api"
 	"github.com/TechDufus/dash/internal/auth"
 	"github.com/TechDufus/dash/internal/config"
 	"github.com/TechDufus/dash/internal/hub"
 	"github.com/TechDufus/dash/internal/model"
+	"github.com/TechDufus/dash/internal/oidcauth/oidctest"
 	"github.com/TechDufus/dash/internal/secret"
 	"github.com/TechDufus/dash/internal/session"
 )
@@ -72,6 +75,52 @@ func TestOIDCModeStartsWithAnUnreachableIssuer(t *testing.T) {
 	if w.Code != http.StatusUnauthorized || json.Unmarshal(w.Body.Bytes(), &e) != nil ||
 		e.Details.Mode != "oidc" || e.Details.OIDC == nil || e.Details.OIDC.Issuer != "127.0.0.1:1" {
 		t.Errorf("401 = %d %s, want details {mode oidc, oidc {issuer host}}", w.Code, w.Body)
+	}
+}
+
+// The state cookie of /auth/oidc/start is sealed with the key of session.PurposeOIDCState (not
+// the session key) and lives 10 minutes; both are pinned here as values, not derived from the
+// constants the code uses. (From the v0.12.0 security verification.)
+func TestOIDCStateCookieHasItsOwnKeyAndTenMinutes(t *testing.T) {
+	idp := oidctest.New(t, "dash", "client-secret-value", "https://dash.example.com/auth/callback", nil)
+	res := oidcResolved(t, func(o *config.AuthOIDCConfig) { o.Issuer = idp.Issuer() })
+	pa, _, err := startLocal(t, res, "", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	before := time.Now().Unix()
+	_, state, err := pa.sess.oidc.Start(context.Background(), "/pods")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if state.MaxAge != 600 {
+		t.Errorf("state cookie Max-Age %d, want 600 (10 minutes)", state.MaxAge)
+	}
+	open := func(purpose string) (map[string]any, error) {
+		key, err := session.DeriveKey(res.Keys, purpose, pa.sess.store.SessionSalt())
+		if err != nil {
+			t.Fatal(err)
+		}
+		c, err := session.NewCodec(key)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var v map[string]any
+		err = c.Open(state.Value, &v)
+		return v, err
+	}
+	v, err := open("dash/oidc-state/v1")
+	if err != nil {
+		t.Fatalf("the state cookie does not open with the dash/oidc-state/v1 key: %v", err)
+	}
+	// The sealed expiry is 10 minutes after the start too (a few seconds of slack for the test).
+	if exp, _ := v["exp"].(float64); int64(exp) < before+600 || int64(exp) > time.Now().Unix()+600 {
+		t.Errorf("sealed expiry %v, want 600 s after %d", v["exp"], before)
+	}
+	for _, purpose := range []string{"dash/session/v1", "dash/session/v1/oidc"} {
+		if _, err := open(purpose); err == nil {
+			t.Errorf("the state cookie opens with the %s key", purpose)
+		}
 	}
 }
 

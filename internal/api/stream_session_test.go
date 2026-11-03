@@ -1,6 +1,7 @@
 package api
 
 import (
+	"fmt"
 	"net/http"
 	"testing"
 	"time"
@@ -85,22 +86,32 @@ func TestProxyStreamIsNotEndedByTheSessionCheck(t *testing.T) {
 	}
 }
 
-// The log tail (a plugin stream) ends the same way, and gives its slot back.
+// The log tail (a plugin stream) ends the same way, and gives its slot back. With the anonymous
+// viewer on, a revoked session's tail does not carry on as the anonymous viewer, not even for an
+// account that is itself named "anonymous": the re-check wants a session principal, not only the
+// same user name.
 func TestSessionLogTailEndsWhenTheSessionIsRevoked(t *testing.T) {
-	h := newHarness(t)
-	opt, sh := withSessions(t, auth.ModeLocal, auth.RoleMap{AdminUsers: []string{"alice"}}, false, nil)
-	var d Deps
-	opt(&d)
-	h.Server.d.Auth = d.Auth
-	h.heartbeat = 20 * time.Millisecond
-	st := h.openStream(t, tailPath, "", cookieFor(t, sh, "alice"))
-	if st.status() != http.StatusOK {
-		t.Fatalf("tail open = %d", st.status())
+	for _, tc := range []struct {
+		anonymous bool
+		user      string
+	}{{false, "alice"}, {true, "alice"}, {true, "anonymous"}} {
+		t.Run(fmt.Sprintf("anonymous viewer %v, user %s", tc.anonymous, tc.user), func(t *testing.T) {
+			h := newHarness(t)
+			opt, sh := withSessions(t, auth.ModeLocal, auth.RoleMap{AdminUsers: []string{tc.user}}, tc.anonymous, nil)
+			var d Deps
+			opt(&d)
+			h.Server.d.Auth = d.Auth
+			h.heartbeat = 20 * time.Millisecond
+			st := h.openStream(t, tailPath, "", cookieFor(t, sh, tc.user))
+			if st.status() != http.StatusOK {
+				t.Fatalf("tail open = %d", st.status())
+			}
+			st.expect(": ping")
+			if err := sh.Store.BumpEpoch(tc.user); err != nil {
+				t.Fatal(err)
+			}
+			ended(t, st.lines, "the tail after the logout")
+			h.eventually(t, "the tail's slot to be released", func() bool { return h.openTails() == 0 })
+		})
 	}
-	st.expect(": ping")
-	if err := sh.Store.BumpEpoch("alice"); err != nil {
-		t.Fatal(err)
-	}
-	ended(t, st.lines, "the tail after the logout")
-	h.eventually(t, "the tail's slot to be released", func() bool { return h.openTails() == 0 })
 }

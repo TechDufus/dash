@@ -187,23 +187,41 @@ func newBlockingHasher() *blockingHasher {
 	return b
 }
 
+// within runs f and returns its result, failing the test (instead of hanging it until -timeout)
+// when f has not returned after a few seconds: a broken semaphore that parks a call it should
+// refuse, or refuses one it should park, then shows as a failure naming the step.
+func within[T any](t *testing.T, what string, f func() T) T {
+	t.Helper()
+	done := make(chan T, 1)
+	go func() { done <- f() }()
+	select {
+	case v := <-done:
+		return v
+	case <-time.After(5 * time.Second):
+		t.Fatalf("%s did not return within 5 s", what)
+		var zero T
+		return zero
+	}
+}
+
 func TestHasherRunsTwoAndRefusesTheThirdAtOnce(t *testing.T) {
 	b := newBlockingHasher()
 	var wg sync.WaitGroup
 	wg.Go(func() { _, _ = b.Verify("stored", goodPassword) })
 	wg.Go(func() { _ = b.VerifyDummy(goodPassword) })
-	got := map[string]bool{<-b.entered: true, <-b.entered: true}
+	entered := func() string { return <-b.entered }
+	got := map[string]bool{within(t, "the first parked call", entered): true, within(t, "the second parked call", entered): true}
 	if !got["stored"] || !got[dummyPHC] {
 		t.Errorf("the parked calls saw %v; want the stored hash and dummyPHC", got)
 	}
 
-	if _, err := b.Hash(goodPassword); !errors.Is(err, ErrBusy) {
+	if err := within(t, "a third Hash", func() error { _, err := b.Hash(goodPassword); return err }); !errors.Is(err, ErrBusy) {
 		t.Errorf("third Hash: %v, want ErrBusy", err)
 	}
-	if _, err := b.Verify("stored", goodPassword); !errors.Is(err, ErrBusy) {
+	if err := within(t, "a third Verify", func() error { _, err := b.Verify("stored", goodPassword); return err }); !errors.Is(err, ErrBusy) {
 		t.Errorf("third Verify: %v, want ErrBusy", err)
 	}
-	if err := b.VerifyDummy(goodPassword); !errors.Is(err, ErrBusy) {
+	if err := within(t, "a third VerifyDummy", func() error { return b.VerifyDummy(goodPassword) }); !errors.Is(err, ErrBusy) {
 		t.Errorf("third VerifyDummy: %v, want ErrBusy", err)
 	}
 	if b.overflow.Load() {
@@ -211,12 +229,13 @@ func TestHasherRunsTwoAndRefusesTheThirdAtOnce(t *testing.T) {
 	}
 
 	close(b.release)
-	wg.Wait()
+	within(t, "the parked calls after the release", func() bool { wg.Wait(); return true })
 	// The slots came back.
-	if h, err := b.Hash(goodPassword); err != nil || h != "stub-hash" {
+	var h string
+	if err := within(t, "Hash after the release", func() (err error) { h, err = b.Hash(goodPassword); return err }); err != nil || h != "stub-hash" {
 		t.Errorf("Hash after release = %q, %v", h, err)
 	}
-	<-b.entered
+	within(t, "the call after the release to be seen", entered)
 }
 
 func TestBackoffDoublesAfterFiveFailures(t *testing.T) {

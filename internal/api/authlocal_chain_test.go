@@ -322,7 +322,8 @@ func TestAnonymousViewerNeverGetsLogs(t *testing.T) {
 		t.Fatalf("anonymous read route = %d %s, want 200", w.Code, w.Body)
 	}
 	before := len(recordsOf(h.audit(t), audit.KindDenial))
-	wantError(t, h.get(tailPath), http.StatusForbidden, model.ErrCodeForbidden)
+	// Bounded: if the rule were gone the tail would open and stream until -timeout.
+	wantError(t, within(t, "the anonymous viewer's tail", func() *httptest.ResponseRecorder { return h.get(tailPath) }), http.StatusForbidden, model.ErrCodeForbidden)
 	if d := recordsOf(h.audit(t), audit.KindDenial); len(d) != before+1 || d[len(d)-1].Reason != obs.AuthForbidden.String() {
 		t.Errorf("denials = %+v, want one forbidden for the tail", d)
 	}

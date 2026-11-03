@@ -392,6 +392,23 @@ func TestFailedLoginAuditIsRateLimited(t *testing.T) {
 	}
 }
 
+// within runs f and returns its result, failing the test (instead of hanging it until -timeout)
+// when f has not returned after a few seconds: a regression that parks a request the server
+// should refuse, or a stream it should never open, then names the step that hung.
+func within[T any](t *testing.T, what string, f func() T) T {
+	t.Helper()
+	done := make(chan T, 1)
+	go func() { done <- f() }()
+	select {
+	case v := <-done:
+		return v
+	case <-time.After(5 * time.Second):
+		t.Fatalf("%s did not return within 5 s", what)
+		var zero T
+		return zero
+	}
+}
+
 func TestThirdConcurrentHashGets429(t *testing.T) {
 	rh := newRecordingHasher(true)
 	e := newLocalEnv(t, localOpts{setup: true, hasher: rh.Hasher})
@@ -400,21 +417,22 @@ func TestThirdConcurrentHashGets429(t *testing.T) {
 	for _, name := range []string{"first", "second"} {
 		wg.Go(func() { codes <- e.login(name, localPassword).Code })
 	}
-	<-rh.entered
-	<-rh.entered
+	entered := func() struct{} { return <-rh.entered }
+	within(t, "the first login to reach the hasher", entered)
+	within(t, "the second login to reach the hasher", entered)
 
-	w := e.login(localAdmin, localPassword)
+	w := within(t, "a third login", func() *httptest.ResponseRecorder { return e.login(localAdmin, localPassword) })
 	wantCode(t, w, http.StatusTooManyRequests, model.ErrCodeRateLimited)
 	if w.Header().Get("Retry-After") == "" {
 		t.Error("no Retry-After")
 	}
 	tok := e.local.Setup.Value()
-	wantCode(t, e.setup(tok, localPassword), http.StatusTooManyRequests, model.ErrCodeRateLimited)
+	wantCode(t, within(t, "a setup beside two logins", func() *httptest.ResponseRecorder { return e.setup(tok, localPassword) }), http.StatusTooManyRequests, model.ErrCodeRateLimited)
 	if rh.overflow.Load() {
 		t.Fatal("a third hash ran")
 	}
 	close(rh.release)
-	wg.Wait()
+	within(t, "the parked logins after the release", func() bool { wg.Wait(); return true })
 	close(codes)
 	for c := range codes {
 		if c != http.StatusUnauthorized {
