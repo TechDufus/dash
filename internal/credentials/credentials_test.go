@@ -383,6 +383,35 @@ func TestRemovedFileIsNotRecreated(t *testing.T) {
 	}
 }
 
+// The identity of the file is taken when it is read, not only after a write: a store reopened
+// over an existing credentials.yaml that is replaced before its first write never writes over
+// the replacement.
+func TestReplacedFileBeforeAnyWriteIsNotOverwritten(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, FileName)
+	must(t, open(t, dir).Close())
+	s := open(t, dir) // loads the existing file
+
+	// A new inode with other content: written beside the file while it exists, renamed over it.
+	replacement := []byte("# replaced by hand\n")
+	tmp := filepath.Join(dir, "replacement")
+	must(t, os.WriteFile(tmp, replacement, 0o600))
+	must(t, os.Rename(tmp, path))
+
+	if err := s.SetAdmin(Admin{User: "alice", Hash: "h"}); !errors.Is(err, ErrFileChanged) {
+		t.Errorf("SetAdmin after the replacement: %v, want ErrFileChanged", err)
+	}
+	if err := s.BumpEpoch("alice"); err != nil {
+		t.Errorf("BumpEpoch after the replacement: %v, want the in-memory bump without an error", err)
+	}
+	if s.Epoch("alice") != 1 {
+		t.Errorf("epoch alice=%d, want 1 (revocation holds in memory)", s.Epoch("alice"))
+	}
+	if got, err := os.ReadFile(path); err != nil || !bytes.Equal(got, replacement) {
+		t.Errorf("the replaced credentials.yaml was written over: %q, %v", got, err)
+	}
+}
+
 func TestConcurrentBumpsAreAllCounted(t *testing.T) {
 	dir := t.TempDir()
 	s := open(t, dir)
