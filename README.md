@@ -178,6 +178,7 @@ restart with `DASH_PLUGINS_PROXMOX_TOKEN_SECRET_FILE`.
 | `server.limits.tailMaxDuration` | `30m` | a log tail ends after this; the browser reconnects (a duration string, also in the environment) |
 | `server.limits.sseWriteTimeout`, `.bodyReadTimeout` | `10s`, `10s` | a stalled stream write, or a request body that does not arrive, is cut off after this |
 | `server.limits.maxHeaderBytes` | `65536` | request header size of the API listener |
+| `server.csp` | `enforce` | the `Content-Security-Policy` dash sends: `enforce`, `report-only` (the browser only reports violations in its console) or `off` (none). The kill switch if a browser blanks the web UI under the policy: set `DASH_SERVER_CSP=report-only` or `off` and restart. `X-Content-Type-Options` and `Referrer-Policy` are sent in every mode. Any other value is refused when the configuration loads |
 | `auth.mode` | `proxy` | how dash learns who makes a request: `proxy` (an identity proxy forwards the user name) or `none` (no authentication: every request is an administrator; dash warns at every start and shows a banner, so bind `127.0.0.1`). Never `none` unless you set it |
 | `auth.proxy.userHeaders` | `["X-Forwarded-Preferred-Username","X-Forwarded-User"]` | request headers that carry the user name, first one the proxy sets wins (a JSON list in the environment). Two lines of one header are refused |
 | `auth.proxy.groupsHeader` | empty (groups off) | the header the user's groups arrive in, comma-separated (oauth2-proxy: `X-Forwarded-Groups`); `adminGroups` needs it |
@@ -266,7 +267,10 @@ The launcher is a list of `name`, `href`, `icon` and `description`; `icon` is a
 `ui.iconBaseURL`. Mount a file from a ConfigMap and point `plugins.launcher.file` at it, or list
 the links in `plugins.launcher.links`. An unreadable file makes the launcher plugin report `error`
 (dash still starts); an invalid link in `plugins.launcher.links` is refused when the configuration
-loads. See [`docs/launcher.example.yaml`](docs/launcher.example.yaml).
+loads. An `icon` outside the three forms above (another origin than `ui.iconBaseURL`, `javascript:`, `data:`)
+makes the launcher report `error` with a warning that names the entry, in the file and in the inline
+list alike, and dash still starts. A link's `href` that is not `http:` or `https:` is shown as text, not
+a link. See [`docs/launcher.example.yaml`](docs/launcher.example.yaml).
 
 dash also reads a few labels, annotations and metric names from the cluster. None has a default:
 while one is empty, the feature that depends on it is off.
