@@ -1,6 +1,6 @@
 import { screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { beforeEach, describe, expect, it, type MockInstance, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, type MockInstance, vi } from "vitest";
 import { json, renderApp, stubFetch } from "@/test/harness";
 import { browserNav } from "./handle401";
 import { LoginPage } from "./login-page";
@@ -36,6 +36,16 @@ beforeEach(() => {
   reload = vi.spyOn(browserNav, "reload").mockImplementation(() => {});
 });
 
+afterEach(() => {
+  window.history.replaceState(null, "", "/");
+});
+
+/** Opens `path` as the browser does: the page reads its query from window.location. */
+function openLogin(path: string) {
+  window.history.replaceState(null, "", path);
+  return renderApp(<LoginPage />, { path });
+}
+
 async function signIn(user = "admin", password = SECRET) {
   const u = userEvent.setup();
   await u.type(await screen.findByLabelText("Username"), user);
@@ -46,7 +56,7 @@ async function signIn(user = "admin", password = SECRET) {
 describe("LoginPage", () => {
   it("POSTs /login with the CSRF header, drops the cached /me and loads the validated next", async () => {
     const stub = stubFetch({ "GET /api/v1/me": ME_LOCAL, "POST /login": undefined });
-    const view = renderApp(<LoginPage />, { path: "/login?next=%2Fpods%3Fns%3Dmedia" });
+    const view = openLogin("/login?next=%2Fpods%3Fns%3Dmedia");
     const invalidate = vi.spyOn(view.queryClient, "invalidateQueries");
     await signIn();
 
@@ -84,16 +94,21 @@ describe("LoginPage", () => {
       "/",
     ],
     ["a dot-segment next to a page", `/login?next=${encodeURIComponent("/./alerts")}`, "/alerts"],
+    [
+      "a next with a literal %25 (decoded once, not twice)",
+      `/login?next=${encodeURIComponent("/pods?q=100%25")}`,
+      "/pods?q=100%25",
+    ],
   ])("loads / for %s", async (_name, path, want) => {
     stubFetch({ "GET /api/v1/me": ME_LOCAL, "POST /login": undefined });
-    renderApp(<LoginPage />, { path });
+    openLogin(path);
     await signIn();
     await waitFor(() => expect(assign).toHaveBeenCalledWith(want));
   });
 
   it("shows one generic message for refused credentials, clears the password, and stays", async () => {
     stubFetch({ "GET /api/v1/me": ME_LOCAL, "POST /login": BAD_CREDENTIALS });
-    renderApp(<LoginPage />, { path: "/login" });
+    openLogin("/login");
     await signIn("nobody", SECRET);
 
     expect(await screen.findByRole("alert")).toHaveTextContent("Invalid username or password.");
@@ -115,7 +130,7 @@ describe("LoginPage", () => {
       "GET /api/v1/me": ME_LOCAL,
       "POST /login": () => json({ error: `server says ${code}`, code }, status),
     });
-    renderApp(<LoginPage />, { path: "/login" });
+    openLogin("/login");
     await signIn();
     expect(await screen.findByRole("alert")).toHaveTextContent(
       "Signing in failed. Reload the page and try again.",
@@ -141,7 +156,7 @@ describe("LoginPage", () => {
       "GET /api/v1/me": ME_LOCAL,
       "POST /login": () => json({ error: "too many attempts", code: "rate_limited" }, 429, headers),
     });
-    renderApp(<LoginPage />, { path: "/login" });
+    openLogin("/login");
     await signIn();
     expect(await screen.findByRole("alert")).toHaveTextContent(want);
     expect(assign).not.toHaveBeenCalled();
@@ -154,7 +169,7 @@ describe("LoginPage", () => {
       answer = resolve;
     });
     const stub = stubFetch({ "GET /api/v1/me": ME_LOCAL, "POST /login": () => gate });
-    renderApp(<LoginPage />, { path: "/login" });
+    openLogin("/login");
     await signIn();
     const button = await screen.findByRole("button", { name: "Signing in…" });
     expect(button).toBeDisabled();
@@ -169,7 +184,7 @@ describe("LoginPage", () => {
     ["oidc_failed", "Signing in with the identity provider failed."],
   ])("explains ?error=%s", async (code, want) => {
     stubFetch({ "GET /api/v1/me": ME_OIDC });
-    renderApp(<LoginPage />, { path: `/login?error=${code}` });
+    openLogin(`/login?error=${code}`);
     expect(await screen.findByRole("alert")).toHaveTextContent(want);
   });
 
@@ -177,7 +192,7 @@ describe("LoginPage", () => {
     "ignores an unknown ?error=%s and never echoes it",
     async (code) => {
       stubFetch({ "GET /api/v1/me": ME_LOCAL });
-      renderApp(<LoginPage />, { path: `/login?error=${encodeURIComponent(code)}` });
+      openLogin(`/login?error=${encodeURIComponent(code)}`);
       await screen.findByLabelText("Username");
       expect(screen.queryByRole("alert")).toBeNull();
       expect(document.body.textContent).not.toContain(code);
@@ -186,7 +201,7 @@ describe("LoginPage", () => {
 
   it("offers OIDC sign-in when the 401 names an identity provider, carrying the validated next", async () => {
     stubFetch({ "GET /api/v1/me": ME_OIDC });
-    renderApp(<LoginPage />, { path: "/login?next=%2Fpods" });
+    openLogin("/login?next=%2Fpods");
     const link = await screen.findByRole("link", { name: "OIDC sign-in" });
     expect(link).toHaveAttribute("href", "/auth/oidc/start?next=%2Fpods");
     expect(screen.getByText("id.example.test")).toBeInTheDocument();
@@ -196,7 +211,7 @@ describe("LoginPage", () => {
 
   it("gives the OIDC button / for an unsafe next", async () => {
     stubFetch({ "GET /api/v1/me": ME_OIDC });
-    renderApp(<LoginPage />, { path: "/login?next=%2F%2Fevil.example" });
+    openLogin("/login?next=%2F%2Fevil.example");
     const link = await screen.findByRole("link", { name: "OIDC sign-in" });
     expect(link).toHaveAttribute("href", "/auth/oidc/start?next=%2F");
   });
@@ -204,7 +219,7 @@ describe("LoginPage", () => {
   it("gives the OIDC button and the proxy Continue link the validated next, never a normalized //", async () => {
     const evil = `/login?next=${encodeURIComponent("/.//evil.example/x")}`;
     stubFetch({ "GET /api/v1/me": ME_OIDC });
-    const oidc = renderApp(<LoginPage />, { path: evil });
+    const oidc = openLogin(evil);
     expect(await screen.findByRole("link", { name: "OIDC sign-in" })).toHaveAttribute(
       "href",
       "/auth/oidc/start?next=%2F",
@@ -221,7 +236,7 @@ describe("LoginPage", () => {
           401,
         ),
     });
-    renderApp(<LoginPage />, { path: evil });
+    openLogin(evil);
     expect(await screen.findByRole("link", { name: "Continue" })).toHaveAttribute("href", "/");
   });
 
@@ -235,7 +250,7 @@ describe("LoginPage", () => {
         "GET /api/v1/me": () =>
           json({ user: "alice", role: "viewer", authMode: "oidc", scopes: ["read"], warnings: [] }),
       });
-      renderApp(<LoginPage />, { path });
+      openLogin(path);
       expect(await screen.findByRole("link", { name: "Continue" })).toHaveAttribute("href", want);
       expect(screen.getByText(/You are signed in/)).toBeInTheDocument();
       expect(screen.queryByRole("link", { name: "OIDC sign-in" })).toBeNull();
@@ -245,7 +260,7 @@ describe("LoginPage", () => {
 
   it("has no OIDC button in local mode", async () => {
     stubFetch({ "GET /api/v1/me": ME_LOCAL });
-    renderApp(<LoginPage />, { path: "/login" });
+    openLogin("/login");
     await screen.findByLabelText("Username");
     await waitFor(() => expect(screen.queryByRole("link", { name: "OIDC sign-in" })).toBeNull());
   });
@@ -262,7 +277,7 @@ describe("LoginPage", () => {
           401,
         ),
     });
-    renderApp(<LoginPage />, { path: "/login" });
+    openLogin("/login");
     expect(await screen.findByRole("status")).toHaveTextContent("setup token required");
     expect(screen.queryByLabelText("Password")).toBeNull();
     expect(screen.queryByRole("button", { name: "Sign in" })).toBeNull();
@@ -270,7 +285,7 @@ describe("LoginPage", () => {
 
   it("keeps the form when the probe fails, so a broken /me never locks the admin out", async () => {
     stubFetch({ "GET /api/v1/me": () => json({ error: "boom", code: "internal" }, 500) });
-    renderApp(<LoginPage />, { path: "/login" });
+    openLogin("/login");
     expect(await screen.findByLabelText("Password")).toBeInTheDocument();
   });
 });

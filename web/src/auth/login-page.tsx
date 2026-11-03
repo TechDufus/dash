@@ -1,6 +1,5 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { type FormEvent, useState } from "react";
-import { useSearch } from "wouter";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { AuthAlert, AuthCard, Field } from "./auth-card";
@@ -46,7 +45,9 @@ export function loginErrorText(err: unknown): string {
  * (validated: a same-origin path, "/" otherwise) as a full navigation, so the app starts fresh.
  */
 export function LoginPage() {
-  const params = new URLSearchParams(useSearch());
+  // The raw query, decoded once here: wouter's useSearch() is decoded already, and a second
+  // decode would turn a literal %25 in next into %. /login is always a full page load.
+  const params = new URLSearchParams(window.location.search);
   const next = validNext(params.get("next")) ?? "/";
   const callbackError = CALLBACK_ERRORS.get(params.get("error") ?? "");
   const queryClient = useQueryClient();
