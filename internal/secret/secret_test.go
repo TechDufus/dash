@@ -324,6 +324,41 @@ func TestShortSecretDoesNotDefeatShapeRedaction(t *testing.T) {
 	}
 }
 
+// The scrubber redacts the union of what the secrets and the shapes match on the original text,
+// so no case depends on which pass runs first. Overlapping or touching matches become one
+// "[redacted]".
+func TestScrubRedactsTheUnionOfSecretsAndShapes(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		secrets []string
+		in      string
+		want    string
+		logLine bool
+	}{
+		// Shapes first left "abc-" readable.
+		{"a secret that contains a token", []string{"abc-dash_pat_X1y2"}, "key abc-dash_pat_X1y2 end", "key [redacted] end", false},
+		// Literals first broke the token apart at the secret's end; shapes first left "XYZ".
+		{"a token that straddles a secret's end", []string{"XYZdash_s"}, "v=XYZdash_setup_TOKEN123 end", "v=[redacted] end", true},
+		{"overlapping secrets", []string{"abcdef", "defghi"}, "x abcdefghi y", "x [redacted] y", false},
+		{"a secret overlapping itself", []string{"aba"}, "x ababa y", "x [redacted] y", false},
+		{"touching secrets", []string{"AAAA1111", "BBBB2222"}, "x AAAA1111BBBB2222 y", "x [redacted] y", false},
+		{"a secret touching a token", []string{"AAAA1111"}, "x AAAA1111dash_pat_Q y", "x [redacted] y", false},
+		{"apart, as before", []string{"AAAA1111"}, "AAAA1111 and dash_pat_Q", "[redacted] and [redacted]", false},
+	} {
+		reg := NewRegistry()
+		for _, s := range tc.secrets {
+			reg.Add(New(s, ""))
+		}
+		got := reg.Scrub(tc.in)
+		if tc.logLine {
+			got = reg.ScrubLogLine(tc.in)
+		}
+		if got != tc.want {
+			t.Errorf("%s: %q, want %q", tc.name, got, tc.want)
+		}
+	}
+}
+
 func TestRegistryFollowsRotation(t *testing.T) {
 	v := New("first-secret-value", "file:/x")
 	reg := NewRegistry()

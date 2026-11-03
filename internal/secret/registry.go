@@ -32,10 +32,10 @@ type Registry struct {
 	tracked []*holder
 	fixed   []string
 
-	// repl is compiled lazily. stamp is the version sum it was compiled at,
-	// so a Value.Update (which bumps its version) invalidates it.
+	// forms is compiled lazily: every registered value and its encoded forms. stamp is the
+	// version sum it was compiled at, so a Value.Update (which bumps its version) invalidates it.
 	built bool
-	repl  *strings.Replacer // nil when nothing is registered
+	forms []string // nil when nothing is registered
 	stamp uint64
 }
 
@@ -84,53 +84,82 @@ func (r *Registry) ScrubLogLine(s string) string {
 	return r.scrub(s, logShapes)
 }
 
-// scrub redacts the shapes first, then the registered secrets. The other order let a short
-// registered secret (one character of "dash_setup_", say) break a token apart before the shape
-// could match it, leaving most of the token readable. The literals then run on the text between
-// the markers, so a secret that is a substring of "[redacted]" does not mangle them; for text in
-// which no secret overlaps a shape, the result is the same as before.
+// span is a byte range [start, end) of the text to redact.
+type span struct{ start, end int }
+
+// scrub redacts the union of what the registered secrets and the shapes match, both found on
+// the original text: the spans are merged where they overlap or touch, and each merged span
+// becomes one "[redacted]". No order of two replacing passes is safe. Literals first let a short
+// secret (one character of "dash_setup_") break a token apart before its shape could match;
+// shapes first left the part of a secret before an embedded token readable; and a token that
+// straddles the end of a secret lost its shape either way. Text in which nothing overlaps or
+// touches comes out as it did with either order.
 func (r *Registry) scrub(s string, re *regexp.Regexp) string {
 	if s == "" {
 		return s
 	}
+	var spans []span
 	for _, hint := range shapeHints {
 		if strings.Contains(s, hint) {
-			s = re.ReplaceAllLiteralString(s, redacted)
+			for _, m := range re.FindAllStringIndex(s, -1) {
+				spans = append(spans, span{m[0], m[1]})
+			}
 			break
 		}
 	}
-	if r == nil {
+	if r != nil {
+		for _, f := range r.literals() {
+			// Every occurrence, overlapping ones included: the next search starts one byte on.
+			for i := 0; i < len(s); {
+				j := strings.Index(s[i:], f)
+				if j < 0 {
+					break
+				}
+				spans = append(spans, span{i + j, i + j + len(f)})
+				i += j + 1
+			}
+		}
+	}
+	if len(spans) == 0 {
 		return s
 	}
-	repl := r.replacer()
-	if repl == nil {
-		return s
+	sort.Slice(spans, func(i, j int) bool { return spans[i].start < spans[j].start })
+	var b strings.Builder
+	b.Grow(len(s))
+	cur, done := spans[0], 0
+	flush := func() {
+		b.WriteString(s[done:cur.start])
+		b.WriteString(redacted)
+		done = cur.end
 	}
-	if !strings.Contains(s, redacted) {
-		return repl.Replace(s)
+	for _, sp := range spans[1:] {
+		if sp.start <= cur.end {
+			cur.end = max(cur.end, sp.end)
+			continue
+		}
+		flush()
+		cur = sp
 	}
-	parts := strings.Split(s, redacted)
-	for i, p := range parts {
-		parts[i] = repl.Replace(p)
-	}
-	return strings.Join(parts, redacted)
+	flush()
+	b.WriteString(s[done:])
+	return b.String()
 }
 
-// replacer returns the compiled replacer, rebuilding it when a tracked Value
-// changed since the last build.
-func (r *Registry) replacer() *strings.Replacer {
+// literals returns the compiled forms, rebuilding them when a tracked Value changed since the
+// last build.
+func (r *Registry) literals() []string {
 	r.mu.RLock()
 	if r.built && r.stamp == r.versionSum() {
-		repl := r.repl
+		forms := r.forms
 		r.mu.RUnlock()
-		return repl
+		return forms
 	}
 	r.mu.RUnlock()
 
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.rebuild()
-	return r.repl
+	return r.forms
 }
 
 func (r *Registry) versionSum() uint64 {
@@ -141,10 +170,9 @@ func (r *Registry) versionSum() uint64 {
 	return sum
 }
 
-// rebuild compiles the replacer. Longer forms go first because strings.Replacer
-// prefers earlier pairs at the same position, and a short secret must not eat
-// the start of a longer one. It leaves repl nil when there is nothing to
-// match. Callers hold r.mu for writing.
+// rebuild compiles the forms, longest first (the order only makes a build deterministic: the
+// spans of every form are merged). It leaves forms nil when there is nothing to match. Callers
+// hold r.mu for writing.
 func (r *Registry) rebuild() {
 	forms := map[string]struct{}{}
 	sum := uint64(len(r.tracked) + len(r.fixed))
@@ -160,7 +188,7 @@ func (r *Registry) rebuild() {
 	}
 	r.stamp = sum
 	r.built = true
-	r.repl = nil
+	r.forms = nil
 	if len(forms) == 0 {
 		return
 	}
@@ -174,11 +202,7 @@ func (r *Registry) rebuild() {
 		}
 		return list[i] < list[j]
 	})
-	pairs := make([]string, 0, 2*len(list))
-	for _, f := range list {
-		pairs = append(pairs, f, redacted)
-	}
-	r.repl = strings.NewReplacer(pairs...)
+	r.forms = list
 }
 
 func addForms(forms map[string]struct{}, v string) {
