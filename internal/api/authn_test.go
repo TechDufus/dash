@@ -1,17 +1,20 @@
 package api
 
 import (
+	"encoding/json"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/TechDufus/dash/internal/audit"
 	"github.com/TechDufus/dash/internal/auth"
 	"github.com/TechDufus/dash/internal/auth/authtest"
 	"github.com/TechDufus/dash/internal/model"
 	"github.com/TechDufus/dash/internal/obs"
+	"github.com/TechDufus/dash/internal/session"
 )
 
 // seenByNext is what the handler behind authn saw.
@@ -210,5 +213,74 @@ func TestAuthnBearerIgnoresIdentityHeaders(t *testing.T) {
 	w := req{path: "/api/v1/me", header: map[string]string{"Authorization": "Bearer abc", "X-Forwarded-User": "alice"}}.do(behindAuthn(s, &seen))
 	if w.Code != http.StatusUnauthorized || seen.ran != 0 || apiError(t, w).Code != model.ErrCodeInvalidToken {
 		t.Errorf("status %d, ran %d, body %s; want 401 invalid_token", w.Code, seen.ran, w.Body)
+	}
+}
+
+// A session mode's cookie goes out with the answer: the renewal of a session in the second half
+// of its idle window, the clearing cookie of a dead one (with the 401), and nothing otherwise.
+func TestAuthnSetsTheRenewedOrClearingCookie(t *testing.T) {
+	now := fixedNow
+	opt, h := withSessions(t, auth.ModeLocal, auth.RoleMap{AdminUsers: []string{"alice"}}, false, func() time.Time { return now })
+	s := newServer(opt)
+	c, err := h.Sessions.Issue(session.Identity{User: "alice"}, session.Keep{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	call := func() (*httptest.ResponseRecorder, seenByNext) {
+		var seen seenByNext
+		w := req{path: "/api/v1/me", header: map[string]string{"Cookie": c.Name + "=" + c.Value}}.do(behindAuthn(s, &seen))
+		return w, seen
+	}
+
+	now = fixedNow.Add(time.Hour)
+	w, seen := call()
+	if w.Code != http.StatusNoContent || seen.p.Kind != auth.KindSession || seen.p.User != "alice" || seen.p.Role != auth.RoleAdmin {
+		t.Fatalf("fresh session: status %d, principal %+v", w.Code, seen.p)
+	}
+	if got := w.Header().Values("Set-Cookie"); len(got) != 0 {
+		t.Errorf("fresh session set %q, want no cookie", got)
+	}
+
+	now = fixedNow.Add(7 * time.Hour) // 5 h of the 12 h idle window left
+	w, seen = call()
+	set := w.Result().Cookies()
+	if w.Code != http.StatusNoContent || seen.ran != 1 || len(set) != 1 || set[0].Name != c.Name || set[0].MaxAge <= 0 || set[0].Value == c.Value {
+		t.Fatalf("second half: status %d, cookies %+v; want the renewed session", w.Code, set)
+	}
+
+	if err := h.Store.BumpEpoch("alice"); err != nil {
+		t.Fatal(err)
+	}
+	w, seen = call()
+	set = w.Result().Cookies()
+	if w.Code != http.StatusUnauthorized || seen.ran != 0 || len(set) != 1 || set[0].Name != c.Name || set[0].MaxAge >= 0 {
+		t.Errorf("revoked: status %d (ran %d), cookies %+v; want 401 with the clearing cookie", w.Code, seen.ran, set)
+	}
+}
+
+// The session modes are named by their mode, not by the kind of the principal: me says local or
+// oidc, and so does the audit record of a refusal that has no principal.
+func TestAuthModeNamesTheSessionModes(t *testing.T) {
+	for _, mode := range []string{auth.ModeLocal, auth.ModeOIDC} {
+		t.Run(mode, func(t *testing.T) {
+			opt, h := withSessions(t, mode, auth.RoleMap{AdminUsers: []string{"alice"}}, false, nil)
+			s, dir := auditedServer(t, opt)
+			c, err := h.Sessions.Issue(session.Identity{User: "alice"}, session.Keep{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			w := req{path: "/api/v1/me", header: map[string]string{"Cookie": c.Name + "=" + c.Value}}.do(s.Handler())
+			var me model.Me
+			if w.Code != http.StatusOK || json.Unmarshal(w.Body.Bytes(), &me) != nil || me.AuthMode != mode || me.User != "alice" {
+				t.Fatalf("me: status %d, body %s; want authMode %s", w.Code, w.Body, mode)
+			}
+			if w := (req{path: "/api/v1/me"}).do(s.Handler()); w.Code != http.StatusUnauthorized {
+				t.Fatalf("no cookie: status %d, want 401", w.Code)
+			}
+			recs := recordsOf(auditRecords(t, dir), audit.KindDenial)
+			if len(recs) != 1 || recs[0].AuthMode != mode || recs[0].Actor.Type != mode {
+				t.Errorf("denials = %+v, want one recorded under %s", recs, mode)
+			}
+		})
 	}
 }

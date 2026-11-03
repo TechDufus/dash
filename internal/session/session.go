@@ -7,14 +7,22 @@
 // The payload never holds a role (design M.8): the role is mapped on every request from the
 // user, the groups and the role-claim values, so a change of the admin lists applies on the next
 // request.
-//
-// Scaffold (G4-R2-S13): the signatures are final; the bodies are the credentials+session
-// slice's (S10).
 package session
 
 import (
+	"bytes"
+	"crypto/cipher"
+	"crypto/rand"
+	"encoding/base64"
+	"encoding/json"
 	"errors"
+	"fmt"
+	"io"
+	"reflect"
+	"strings"
 	"time"
+
+	"golang.org/x/crypto/chacha20poly1305"
 )
 
 // Limits and names (design D8).
@@ -54,9 +62,6 @@ var (
 	ErrRevoked = errors.New("session: revoked")
 )
 
-// errSkeleton is what the scaffold's bodies return until the slice implements them.
-var errSkeleton = errors.New("session: not implemented in the scaffold")
-
 // Payload is the sealed content of a session cookie. It has no role (design M.8). Groups and
 // RoleClaim hold only what the mapping can use (Keep), so the cookie stays small.
 type Payload struct {
@@ -79,22 +84,116 @@ type KeySource interface {
 // src.Derive with the info "<purpose>|<base64url salt>". Without a key (src.Derive fails with
 // secret.ErrNoKey) it fails: the caller then uses RandomKey, and sessions end with the process.
 func DeriveKey(src KeySource, purpose string, salt []byte) ([]byte, error) {
-	return nil, errSkeleton
+	if src == nil {
+		return nil, errors.New("session: no key source")
+	}
+	if purpose == "" || len(salt) == 0 {
+		return nil, errors.New("session: a derived key needs a purpose and a salt")
+	}
+	key, err := src.Derive(purpose + "|" + base64.RawURLEncoding.EncodeToString(salt))
+	if err != nil {
+		return nil, err
+	}
+	if len(key) != KeySize {
+		return nil, fmt.Errorf("session: derived key is %d bytes, want %d", len(key), KeySize)
+	}
+	return key, nil
 }
 
 // RandomKey is a per-process key: used when there is no DASH_SECRET_KEY or no persistent
 // credential store (epochs and salt could not survive a restart, so neither may the sessions).
-func RandomKey() ([]byte, error) { return nil, errSkeleton }
+func RandomKey() ([]byte, error) {
+	key := make([]byte, KeySize)
+	if _, err := rand.Read(key); err != nil {
+		return nil, fmt.Errorf("session: random key: %w", err)
+	}
+	return key, nil
+}
+
+// sealedPrefix versions the sealed format; codecAD binds it as additional data.
+const sealedPrefix = "v1."
+
+var codecAD = []byte("dash/codec/v1")
+
+// sealedEncoding is base64url without padding; Strict refuses non-canonical trailing bits, so
+// one sealed value has one spelling.
+var sealedEncoding = base64.RawURLEncoding.Strict()
 
 // Codec seals and opens values with one key: JSON, XChaCha20-Poly1305 with a random nonce,
 // base64url without padding behind a "v1." version prefix.
-type Codec struct{}
+type Codec struct {
+	aead cipher.AEAD
+}
 
 // NewCodec returns the codec of key, which must be KeySize bytes.
-func NewCodec(key []byte) (*Codec, error) { return nil, errSkeleton }
+func NewCodec(key []byte) (*Codec, error) {
+	if len(key) != KeySize {
+		return nil, fmt.Errorf("session: codec key must be %d bytes", KeySize)
+	}
+	aead, err := chacha20poly1305.NewX(key)
+	if err != nil {
+		return nil, fmt.Errorf("session: codec: %w", err)
+	}
+	return &Codec{aead: aead}, nil
+}
+
+// sealedLen is the length of the sealed form of a plaintext of n bytes.
+func sealedLen(n int) int {
+	return len(sealedPrefix) + sealedEncoding.EncodedLen(chacha20poly1305.NonceSizeX+n+chacha20poly1305.Overhead)
+}
 
 // Seal encodes v as JSON and seals it. ErrTooLarge when the result exceeds MaxSealedBytes.
-func (c *Codec) Seal(v any) (string, error) { return "", errSkeleton }
+func (c *Codec) Seal(v any) (string, error) {
+	if c == nil || c.aead == nil {
+		return "", errors.New("session: codec without a key")
+	}
+	pt, err := json.Marshal(v)
+	if err != nil {
+		return "", fmt.Errorf("session: encode: %w", err)
+	}
+	if sealedLen(len(pt)) > MaxSealedBytes {
+		return "", ErrTooLarge
+	}
+	buf := make([]byte, chacha20poly1305.NonceSizeX, chacha20poly1305.NonceSizeX+len(pt)+chacha20poly1305.Overhead)
+	if _, err := rand.Read(buf); err != nil {
+		return "", fmt.Errorf("session: nonce: %w", err)
+	}
+	sealed := c.aead.Seal(buf, buf, pt, codecAD)
+	return sealedPrefix + sealedEncoding.EncodeToString(sealed), nil
+}
 
 // Open opens sealed into v. ErrInvalid for anything this codec did not seal, unchanged.
-func (c *Codec) Open(sealed string, v any) error { return errSkeleton }
+func (c *Codec) Open(sealed string, v any) error {
+	rv := reflect.ValueOf(v)
+	if rv.Kind() != reflect.Pointer || rv.IsNil() {
+		return errors.New("session: Open needs a non-nil pointer")
+	}
+	if c == nil || c.aead == nil || len(sealed) > MaxSealedBytes {
+		return ErrInvalid
+	}
+	body, ok := strings.CutPrefix(sealed, sealedPrefix)
+	if !ok {
+		return ErrInvalid
+	}
+	raw, err := sealedEncoding.DecodeString(body)
+	if err != nil || len(raw) < chacha20poly1305.NonceSizeX+chacha20poly1305.Overhead {
+		return ErrInvalid
+	}
+	nonce, ct := raw[:chacha20poly1305.NonceSizeX], raw[chacha20poly1305.NonceSizeX:]
+	pt, err := c.aead.Open(nil, nonce, ct, codecAD)
+	if err != nil {
+		return ErrInvalid
+	}
+	// Decode into a fresh value, so v stays untouched when the content does not fit it.
+	fresh := reflect.New(rv.Elem().Type())
+	dec := json.NewDecoder(bytes.NewReader(pt))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(fresh.Interface()); err != nil {
+		return ErrInvalid
+	}
+	if _, err := dec.Token(); err != io.EOF {
+		return ErrInvalid
+	}
+	rv.Elem().Set(fresh.Elem())
+	return nil
+}

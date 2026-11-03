@@ -13,10 +13,15 @@ import (
 // maxAuditAction caps the request line recorded for a denial: it comes from the client.
 const maxAuditAction = 200
 
-// authMode names how a request was authenticated, for me and the audit log: the principal's kind
-// (proxy, dev, demo, none). A refusal that has no principal (CSRF on a path authn does not cover,
-// the host check) is named by the authenticator's fixed kind, else by the process mode.
+// authMode names how a request was authenticated, for me and the audit log. A session mode's
+// authenticator names its mode (auth.Moder: local, oidc), whatever the principal's kind (session,
+// anonymous) and also for a refusal without one. Otherwise it is the principal's kind (proxy,
+// dev, demo, none); a refusal that has no principal (CSRF on a path authn does not cover, the
+// host check) is named by the authenticator's fixed kind, else by the process mode.
 func (s *Server) authMode(p auth.Principal) string {
+	if m, ok := s.d.Auth.(auth.Moder); ok && m.Mode() != "" {
+		return m.Mode()
+	}
 	if p.Kind != "" {
 		return string(p.Kind)
 	}

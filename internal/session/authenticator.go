@@ -1,7 +1,9 @@
 package session
 
 import (
+	"errors"
 	"net/http"
+	"slices"
 
 	"github.com/TechDufus/dash/internal/auth"
 )
@@ -29,10 +31,29 @@ type AuthOptions struct {
 // the cookie); a cookie that fails is cleared and the request continues without it; then, with
 // Anonymous, a GET or HEAD is Principal{Kind: anonymous, User: "anonymous", Role: viewer,
 // Via: "anonymous"}; everything else is 401 unauthenticated (reason no_identity).
-type Authenticator struct{}
+type Authenticator struct {
+	mode     string
+	sessions *Manager
+	roles    *auth.RoleHolder
+	// anonymous is AuthOptions.Anonymous in local mode only: the viewer is never on in oidc.
+	anonymous bool
+	warnings  []string
+}
 
 // NewAuthenticator returns the authenticator of o.
-func NewAuthenticator(o AuthOptions) *Authenticator { return &Authenticator{} }
+func NewAuthenticator(o AuthOptions) *Authenticator {
+	roles := o.Roles
+	if roles == nil {
+		roles = &auth.RoleHolder{} // maps everyone to viewer
+	}
+	return &Authenticator{
+		mode:      o.Mode,
+		sessions:  o.Sessions,
+		roles:     roles,
+		anonymous: o.Anonymous && o.Mode == auth.ModeLocal,
+		warnings:  slices.Clone(o.Warnings),
+	}
+}
 
 // Authenticate implements auth.Authenticator.
 func (a *Authenticator) Authenticate(r *http.Request) (auth.Principal, *auth.Failure) {
@@ -43,14 +64,55 @@ func (a *Authenticator) Authenticate(r *http.Request) (auth.Principal, *auth.Fai
 // AuthenticateCookie implements auth.CookieAuthenticator: the cookie is the renewal of a valid
 // session in the second half of its idle window, or the clearing cookie of one that failed.
 func (a *Authenticator) AuthenticateCookie(r *http.Request) (auth.Principal, *http.Cookie, *auth.Failure) {
-	return auth.Principal{}, nil, &auth.Failure{Status: http.StatusUnauthorized, Code: auth.CodeUnauthenticated, Reason: auth.ReasonNoIdentity}
+	if _, ok := auth.Bearer(r); ok {
+		return auth.Principal{}, nil, &auth.Failure{Status: http.StatusUnauthorized, Code: auth.CodeInvalidToken, Reason: auth.ReasonBearerRefused}
+	}
+	var clear *http.Cookie
+	if a.sessions != nil {
+		s, renew, err := a.sessions.Read(r)
+		if err == nil {
+			if role := a.roles.RoleForClaims(s.User, s.Groups, s.RoleClaim); role != "" {
+				return auth.Principal{
+					Kind:      auth.KindSession,
+					User:      s.User,
+					Role:      role,
+					Via:       "cookie",
+					Groups:    s.Groups,
+					RoleClaim: s.RoleClaim,
+				}, renew, nil
+			}
+			err = ErrInvalid
+		}
+		if !errors.Is(err, ErrNoSession) {
+			clear = a.sessions.Clear()
+		}
+	}
+	if a.anonymous && (r.Method == http.MethodGet || r.Method == http.MethodHead) {
+		return auth.Principal{Kind: auth.KindAnonymous, User: "anonymous", Role: auth.RoleViewer, Via: "anonymous"}, clear, nil
+	}
+	return auth.Principal{}, clear, &auth.Failure{Status: http.StatusUnauthorized, Code: auth.CodeUnauthenticated, Reason: auth.ReasonNoIdentity}
 }
 
 // Mode implements auth.Moder.
-func (a *Authenticator) Mode() string { return "" }
+func (a *Authenticator) Mode() string { return a.mode }
 
-// Warnings implements auth.Warner.
-func (a *Authenticator) Warnings() []string { return nil }
+// Warnings implements auth.Warner: admin_wildcard while Roles makes every user an administrator,
+// anonymous_viewer while the anonymous viewer is on, then the configured ones.
+func (a *Authenticator) Warnings() []string {
+	var out []string
+	if a.roles.Wildcard() {
+		out = append(out, auth.WarningAdminWildcard)
+	}
+	if a.anonymous {
+		out = append(out, auth.WarningAnonymousViewer)
+	}
+	for _, w := range a.warnings {
+		if !slices.Contains(out, w) {
+			out = append(out, w)
+		}
+	}
+	return out
+}
 
 var (
 	_ auth.CookieAuthenticator = (*Authenticator)(nil)
