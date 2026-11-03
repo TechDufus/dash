@@ -133,9 +133,9 @@ function open() {
     setConnection(
       envelopes.size === 0 && connection === "connecting" ? "connecting" : "reconnecting",
     );
-    // The browser retries by itself while CONNECTING; a CLOSED stream (HTTP error, or oauth2-proxy
-    // redirecting to GitHub after the session expired) needs a new one. The /api/v1/me probe runs the
-    // 401 -> reload reauth path in the client when the session is gone.
+    // The browser retries by itself while CONNECTING; a CLOSED stream (HTTP error, or an identity
+    // proxy redirecting away after the session expired) needs a new one. The /api/v1/me probe goes
+    // through the client's handle401, which signs in again by the mode, at most once per 30 s.
     if (es.readyState === EventSource.CLOSED) {
       void api.get("/api/v1/me").catch(() => {});
       clearTimeout(retryTimer);

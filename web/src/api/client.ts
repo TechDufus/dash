@@ -1,3 +1,4 @@
+import { handle401 } from "@/auth/handle401";
 import type { APIError } from "./types";
 
 export class ApiError extends Error {
@@ -36,16 +37,8 @@ export function withParams(path: string, params?: Params): string {
   return s ? `${path}?${s}` : path;
 }
 
-// An expired oauth2-proxy session answers 401 (or redirects away); reload once to sign in again.
-function maybeReauth(status: number) {
-  if (status !== 401) return;
-  const key = "dash:reauth";
-  const last = Number(sessionStorage.getItem(key) ?? 0);
-  if (Date.now() - last < 30_000) return;
-  sessionStorage.setItem(key, String(Date.now()));
-  window.location.reload();
-}
-
+// handle401 (auth/handle401.ts) decides what a 401 means: a reload behind the identity proxy, the
+// login or setup page in the local mode, the provider in the oidc mode; once per 30 s at most.
 async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
   const headers: Record<string, string> = { Accept: "application/json" };
   if (method !== "GET" && method !== "HEAD") headers["X-Dash-Csrf"] = "1";
@@ -62,7 +55,6 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
     throw new ApiError(0, e instanceof Error ? e.message : "network error");
   }
   if (!res.ok) {
-    maybeReauth(res.status);
     let message = res.statusText || `HTTP ${res.status}`;
     let code: string | undefined;
     let requestId = res.headers.get("X-Request-Id") ?? undefined;
@@ -76,7 +68,9 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
     } catch {
       // not JSON; keep the status text
     }
-    throw new ApiError(res.status, message, code, requestId, details);
+    const err = new ApiError(res.status, message, code, requestId, details);
+    handle401(err);
+    throw err;
   }
   if (res.status === 204) return undefined as T;
   const text = await res.text();

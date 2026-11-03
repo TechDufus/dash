@@ -5,6 +5,7 @@ import { useMe } from "@/api/queries";
 import { type ConnectionState, useConnection, useTopic } from "@/api/stream";
 import type { Health } from "@/api/types";
 import { ui } from "@/api/ui-store";
+import { UserMenu } from "@/auth/user-menu";
 import { HealthBadge } from "@/components/status";
 import { Button } from "@/components/ui/button";
 import {
@@ -118,6 +119,7 @@ export function TopBar() {
             {isMac ? "⌘K" : "Ctrl K"}
           </kbd>
         </Button>
+        {me.data ? <UserMenu me={me.data} /> : null}
       </div>
       <Sheet open={menu} onOpenChange={setMenu}>
         <SheetContent side="left" className="w-64 data-[side=left]:w-64 gap-0 p-0">
