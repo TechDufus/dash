@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/TechDufus/dash/internal/auth"
 	"github.com/TechDufus/dash/internal/model"
 	"github.com/TechDufus/dash/internal/obs"
 )
@@ -64,20 +65,40 @@ func (e *sseWriter) eventID(name, id string, data []byte) error {
 	return e.write(fmt.Sprintf("id: %s\nevent: %s\ndata: %s\n\n", id, name, data))
 }
 
-// pings sends a heartbeat comment every interval until ctx ends or a write fails.
-func (e *sseWriter) pings(ctx context.Context, interval time.Duration) {
+// pings sends a heartbeat comment every interval until ctx ends or a write fails. Before each
+// one it asks alive (nil: always alive); when that says no it returns true without writing, and
+// the caller ends the stream.
+func (e *sseWriter) pings(ctx context.Context, interval time.Duration, alive func() bool) (revoked bool) {
 	t := time.NewTicker(interval)
 	defer t.Stop()
 	for {
 		select {
 		case <-ctx.Done():
-			return
+			return false
 		case <-t.C:
+			if alive != nil && !alive() {
+				return true
+			}
 			if e.write(": ping\n\n") != nil {
-				return
+				return false
 			}
 		}
 	}
+}
+
+// sessionAlive reports whether the session a stream was opened with still signs its request in:
+// a logout ("Log out" bumps the user's epoch, "Log out everywhere" the global one) or an expiry
+// must end a stream that is already open, not only the next request. Only a stream of a session
+// principal is checked; proxy, none, dev, demo and the anonymous viewer have no session to lose.
+// The answer comes from the same authenticator as authn, with the request's own cookie, so the
+// stream ends at the first heartbeat after the revocation.
+func (s *Server) sessionAlive(r *http.Request) bool {
+	opened := principalFrom(r.Context())
+	if opened.Kind != auth.KindSession {
+		return true
+	}
+	p, _, fail := s.authenticate(r)
+	return fail == nil && p.Kind == auth.KindSession && p.User == opened.User
 }
 
 func (s *Server) stream(w http.ResponseWriter, r *http.Request) {
@@ -119,6 +140,9 @@ func (s *Server) stream(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 		case <-t.C:
+			if !s.sessionAlive(r) {
+				return // the browser reconnects, gets 401, and signs in again
+			}
 			if e.write(": ping\n\n") != nil {
 				return
 			}

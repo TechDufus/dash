@@ -162,7 +162,8 @@ func (s *Server) servePluginStream(w http.ResponseWriter, r *http.Request, mr pl
 	if mr.Context != nil {
 		defer context.AfterFunc(mr.Context, cancel)()
 	}
-	st := &pluginStream{s: s, w: w, ctx: ctx}
+	// The heartbeat also ends the stream (cancel) when the session it was opened with is revoked.
+	st := &pluginStream{s: s, w: w, ctx: ctx, end: cancel, alive: func() bool { return s.sessionAlive(r) }}
 	// The heartbeat writes to w, so it must be finished before the handler returns.
 	defer st.finish()
 	err := mr.Info.StreamHandler(ctx, r, principalFrom(r.Context()), st)
@@ -177,13 +178,15 @@ func (s *Server) servePluginStream(w http.ResponseWriter, r *http.Request, mr pl
 
 // pluginStream is the plugin.Stream of one open response.
 type pluginStream struct {
-	s    *Server
-	w    http.ResponseWriter
-	ctx  context.Context
-	mu   sync.Mutex
-	e    *sseWriter
-	done chan struct{} // closed when the heartbeat has ended
-	stop context.CancelFunc
+	s     *Server
+	w     http.ResponseWriter
+	ctx   context.Context
+	end   context.CancelFunc // ends the stream: the plugin's handler sees ctx done
+	alive func() bool        // asked at each heartbeat; false ends the stream (a revoked session)
+	mu    sync.Mutex
+	e     *sseWriter
+	done  chan struct{} // closed when the heartbeat has ended
+	stop  context.CancelFunc
 }
 
 func (p *pluginStream) began() bool {
@@ -206,7 +209,9 @@ func (p *pluginStream) Begin() error {
 	p.stop, p.done = stop, make(chan struct{})
 	go func() {
 		defer close(p.done)
-		e.pings(hbCtx, p.s.heartbeat)
+		if e.pings(hbCtx, p.s.heartbeat, p.alive) && p.end != nil {
+			p.end()
+		}
 	}()
 	return err
 }
