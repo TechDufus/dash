@@ -69,7 +69,8 @@ audited at most once per address and minute. Password hashing is argon2id (64 Mi
 lanes) and at most two run at once (128 MiB); a third login at the same moment gets 429 at once.
 
 **The anonymous viewer.** `auth.local.anonymousViewer: true` lets a visitor who has not signed in
-read the dashboard as a viewer: GET requests only, never a log route (403; its scopes are `read`
+read the dashboard as a viewer, once the account exists (while setup is open, a visitor gets the
+401 that points to the setup link): GET requests only, never a log route (403; its scopes are `read`
 alone, so the pod sheet offers no Logs tab), never an action. dash warns at every start while it
 is on, and `/api/v1/me` lists `anonymous_viewer` in an administrator's `warnings` (the web UI shows
 no banner for it yet).
@@ -186,7 +187,8 @@ sends before it sets its own. With `--pass-authorization-header` unset it forwar
 A request to `/api` without a valid sign-in is 401 with
 `{"code": "unauthenticated", "details": {"mode": "local", "setup": false, "oidc": {"issuer": "<host>"}}}`
 (`oidc` only in that mode), which the web UI uses to go to `/login`, `/setup` or the provider, or to
-reload behind a proxy.
+reload behind a proxy. Each browser tab does that at most once per 30 seconds (the guard is in the
+tab's `sessionStorage`), so neither a reload nor a redirect can loop.
 
 The sign-in routes are outside `/api` and not in the OpenAPI document:
 
