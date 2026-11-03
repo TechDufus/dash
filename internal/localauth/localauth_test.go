@@ -414,8 +414,8 @@ func TestEnvHashMakesTheAccountEnvManaged(t *testing.T) {
 		t.Errorf("Hash = %q, %v; want the env hash", h, ok)
 	}
 	tok, _ := NewSetupToken(c.Now)
-	if (&Local{Account: env, Setup: tok}).SetupOpen() {
-		t.Error("setup is open for an env-managed account")
+	if (&Local{Account: env, Setup: tok}).SetupNeeded() {
+		t.Error("setup is needed for an env-managed account")
 	}
 
 	none := Account{User: "admin"}
@@ -425,15 +425,20 @@ func TestEnvHashMakesTheAccountEnvManaged(t *testing.T) {
 	if _, ok := none.Hash(); ok {
 		t.Error("an account without a hash has one")
 	}
-	open := &Local{Account: none, Setup: tok}
-	if !open.SetupOpen() {
-		t.Error("setup is closed before the account exists")
+	// Setup stays needed until an account exists, whatever the token's state: expired, used or
+	// absent, the UI keeps pointing to setup (a restart prints a new token).
+	waiting := &Local{Account: none, Setup: tok}
+	if !waiting.SetupNeeded() {
+		t.Error("setup is not needed before the account exists")
 	}
-	tok.Consume(tok.Value())
-	if open.SetupOpen() {
-		t.Error("setup is open after the token was used")
+	c.Advance(SetupTokenTTL + time.Second)
+	if tok.Usable() || !waiting.SetupNeeded() {
+		t.Error("an expired token ended the need for setup")
 	}
-	if (&Local{Account: none}).SetupOpen() || (*Local)(nil).SetupOpen() {
-		t.Error("setup is open without a token")
+	if !(&Local{Account: none}).SetupNeeded() {
+		t.Error("setup is not needed without a token and without an account")
+	}
+	if (*Local)(nil).SetupNeeded() {
+		t.Error("a nil Local (another mode) needs setup")
 	}
 }

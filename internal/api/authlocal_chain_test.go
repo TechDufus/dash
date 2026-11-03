@@ -12,6 +12,7 @@ import (
 	"strings"
 	"testing"
 	"testing/fstest"
+	"time"
 
 	"github.com/TechDufus/dash/internal/audit"
 	"github.com/TechDufus/dash/internal/auth"
@@ -64,7 +65,7 @@ func newLocalChain(t *testing.T, setup, anonymous bool, envHash string) *localCh
 		c.local.Setup = tok
 	}
 	// As cmd/dash wires it: the anonymous viewer waits for the account.
-	sh.Auth = session.NewAuthenticator(session.AuthOptions{Mode: auth.ModeLocal, Sessions: sh.Sessions, Roles: sh.Roles, Anonymous: anonymous, SetupOpen: c.local.SetupOpen})
+	sh.Auth = session.NewAuthenticator(session.AuthOptions{Mode: auth.ModeLocal, Sessions: sh.Sessions, Roles: sh.Roles, Anonymous: anonymous, SetupNeeded: c.local.SetupNeeded})
 	c.Server = newServer(func(d *Deps) {
 		opt(d)
 		d.Local = c.local
@@ -151,7 +152,7 @@ func TestLoginPostsRequireAValidOrigin(t *testing.T) {
 	}
 }
 
-// /setup (the page and the POST) exists only while setup is open: before the account exists in
+// /setup (the page and the POST) exists only while setup is needed: before the account exists in
 // the local mode. Once setup made it, or when the environment supplies the hash, or in another
 // mode, both are 404.
 func TestSetupIs404OnceAnAdminExists(t *testing.T) {
@@ -263,6 +264,48 @@ func TestAnonymousViewerWaitsForSetup(t *testing.T) {
 	var me model.Me
 	w := req{path: "/api/v1/me"}.do(c.Handler())
 	if w.Code != http.StatusOK || json.Unmarshal(w.Body.Bytes(), &me) != nil || me.User != "anonymous" {
+		t.Errorf("after setup = %d %s, want the anonymous viewer", w.Code, w.Body)
+	}
+}
+
+// Setup stays needed until an account exists, whatever the token's state. With the hour of the
+// token past and no account: the 401 still carries setup true and the anonymous viewer is still
+// withheld (so /login keeps pointing to the setup line), GET /setup still serves the page (which
+// says the link expired), and POST /setup refuses the token with 401 invalid_token. After a
+// restart's new token sets the account up, /setup is 404 and the viewer reads.
+func TestExpiredSetupTokenKeepsSetupNeeded(t *testing.T) {
+	c := newLocalChain(t, true, true, "")
+	now := time.Now()
+	tok, err := localauth.NewSetupToken(func() time.Time { return now })
+	if err != nil {
+		t.Fatal(err)
+	}
+	c.local.Setup = tok
+	now = now.Add(localauth.SetupTokenTTL + time.Second)
+	h := c.Handler()
+
+	if d := authDetailsOf(t, req{path: "/api/v1/me"}.do(h)); d != (model.AuthDetails{Mode: "local", Setup: true}) {
+		t.Errorf("expired token, no account: details %+v, want a 401 with setup true", d)
+	}
+	if w := (req{path: "/setup"}).do(h); w.Code != http.StatusOK || !strings.Contains(w.Body.String(), "spa") {
+		t.Errorf("GET /setup with an expired token = %d, want the SPA", w.Code)
+	}
+	w := req{method: http.MethodPost, path: "/setup", body: map[string]string{"token": tok.Value(), "password": chainPassword}}.do(h)
+	wantError(t, w, http.StatusUnauthorized, model.ErrCodeInvalidToken)
+	if _, ok := c.sess.Store.Admin(); ok {
+		t.Fatal("an expired token created the account")
+	}
+
+	fresh, err := localauth.NewSetupToken(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	c.local.Setup = fresh
+	c.signIn(t)
+	if w := (req{path: "/setup"}).do(h); w.Code != http.StatusNotFound {
+		t.Errorf("GET /setup after setup = %d, want 404", w.Code)
+	}
+	if w := (req{path: "/api/v1/me"}).do(h); w.Code != http.StatusOK || !strings.Contains(w.Body.String(), `"anonymous"`) {
 		t.Errorf("after setup = %d %s, want the anonymous viewer", w.Code, w.Body)
 	}
 }

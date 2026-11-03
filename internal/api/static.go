@@ -28,15 +28,15 @@ func newNonce() (string, error) {
 }
 
 // serveStatic serves the SPA: existing files as they are, any other path as index.html. The setup
-// page is 404 unless setup is open (the local mode before its account exists), so an installed
-// dash never offers it.
+// page is served while setup is needed (the local mode before its account exists, also after the
+// token expired, so the page can say so) and is 404 otherwise, so an installed dash never offers it.
 func (s *Server) serveStatic(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet && r.Method != http.MethodHead {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 	name := strings.TrimPrefix(path.Clean("/"+r.URL.Path), "/")
-	if (name == "setup" || strings.HasPrefix(name, "setup/")) && !s.d.Local.SetupOpen() {
+	if (name == "setup" || strings.HasPrefix(name, "setup/")) && !s.d.Local.SetupNeeded() {
 		http.NotFound(w, r)
 		return
 	}

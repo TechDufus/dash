@@ -142,7 +142,12 @@ describe("SetupPage", () => {
   });
 
   it.each([
-    [401, "invalid_token", {}, "This setup link is not valid"],
+    [
+      401,
+      "invalid_token",
+      {},
+      "has expired or is not valid: a link works once, within an hour of the start that printed it. Restart dash to print a new setup link in its log.",
+    ],
     [400, "invalid_input", {}, "The password must be 12 to 256 bytes long."],
     [404, "not_found", {}, "The administrator account exists already."],
     [429, "rate_limited", { "Retry-After": "8" }, "Too many attempts. Try again in 8 seconds."],

@@ -197,22 +197,22 @@ func TestAnonymousViewerGetsViewerOnly(t *testing.T) {
 	}
 }
 
-// While setup is open (no account yet) the anonymous viewer is not granted, so the 401 tells the
+// While setup is needed (no account yet) the anonymous viewer is not granted, so the 401 tells the
 // SPA to point to the setup link; once the account exists, a GET is the viewer again. A signed-in
 // session is never affected, and the warning stays (the option is still on).
 func TestAnonymousViewerWaitsForSetup(t *testing.T) {
 	f := newAuthFixture(t, auth.RoleMap{AdminUsers: []string{"alice"}})
-	open := true
-	a := session.NewAuthenticator(session.AuthOptions{Mode: auth.ModeLocal, Sessions: f.m, Roles: f.roles, Anonymous: true, SetupOpen: func() bool { return open }})
+	needed := true
+	a := session.NewAuthenticator(session.AuthOptions{Mode: auth.ModeLocal, Sessions: f.m, Roles: f.roles, Anonymous: true, SetupNeeded: func() bool { return needed }})
 	_, _, fail := a.AuthenticateCookie(requestWith(http.MethodGet))
 	wantFailure(t, fail, auth.CodeUnauthenticated, auth.ReasonNoIdentity)
 	if !slices.Contains(a.Warnings(), auth.WarningAnonymousViewer) {
-		t.Errorf("warnings %q, want anonymous_viewer while setup is open", a.Warnings())
+		t.Errorf("warnings %q, want anonymous_viewer while setup is needed", a.Warnings())
 	}
 	if p, _, fail := a.AuthenticateCookie(withCookies(issue(t, f.m, "alice"))); fail != nil || p.Kind != auth.KindSession {
-		t.Fatalf("session while setup is open: %+v %v", p, fail)
+		t.Fatalf("session while setup is needed: %+v %v", p, fail)
 	}
-	open = false
+	needed = false
 	if p, _, fail := a.AuthenticateCookie(requestWith(http.MethodGet)); fail != nil || p.Kind != auth.KindAnonymous {
 		t.Fatalf("after setup: %+v %v, want the anonymous viewer", p, fail)
 	}

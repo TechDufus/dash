@@ -56,8 +56,11 @@ type Local struct {
 	Setup *SetupToken
 }
 
-// SetupOpen reports whether /setup is served: there is no account yet and the token of this
-// start is usable. The 401 envelope's details.setup and the /setup 404 gate read it.
-func (l *Local) SetupOpen() bool {
-	return l != nil && l.Setup != nil && !l.Account.Exists() && l.Setup.Usable()
+// SetupNeeded reports whether the local mode is waiting for its administrator: no account exists,
+// neither stored nor from the environment. It does not depend on the token: an expired or used
+// token leaves setup needed until a restart prints a new one. The 401 envelope's details.setup,
+// the /setup page's 404 gate and the anonymous viewer's wait read it; whether POST /setup accepts
+// a token is the token's own check (Usable, Consume).
+func (l *Local) SetupNeeded() bool {
+	return l != nil && !l.Account.Exists()
 }

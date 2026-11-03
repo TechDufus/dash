@@ -454,8 +454,8 @@ func TestSetupTokenIsSingleUseAndExpires(t *testing.T) {
 	if ep := e.sess.Store.Epoch(localAdmin); ep != 1 {
 		t.Errorf("epoch of the account %d after setup, want 1", ep)
 	}
-	if e.local.Setup.Usable() || e.local.SetupOpen() {
-		t.Error("the token is still usable after setup")
+	if e.local.Setup.Usable() || e.local.SetupNeeded() {
+		t.Error("the token is still usable or setup still needed after setup")
 	}
 	var setups []audit.Record
 	for _, r := range e.records(auditSetup) {
@@ -620,7 +620,7 @@ func TestEnvHashMakesTheAccountEnvManaged(t *testing.T) {
 	}
 	// The real argon2id hasher end to end, with the hash from the environment.
 	e := newLocalEnv(t, localOpts{envHash: hash, setup: true, hasher: localauth.NewHasher(localauth.HasherOptions{})})
-	if !e.local.Account.EnvManaged() || e.local.SetupOpen() {
+	if !e.local.Account.EnvManaged() || e.local.SetupNeeded() {
 		t.Fatal("the env hash does not make the account env-managed")
 	}
 	wantCode(t, e.setup(e.local.Setup.Value(), "a new password!"), http.StatusNotFound, model.ErrCodeNotFound)

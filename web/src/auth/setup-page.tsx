@@ -20,7 +20,7 @@ export function setupErrorText(err: unknown): string {
   const status = err instanceof AuthRequestError ? err.status : -1;
   switch (status) {
     case 401:
-      return "This setup link is not valid: it was used already or is older than an hour. Restart dash to print a new one.";
+      return "This setup link has expired or is not valid: a link works once, within an hour of the start that printed it. Restart dash to print a new setup link in its log.";
     case 400:
       return `The password must be ${MIN_PASSWORD_BYTES} to ${MAX_PASSWORD_BYTES} bytes long.`;
     case 404:

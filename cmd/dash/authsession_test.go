@@ -97,13 +97,13 @@ func TestLocalModeNeedsAWritableDirOrAnEnvHash(t *testing.T) {
 	}
 
 	pa, line, err := startLocal(t, localResolved(missing, nil, nil), hashOf(t), nil)
-	if err != nil || line != "" || pa.sess == nil || !pa.sess.local.Account.EnvManaged() || pa.sess.local.SetupOpen() {
+	if err != nil || line != "" || pa.sess == nil || !pa.sess.local.Account.EnvManaged() || pa.sess.local.SetupNeeded() {
 		t.Fatalf("env hash without a dir: %v, line %q; want an env-managed account and no setup", err, line)
 	}
 
 	pa, line, err = startLocal(t, localResolved(t.TempDir(), nil, nil), "", nil)
-	if err != nil || !pa.sess.local.SetupOpen() || !strings.Contains(line, "setup token") || !strings.Contains(line, "https://dash.example.com/setup#token=dash_setup_") {
-		t.Fatalf("writable dir: %v, line %q; want setup open and the setup line", err, line)
+	if err != nil || !pa.sess.local.SetupNeeded() || !strings.Contains(line, "setup token") || !strings.Contains(line, "https://dash.example.com/setup#token=dash_setup_") {
+		t.Fatalf("writable dir: %v, line %q; want setup needed and the setup line", err, line)
 	}
 	if strings.Count(line, "\n") != 1 {
 		t.Errorf("setup line written %d times, want once:\n%s", strings.Count(line, "\n"), line)
@@ -218,14 +218,14 @@ func TestLocalAdminNameChangeRefusesToStart(t *testing.T) {
 		}
 	}
 	pa, line, err := startLocal(t, localResolved(dir, nil, func(a *config.AuthConfig) { a.Local.AdminUser = "alice" }), "", nil)
-	if err != nil || line != "" || pa.sess.local.SetupOpen() {
+	if err != nil || line != "" || pa.sess.local.SetupNeeded() {
 		t.Errorf("the account's own name: %v, line %q; want a start without setup", err, line)
 	}
 }
 
 // The anonymous viewer is off unless configured: without a session a read is 401; with it on, a
 // read is the anonymous viewer and a write still 401. It waits for the account: while setup is
-// open a read is 401, so the SPA points to the setup link.
+// needed a read is 401, so the SPA points to the setup link.
 func TestAnonymousViewerIsOffByDefaultAtStart(t *testing.T) {
 	if config.DefaultAuth().Local.AnonymousViewer {
 		t.Fatal("auth.local.anonymousViewer defaults to on")
@@ -243,7 +243,7 @@ func TestAnonymousViewerIsOffByDefaultAtStart(t *testing.T) {
 		t.Fatalf("setup pending: %v, line %q", err, line)
 	}
 	if _, f := pending.authn.Authenticate(httptest.NewRequest(http.MethodGet, "/api/v1/me", nil)); f == nil || f.Status != http.StatusUnauthorized {
-		t.Errorf("anonymous read while setup is open = %+v, want 401", f)
+		t.Errorf("anonymous read while setup is needed = %+v, want 401", f)
 	}
 	on, _, err := startLocal(t, localResolved(t.TempDir(), nil, func(a *config.AuthConfig) { a.Local.AnonymousViewer = true }), hashOf(t), nil)
 	if err != nil {
