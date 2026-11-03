@@ -8,9 +8,11 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"math/rand/v2"
 	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"sync"
 	"testing"
@@ -460,5 +462,267 @@ func TestHandlerEnabledAndNilError(t *testing.T) {
 	slog.New(h).Warn("m", "err", error(nil))
 	if !strings.Contains(buf.String(), `"err":null`) {
 		t.Errorf("nil error: %s", buf.String())
+	}
+}
+
+// A secret shorter than minEncodedLen is matched only as written, never in its URL-encoded or
+// base64 forms: those would be common substrings of unrelated text. This is by design.
+func TestShortSecretEncodedFormsStayReadable(t *testing.T) {
+	const short = "p@ss/1"
+	reg := NewRegistry()
+	reg.Add(New(short, ""))
+	if got := reg.Scrub("raw " + short); got != "raw [redacted]" {
+		t.Errorf("raw form: got %q", got)
+	}
+	for _, in := range []string{"query token=" + url.QueryEscape(short), "path /" + url.PathEscape(short)} {
+		if got := reg.Scrub(in); got != in {
+			t.Errorf("encoded form of a short secret: got %q, want it unchanged", got)
+		}
+	}
+}
+
+// The documented shapes, matched at the start of the text.
+var (
+	oracleShapes    = regexp.MustCompile(`^(?:dash_(?:pat|at|rt)_[A-Za-z0-9_-]+|enc:v1:[A-Za-z0-9+/=:_-]+)`)
+	oracleLogShapes = regexp.MustCompile(`^(?:dash_(?:pat|at|rt|setup)_[A-Za-z0-9_-]+|enc:v1:[A-Za-z0-9+/=:_-]+)`)
+)
+
+// oracleForms is the documented set of forms of one secret (addForms).
+func oracleForms(v string) []string {
+	out := []string{v}
+	if len(v) >= minEncodedLen {
+		b := []byte(v)
+		for _, e := range []*base64.Encoding{base64.StdEncoding, base64.RawStdEncoding, base64.URLEncoding, base64.RawURLEncoding} {
+			out = append(out, e.EncodeToString(b))
+		}
+		out = append(out, url.QueryEscape(v), url.PathEscape(v))
+	}
+	return out
+}
+
+// scrubOracle marks every byte covered by any occurrence of any form and by a shape starting at
+// ANY position (overlapping starts included), then turns each run of marked bytes into one marker.
+func scrubOracle(s string, secrets []string, shapes *regexp.Regexp) (string, []bool) {
+	mask := make([]bool, len(s))
+	for _, v := range secrets {
+		for _, f := range oracleForms(v) {
+			for i := 0; i+len(f) <= len(s); i++ {
+				if s[i:i+len(f)] == f {
+					for k := i; k < i+len(f); k++ {
+						mask[k] = true
+					}
+				}
+			}
+		}
+	}
+	for i := range s {
+		if m := shapes.FindStringIndex(s[i:]); m != nil {
+			for k := i; k < i+m[1]; k++ {
+				mask[k] = true
+			}
+		}
+	}
+	var b strings.Builder
+	for i := 0; i < len(s); {
+		if !mask[i] {
+			b.WriteByte(s[i])
+			i++
+			continue
+		}
+		for i < len(s) && mask[i] {
+			i++
+		}
+		b.WriteString(redacted)
+	}
+	return b.String(), mask
+}
+
+func registryOf(secrets []string) *Registry {
+	r := NewRegistry()
+	for _, s := range secrets {
+		r.Add(New(s, ""))
+	}
+	return r
+}
+
+// A shape glued to the end of another token is still found: a leftmost scan consumed its start,
+// leaving an enc:v1 payload readable.
+func TestScrubRedactsOverlappingShapes(t *testing.T) {
+	in := "x dash_pat_abcenc:v1:k1:SECRETPAYLOAD y"
+	var reg *Registry
+	for name, got := range map[string]string{"Scrub": reg.Scrub(in), "ScrubLogLine": reg.ScrubLogLine(in)} {
+		if strings.Contains(got, "SECRETPAYLOAD") || got != "x [redacted] y" {
+			t.Errorf("%s(%q) = %q, want %q", name, in, got, "x [redacted] y")
+		}
+	}
+}
+
+func TestScrubMatchesTheUnionOracle(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		secrets []string
+		in      string
+		log     bool
+	}{
+		{"straddling: token starts inside the secret", []string{"XYZdash_s"}, "v=XYZdash_setup_TOKEN123 end", true},
+		{"straddling: secret starts inside the token", []string{"KEN123-tail"}, "v=dash_pat_TOKEN123-tail end", false},
+		{"overlapping secrets", []string{"abcdef", "defghi"}, "x abcdefghi y", false},
+		{"nested secrets", []string{"abcdefgh", "cdef"}, "x abcdefgh y cdef", false},
+		{"self-overlapping secret", []string{"aba"}, "x abababa y", false},
+		{"three-way chain", []string{"aaab", "abbb", "bbbc"}, "-aaabbbc-", false},
+		{"secret containing a token", []string{"abc-dash_pat_X1y2"}, "key abc-dash_pat_X1y2 end", false},
+		{"one-char secret inside a token", []string{"e"}, "dash_setup_eeeeeAAAA token", true},
+		{"one-char secret is the marker's letter", []string{"r"}, "error dash_pat_rrr", false},
+		{"base64 form of a secret", []string{"long-secret-value"}, "b64 " + base64.StdEncoding.EncodeToString([]byte("long-secret-value")) + " end", false},
+		{"enc value glued after a dash token", nil, "x dash_pat_abcenc:v1:k1:SECRETPAYLOAD y", false},
+		{"enc value glued after a setup token", nil, "x dash_setup_abcenc:v1:k1:SECRETPAYLOAD y", true},
+		{"dash token glued after an enc value", nil, "x enc:v1:k1:AAAA:dash_pat_SECRET y", false},
+		{"unicode around a secret", []string{"pässwört"}, "é pässwört ü", false},
+	} {
+		reg := registryOf(tc.secrets)
+		got, shapes := reg.Scrub(tc.in), oracleShapes
+		if tc.log {
+			got, shapes = reg.ScrubLogLine(tc.in), oracleLogShapes
+		}
+		if want, _ := scrubOracle(tc.in, tc.secrets, shapes); got != want {
+			t.Errorf("%s: got %q, oracle %q", tc.name, got, want)
+		}
+	}
+}
+
+// Random texts from an alphabet rich in token prefixes and secret fragments, with 1-3 registered
+// secrets each (1-12 bytes, some taken from the text). No text may keep a byte the oracle redacts.
+func TestScrubNeverRedactsLessThanTheUnionOracle(t *testing.T) {
+	pieces := []string{"dash_", "pat_", "at_", "rt_", "setup_", "enc:", "v1:", "k1:", ":", "_", "-", "a", "b", "e", "s",
+		"Z", "9", " ", "\"", "é", "=", "/", "+", "%", "d", "t", "p", "r", "[", "]"}
+	sec := []string{"a", "b", "e", "s", "_", "-", "Z", "9", ":", "d", "t", "p", "r", "é", "x"}
+	rng := rand.New(rand.NewPCG(20261102, 1))
+	under := 0
+	for range 50000 {
+		var sb strings.Builder
+		for k := rng.IntN(14) + 1; k > 0; k-- {
+			sb.WriteString(pieces[rng.IntN(len(pieces))])
+		}
+		in := sb.String()
+		var secrets []string
+		for k := rng.IntN(3) + 1; k > 0; k-- {
+			var s strings.Builder
+			for l := rng.IntN(12) + 1; l > 0; l-- {
+				s.WriteString(sec[rng.IntN(len(sec))])
+			}
+			if rng.IntN(3) == 0 && len(in) > 2 {
+				i := rng.IntN(len(in) - 1)
+				j := i + 1 + rng.IntN(len(in)-i-1)
+				s.Reset()
+				s.WriteString(in[i : j+1])
+			}
+			secrets = append(secrets, s.String())
+		}
+		reg := registryOf(secrets)
+		log := rng.IntN(2) == 0
+		got, shapes := reg.Scrub(in), oracleShapes
+		if log {
+			got, shapes = reg.ScrubLogLine(in), oracleLogShapes
+		}
+		want, mask := scrubOracle(in, secrets, shapes)
+		if got == want {
+			continue
+		}
+		kept := 0
+		for _, m := range mask {
+			if !m {
+				kept++
+			}
+		}
+		if len(got)-strings.Count(got, redacted)*len(redacted) > kept {
+			if under++; under <= 10 {
+				t.Errorf("log=%v secrets=%q in=%q: got %q, oracle %q", log, secrets, in, got, want)
+			}
+		}
+	}
+	if under > 0 {
+		t.Errorf("%d texts keep bytes the oracle redacts", under)
+	}
+}
+
+// Text with no form and no shape comes back byte-identical, with realistic secrets registered.
+func TestScrubLeavesMatchFreeTextByteIdentical(t *testing.T) {
+	secrets := []string{"client-secret-canary-55aa", "token-secret-0123456789", "hunter2-hunter2",
+		"q5Zk3m0D1yWb8c4tVfN2uE7xLpR9sJhA6oGiKwTnY0Q=", "u@pve!t=0b7e"}
+	reg := registryOf(secrets)
+	lines := []string{
+		`{"time":"2026-11-02T22:33:40.72501317-06:00","level":"INFO","msg":"principal seen","user":"alice","kind":"proxy","role":"admin","peer":"127.0.0.1","via":"X-Forwarded-Preferred-Username"}`,
+		`{"time":"2026-11-02T22:12:06Z","level":"WARN","msg":"upstream request failed","what":"alertmanager","category":"http_500","requestId":"d60ac062139ee0bb664cc09d44278760","error":"upstream answered 500: boom"}`,
+		`level=info msg="dash_ is a prefix, enc: and v1: are words" path=/api/v1/plugins/rt/tail ns=media pod=plex-0 é ü 日本`,
+		"", " ", "\t\n", "[redacted]", strings.Repeat("x", 100000),
+	}
+	for _, l := range lines {
+		for name, got := range map[string]string{"Scrub": reg.Scrub(l), "ScrubLogLine": reg.ScrubLogLine(l)} {
+			if got != l {
+				t.Errorf("%s changed a normal line:\n in  %q\n out %q", name, l, got)
+			}
+		}
+	}
+	rng := rand.New(rand.NewPCG(7, 1))
+	alphabet := "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 _-:/.,=\"{}[]é"
+	for range 20000 {
+		b := make([]byte, rng.IntN(200))
+		for i := range b {
+			b[i] = alphabet[rng.IntN(len(alphabet))]
+		}
+		in := strings.ToValidUTF8(string(b), "")
+		if want, _ := scrubOracle(in, secrets, oracleLogShapes); want != in {
+			continue
+		}
+		if got := reg.ScrubLogLine(in); got != in {
+			t.Fatalf("ScrubLogLine changed %q to %q", in, got)
+		}
+		if got := reg.Scrub(in); got != in {
+			t.Fatalf("Scrub changed %q to %q", in, got)
+		}
+	}
+}
+
+// Lines of glued tokens a crafted log message can carry: an anchored attempt at every hint that
+// re-read the rest of its run made scrubbing quadratic.
+var adversarialLines = []struct{ name, line string }{
+	{"dash_pat_ 8KiB", strings.Repeat("dash_pat_", 910)},
+	{"enc:v1: 8KiB", strings.Repeat("enc:v1:", 1170)},
+	{"dash_setup_ 8KiB", strings.Repeat("dash_setup_", 744)},
+	{"dash_pat_aenc:v1:b 8KiB", strings.Repeat("dash_pat_aenc:v1:b", 455)},
+	{"dash_pat_ 64KiB", strings.Repeat("dash_pat_", 7280)},
+}
+
+// A run of glued tokens is one span: the anchors inside it that cannot extend it are not tried.
+// Counting the attempts keeps scrubbing linear without a timing assertion.
+func TestScrubTriesFewAnchorsOnAGluedRun(t *testing.T) {
+	attempts := 0
+	shapeAttempt = func() { attempts++ }
+	t.Cleanup(func() { shapeAttempt = nil })
+	for _, tc := range []struct{ name, line string }{
+		{"dash_pat_ 64KiB", strings.Repeat("dash_pat_", 7280)},
+		{"enc:v1: 64KiB", strings.Repeat("enc:v1:", 9362)},
+		{"dash_setup_ 64KiB", strings.Repeat("dash_setup_", 5958)},
+		{"dash_pat_aenc:v1:b 64KiB", strings.Repeat("dash_pat_aenc:v1:b", 3641)},
+	} {
+		attempts = 0
+		if got := (*Registry)(nil).ScrubLogLine(tc.line); got != redacted {
+			t.Errorf("%s: ScrubLogLine = %.40q…, want one marker", tc.name, got)
+		}
+		if attempts > 4 {
+			t.Errorf("%s: %d anchored attempts, want at most 4", tc.name, attempts)
+		}
+	}
+}
+
+func BenchmarkScrubAdversarialLines(b *testing.B) {
+	for _, tc := range adversarialLines {
+		b.Run(tc.name, func(b *testing.B) {
+			var reg *Registry
+			for b.Loop() {
+				_ = reg.Scrub(tc.line)
+				_ = reg.ScrubLogLine(tc.line)
+			}
+		})
 	}
 }

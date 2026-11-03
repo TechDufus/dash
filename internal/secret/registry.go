@@ -18,9 +18,8 @@ const minEncodedLen = 8
 // (design C.6). Token characters follow the prefix: base64url for the dash_*
 // tokens, base64 std plus ':' for the enc:v1:<kid>:<payload> form.
 var (
-	shapes     = regexp.MustCompile(`(?:dash_(?:pat|at|rt)_[A-Za-z0-9_-]+|enc:v1:[A-Za-z0-9+/=:_-]+)`)
-	logShapes  = regexp.MustCompile(`(?:dash_(?:pat|at|rt|setup)_[A-Za-z0-9_-]+|enc:v1:[A-Za-z0-9+/=:_-]+)`)
-	shapeHints = []string{"dash_", "enc:v1:"}
+	shapes    = regexp.MustCompile(`\A(?:dash_(?:pat|at|rt)_[A-Za-z0-9_-]+|enc:v1:[A-Za-z0-9+/=:_-]+)`)
+	logShapes = regexp.MustCompile(`\A(?:dash_(?:pat|at|rt|setup)_[A-Za-z0-9_-]+|enc:v1:[A-Za-z0-9+/=:_-]+)`)
 )
 
 // Registry knows every secret currently in use and scrubs them from text. It
@@ -98,15 +97,7 @@ func (r *Registry) scrub(s string, re *regexp.Regexp) string {
 	if s == "" {
 		return s
 	}
-	var spans []span
-	for _, hint := range shapeHints {
-		if strings.Contains(s, hint) {
-			for _, m := range re.FindAllStringIndex(s, -1) {
-				spans = append(spans, span{m[0], m[1]})
-			}
-			break
-		}
-	}
+	spans := shapeSpans(s, re)
 	if r != nil {
 		for _, f := range r.literals() {
 			// Every occurrence, overlapping ones included: the next search starts one byte on.
@@ -143,6 +134,58 @@ func (r *Registry) scrub(s string, re *regexp.Regexp) string {
 	flush()
 	b.WriteString(s[done:])
 	return b.String()
+}
+
+// shapeAttempt, when not nil, is called for every anchored shape match scrub tries (a test
+// counts them).
+var shapeAttempt func()
+
+// shapeSpans returns the spans of every shape match, overlapping starts included, in O(len(s)).
+// Every shape starts with a hint, so the shapes are anchored and tried at hint positions in
+// order. A hint inside a span already matched is skipped when it cannot extend it: every prefix
+// byte is in its own token class, and the dash_ class is a subset of the enc:v1: class, so a
+// match starting inside an enc:v1: span, or a dash_ match inside a dash_ span, ends at or before
+// that span's end. Only an enc:v1: anchor inside a dash_ span is tried (dash_pat_xenc:v1:…).
+// The tried dash_ matches then never overlap each other, nor do the enc:v1: ones, so the
+// regexp reads each byte at most twice.
+func shapeSpans(s string, re *regexp.Regexp) []span {
+	var spans []span
+	dash, enc := strings.Index(s, "dash_"), strings.Index(s, "enc:v1:")
+	dashEnd, encEnd := 0, 0
+	for dash >= 0 || enc >= 0 {
+		isEnc := enc >= 0 && (dash < 0 || enc < dash)
+		q := dash
+		if isEnc {
+			q = enc
+		}
+		if q >= encEnd && (isEnc || q >= dashEnd) {
+			if shapeAttempt != nil {
+				shapeAttempt()
+			}
+			if m := re.FindStringIndex(s[q:]); m != nil {
+				spans = append(spans, span{q, q + m[1]})
+				if isEnc {
+					encEnd = q + m[1]
+				} else {
+					dashEnd = q + m[1]
+				}
+			}
+		}
+		if isEnc {
+			enc = nextIndex(s, "enc:v1:", q)
+		} else {
+			dash = nextIndex(s, "dash_", q)
+		}
+	}
+	return spans
+}
+
+// nextIndex is the next index of hint in s after q, -1 when there is none.
+func nextIndex(s, hint string, q int) int {
+	if j := strings.Index(s[q+1:], hint); j >= 0 {
+		return q + 1 + j
+	}
+	return -1
 }
 
 // literals returns the compiled forms, rebuilding them when a tracked Value changed since the
