@@ -183,7 +183,16 @@ function Beams({
   const reduced = useReducedMotion();
   const animated = !reduced;
   const { host, vms, groups } = topology;
-  const mid = (vms.length - 1) / 2;
+  // Kubernetes beams: each VM fans out to the groups it runs pods of, each group fans in from
+  // those VMs. Slots follow the cards' top-to-bottom order, so the fans do not cross at a card.
+  const links = vms
+    .filter((vm) => vm.isK8sNode && vm.running)
+    .flatMap((vm, vi) =>
+      groups.flatMap((group, gi) => {
+        const share = nodeShare(group, vm.name);
+        return share > 0 ? [{ vm, vi, group, gi, share }] : [];
+      }),
+    );
   return (
     <>
       {vms.map((vm, vi) =>
@@ -193,7 +202,7 @@ function Beams({
             containerRef={container}
             fromRef={ref(`host:${host.name}`)}
             toRef={ref(`vm:${vm.vmid}`)}
-            curvature={(vi - mid) * -10}
+            fromSlot={{ index: vi, count: vms.length }}
             pathColor={ACCENT_HEX}
             pathOpacity={0.25}
             gradientStartColor={ACCENT_HEX}
@@ -208,7 +217,7 @@ function Beams({
             containerRef={container}
             fromRef={ref(`host:${host.name}`)}
             toRef={ref(`vm:${vm.vmid}`)}
-            curvature={(vi - mid) * -10}
+            fromSlot={{ index: vi, count: vms.length }}
             pathColor={ACCENT_HEX}
             pathOpacity={0.25}
             animated={false}
@@ -216,33 +225,30 @@ function Beams({
           />
         ),
       )}
-      {vms
-        .filter((vm) => vm.isK8sNode && vm.running)
-        .flatMap((vm, vi) =>
-          groups.flatMap((group, gi) => {
-            const share = nodeShare(group, vm.name);
-            if (share <= 0) return [];
-            const strength = Math.max(0.15, share);
-            const color = HEALTH_HEX[group.health];
-            return [
-              <AnimatedBeam
-                key={`${vm.vmid}-${group.name}`}
-                className={gradientOpacityClass(strength)}
-                containerRef={container}
-                fromRef={ref(`vm:${vm.vmid}`)}
-                toRef={ref(`group:${group.name}`)}
-                curvature={(gi - 1) * 16 + (vi % 2 === 0 ? 6 : -6)}
-                pathColor={color}
-                pathOpacity={strength * 0.5}
-                gradientStartColor={color}
-                gradientStopColor={color}
-                duration={5 + gi * 0.5}
-                delay={vi * 0.4 + gi * 0.2}
-                animated={animated}
-              />,
-            ];
-          }),
-        )}
+      {links.map(({ vm, vi, group, gi, share }) => {
+        const out = links.filter((l) => l.vm === vm);
+        const into = links.filter((l) => l.group === group);
+        const strength = Math.max(0.15, share);
+        const color = HEALTH_HEX[group.health];
+        return (
+          <AnimatedBeam
+            key={`${vm.vmid}-${group.name}`}
+            className={gradientOpacityClass(strength)}
+            containerRef={container}
+            fromRef={ref(`vm:${vm.vmid}`)}
+            toRef={ref(`group:${group.name}`)}
+            fromSlot={{ index: out.findIndex((l) => l.group === group), count: out.length }}
+            toSlot={{ index: into.findIndex((l) => l.vm === vm), count: into.length }}
+            pathColor={color}
+            pathOpacity={strength * 0.5}
+            gradientStartColor={color}
+            gradientStopColor={color}
+            duration={5 + gi * 0.5}
+            delay={vi * 0.4 + gi * 0.2}
+            animated={animated}
+          />
+        );
+      })}
     </>
   );
 }
@@ -307,38 +313,45 @@ interface TopologyPanelProps {
   className?: string;
 }
 
-/** Host -> VMs -> workload groups, joined by animated beams (list without beams below 768 px). */
+/**
+ * Host -> VMs -> workload groups, joined by animated beams (list without beams below 768 px).
+ * The beams run in the gutters on a layer below the cards, and the cards have an opaque base, so
+ * no beam is drawn over or seen through a card.
+ */
 export function TopologyPanel({ topology, sources, className }: TopologyPanelProps) {
   const isDesktop = useIsDesktop();
   const container = useRef<HTMLDivElement | null>(null);
   const ref = useRefRegistry();
+  const card = "relative rounded-2xl bg-panel-solid";
   return (
     <Panel className={className}>
       <PanelHeader title="Topology" icon={<Network aria-hidden="true" />} sources={sources} />
       {isDesktop ? (
         <div ref={container} className="relative px-4 pb-4">
-          <div className="grid grid-cols-3 gap-x-12">
+          <div className="pointer-events-none absolute inset-0 z-0">
+            <Beams topology={topology} container={container} getRef={ref} />
+          </div>
+          <div className="relative z-10 grid grid-cols-3 gap-x-12 xl:gap-x-16">
             <div className="flex flex-col justify-center">
-              <div ref={ref(`host:${topology.host.name}`)} className="relative z-10">
+              <div ref={ref(`host:${topology.host.name}`)} className={card}>
                 <HostCard host={topology.host} className="z-auto" />
               </div>
             </div>
             <div className="flex flex-col justify-center gap-3">
               {topology.vms.map((vm) => (
-                <div key={vm.vmid} ref={ref(`vm:${vm.vmid}`)} className="relative z-10">
+                <div key={vm.vmid} ref={ref(`vm:${vm.vmid}`)} className={card}>
                   <VMCard vm={vm} className="z-auto" />
                 </div>
               ))}
             </div>
             <div className="flex flex-col justify-center gap-3">
               {topology.groups.map((g) => (
-                <div key={g.name} ref={ref(`group:${g.name}`)} className="relative z-10">
+                <div key={g.name} ref={ref(`group:${g.name}`)} className={card}>
                   <GroupCard group={g} className="z-auto" />
                 </div>
               ))}
             </div>
           </div>
-          <Beams topology={topology} container={container} getRef={ref} />
         </div>
       ) : (
         <CompactTopology topology={topology} />

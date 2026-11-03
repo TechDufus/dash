@@ -14,6 +14,9 @@
 @theme {
   --color-canvas: #04060b;
   --color-panel: rgb(255 255 255 / 0.035);
+  /* Opaque stand-in for what a glass panel shows through itself on a glass panel (two layers over
+   * the canvas): the base under cards that must hide what is drawn behind them. */
+  --color-panel-solid: color-mix(in srgb, #fff 7%, var(--color-canvas));
   --color-panel-hover: rgb(255 255 255 / 0.055);
   --color-line: rgb(255 255 255 / 0.08);
   --color-fg: #e6edf7;

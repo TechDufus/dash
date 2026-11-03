@@ -1,9 +1,18 @@
 import { screen } from "@testing-library/react";
-import { afterEach, describe, expect, it } from "vitest";
+import type * as Motion from "motion/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Health, Topology } from "@/api/types";
 import { formatCelsius } from "@/lib/format";
 import { renderApp } from "@/test/harness";
 import { TopologyPanel } from "./topology";
+
+// Motion reads prefers-reduced-motion once per module, so the beam tests set the user's
+// preference here instead of through matchMedia.
+const motionPrefs = vi.hoisted(() => ({ reduced: false }));
+vi.mock("motion/react", async (importOriginal) => ({
+  ...(await importOriginal<typeof Motion>()),
+  useReducedMotion: () => motionPrefs.reduced,
+}));
 
 const topology = (cpuTempHealth: Health, cpuTempC: number): Topology => ({
   host: {
@@ -52,5 +61,70 @@ describe.each([
 
   it("shows a warning CPU temperature as a warning", () => {
     expect(draw("warn", 70)).toHaveClass("text-warn");
+  });
+});
+
+// One running Kubernetes node feeding one group, and one stopped VM: three beams.
+const beamTopology: Topology = {
+  ...topology("ok", 50),
+  vms: [
+    {
+      vmid: 101,
+      name: "node-1",
+      health: "ok",
+      cpuRatio: 0.2,
+      memRatio: 0.5,
+      isK8sNode: true,
+      running: true,
+    },
+    {
+      vmid: 120,
+      name: "spare",
+      health: "unknown",
+      cpuRatio: 0,
+      memRatio: 0,
+      isK8sNode: false,
+      running: false,
+    },
+  ],
+  groups: [
+    {
+      name: "Apps",
+      health: "ok",
+      namespaces: [{ name: "web", health: "ok", pods: 3 }],
+      podsByNode: { "node-1": 3 },
+    },
+  ],
+};
+
+describe("the topology beams", () => {
+  const draw = (reduced: boolean) => {
+    motionPrefs.reduced = reduced;
+    window.matchMedia = (query: string) => ({
+      ...realMatchMedia(query),
+      matches: query.includes("min-width"),
+    });
+    const { container } = renderApp(<TopologyPanel topology={beamTopology} />);
+    const beams = [...container.querySelectorAll('svg[data-slot="beam"]')];
+    return {
+      beams,
+      pulsed: beams.filter((b) => b.querySelector("linearGradient")),
+      dashed: beams.filter((b) => b.querySelector("path[stroke-dasharray]")),
+    };
+  };
+
+  it("pulses along the running VMs' beams and draws the stopped VM's beam dashed and still", () => {
+    const { beams, pulsed, dashed } = draw(false);
+    expect(beams).toHaveLength(3); // host -> node-1, host -> spare, node-1 -> Apps
+    expect(pulsed).toHaveLength(2);
+    expect(dashed).toHaveLength(1);
+    expect(dashed[0].querySelector("linearGradient")).toBeNull();
+  });
+
+  it("keeps every beam but drops the pulses when the user prefers reduced motion", () => {
+    const { beams, pulsed, dashed } = draw(true);
+    expect(beams).toHaveLength(3);
+    expect(pulsed).toHaveLength(0);
+    expect(dashed).toHaveLength(1);
   });
 });
