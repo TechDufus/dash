@@ -30,19 +30,31 @@ type HTTPConfig struct {
 // metadataAddr is the IPv6 address of the AWS instance metadata service.
 var metadataAddr = netip.MustParseAddr("fd00:ec2::254")
 
+// ErrBlockedAddress is what every refusal of the dial guard matches (errors.Is), through the
+// dial and redirect errors that wrap it, so that a connection check can say "blocked address"
+// without reading the error's text.
+var ErrBlockedAddress = errors.New("blocked address")
+
+// blockedError is a refusal of the dial guard: Error() is the text the logs have always shown,
+// and errors.Is(err, ErrBlockedAddress) holds.
+type blockedError string
+
+func (e blockedError) Error() string        { return string(e) }
+func (e blockedError) Is(target error) bool { return target == ErrBlockedAddress }
+
 // guardAddr is the dial guard: it inspects the address a connection is about to be made to,
 // after name resolution, so a host name that resolves into a refused range is stopped too. It
 // always refuses link-local addresses (169.254.0.0/16 and fe80::/10, which include the cloud
 // metadata service) and fd00:ec2::254; with fromUI it also refuses loopback and the
 // unspecified address (which connects to the local host), so that a URL saved from the UI
-// cannot reach dash's own listeners or its node.
+// cannot reach dash's own listeners or its node. Every refusal is ErrBlockedAddress.
 func guardAddr(ip netip.Addr, fromUI bool) error {
 	ip = ip.Unmap()
 	switch {
 	case ip.IsLinkLocalUnicast(), ip.IsLinkLocalMulticast(), ip == metadataAddr:
-		return errors.New("address is link-local or the metadata service: refused")
+		return blockedError("address is link-local or the metadata service: refused")
 	case fromUI && (ip.IsLoopback() || ip.IsUnspecified()):
-		return errors.New("loopback address: refused for a URL set from the UI")
+		return blockedError("loopback address: refused for a URL set from the UI")
 	}
 	return nil
 }

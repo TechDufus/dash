@@ -2,6 +2,7 @@ package plugin
 
 import (
 	"encoding/pem"
+	"errors"
 	"io"
 	"log"
 	"net/http"
@@ -37,7 +38,7 @@ func TestGuardAddr(t *testing.T) {
 		{"fd00:ec2::255", false, false},
 	} {
 		err := guardAddr(netip.MustParseAddr(c.ip), c.fromUI)
-		if (err != nil) != c.refuse {
+		if (err != nil) != c.refuse || errors.Is(err, ErrBlockedAddress) != c.refuse {
 			t.Errorf("guardAddr(%s, fromUI=%v) = %v, refuse=%v", c.ip, c.fromUI, err, c.refuse)
 		}
 	}
@@ -67,16 +68,16 @@ func TestHTTPClientGuard(t *testing.T) {
 			t.Fatalf("GET = %q, %v", got, err)
 		}
 		ui, _ := newHTTPClient(HTTPConfig{FromUI: true})
-		if _, err := body(t, ui, srv.URL); err == nil || !strings.Contains(err.Error(), "refused") {
-			t.Fatalf("FromUI loopback GET err = %v", err)
+		if _, err := body(t, ui, srv.URL); err == nil || !strings.Contains(err.Error(), "refused") || !errors.Is(err, ErrBlockedAddress) {
+			t.Fatalf("FromUI loopback GET err = %v, want a refusal that is ErrBlockedAddress", err)
 		}
 	})
 
 	t.Run("link-local and metadata are refused at dial time", func(t *testing.T) {
 		c, _ := newHTTPClient(HTTPConfig{})
 		for _, u := range []string{"http://169.254.169.254/latest/meta-data", "http://[fe80::1]:8080/"} {
-			if _, err := body(t, c, u); err == nil || !strings.Contains(err.Error(), "refused") {
-				t.Errorf("GET %s err = %v, want a refusal", u, err)
+			if _, err := body(t, c, u); err == nil || !strings.Contains(err.Error(), "refused") || !errors.Is(err, ErrBlockedAddress) {
+				t.Errorf("GET %s err = %v, want a refusal that is ErrBlockedAddress", u, err)
 			}
 		}
 	})
