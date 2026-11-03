@@ -69,7 +69,7 @@ func (s *Server) serveStatic(w http.ResponseWriter, r *http.Request) {
 		b = bytes.ReplaceAll(b, noncePlaceholder, []byte(nonce))
 		// The document's policy replaces the API policy securityHeaders set (same header name, so
 		// the response never carries two); off sends none.
-		if hn, hv, ok := documentPolicy(s.cspMode, nonce, s.d.Cfg.IconBaseURL); ok {
+		if hn, hv, ok := documentPolicyWith(s.cspMode, nonce, s.iconSrc); ok {
 			w.Header().Set(hn, hv)
 		}
 		r = r.Clone(r.Context())

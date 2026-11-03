@@ -1,10 +1,13 @@
 package api
 
 import (
+	"log/slog"
 	"net/http"
 	"net/url"
 	"path"
 	"strings"
+
+	"golang.org/x/net/idna"
 )
 
 // cspMode is the value of server.csp: which Content-Security-Policy header dash sends.
@@ -129,15 +132,22 @@ func (w *noStoreWriter) Unwrap() http.ResponseWriter { return w.ResponseWriter }
 // img-src is 'self' data: plus the icon base as a source expression with its path and a trailing
 // slash, so a CDN that serves arbitrary repositories cannot supply any image: a path source
 // matches by prefix and the launcher only builds <base>/<name>.png. An empty or unusable base
-// adds nothing: no third-party origin appears by default.
+// adds nothing: no third-party origin appears by default. (The path is defence in depth only: a
+// browser decodes %2F before it matches a path source.)
 func documentPolicy(mode cspMode, nonce, iconBase string) (name, value string, ok bool) {
+	return documentPolicyWith(mode, nonce, iconSource(iconBase))
+}
+
+// documentPolicyWith is documentPolicy with the icon source expression already computed
+// (iconSource, once at start): the server builds it in New, not on every page load.
+func documentPolicyWith(mode cspMode, nonce, imgSource string) (name, value string, ok bool) {
 	name = mode.headerName()
 	if name == "" || !validNonce(nonce) {
 		return "", "", false
 	}
 	img := "'self' data:"
-	if src := iconSource(iconBase); src != "" {
-		img += " " + src
+	if imgSource != "" {
+		img += " " + imgSource
 	}
 	return name, strings.Join([]string{
 		"default-src 'self'",
@@ -176,12 +186,31 @@ func onlyBytes(s string, ok func(byte) bool) bool {
 	return true
 }
 
+// iconSourceOrWarn is iconSource for the server's startup: a non-empty base that yields no source
+// (an IPv6 host, a name with an underscore, a path or port the policy cannot carry) is logged
+// once, because under the enforced policy every icon from it is then blocked. The line carries the
+// scheme and the host only, never the path, the query or any userinfo.
+func iconSourceOrWarn(base string, log *slog.Logger) string {
+	src := iconSource(base)
+	if src != "" || strings.TrimSpace(base) == "" {
+		return src
+	}
+	scheme, host := "", ""
+	if u, err := url.Parse(strings.TrimSpace(base)); err == nil {
+		scheme, host = u.Scheme, u.Hostname()
+	}
+	log.Warn("ui.iconBaseURL cannot be written as a Content-Security-Policy source, so the browser will block every icon from it; use a DNS host name (an international name is converted), a plain port and a path of letters, digits and - . _ ~",
+		"scheme", scheme, "host", host)
+	return ""
+}
+
 // iconSource turns ui.iconBaseURL into a CSP source expression: scheme://host[:port]/path/ with
 // the path and a trailing slash. The userinfo, the query and the fragment are dropped (a source
-// expression has no place for them, and a base is a prefix, never a single URL). It returns ""
-// for an empty base, a scheme other than http(s), a host that is not a plain DNS name or IPv4
-// address, or a path that holds a character a source expression cannot carry safely (the policy
-// separators ';' and ',', spaces, quotes): such a base adds no image source rather than a wrong one.
+// expression has no place for them, and a base is a prefix, never a single URL). An international
+// host name is converted to its xn-- form. It returns "" for an empty base, a scheme other than
+// http(s), a host that is not a DNS name or IPv4 address, or a path that holds a character a
+// source expression cannot carry safely (the policy separators ';' and ',', spaces, quotes): such
+// a base adds no image source rather than a wrong one.
 func iconSource(base string) string {
 	base = strings.TrimSpace(base)
 	if base == "" {
@@ -191,7 +220,11 @@ func iconSource(base string) string {
 	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Hostname() == "" {
 		return ""
 	}
-	host := strings.ToLower(u.Hostname())
+	host, err := idna.Lookup.ToASCII(u.Hostname())
+	if err != nil {
+		return ""
+	}
+	host = strings.ToLower(host)
 	if !onlyBytes(host, func(c byte) bool { return isAlnum(c) || c == '.' || c == '-' }) {
 		return ""
 	}

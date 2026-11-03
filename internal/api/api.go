@@ -6,6 +6,7 @@ import (
 	"errors"
 	"io"
 	"io/fs"
+	"log/slog"
 	"net/http"
 	"slices"
 	"sync"
@@ -57,7 +58,8 @@ type Deps struct {
 // Server holds the handlers' state.
 type Server struct {
 	d           Deps
-	cspMode     cspMode        // server.csp; "" enforces (a Config that never went through the resolver)
+	cspMode     cspMode // server.csp; "" enforces (a Config that never went through the resolver)
+	iconSrc     string  // the img-src source of ui.iconBaseURL, computed once ("" = none)
 	static      fs.FS
 	now         func() time.Time
 	heartbeat   time.Duration
@@ -87,6 +89,7 @@ func New(d Deps) *Server {
 	l := withDefaultLimits(d.Cfg.Limits)
 	return &Server{
 		d: d, static: dist, now: time.Now, heartbeat: 15 * time.Second, cspMode: cspMode(d.Cfg.CSP),
+		iconSrc: iconSourceOrWarn(d.Cfg.IconBaseURL, slog.Default()),
 		events:  newStreamLimiter(l.StreamsPerUser, l.Streams),
 		tails:   newStreamLimiter(l.TailsPerUser, l.Tails),
 		tailMax: l.TailMaxDuration, sseWrite: l.SSEWriteTimeout, bodyTimeout: l.BodyReadTimeout,
