@@ -1,9 +1,9 @@
 // Package audit is dash's persistent audit log (epic P1.8, design C.7).
 //
 // Every record goes to the structured "audit" slog record the dashboard has always
-// emitted and, when the data dir is writable, to a JSONL file. A record names who did
-// what to which target and with which result; it never holds values, only the field
-// paths a change touched.
+// emitted and, when the data dir is writable, to a JSONL file; without one, the latest
+// records are kept in memory instead (Recent). A record names who did what to which target
+// and with which result; it never holds values, only the field paths a change touched.
 //
 // Each file line carries "prev", the hex SHA-256 of the previous line exactly as
 // written, so an edited, deleted or reordered line is detectable (Verify). The chain
@@ -126,6 +126,8 @@ type Options struct {
 type Log struct {
 	opts Options
 	dir  string // empty when the file is disabled
+	// openRead opens a log file for Recent: os.Open, or a test's hook that rotates mid-read.
+	openRead func(name string) (*os.File, error)
 
 	mu      sync.Mutex
 	f       *os.File
@@ -134,6 +136,7 @@ type Log struct {
 	last    string // hex SHA-256 of the last line written
 	denials map[denialKey]time.Time
 	lock    *os.File // flock on dir/.audit.lock, held for the log's lifetime
+	mem     *rings   // the latest records when there is no file; nil with one
 }
 
 // ErrLocked means another dash process holds the data directory's audit log.
@@ -181,18 +184,15 @@ func Open(dir string, opts Options) (*Log, error) {
 	if opts.Keep <= 0 {
 		opts.Keep = defaultKeep
 	}
-	l := &Log{opts: opts, denials: make(map[denialKey]time.Time)}
+	l := &Log{opts: opts, denials: make(map[denialKey]time.Time), openRead: os.Open}
 	if dir == "" {
-		l.logger().Info("audit log file disabled, logging to slog only", "reason", "no data dir")
-		return l, nil
+		return l.slogOnly("reason", "no data dir"), nil
 	}
 	if fi, err := os.Stat(dir); err != nil || !fi.IsDir() {
-		l.logger().Info("audit log file disabled, logging to slog only", "dir", dir, "reason", "data dir is missing")
-		return l, nil
+		return l.slogOnly("dir", dir, "reason", "data dir is missing"), nil
 	}
 	if !writable(dir) {
-		l.logger().Info("audit log file disabled, logging to slog only", "dir", dir, "reason", "data dir is not writable")
-		return l, nil
+		return l.slogOnly("dir", dir, "reason", "data dir is not writable"), nil
 	}
 	lock, err := acquireLock(dir)
 	if err != nil {
@@ -209,6 +209,14 @@ func Open(dir string, opts Options) (*Log, error) {
 		return nil, fmt.Errorf("audit log %s: %w", filepath.Join(dir, FileName), err)
 	}
 	return l, nil
+}
+
+// slogOnly makes l a log without a file: its records go to slog and to the in-memory rings
+// Recent reads.
+func (l *Log) slogOnly(attrs ...any) *Log {
+	l.logger().Info("audit log file disabled, logging to slog only", attrs...)
+	l.mem = newRings()
+	return l
 }
 
 // Enabled reports whether records are persisted to the JSONL file.
@@ -416,10 +424,15 @@ func hashLine(line []byte) string {
 	return hex.EncodeToString(sum[:])
 }
 
-// append chains rec to the previous line and writes it durably. It does nothing when
-// the file is disabled. A failed or partial write is rolled back so the next record
-// does not land after a torn line, and the chain head only advances on success.
+// append chains rec to the previous line and writes it durably. Without a file it keeps rec,
+// already scrubbed, in the in-memory rings instead. A failed or partial write is rolled back so
+// the next record does not land after a torn line, and the chain head only advances on success.
 func (l *Log) append(rec Record) error {
+	if l != nil && l.mem != nil {
+		l.mu.Lock()
+		l.mem.push(rec)
+		l.mu.Unlock()
+	}
 	if !l.Enabled() {
 		return nil
 	}
