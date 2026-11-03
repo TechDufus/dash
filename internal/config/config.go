@@ -47,6 +47,9 @@ type Config struct {
 	ReadyRequires []string
 	ReadyTimeout  time.Duration
 	Metrics       bool // serve /metrics on the health listener (server.metrics)
+	// CSP is server.csp: enforce, report-only or off (the CSP* constants); never empty once
+	// resolved.
+	CSP string
 	// Limits bound open streams and request reads (server.limits); always positive once resolved.
 	Limits Limits
 

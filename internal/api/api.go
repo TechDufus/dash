@@ -57,6 +57,7 @@ type Deps struct {
 // Server holds the handlers' state.
 type Server struct {
 	d           Deps
+	cspMode     cspMode        // server.csp; "" enforces (a Config that never went through the resolver)
 	static      fs.FS
 	now         func() time.Time
 	heartbeat   time.Duration
@@ -85,7 +86,7 @@ func New(d Deps) *Server {
 	}
 	l := withDefaultLimits(d.Cfg.Limits)
 	return &Server{
-		d: d, static: dist, now: time.Now, heartbeat: 15 * time.Second,
+		d: d, static: dist, now: time.Now, heartbeat: 15 * time.Second, cspMode: cspMode(d.Cfg.CSP),
 		events:  newStreamLimiter(l.StreamsPerUser, l.Streams),
 		tails:   newStreamLimiter(l.TailsPerUser, l.Tails),
 		tailMax: l.TailMaxDuration, sseWrite: l.SSEWriteTimeout, bodyTimeout: l.BodyReadTimeout,
@@ -95,12 +96,13 @@ func New(d Deps) *Server {
 	}
 }
 
-// Handler is the API plus the SPA, for the loopback listener. The chain is request id, host
-// check, authentication, CSRF, then the mux the route table builds (whose guard enforces each
-// route's role). Authentication runs before CSRF, so a refusal for a missing header names the
-// user and an unauthenticated write is 401.
+// Handler is the API plus the SPA, for the loopback listener. The chain is request id, security
+// headers, host check, authentication, CSRF, then the mux the route table builds (whose guard
+// enforces each route's role). Authentication runs before CSRF, so a refusal for a missing header
+// names the user and an unauthenticated write is 401. The security headers sit just inside the
+// request id, so every answer carries them, including a refused host.
 func (s *Server) Handler() http.Handler {
-	return s.d.Metrics.Instrument(s.requestID(s.hosts(s.authn(s.csrf(s.mux())))))
+	return s.d.Metrics.Instrument(s.requestID(securityHeaders(s.cspMode)(s.hosts(s.authn(s.csrf(s.mux()))))))
 }
 
 func writeJSON(w http.ResponseWriter, code int, v any) {

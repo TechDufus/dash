@@ -16,6 +16,13 @@ import (
 // hostNameRE matches a DNS host name: dot-separated labels of lowercase letters, digits and hyphens.
 var hostNameRE = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*$`)
 
+// Values of server.csp.
+const (
+	CSPEnforce    = "enforce"
+	CSPReportOnly = "report-only"
+	CSPOff        = "off"
+)
+
 // validator collects every problem, each named by its path and the layer that set it, so an
 // operator knows which variable or file to fix.
 type validator struct {
@@ -87,6 +94,9 @@ func validate(t Tree, dev, demo bool, prov map[string]Provenance) error {
 	}
 	if s.ReadyTimeout <= 0 {
 		v.fail("server.readyTimeout", "must be greater than zero")
+	}
+	if !slices.Contains([]string{CSPEnforce, CSPReportOnly, CSPOff}, s.CSP) {
+		v.fail("server.csp", "%q is not a content security policy mode (one of: %s, %s, %s)", s.CSP, CSPEnforce, CSPReportOnly, CSPOff)
 	}
 	known := map[string]bool{}
 	for _, sec := range t.PluginSections() {

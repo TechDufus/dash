@@ -33,7 +33,7 @@ func mustLoad(t *testing.T, m map[string]string) Config {
 func TestNoSiteDefaults(t *testing.T) {
 	want := Config{
 		Listen: "127.0.0.1:8080", HealthListen: "0.0.0.0:8081", DataDir: "/data",
-		SettingsUI: SettingsEditable, Limits: defaultLimits, ReadyTimeout: 60 * time.Second,
+		SettingsUI: SettingsEditable, Limits: defaultLimits, ReadyTimeout: 60 * time.Second, CSP: CSPEnforce,
 	}
 	if got := Defaults(); !reflect.DeepEqual(got, want) {
 		t.Errorf("Defaults() =\n%+v\nwant\n%+v", got, want)

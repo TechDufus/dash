@@ -36,6 +36,7 @@ type ServerConfig struct {
 	ReadyRequires []string            `json:"readyRequires" dash:"restart" doc:"Plugins /readyz waits for: each listed plugin must have finished starting (its first poll or cache sync) before dash reports ready, up to readyTimeout. Empty: /readyz needs only that dash is serving and every plugin's start has returned. Names are plugins.<id> sections, e.g. [\"kubernetes\"]. A JSON list in the environment."`
 	ReadyTimeout  pluginconf.Duration `json:"readyTimeout" dash:"restart" doc:"How long /readyz waits for the readyRequires plugins, counted from startup. After that dash reports ready anyway and logs a warning naming the plugins still starting."`
 	Metrics       bool                `json:"metrics" dash:"restart" doc:"Serve dash's own Prometheus metrics at /metrics on the health listener. Off by default. The listener is unauthenticated and the metrics name plugins and their states, so keep it cluster-internal."`
+	CSP           string              `json:"csp" dash:"restart,enum=enforce|report-only|off" doc:"Whether dash sends a Content-Security-Policy header. enforce (the default): the browser blocks what the policy does not allow. report-only: the browser only reports violations in its console, so a page that the policy would break keeps working while you find the cause. off: no policy header at all. This is the kill switch for a browser that blanks the web UI under enforce; X-Content-Type-Options and Referrer-Policy are sent in every mode."`
 	Limits        LimitsConfig        `json:"limits" doc:"What one client, and all clients together, may hold open or send."`
 }
 
@@ -94,6 +95,7 @@ func defaults(dev, demo bool) Tree {
 			Listen:       "127.0.0.1:8080",
 			HealthListen: "0.0.0.0:8081",
 			ReadyTimeout: pluginconf.Duration(60 * time.Second),
+			CSP:          CSPEnforce,
 			Limits: LimitsConfig{
 				StreamsPerUser: 16, Streams: 256,
 				TailsPerUser: 4, Tails: 32,
@@ -159,6 +161,7 @@ func (t Tree) config(dev, demo bool) Config {
 		ReadyRequires: t.Server.ReadyRequires,
 		ReadyTimeout:  time.Duration(t.Server.ReadyTimeout),
 		Metrics:       t.Server.Metrics,
+		CSP:           t.Server.CSP,
 		Limits: Limits{
 			StreamsPerUser: t.Server.Limits.StreamsPerUser, Streams: t.Server.Limits.Streams,
 			TailsPerUser: t.Server.Limits.TailsPerUser, Tails: t.Server.Limits.Tails,

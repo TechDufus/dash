@@ -1042,6 +1042,17 @@
           "type": "array",
           "x-dash-restart": true
         },
+        "csp": {
+          "default": "enforce",
+          "description": "Whether dash sends a Content-Security-Policy header. enforce (the default): the browser blocks what the policy does not allow. report-only: the browser only reports violations in its console, so a page that the policy would break keeps working while you find the cause. off: no policy header at all. This is the kill switch for a browser that blanks the web UI under enforce; X-Content-Type-Options and Referrer-Policy are sent in every mode.",
+          "enum": [
+            "enforce",
+            "report-only",
+            "off"
+          ],
+          "type": "string",
+          "x-dash-restart": true
+        },
         "healthListen": {
           "default": "0.0.0.0:8081",
           "description": "Address of /healthz and /readyz. In dev and demo mode it defaults to 127.0.0.1:8081.",

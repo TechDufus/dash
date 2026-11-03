@@ -67,6 +67,11 @@ func (s *Server) serveStatic(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		b = bytes.ReplaceAll(b, noncePlaceholder, []byte(nonce))
+		// The document's policy replaces the API policy securityHeaders set (same header name, so
+		// the response never carries two); off sends none.
+		if hn, hv, ok := documentPolicy(s.cspMode, nonce, s.d.Cfg.IconBaseURL); ok {
+			w.Header().Set(hn, hv)
+		}
 		r = r.Clone(r.Context())
 		for _, h := range []string{"If-Match", "If-None-Match", "If-Modified-Since", "If-Unmodified-Since", "If-Range", "Range"} {
 			r.Header.Del(h)
