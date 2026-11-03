@@ -84,21 +84,36 @@ func (r *Registry) ScrubLogLine(s string) string {
 	return r.scrub(s, logShapes)
 }
 
+// scrub redacts the shapes first, then the registered secrets. The other order let a short
+// registered secret (one character of "dash_setup_", say) break a token apart before the shape
+// could match it, leaving most of the token readable. The literals then run on the text between
+// the markers, so a secret that is a substring of "[redacted]" does not mangle them; for text in
+// which no secret overlaps a shape, the result is the same as before.
 func (r *Registry) scrub(s string, re *regexp.Regexp) string {
 	if s == "" {
 		return s
 	}
-	if r != nil {
-		if repl := r.replacer(); repl != nil {
-			s = repl.Replace(s)
-		}
-	}
 	for _, hint := range shapeHints {
 		if strings.Contains(s, hint) {
-			return re.ReplaceAllLiteralString(s, redacted)
+			s = re.ReplaceAllLiteralString(s, redacted)
+			break
 		}
 	}
-	return s
+	if r == nil {
+		return s
+	}
+	repl := r.replacer()
+	if repl == nil {
+		return s
+	}
+	if !strings.Contains(s, redacted) {
+		return repl.Replace(s)
+	}
+	parts := strings.Split(s, redacted)
+	for i, p := range parts {
+		parts[i] = repl.Replace(p)
+	}
+	return strings.Join(parts, redacted)
 }
 
 // replacer returns the compiled replacer, rebuilding it when a tracked Value

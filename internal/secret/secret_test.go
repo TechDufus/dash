@@ -292,6 +292,38 @@ func TestScrubLogLineAddsSetupToken(t *testing.T) {
 	}
 }
 
+// A very short registered secret (a one-character client secret, say) only over-redacts: it
+// never defeats the shapes. With the literals first, "e" or "_" broke "dash_setup_…" or
+// "enc:v1:…" apart before the shape could match, and most of the token stayed readable. The
+// markers stay intact too. (From the v0.12.0 security verification.)
+func TestShortSecretDoesNotDefeatShapeRedaction(t *testing.T) {
+	const setupTok = "dash_setup_q5Zk3m0D1yWb8c4tVfN2uE7xLpR9sJhA6oGiKwTnY0Q"
+	const encVal = "enc:v1:k1:c2VhbGVkLXNlY3JldC12YWx1ZS1mb3ItdGVzdHM="
+	line := `{"msg":"setup token required","url":"https://dash.example.com/setup#token=` + setupTok + `","pw":"` + encVal + `"}`
+	for _, short := range []string{"", "e", "a", "s", "_", "d", "1", ":"} {
+		reg := NewRegistry()
+		if short != "" {
+			reg.Add(New(short, ""))
+		}
+		got := reg.ScrubLogLine(line)
+		for _, tok := range []string{setupTok, encVal} {
+			body := tok[strings.LastIndex(tok, "_")+1:]
+			if strings.HasPrefix(tok, "enc:") {
+				body = tok[len("enc:v1:k1:"):]
+			}
+			for i := 0; i+8 <= len(body); i++ {
+				if strings.Contains(got, body[i:i+8]) {
+					t.Errorf("registered %q: %q of the token survives: %s", short, body[i:i+8], got)
+					break
+				}
+			}
+		}
+		if strings.Count(got, redacted) < 2 || strings.Contains(got, "[[") {
+			t.Errorf("registered %q: markers missing or mangled: %s", short, got)
+		}
+	}
+}
+
 func TestRegistryFollowsRotation(t *testing.T) {
 	v := New("first-secret-value", "file:/x")
 	reg := NewRegistry()
