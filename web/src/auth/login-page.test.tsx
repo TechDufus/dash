@@ -225,6 +225,24 @@ describe("LoginPage", () => {
     expect(await screen.findByRole("link", { name: "Continue" })).toHaveAttribute("href", "/");
   });
 
+  it.each([
+    ["/login?next=%2Fpods%3Fns%3Da", "/pods?ns=a"],
+    [`/login?next=${encodeURIComponent("/.//evil.example/x")}`, "/"],
+  ])(
+    "gives a signed-in OIDC user on %s a Continue link to the validated next",
+    async (path, want) => {
+      stubFetch({
+        "GET /api/v1/me": () =>
+          json({ user: "alice", role: "viewer", authMode: "oidc", scopes: ["read"], warnings: [] }),
+      });
+      renderApp(<LoginPage />, { path });
+      expect(await screen.findByRole("link", { name: "Continue" })).toHaveAttribute("href", want);
+      expect(screen.getByText(/You are signed in/)).toBeInTheDocument();
+      expect(screen.queryByRole("link", { name: "OIDC sign-in" })).toBeNull();
+      expect(screen.queryByLabelText("Password")).toBeNull();
+    },
+  );
+
   it("has no OIDC button in local mode", async () => {
     stubFetch({ "GET /api/v1/me": ME_LOCAL });
     renderApp(<LoginPage />, { path: "/login" });

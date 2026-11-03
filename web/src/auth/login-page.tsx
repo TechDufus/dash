@@ -61,6 +61,9 @@ export function LoginPage() {
   // The local mode before its account exists: nobody can sign in yet, and the way in is the
   // one-time setup link dash wrote to its log at startup.
   const awaitingSetup = mode === "local" && details?.setup === true;
+  // A user who is signed in already (a session of the oidc mode) gets no button, since the probe
+  // returned no details: give them the way on to next, as the proxy mode does.
+  const signedInOIDC = mode === "oidc" && probed.data !== undefined && "me" in probed.data;
 
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
@@ -100,6 +103,14 @@ export function LoginPage() {
       {mode === "proxy" ? (
         <p className="text-sm text-muted">
           This dash signs you in through its identity proxy.{" "}
+          <a className="text-accent underline-offset-4 hover:underline" href={next}>
+            Continue
+          </a>
+        </p>
+      ) : null}
+      {signedInOIDC ? (
+        <p className="text-sm text-muted">
+          You are signed in.{" "}
           <a className="text-accent underline-offset-4 hover:underline" href={next}>
             Continue
           </a>
