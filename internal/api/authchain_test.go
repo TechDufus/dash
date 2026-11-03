@@ -67,6 +67,22 @@ func TestRequestIDBelievedOnlyFromTrustedPeers(t *testing.T) {
 		}
 	}
 
+	// The process modes have no trusted set of their own: the loopback, where a sidecar proxy
+	// connects from, is believed and nobody else.
+	for name, a := range map[string]auth.Authenticator{
+		"none": noneAuth(),
+		"dev":  auth.Fixed(auth.Principal{Kind: auth.KindDev, User: "dev", Role: auth.RoleAdmin}),
+		"demo": auth.Fixed(auth.Principal{Kind: auth.KindDemo, User: "demo", Role: auth.RoleAdmin}),
+	} {
+		fixed := newServer(withAuth(a)).Handler()
+		for peer, believed := range map[string]bool{"127.0.0.1:41000": true, "[::1]:41000": true, "192.0.2.1:1234": false, "not-an-address": false} {
+			w := req{path: "/api/v1/me", peer: peer, header: map[string]string{"X-Request-Id": "inbound-id-1"}}.do(fixed)
+			if got := w.Header().Get(requestIDHeader) == "inbound-id-1"; got != believed {
+				t.Errorf("%s mode, peer %s: inbound id kept = %v, want %v", name, peer, got, believed)
+			}
+		}
+	}
+
 	// The set is the authenticator's, not the loopback: a proxy on another address is believed
 	// once it is in the trusted set.
 	trust, err := auth.ParseTrust([]string{"10.20.0.0/16"})

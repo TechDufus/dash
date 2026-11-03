@@ -1,11 +1,13 @@
 package api
 
 import (
+	"encoding/json"
 	"net/http"
 	"testing"
 
 	"github.com/TechDufus/dash/internal/auth"
 	"github.com/TechDufus/dash/internal/model"
+	"github.com/TechDufus/dash/internal/obs"
 )
 
 // noneAuth is the authenticator of auth.mode=none, as cmd/dash builds it.
@@ -76,5 +78,56 @@ func TestNoneModeIsAnInteractiveAdminWithAWarning(t *testing.T) {
 	w, ok := s.d.Auth.(auth.Warner)
 	if !ok || len(w.Warnings()) != 1 || w.Warnings()[0] != auth.WarningAuthNone {
 		t.Errorf("warnings = %v (Warner %v), want [auth_none]", w, ok)
+	}
+}
+
+// me names the mode of the fixed authenticator.
+func TestMeNamesTheNoneMode(t *testing.T) {
+	var me model.Me
+	w := req{path: "/api/v1/me"}.do(d2Chain(newServer(withAuth(noneAuth()))))
+	if err := json.Unmarshal(w.Body.Bytes(), &me); err != nil || w.Code != http.StatusOK || me.AuthMode != "none" {
+		t.Errorf("me = %d %s (%v), want authMode none", w.Code, w.Body, err)
+	}
+}
+
+// A refusal that happens before any principal exists (CSRF on a path outside /api, where authn
+// does not run) is recorded under the mode of the fixed authenticator, not as proxy (D4).
+func TestRefusalWithoutAPrincipalRecordsTheFixedMode(t *testing.T) {
+	for _, kind := range []auth.Kind{auth.KindNone, auth.KindDev, auth.KindDemo} {
+		t.Run(string(kind), func(t *testing.T) {
+			dir := t.TempDir()
+			s := newServer(func(d *Deps) {
+				d.Audit = openAudit(t, dir, newAuditClock().now)
+				d.Auth = auth.Fixed(auth.Principal{Kind: kind, User: string(kind), Role: auth.RoleAdmin})
+			})
+			if w := (req{method: http.MethodPost, path: "/", raw: true}).do(s.Handler()); w.Code != http.StatusForbidden {
+				t.Fatalf("POST / without CSRF = %d %s, want 403", w.Code, w.Body)
+			}
+			recs := auditRecords(t, dir)
+			if len(recs) != 1 || recs[0].Reason != obs.AuthCSRF.String() || recs[0].AuthMode != string(kind) || recs[0].Actor.Type != string(kind) {
+				t.Errorf("audit = %+v, want one csrf denial with mode and actor type %q", recs, kind)
+			}
+		})
+	}
+}
+
+// The mode is the kind of the principal the authenticator returned, whatever the process
+// configuration says: me reports "session" for a session principal even when dev mode is set.
+type authenticatorFunc func(*http.Request) (auth.Principal, *auth.Failure)
+
+func (f authenticatorFunc) Authenticate(r *http.Request) (auth.Principal, *auth.Failure) { return f(r) }
+
+func TestMeNamesThePrincipalKind(t *testing.T) {
+	a := authenticatorFunc(func(*http.Request) (auth.Principal, *auth.Failure) {
+		return auth.Principal{Kind: auth.KindSession, User: "sam", Role: auth.RoleViewer}, nil
+	})
+	s := newServer(func(d *Deps) {
+		d.Auth = a
+		d.Cfg.Dev = true
+	})
+	var me model.Me
+	w := req{path: "/api/v1/me"}.do(d2Chain(s))
+	if err := json.Unmarshal(w.Body.Bytes(), &me); err != nil || w.Code != http.StatusOK || me.AuthMode != "session" {
+		t.Errorf("me = %d %s (%v), want authMode session", w.Code, w.Body, err)
 	}
 }

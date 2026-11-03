@@ -50,6 +50,13 @@ type Warner interface {
 	Warnings() []string
 }
 
+// Kinder is implemented by an authenticator that signs every request in as one kind of principal
+// (Fixed: dev, demo, none). The API names a refusal that has no principal after it, so the audit
+// record of a CSRF denial on a path authn does not cover says none in none mode, not proxy.
+type Kinder interface {
+	Kind() Kind
+}
+
 // Bearer extracts a bearer token. present is true when ANY Authorization header line has the
 // Bearer scheme (case-insensitive), so a Basic line in front of a Bearer one cannot hide it;
 // every other scheme, or no header, is ignored (not present) so an upstream proxy that forwards

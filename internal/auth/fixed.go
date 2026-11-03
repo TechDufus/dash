@@ -26,4 +26,11 @@ type fixedNone struct{ fixed }
 // Warnings implements Warner.
 func (fixedNone) Warnings() []string { return []string{WarningAuthNone} }
 
-var _ Warner = fixedNone{}
+var (
+	_ Warner = fixedNone{}
+	_ Kinder = fixedNone{}
+	_ Kinder = fixed{}
+)
+
+// Kind implements Kinder.
+func (f fixed) Kind() Kind { return f.p.Kind }

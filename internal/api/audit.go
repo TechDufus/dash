@@ -14,11 +14,14 @@ import (
 const maxAuditAction = 200
 
 // authMode names how a request was authenticated, for me and the audit log: the principal's kind
-// (proxy, dev, demo, none). A refusal by authn itself has no principal and is named by the
-// process mode.
+// (proxy, dev, demo, none). A refusal that has no principal (CSRF on a path authn does not cover,
+// the host check) is named by the authenticator's fixed kind, else by the process mode.
 func (s *Server) authMode(p auth.Principal) string {
 	if p.Kind != "" {
 		return string(p.Kind)
+	}
+	if k, ok := s.d.Auth.(auth.Kinder); ok && k.Kind() != "" {
+		return string(k.Kind())
 	}
 	switch {
 	case s.d.Cfg.Demo:
