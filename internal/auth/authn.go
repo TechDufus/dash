@@ -38,8 +38,10 @@ type Authenticator interface {
 // The warning codes an Authenticator reports through Warner. The API puts them in Me.warnings
 // and the SPA renders a banner for each.
 const (
-	WarningAdminWildcard = "admin_wildcard" // adminUsers holds "*": every authenticated user is an administrator
-	WarningAuthNone      = "auth_none"      // auth.mode=none: every request is an administrator
+	WarningAdminWildcard   = "admin_wildcard"   // adminUsers holds "*": every authenticated user is an administrator
+	WarningAuthNone        = "auth_none"        // auth.mode=none: every request is an administrator
+	WarningAnonymousViewer = "anonymous_viewer" // auth.local.anonymousViewer: unauthenticated reads are a viewer
+	WarningOIDCOpen        = "oidc_open"        // auth.oidc.allowedUsers holds "*": every account the IdP signs in may read
 )
 
 // Warner is implemented by an Authenticator that has standing warnings for the operator: Proxy
@@ -55,6 +57,34 @@ type Warner interface {
 // record of a CSRF denial on a path authn does not cover says none in none mode, not proxy.
 type Kinder interface {
 	Kind() Kind
+}
+
+// The auth.mode values of the session modes, which Moder reports. The other modes are named by
+// the kind of their principals (proxy, none, dev, demo).
+const (
+	ModeLocal = "local"
+	ModeOIDC  = "oidc"
+)
+
+// Moder is implemented by an authenticator whose mode is not the kind of the principals it
+// produces: the session modes, whose principals are session or anonymous. The API takes the
+// mode of Me.authMode and of every audit record from it first, ahead of the principal's kind
+// and Kinder, so a refusal without a principal in local or oidc mode is not recorded as proxy.
+type Moder interface {
+	Mode() string
+}
+
+// CookieAuthenticator is implemented by the authenticators of the session modes. authn calls
+// AuthenticateCookie instead of Authenticate: besides the principal or the failure it returns
+// the session cookie the response must carry, or nil when the request's cookie stays as it is.
+// That is a re-issued cookie when the session is in the second half of its idle window, or a
+// clearing cookie when the request carried one that failed (malformed, expired, revoked by an
+// epoch). authn sets it before anything is written, on a refusal too, so the browser drops a
+// dead cookie even when the request ends in 401. Authenticate returns the same principal or
+// failure without the cookie.
+type CookieAuthenticator interface {
+	Authenticator
+	AuthenticateCookie(*http.Request) (Principal, *http.Cookie, *Failure)
 }
 
 // Bearer extracts a bearer token. present is true when ANY Authorization header line has the

@@ -1,6 +1,7 @@
 package secret
 
 import (
+	"bytes"
 	"crypto/rand"
 	"encoding/base64"
 	"errors"
@@ -195,6 +196,55 @@ func TestIsEncrypted(t *testing.T) {
 	for s, want := range map[string]bool{"enc:v1:x": true, "enc:v2:x": false, "": false, "plain": false, " enc:v1:x": false} {
 		if IsEncrypted(s) != want {
 			t.Errorf("IsEncrypted(%q) = %v", s, !want)
+		}
+	}
+}
+
+// Derive depends on the current key and the info only: the same key in another base64 spelling
+// derives the same bytes, another info or another key derives others, and the previous key of a
+// rotation plays no part (a rotation changes every derived key).
+func TestDeriveBindsTheCurrentKeyAndTheInfo(t *testing.T) {
+	k, s := newKey(t)
+	raw, _ := base64.StdEncoding.DecodeString(s)
+	same, err := ParseKey(base64.RawURLEncoding.EncodeToString(raw))
+	if err != nil {
+		t.Fatal(err)
+	}
+	other, _ := newKey(t)
+	derive := func(ring *Keyring, info string) []byte {
+		t.Helper()
+		b, err := ring.Derive(info)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(b) != DerivedKeySize {
+			t.Fatalf("Derive returned %d bytes, want %d", len(b), DerivedKeySize)
+		}
+		return b
+	}
+	base := derive(NewKeyring(k, Key{}), "dash/session/v1|salt")
+	if !bytes.Equal(base, derive(NewKeyring(same, Key{}), "dash/session/v1|salt")) {
+		t.Error("the same key derived different bytes")
+	}
+	if !bytes.Equal(base, derive(NewKeyring(k, other), "dash/session/v1|salt")) {
+		t.Error("the previous key changed the derived bytes")
+	}
+	for name, b := range map[string][]byte{
+		"other info": derive(NewKeyring(k, Key{}), "dash/session/v1|other"),
+		"other key":  derive(NewKeyring(other, Key{}), "dash/session/v1|salt"),
+		"rotated":    derive(NewKeyring(other, k), "dash/session/v1|salt"),
+	} {
+		if bytes.Equal(base, b) {
+			t.Errorf("%s derived the same bytes", name)
+		}
+	}
+	if bytes.Contains(base, raw) {
+		t.Error("the derived bytes contain the key")
+	}
+	var nilRing *Keyring
+	for name, ring := range map[string]*Keyring{"nil": nilRing, "zero": NewKeyring(Key{}, Key{})} {
+		if _, err := ring.Derive("x"); !errors.Is(err, ErrNoKey) {
+			t.Errorf("%s Derive: %v, want ErrNoKey", name, err)
 		}
 	}
 }

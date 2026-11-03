@@ -6,12 +6,21 @@ export class ApiError extends Error {
   readonly code?: string;
   /** Identifies the request in dash's logs and audit records. */
   readonly requestId?: string;
-  constructor(status: number, message: string, code?: string, requestId?: string) {
+  /** The envelope's details: AuthDetails on a 401 unauthenticated from a session mode. */
+  readonly details?: unknown;
+  constructor(
+    status: number,
+    message: string,
+    code?: string,
+    requestId?: string,
+    details?: unknown,
+  ) {
     super(message);
     this.name = "ApiError";
     this.status = status;
     this.code = code;
     this.requestId = requestId;
+    this.details = details;
   }
 }
 
@@ -57,15 +66,17 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
     let message = res.statusText || `HTTP ${res.status}`;
     let code: string | undefined;
     let requestId = res.headers.get("X-Request-Id") ?? undefined;
+    let details: unknown;
     try {
       const j = (await res.json()) as Partial<APIError>;
       if (j.error) message = j.error;
       code = j.code || undefined;
       requestId = j.requestId || requestId;
+      details = j.details;
     } catch {
       // not JSON; keep the status text
     }
-    throw new ApiError(res.status, message, code, requestId);
+    throw new ApiError(res.status, message, code, requestId, details);
   }
   if (res.status === 204) return undefined as T;
   const text = await res.text();

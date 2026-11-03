@@ -71,6 +71,12 @@ var (
 	// AuthAmbiguousIdentity is an identity header sent as more than one line.
 	AuthUntrustedPeer     = AuthReason{"untrusted_peer"}
 	AuthAmbiguousIdentity = AuthReason{"ambiguous_identity"}
+
+	// AuthLoginFailed is a refused login or setup attempt (wrong password, unknown account, wrong
+	// setup token); AuthLoginThrottled one refused by the login backoff without being tried.
+	// Declared for the local mode; they join AuthReasons with the commit that counts them.
+	AuthLoginFailed    = AuthReason{"login_failed"}
+	AuthLoginThrottled = AuthReason{"login_throttled"}
 )
 
 // Outcomes of an upstream call.

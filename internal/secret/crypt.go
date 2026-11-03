@@ -2,6 +2,7 @@ package secret
 
 import (
 	"crypto/cipher"
+	"crypto/hkdf"
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
@@ -25,10 +26,12 @@ var (
 	ErrDecrypt    = errors.New("decryption failed: wrong key, or the value was moved to another field")
 )
 
-// Key is one 32-byte encryption key. The zero Key means "none".
+// Key is one 32-byte encryption key. The zero Key means "none". ikm is the key itself, kept only
+// for Derive; nothing else reads it.
 type Key struct {
 	kid  string
 	aead cipher.AEAD
+	ikm  []byte
 }
 
 // ParseKey reads a key from base64 (standard or URL alphabet, padded or not)
@@ -56,7 +59,7 @@ func ParseKey(s string) (Key, error) {
 		return Key{}, err
 	}
 	sum := sha256.Sum256(raw)
-	return Key{kid: hex.EncodeToString(sum[:4]), aead: aead}, nil
+	return Key{kid: hex.EncodeToString(sum[:4]), aead: aead, ikm: raw}, nil
 }
 
 func (k Key) isZero() bool { return k.aead == nil }
@@ -72,6 +75,20 @@ type Keyring struct {
 // rotation is in progress.
 func NewKeyring(current, previous Key) *Keyring {
 	return &Keyring{current: current, previous: previous}
+}
+
+// DerivedKeySize is the length of a key Derive returns.
+const DerivedKeySize = 32
+
+// Derive returns a key for another purpose than sealing settings, derived from the current key
+// with HKDF-SHA256 and info (the session cookies, design D8: "dash/session/v1|<salt>"). The key
+// itself never leaves the keyring, and the result depends only on the key and info. The previous
+// key is never used, so a rotation changes every derived key. ErrNoKey without a current key.
+func (k *Keyring) Derive(info string) ([]byte, error) {
+	if k == nil || k.current.isZero() {
+		return nil, ErrNoKey
+	}
+	return hkdf.Key(sha256.New, k.current.ikm, nil, info, DerivedKeySize)
 }
 
 // IsEncrypted reports whether s is a sealed value.

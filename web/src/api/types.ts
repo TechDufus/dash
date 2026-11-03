@@ -795,17 +795,40 @@ export interface LogLine {
 export interface Me {
   user: string;
   role: string; // admin or viewer
-  authMode: string; // proxy, none, dev or demo
+  authMode: string; // proxy, local, oidc, none, dev or demo
   scopes: string[]; // read, logs and actions:<plugin> for each plugin with mounted actions
   audience: string; // api
   version: string;
   capabilities: MeCapabilities;
   ui: MeUI;
   /**
-   * Warnings are the notices the SPA shows an administrator: admin_wildcard, auth_none. Empty
-   * when there is none; never null.
+   * Warnings are the notices the SPA shows an administrator: admin_wildcard, auth_none,
+   * anonymous_viewer, oidc_open. Empty when there is none; never null.
    */
   warnings: string[];
+}
+/**
+ * AuthDetails is the details object of a 401 unauthenticated answer (design D13): how the SPA
+ * signs the user in, so the public shell learns the mode without an unauthenticated discovery
+ * endpoint. proxy: reload, the identity proxy signs the user in; local: /login, or /setup while
+ * Setup is true; oidc: /auth/oidc/start.
+ */
+export interface AuthDetails {
+  mode: string; // proxy, local or oidc
+  /**
+   * Setup is true in the local mode while the administrator account does not exist yet.
+   */
+  setup: boolean;
+  /**
+   * OIDC names the identity provider in the oidc mode; absent otherwise.
+   */
+  oidc?: AuthDetailsOIDC;
+}
+/**
+ * AuthDetailsOIDC is what the login page may say about the identity provider.
+ */
+export interface AuthDetailsOIDC {
+  issuer: string; // the host of auth.oidc.issuer, never the full URL
 }
 /**
  * MeUI is the site configuration the SPA reads once with /me.

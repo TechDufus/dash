@@ -16,11 +16,15 @@ import (
 	"github.com/TechDufus/dash/internal/audit"
 	"github.com/TechDufus/dash/internal/auth"
 	"github.com/TechDufus/dash/internal/config"
+	"github.com/TechDufus/dash/internal/credentials"
 	"github.com/TechDufus/dash/internal/hub"
+	"github.com/TechDufus/dash/internal/localauth"
 	"github.com/TechDufus/dash/internal/model"
 	"github.com/TechDufus/dash/internal/obs"
+	"github.com/TechDufus/dash/internal/oidcauth"
 	"github.com/TechDufus/dash/internal/plugin"
 	"github.com/TechDufus/dash/internal/secret"
+	"github.com/TechDufus/dash/internal/session"
 	"github.com/TechDufus/dash/internal/upstream"
 	"github.com/TechDufus/dash/web"
 )
@@ -53,6 +57,16 @@ type Deps struct {
 	Audit   *audit.Log // nil logs to slog only
 	// Auth resolves the principal of every /api request. It is required: New panics without one.
 	Auth auth.Authenticator
+
+	// The session modes (auth.mode local and oidc); every field is nil in the other modes.
+	// Sessions issues and clears the session cookie (login, setup, the OIDC callback, logout).
+	Sessions *session.Manager
+	// Credentials holds the session epochs (logout bumps them) and the local account.
+	Credentials *credentials.Store
+	// Local is the local mode's login machinery; nil unless auth.mode=local.
+	Local *localauth.Local
+	// OIDC is the configured identity provider; nil unless auth.mode=oidc.
+	OIDC *oidcauth.Provider
 }
 
 // Server holds the handlers' state.

@@ -724,15 +724,32 @@ type LogLine struct {
 type Me struct {
 	User         string         `json:"user"`
 	Role         string         `json:"role"`     // admin or viewer
-	AuthMode     string         `json:"authMode"` // proxy, none, dev or demo
+	AuthMode     string         `json:"authMode"` // proxy, local, oidc, none, dev or demo
 	Scopes       []string       `json:"scopes"`   // read, logs and actions:<plugin> for each plugin with mounted actions
 	Audience     string         `json:"audience"` // api
 	Version      string         `json:"version"`
 	Capabilities MeCapabilities `json:"capabilities"`
 	UI           MeUI           `json:"ui"`
-	// Warnings are the notices the SPA shows an administrator: admin_wildcard, auth_none. Empty
-	// when there is none; never null.
+	// Warnings are the notices the SPA shows an administrator: admin_wildcard, auth_none,
+	// anonymous_viewer, oidc_open. Empty when there is none; never null.
 	Warnings []string `json:"warnings"`
+}
+
+// AuthDetails is the details object of a 401 unauthenticated answer (design D13): how the SPA
+// signs the user in, so the public shell learns the mode without an unauthenticated discovery
+// endpoint. proxy: reload, the identity proxy signs the user in; local: /login, or /setup while
+// Setup is true; oidc: /auth/oidc/start.
+type AuthDetails struct {
+	Mode string `json:"mode"` // proxy, local or oidc
+	// Setup is true in the local mode while the administrator account does not exist yet.
+	Setup bool `json:"setup"`
+	// OIDC names the identity provider in the oidc mode; absent otherwise.
+	OIDC *AuthDetailsOIDC `json:"oidc,omitempty"`
+}
+
+// AuthDetailsOIDC is what the login page may say about the identity provider.
+type AuthDetailsOIDC struct {
+	Issuer string `json:"issuer"` // the host of auth.oidc.issuer, never the full URL
 }
 
 // MeUI is the site configuration the SPA reads once with /me.

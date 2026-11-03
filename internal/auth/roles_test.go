@@ -58,3 +58,53 @@ func TestRoleMapWildcard(t *testing.T) {
 		}
 	}
 }
+
+// The role claim of an OIDC identity grants admin only through AdminRoles, exactly; RoleFor never
+// looks at AdminRoles, so a proxy or local mapping cannot be widened by it.
+func TestRoleForClaims(t *testing.T) {
+	m := RoleMap{AdminUsers: []string{"alice"}, AdminGroups: []string{"ops"}, AdminRoles: []string{"admin"}}
+	for _, c := range []struct {
+		name              string
+		user              string
+		groups, roleClaim []string
+		want              Role
+	}{
+		{"role claim value grants admin", "bob", nil, []string{"reader", "admin"}, RoleAdmin},
+		{"role claim is case-sensitive", "bob", nil, []string{"Admin"}, RoleViewer},
+		{"no role claim is viewer", "bob", nil, nil, RoleViewer},
+		{"user still grants admin", "alice", nil, nil, RoleAdmin},
+		{"group still grants admin", "bob", []string{"ops"}, nil, RoleAdmin},
+		{"a group is not a role value", "bob", []string{"admin"}, nil, RoleViewer},
+		{"empty user has no role", "", nil, []string{"admin"}, ""},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			if got := m.RoleForClaims(c.user, c.groups, c.roleClaim); got != c.want {
+				t.Errorf("RoleForClaims(%q, %v, %v) = %q, want %q", c.user, c.groups, c.roleClaim, got, c.want)
+			}
+		})
+	}
+	if got := (RoleMap{AdminRoles: []string{"admin"}}).RoleFor("bob", []string{"admin"}); got != RoleViewer {
+		t.Errorf("RoleFor used AdminRoles: %q", got)
+	}
+}
+
+// The holder maps with the map last stored, AdminRoles included, and copies what it is given.
+func TestRoleHolderClaimsAndWildcard(t *testing.T) {
+	var h RoleHolder
+	if h.Wildcard() || h.RoleForClaims("bob", nil, []string{"admin"}) != RoleViewer {
+		t.Fatal("the zero holder must map everyone to viewer")
+	}
+	roles := []string{"admin"}
+	h.Store(RoleMap{AdminRoles: roles})
+	roles[0] = "changed"
+	if got := h.RoleForClaims("bob", nil, []string{"admin"}); got != RoleAdmin {
+		t.Errorf("after Store: %q, want admin (the holder must copy AdminRoles)", got)
+	}
+	if got := h.Load().AdminRoles; len(got) != 1 || got[0] != "admin" {
+		t.Errorf("Load().AdminRoles = %q", got)
+	}
+	h.Store(RoleMap{AdminUsers: []string{"*"}})
+	if !h.Wildcard() {
+		t.Error("Wildcard() is false after storing [\"*\"]")
+	}
+}
