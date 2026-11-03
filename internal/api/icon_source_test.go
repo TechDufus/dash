@@ -45,6 +45,11 @@ func TestIconSourceRefusesWhatItCannotCarry(t *testing.T) {
 		"https://\u200b/png",
 		"https://xn--.example/png",
 		"https://cdn.xn--.example/png",
+		// An empty label just before the root's dot.
+		"https://example../png",
+		"https://example.xn--./png",
+		"https://example.\u00ad./png",
+		"https://./png",
 	} {
 		if got := iconSource(base); got != "" {
 			t.Errorf("iconSource(%q) = %q, want none", base, got)
@@ -52,8 +57,9 @@ func TestIconSourceRefusesWhatItCannotCarry(t *testing.T) {
 	}
 }
 
-// hostile lists bases whose host the IDN conversion empties, wholly or in one label.
-var hostile = []string{"https://xn--/png", "https://\u00ad/png", "https://xn--.example/png"}
+// hostile lists bases whose host the IDN conversion empties, wholly or in one label, the last one
+// before the root's dot included.
+var hostile = []string{"https://xn--/png", "https://\u00ad/png", "https://xn--.example/png", "https://example../png", "https://example.xn--./png", "https://example.\u00ad./png"}
 
 func TestUnusableIconBaseWarnsOnceWithSchemeAndHostOnly(t *testing.T) {
 	for _, base := range append([]string{

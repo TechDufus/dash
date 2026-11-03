@@ -239,9 +239,10 @@ func iconSource(base string) string {
 		return ""
 	}
 	// The conversion can empty a label ("xn--", a soft hyphen or a zero-width space), leaving an
-	// empty host or one like ".example" that is no DNS name and matches nothing as a source. A
-	// single trailing dot (the root) may stay.
-	if h := strings.TrimSuffix(host, "."); h == "" || strings.HasPrefix(h, ".") || strings.Contains(h, "..") {
+	// empty host or one like ".example" or "example.." that is no DNS name and matches nothing as
+	// a source. Checked before the single trailing dot (the root, which may stay) is set aside, so
+	// an empty label just before it is caught too.
+	if host == "" || host == "." || strings.HasPrefix(host, ".") || strings.Contains(host, "..") {
 		return ""
 	}
 	src := u.Scheme + "://" + host
