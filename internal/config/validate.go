@@ -122,8 +122,13 @@ func validate(t Tree, dev, demo bool, prov map[string]Provenance) error {
 	v.section("ui", t.UI.Validate())
 	v.section("auth", t.Auth.Validate())
 	refused, _ := proxyKeysOutsideProxyMode(t, prov, dev, demo)
+	// Someone who never set auth.mode is told it is the default: v0.11.x defaulted to proxy.
+	mode := t.Auth.Mode
+	if src := prov["auth.mode"].Source; src == SourceDefault || src == "" {
+		mode += " (the default since v0.12.0)"
+	}
 	for _, path := range refused {
-		v.fail(path, "is set, but auth.mode is %s and the proxy admin lists are read only in auth.mode=proxy: set DASH_AUTH_MODE=proxy if dash runs behind an identity proxy, or remove this setting", t.Auth.Mode)
+		v.fail(path, "is set, but auth.mode is %s and the proxy admin lists are read only in auth.mode=proxy: set DASH_AUTH_MODE=proxy if dash runs behind an identity proxy, or remove this setting", mode)
 	}
 	if t.Auth.Mode == AuthModeOIDC && !dev && !demo && s.PublicURL != "" {
 		if u, err := url.Parse(s.PublicURL); err == nil && u.Scheme != "https" && !loopbackHost(u.Hostname()) {

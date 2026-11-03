@@ -557,6 +557,10 @@ func TestProxyAdminListsWithoutProxyModeRefuse(t *testing.T) {
 		if strings.Contains(msg, "owner-") {
 			t.Errorf("%s: error carries the value: %q", name, msg)
 		}
+		// The mode was set explicitly: the message does not call it the default.
+		if strings.Contains(msg, "the default since") {
+			t.Errorf("%s: an explicit auth.mode is called the default: %q", name, msg)
+		}
 		if _, _, err := resolveLive(t, append([]string{"DASH_AUTH_MODE=proxy"}, env...)...); err != nil {
 			t.Errorf("%s with auth.mode=proxy: %v", name, err)
 		}
@@ -780,6 +784,10 @@ func TestHomelabEnvWithoutAuthModeIsRefusedAtLoad(t *testing.T) {
 	_, _, err := resolveWith(t, Sources{Environ: env})
 	if err == nil || !strings.Contains(err.Error(), "auth.proxy.adminUsers (env DASH_AUTH_PROXY_ADMIN_USERS)") || !strings.Contains(err.Error(), "set DASH_AUTH_MODE=proxy") {
 		t.Errorf("the homelab env without its mode: %v, want the refusal naming DASH_AUTH_MODE=proxy", err)
+	}
+	// The operator never set auth.mode: the message says local is the new default.
+	if err == nil || !strings.Contains(err.Error(), "auth.mode is local (the default since v0.12.0)") {
+		t.Errorf("the homelab env without its mode: %v, want it to say local is the default", err)
 	}
 }
 
