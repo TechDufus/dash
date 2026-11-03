@@ -283,6 +283,38 @@ describe("LoginPage", () => {
     expect(screen.queryByRole("button", { name: "Sign in" })).toBeNull();
   });
 
+  it.each([
+    ["proxy", false],
+    ["local", true],
+  ])("shows no form while the probe is pending, then the %s mode's page", async (mode, form) => {
+    // The tsconfig lib predates Promise.withResolvers (es2024).
+    let answer: (r: Response) => void = () => {};
+    const gate = new Promise<Response>((resolve) => {
+      answer = resolve;
+    });
+    stubFetch({ "GET /api/v1/me": () => gate });
+    openLogin("/login");
+    await waitFor(() => expect(screen.getByText("Sign in to dash")).toBeInTheDocument());
+    expect(screen.queryByLabelText("Password")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Sign in" })).toBeNull();
+    answer(
+      json(
+        {
+          error: "authentication required",
+          code: "unauthenticated",
+          details: { mode, setup: false },
+        },
+        401,
+      ),
+    );
+    if (form) {
+      expect(await screen.findByLabelText("Password")).toBeInTheDocument();
+    } else {
+      expect(await screen.findByRole("link", { name: "Continue" })).toBeInTheDocument();
+      expect(screen.queryByLabelText("Password")).toBeNull();
+    }
+  });
+
   it("keeps the form when the probe fails, so a broken /me never locks the admin out", async () => {
     stubFetch({ "GET /api/v1/me": () => json({ error: "boom", code: "internal" }, 500) });
     openLogin("/login");

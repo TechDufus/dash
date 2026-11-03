@@ -65,6 +65,10 @@ export function LoginPage() {
   // A user who is signed in already (a session of the oidc mode) gets no button, since the probe
   // returned no details: give them the way on to next, as the proxy mode does.
   const signedInOIDC = mode === "oidc" && probed.data !== undefined && "me" in probed.data;
+  // The form is for the local mode, and for a failed probe (a broken /me never locks the admin
+  // out); while the probe is pending the mode is unknown, so nothing is shown, or the proxy and
+  // oidc modes would see the form flash.
+  const showForm = !probed.isPending && mode !== "oidc" && mode !== "proxy" && !awaitingSetup;
 
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
@@ -124,7 +128,7 @@ export function LoginPage() {
           for a new one if the hour has passed.
         </p>
       ) : null}
-      {mode !== "oidc" && mode !== "proxy" && !awaitingSetup ? (
+      {showForm ? (
         <form className="space-y-4" onSubmit={submit}>
           <Field label="Username">
             {(id) => (
