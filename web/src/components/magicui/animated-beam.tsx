@@ -169,18 +169,40 @@ export const AnimatedBeam: React.FC<AnimatedBeamProps> = ({
     if (containerRef.current) {
       resizeObserver.observe(containerRef.current)
     }
+    const columns = new Set<Element>()
     for (const end of [fromRef.current, toRef.current]) {
-      for (const card of end?.parentElement?.children ?? []) {
+      if (end?.parentElement) columns.add(end.parentElement)
+    }
+    for (const column of columns) {
+      for (const card of column.children) {
         resizeObserver.observe(card)
       }
+    }
+
+    // dash local change: a card added to or removed from either column moves the others without
+    // resizing any of them or the container; re-measure, and watch the new cards' size too.
+    const mutationObserver = new MutationObserver((records) => {
+      for (const record of records) {
+        for (const node of record.addedNodes) {
+          if (node instanceof Element) resizeObserver.observe(node)
+        }
+        for (const node of record.removedNodes) {
+          if (node instanceof Element) resizeObserver.unobserve(node)
+        }
+      }
+      updatePath()
+    })
+    for (const column of columns) {
+      mutationObserver.observe(column, { childList: true })
     }
 
     // Call the updatePath initially to set the initial path
     updatePath()
 
-    // Clean up the observer on component unmount
+    // Clean up the observers on component unmount
     return () => {
       resizeObserver.disconnect()
+      mutationObserver.disconnect()
     }
   }, [containerRef, fromRef, toRef, fromIndex, fromCount, toIndex, toCount])
 

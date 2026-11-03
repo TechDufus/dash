@@ -1,4 +1,4 @@
-import { act, screen } from "@testing-library/react";
+import { act, screen, waitFor } from "@testing-library/react";
 import type * as Motion from "motion/react";
 import { afterEach, beforeEach, describe, expect, it, type MockInstance, vi } from "vitest";
 import type { Group, Health, Topology, TopologyGroup, TopologyVM } from "@/api/types";
@@ -335,5 +335,39 @@ describe("the topology beams between laid-out cards", () => {
     }
     fireResize(platform);
     expect(intoTenants()).toEqual(before.map((y) => y + 30));
+  });
+
+  it("moves the beams beside a card that is added to the column, and follows the new card", async () => {
+    const { cards, beams } = layOut();
+    const tenants = cards.groups[2];
+    const column = tenants.parentElement as Element;
+    const intoTenants = () =>
+      beams
+        .map(ends)
+        .filter((b) => b.from[0] === 448 && inside(b.to[1], tenants))
+        .map((b) => b.to[1]);
+    const before = intoTenants();
+    expect(before).toHaveLength(3);
+    // A new group card at the end of the centred column moves the others up 55 px; neither they
+    // nor the container change size, so no ResizeObserver fires.
+    for (const card of cards.groups) {
+      const box = boxes.get(card) as Box;
+      boxes.set(card, { ...box, top: box.top - 55 });
+    }
+    const added = document.createElement("div");
+    boxes.set(added, { left: 496, top: 315, width: 200, height: 100 });
+    await act(async () => {
+      column.appendChild(added);
+    });
+    await waitFor(() => expect(intoTenants()).toEqual(before.map((y) => y - 55)));
+    // The new card is watched too: when it grows, the column moves again.
+    boxes.set(added, { left: 496, top: 295, width: 200, height: 140 });
+    for (const card of cards.groups) {
+      const box = boxes.get(card) as Box;
+      boxes.set(card, { ...box, top: box.top - 20 });
+    }
+    fireResize(added);
+    expect(intoTenants()).toEqual(before.map((y) => y - 75));
+    added.remove();
   });
 });
