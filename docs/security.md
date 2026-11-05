@@ -50,11 +50,17 @@ API tokens do not exist yet (see [Not built yet](#not-built-yet)). `none`, `DASH
 - **Content-Security-Policy.** The web UI's document gets `default-src 'self'`, scripts only from
   dash, styles from dash plus a per-response nonce, images from dash, `data:` and the
   `ui.iconBaseURL` path only, no framing (`frame-ancestors 'none'`), `base-uri 'none'`,
-  `object-src 'none'` and `form-action 'self'`. Every other response of the API listener gets
-  `default-src 'none'; frame-ancestors 'none'`. `server.csp` is `enforce` (the default),
-  `report-only` or `off`, the kill switch if a browser blanks the UI; any other value is refused
-  when the configuration loads. `X-Content-Type-Options: nosniff` and
-  `Referrer-Policy: same-origin` are sent in every mode.
+  `object-src 'none'` and `form-action 'self'`. The service worker (`/sw.js`) runs under
+  `default-src 'none'; connect-src 'self'`: it may fetch dash and nothing else. The offline page
+  (`/offline.html`), which the worker keeps and so cannot carry a per-response nonce, runs no
+  script, allows its inline CSS by hash and loads only dash's own icon. Every other response of
+  the API listener gets `default-src 'none'; frame-ancestors 'none'`. `server.csp` is `enforce`
+  (the default), `report-only` or `off`, the kill switch if a browser blanks the UI; any other
+  value is refused when the configuration loads. The worker's and the offline page's policies are
+  enforced in every mode: they allow dash's own origin only and cannot blank the UI, and a worker
+  keeps the policy it was installed with until a release changes it, so a relaxed mode would
+  outlive the switch back. `X-Content-Type-Options: nosniff` and `Referrer-Policy: same-origin`
+  are sent in every mode.
 - **Caching.** The sign-in routes and every answer that sets a cookie are `Cache-Control:
   no-store`, and so is `/api/v1` except topic snapshots and streams.
 - **Limits.** Open streams and log tails are capped per user and in all, a tail ends after

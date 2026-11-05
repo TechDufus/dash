@@ -84,6 +84,25 @@ func (s *Server) serveStatic(w http.ResponseWriter, r *http.Request) {
 		}
 	case strings.HasPrefix(name, "assets/"):
 		w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+	case name == "sw.js" || name == "offline.html":
+		// The worker runs under the policy of its own response, and the worker keeps the offline
+		// page with its headers, so each gets its own policy in place of the API policy, always
+		// enforcing (pwaFiles says why). no-cache keeps a cache between the browser and dash from
+		// answering the worker's update check with an old one; the ETag lets it be a 304.
+		f, ok := s.pwa[name]
+		if !ok { // pwaFiles read the same files when the server was built
+			http.Error(w, "internal error", http.StatusInternalServerError)
+			return
+		}
+		h := w.Header()
+		h.Set("Cache-Control", "no-cache")
+		h.Set("ETag", f.etag)
+		h.Del(cspReportOnlyHeader)
+		h.Set(cspHeader, f.policy)
+	case name == "manifest.webmanifest":
+		// Go knows no type for .webmanifest: without one, ServeContent would sniff text/plain.
+		w.Header().Set("Content-Type", "application/manifest+json")
+		w.Header().Set("Cache-Control", "no-cache")
 	}
 	http.ServeContent(w, r, name, time.Time{}, bytes.NewReader(b))
 }

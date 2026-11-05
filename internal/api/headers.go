@@ -1,10 +1,14 @@
 package api
 
 import (
+	"crypto/sha256"
+	"encoding/base64"
+	"io/fs"
 	"log/slog"
 	"net/http"
 	"net/url"
 	"path"
+	"regexp"
 	"strings"
 
 	"golang.org/x/net/idna"
@@ -19,7 +23,8 @@ const (
 	// cspReportOnly sends Content-Security-Policy-Report-Only: violations show in the browser
 	// console and nothing is blocked (no report-uri).
 	cspReportOnly cspMode = "report-only"
-	// cspOff sends no policy at all: the kill switch for a browser difference.
+	// cspOff sends no policy at all, except on /sw.js and /offline.html, whose own policies are
+	// always enforced (pwaFiles): the kill switch for a browser difference.
 	cspOff cspMode = "off"
 )
 
@@ -30,6 +35,12 @@ const (
 	// apiPolicy is what every response but the SPA document gets: JSON, SSE, assets and errors
 	// load nothing and may not be framed.
 	apiPolicy = "default-src 'none'; frame-ancestors 'none'"
+
+	// workerPolicy is what /sw.js gets instead of apiPolicy. A worker runs under the policy of its
+	// own script response, so under apiPolicy every fetch the service worker makes (its precache,
+	// a navigation it answers) would be blocked. It may fetch dash's own origin and load nothing
+	// else: no importScripts, no other origin.
+	workerPolicy = "default-src 'none'; connect-src 'self'; frame-ancestors 'none'"
 )
 
 // headerName returns the header that carries the policy in this mode, or "" for none. Any value
@@ -50,7 +61,8 @@ func (m cspMode) headerName() string {
 // the API policy under the mode's header name.
 //
 // The policy is set before the handler runs, so the SPA document replaces it with
-// Header().Set(documentPolicy(...)): the name is the same, so the response never carries two.
+// Header().Set(documentPolicy(...)), the service worker with workerPolicy and the offline page with
+// offlinePolicy: the name is the same, so the response never carries two.
 //
 // Cache-Control: no-store is forced when the response starts, after the handler chose its headers,
 // on /login, /setup and /auth/* (and anything below them) and on any response that sets a
@@ -162,6 +174,66 @@ func documentPolicyWith(mode cspMode, nonce, imgSource string) (name, value stri
 		"object-src 'none'",
 		"form-action 'self'",
 	}, "; "), true
+}
+
+// styleElement matches an inline <style> element and captures its text.
+var styleElement = regexp.MustCompile(`(?is)<style\b[^>]*>(.*?)</style>`)
+
+// offlinePolicy returns the policy /offline.html carries instead of the API policy. The page is
+// static and is kept by the service worker, so it can carry no per-response nonce: it runs no
+// script, its inline <style> elements are allowed by their sha256 hashes, and its only image is
+// dash's own icon.
+func offlinePolicy(page []byte) string {
+	directives := []string{"default-src 'none'"}
+	if styles := styleElement.FindAllSubmatch(page, -1); len(styles) > 0 {
+		src := "style-src"
+		for _, m := range styles {
+			sum := sha256.Sum256(m[1])
+			src += " 'sha256-" + base64.StdEncoding.EncodeToString(sum[:]) + "'"
+		}
+		directives = append(directives, src)
+	}
+	return strings.Join(append(directives,
+		"img-src 'self'",
+		"frame-ancestors 'none'",
+		"base-uri 'none'",
+		"form-action 'none'",
+	), "; ")
+}
+
+// pwaFile is what the server sends with /sw.js or /offline.html besides the bytes: the policy, and
+// an ETag from the content hash, so the browser's update check of the worker and a revalidation
+// of the offline page get a 304 when nothing changed.
+type pwaFile struct {
+	policy string
+	etag   string
+}
+
+// pwaFiles computes the headers of /sw.js and /offline.html once, from the static files the server
+// serves. A file that is missing gets no entry (and is not served: the SPA answers its path).
+//
+// Both policies are sent as an enforcing Content-Security-Policy whatever server.csp says: they
+// are static, allow dash's own origin only and cannot blank the UI, which is what report-only and
+// off are for. And a worker keeps the policy it was installed with, as the cached offline page
+// keeps its headers, until a release changes sw.js: a policy that followed the mode would stay
+// relaxed long after the mode went back to enforce.
+func pwaFiles(static fs.FS) map[string]pwaFile {
+	files := map[string]pwaFile{}
+	for name, policy := range map[string]func([]byte) string{
+		"sw.js":        func([]byte) string { return workerPolicy },
+		"offline.html": offlinePolicy,
+	} {
+		b, err := fs.ReadFile(static, name)
+		if err != nil {
+			continue
+		}
+		sum := sha256.Sum256(b)
+		files[name] = pwaFile{
+			policy: policy(b),
+			etag:   `"` + base64.RawURLEncoding.EncodeToString(sum[:16]) + `"`,
+		}
+	}
+	return files
 }
 
 // validNonce reports whether n is a non-empty base64 string (standard alphabet), the only

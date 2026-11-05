@@ -132,6 +132,7 @@ type Server struct {
 	cspMode     cspMode // server.csp; "" enforces (a Config that never went through the resolver)
 	iconSrc     string  // the img-src source of ui.iconBaseURL, computed once ("" = none)
 	static      fs.FS
+	pwa         map[string]pwaFile // headers of sw.js and offline.html in static, computed once
 	now         func() time.Time
 	heartbeat   time.Duration
 	events      *streamLimiter // open /api/v1/stream connections
@@ -160,7 +161,7 @@ func New(d Deps) *Server {
 	}
 	l := withDefaultLimits(d.Cfg.Limits)
 	return &Server{
-		d: d, static: dist, now: time.Now, heartbeat: 15 * time.Second, cspMode: cspMode(d.Cfg.CSP),
+		d: d, static: dist, pwa: pwaFiles(dist), now: time.Now, heartbeat: 15 * time.Second, cspMode: cspMode(d.Cfg.CSP),
 		iconSrc: iconSourceOrWarn(d.Cfg.IconBaseURL, cspMode(d.Cfg.CSP), slog.Default()),
 		events:  newStreamLimiter(l.StreamsPerUser, l.Streams),
 		tails:   newStreamLimiter(l.TailsPerUser, l.Tails),
