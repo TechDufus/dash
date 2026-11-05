@@ -116,3 +116,61 @@ func TestOAuthRunsOnlyWithAWritableDataDir(t *testing.T) {
 		})
 	}
 }
+
+// Push runs only with a writable data dir, DASH_SECRET_KEY and a contact, in local, oidc or
+// proxy mode (contract D37); otherwise one INFO names what is missing and capabilities.push
+// stays false.
+func TestPushRunsOnlyWithADataDirAndASecretKey(t *testing.T) {
+	keys := testKeyring(t)
+	cases := []struct {
+		name    string
+		res     func(dir string) *config.Resolved
+		keys    bool
+		absent  bool // the data dir does not exist
+		contact string
+		want    bool
+		missing string
+	}{
+		{"proxy", func(string) *config.Resolved { return resolvedAuth(false, false, nil) }, true, false, "mailto:ops@example.com", true, ""},
+		{"local", func(dir string) *config.Resolved { return localResolved(dir, keys, nil) }, true, false, "https://dash.example.com", true, ""},
+		{"no secret key", func(string) *config.Resolved { return resolvedAuth(false, false, nil) }, false, false, "mailto:ops@example.com", false, "DASH_SECRET_KEY"},
+		{"no data dir", func(string) *config.Resolved { return resolvedAuth(false, false, nil) }, true, true, "mailto:ops@example.com", false, "a writable data dir (DASH_DATA_DIR)"},
+		{"no contact", func(string) *config.Resolved { return resolvedAuth(false, false, nil) }, true, false, "", false, "push.contact (DASH_PUSH_CONTACT), since server.publicURL is not https"},
+		{"dev", func(string) *config.Resolved { return resolvedAuth(true, false, nil) }, true, false, "mailto:ops@example.com", false, "dev and demo mode send no push"},
+		{"demo", func(string) *config.Resolved { return resolvedAuth(false, true, nil) }, true, false, "mailto:ops@example.com", false, "dev and demo mode send no push"},
+		{"none", func(string) *config.Resolved {
+			return resolvedAuth(false, false, func(a *config.AuthConfig) { a.Mode = config.AuthModeNone })
+		}, true, false, "mailto:ops@example.com", false, "auth.mode=none has no push"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			res := tc.res(dir)
+			res.Config.DataDir, res.Config.PushContact, res.Keys = dir, tc.contact, nil
+			if tc.keys {
+				res.Keys = keys
+			}
+			if tc.absent {
+				res.Config.DataDir = filepath.Join(dir, "absent")
+			}
+			var logs logCapture
+			pa, _, err := startLocal(t, res, hashOf(t), &logs)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if pa.push != tc.want {
+				t.Errorf("push = %v, want %v", pa.push, tc.want)
+			}
+			if tc.want {
+				if len(logs.with(t, "INFO", "push: on")) != 1 {
+					t.Errorf("no INFO push: on:\n%s", &logs.buf)
+				}
+				return
+			}
+			off := logs.with(t, "INFO", "push: off")
+			if len(off) != 1 || off[0]["missing"] != tc.missing {
+				t.Errorf("INFO push: off = %v, want one naming %q", off, tc.missing)
+			}
+		})
+	}
+}

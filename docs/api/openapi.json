@@ -55,6 +55,8 @@
               "tokens_unavailable",
               "token_limit",
               "grant_limit",
+              "push_unavailable",
+              "push_limit",
               "unknown_host",
               "internal"
             ],

@@ -167,6 +167,7 @@ func validate(t Tree, dev, demo bool, prov map[string]Provenance) error {
 			v.fail("server.publicURL", "has a path, which auth.oauth.enabled cannot serve: the issuer, /oauth/* and the /.well-known documents are at the root of the origin")
 		}
 	}
+	validatePush(t.Push, v)
 	// An inline launcher icon outside the allowed forms is a load error (the links of a launcher
 	// file are only read by the launcher's start, which turns its row to error instead). The
 	// message names the entry, never the icon.

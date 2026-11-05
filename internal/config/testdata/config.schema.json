@@ -1195,6 +1195,25 @@
       },
       "type": "object"
     },
+    "PushConfig": {
+      "additionalProperties": false,
+      "properties": {
+        "allowPrivate": {
+          "description": "Push endpoints dash may post to although they resolve to a private or loopback address, such as a UnifiedPush server (ntfy) on the LAN: host names (ntfy.example.com), IP addresses or CIDRs (192.0.2.0/24). Empty (the default): only global addresses. A host entry admits that host name at private and loopback addresses; a CIDR admits the private and loopback addresses inside it, whatever the name. Link-local addresses (the cloud metadata service) never pass, and endpoints stay https. A JSON list in the environment.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array",
+          "x-dash-restart": true
+        },
+        "contact": {
+          "description": "The contact push services see in dash's VAPID signature (RFC 8292): mailto:<address> or an https URL. Defaults to server.publicURL when that is https; without either, push stays off. A push service may write to it when dash misbehaves.",
+          "type": "string",
+          "x-dash-restart": true
+        }
+      },
+      "type": "object"
+    },
     "RustFS": {
       "additionalProperties": false,
       "properties": {
@@ -1505,6 +1524,10 @@
     "plugins": {
       "$ref": "#/$defs/PluginsConfig",
       "description": "One section per plugin. An empty URL turns that source off."
+    },
+    "push": {
+      "$ref": "#/$defs/PushConfig",
+      "description": "Web Push and UnifiedPush notifications to the devices people register in Settings -> Devices. Push needs a writable data dir and DASH_SECRET_KEY in auth.mode local, oidc or proxy."
     },
     "server": {
       "$ref": "#/$defs/ServerConfig",

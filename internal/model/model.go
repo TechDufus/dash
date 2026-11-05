@@ -774,8 +774,11 @@ type MeUI struct {
 type MeCapabilities struct {
 	Actions bool `json:"actions"` // some plugin has mounted actions
 	MCP     bool `json:"mcp"`
-	Push    bool `json:"push"`
-	OAuth   bool `json:"oauth"`
+	// Push is true when the caller may register push devices (Settings -> Devices): push is
+	// enabled (a writable data dir and DASH_SECRET_KEY in auth.mode local, oidc or proxy) and the
+	// caller is a signed-in person or a token with the push scope.
+	Push  bool `json:"push"`
+	OAuth bool `json:"oauth"`
 	// Tokens is true when the caller may create personal access tokens: an interactive principal
 	// in a mode whose credential store keeps them (a writable data dir, or dev and demo).
 	Tokens bool `json:"tokens"`

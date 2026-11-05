@@ -73,6 +73,13 @@ type Config struct {
 	// only origin an absolute launcher icon URL may come from; empty means letter tiles and no
 	// third-party icon request from the launcher (apps are not affected). The SPA reads it with /me.
 	IconBaseURL string
+
+	// PushContact is the VAPID subject (push.contact, else the public URL when it is https,
+	// contract D46): mailto:<address> or an https URL; "" keeps push off.
+	PushContact string
+	// PushAllow is push.allowPrivate parsed: the endpoint hosts and prefixes that may resolve to
+	// private or loopback addresses.
+	PushAllow PushAllow
 }
 
 // Limits is server.limits as the flat view reads it.

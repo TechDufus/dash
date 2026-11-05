@@ -633,6 +633,15 @@ The names of the Prometheus series dash reads. Each must be a valid metric name.
 | `plugins.rustfs.metrics.capacityUsed` | `DASH_PLUGINS_RUSTFS_METRICS_CAPACITY_USED` | string | `rustfs_cluster_capacity_used_bytes` | Series of the cluster's used bytes. The default is rustfs_cluster_capacity_used_bytes. |
 | `plugins.rustfs.metrics.capacityUsable` | `DASH_PLUGINS_RUSTFS_METRICS_CAPACITY_USABLE` | string | `rustfs_cluster_capacity_usable_total_bytes` | Series of the cluster's usable bytes. The default is rustfs_cluster_capacity_usable_total_bytes. |
 
+## `push`
+
+Web Push and UnifiedPush notifications to the devices people register in Settings -> Devices. Push needs a writable data dir and DASH_SECRET_KEY in auth.mode local, oidc or proxy.
+
+| Setting | Variable | Type | Default | Description |
+|---|---|---|---|---|
+| `push.contact` | `DASH_PUSH_CONTACT` | string | - | The contact push services see in dash's VAPID signature (RFC 8292): mailto:<address> or an https URL. Defaults to server.publicURL when that is https; without either, push stays off. A push service may write to it when dash misbehaves. _Restart-only._ |
+| `push.allowPrivate` | `DASH_PUSH_ALLOW_PRIVATE` | list of strings (JSON) | - | Push endpoints dash may post to although they resolve to a private or loopback address, such as a UnifiedPush server (ntfy) on the LAN: host names (ntfy.example.com), IP addresses or CIDRs (192.0.2.0/24). Empty (the default): only global addresses. A host entry admits that host name at private and loopback addresses; a CIDR admits the private and loopback addresses inside it, whatever the name. Link-local addresses (the cloud metadata service) never pass, and endpoints stay https. A JSON list in the environment. _Restart-only._ |
+
 ## Process variables
 
 These are not settings; the config file cannot set them.

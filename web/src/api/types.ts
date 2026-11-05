@@ -38,6 +38,8 @@ export const ErrCodeAuditUnavailable = "audit_unavailable"; // 503
 export const ErrCodeTokensUnavailable = "tokens_unavailable"; // 409: no writable data dir keeps a new token
 export const ErrCodeTokenLimit = "token_limit"; // 409: the user holds the most tokens allowed
 export const ErrCodeGrantLimit = "grant_limit"; // 409: the user holds the most OAuth grants allowed
+export const ErrCodePushUnavailable = "push_unavailable"; // 409: push needs a writable data dir and DASH_SECRET_KEY
+export const ErrCodePushLimit = "push_limit"; // 409: the user holds the most push subscriptions allowed
 export const ErrCodeUnknownHost = "unknown_host"; // 421
 export const ErrCodeInternal = "internal"; // 500
 /**
@@ -45,7 +47,7 @@ export const ErrCodeInternal = "internal"; // 500
  * carry several (a 403 is forbidden or csrf_failed, a 429 rate_limited or too_many_streams).
  * ErrCodes lists them all.
  */
-export type ErrCode = typeof ErrCodeUnauthenticated | typeof ErrCodeForbidden | typeof ErrCodeInsufficientScope | typeof ErrCodeInvalidToken | typeof ErrCodeAmbiguousCredentials | typeof ErrCodeCSRFFailed | typeof ErrCodeNotFound | typeof ErrCodeInvalidInput | typeof ErrCodeLockedField | typeof ErrCodeReadonlySettings | typeof ErrCodeRateLimited | typeof ErrCodeTooManyStreams | typeof ErrCodeUpstreamUnavailable | typeof ErrCodeApprovalRequired | typeof ErrCodeApprovalDenied | typeof ErrCodeApprovalExpired | typeof ErrCodeConflict | typeof ErrCodePreconditionFailed | typeof ErrCodePreconditionRequired | typeof ErrCodeAuditUnavailable | typeof ErrCodeTokensUnavailable | typeof ErrCodeTokenLimit | typeof ErrCodeGrantLimit | typeof ErrCodeUnknownHost | typeof ErrCodeInternal;
+export type ErrCode = typeof ErrCodeUnauthenticated | typeof ErrCodeForbidden | typeof ErrCodeInsufficientScope | typeof ErrCodeInvalidToken | typeof ErrCodeAmbiguousCredentials | typeof ErrCodeCSRFFailed | typeof ErrCodeNotFound | typeof ErrCodeInvalidInput | typeof ErrCodeLockedField | typeof ErrCodeReadonlySettings | typeof ErrCodeRateLimited | typeof ErrCodeTooManyStreams | typeof ErrCodeUpstreamUnavailable | typeof ErrCodeApprovalRequired | typeof ErrCodeApprovalDenied | typeof ErrCodeApprovalExpired | typeof ErrCodeConflict | typeof ErrCodePreconditionFailed | typeof ErrCodePreconditionRequired | typeof ErrCodeAuditUnavailable | typeof ErrCodeTokensUnavailable | typeof ErrCodeTokenLimit | typeof ErrCodeGrantLimit | typeof ErrCodePushUnavailable | typeof ErrCodePushLimit | typeof ErrCodeUnknownHost | typeof ErrCodeInternal;
 
 //////////
 // source: model.go
@@ -864,6 +866,11 @@ export interface MeUI {
 export interface MeCapabilities {
   actions: boolean; // some plugin has mounted actions
   mcp: boolean;
+  /**
+   * Push is true when the caller may register push devices (Settings -> Devices): push is
+   * enabled (a writable data dir and DASH_SECRET_KEY in auth.mode local, oidc or proxy) and the
+   * caller is a signed-in person or a token with the push scope.
+   */
   push: boolean;
   oauth: boolean;
   /**
@@ -1351,6 +1358,179 @@ export interface KPI {
   unit: string;
   value: number /* float64 */;
   health: Health;
+}
+
+//////////
+// source: push.go
+
+export const PushKindWebPush = "webpush"; // a browser's PushManager subscription (the PWA)
+export const PushKindUnifiedPush = "unifiedpush"; // a UnifiedPush distributor's endpoint (the Android app)
+/**
+ * Kinds of push subscription (design P.2). The payload is the same for both; the kind labels
+ * the device in Settings -> Devices.
+ */
+export type PushKind = typeof PushKindWebPush | typeof PushKindUnifiedPush;
+export const PushAttentionCrit = "crit";
+export const PushAttentionWarn = "warn";
+export const PushAttentionOff = "off";
+/**
+ * Attention thresholds of a subscription (design P.3): crit pushes critical items only, warn
+ * pushes warnings and critical items, off pushes none.
+ */
+export type PushAttention = typeof PushAttentionCrit | typeof PushAttentionWarn | typeof PushAttentionOff;
+/**
+ * PushStatePending: registered, the verification code was pushed, and nothing else is sent
+ * until the code comes back. Deleted 10 minutes after it was registered.
+ */
+export const PushStatePending = "pending";
+/**
+ * PushStateVerified: the code came back; the subscription receives pushes.
+ */
+export const PushStateVerified = "verified";
+/**
+ * PushStateStale: a web-push subscription bound to a VAPID key dash no longer holds (the
+ * secret key was rotated without DASH_SECRET_KEY_PREVIOUS). It receives nothing; the device
+ * subscribes again.
+ */
+export const PushStateStale = "stale";
+/**
+ * States of a subscription (contract D39, D41).
+ */
+export type PushState = typeof PushStatePending | typeof PushStateVerified | typeof PushStateStale;
+export const PushTypeApproval = "approval"; // an action waits for a person's decision
+export const PushTypeAttention = "attention"; // an attention item lasted 2 minutes, or the hourly summary
+export const PushTypeVerify = "verify"; // the verification code, the only push before verification
+export const PushTypeTest = "test"; // Settings -> Devices -> Send test push
+/**
+ * Types of push message (design P.2, contract D41, D44).
+ */
+export type PushType = typeof PushTypeApproval | typeof PushTypeAttention | typeof PushTypeVerify | typeof PushTypeTest;
+/**
+ * PushCodeLen is the length of a verification code: Crockford base32 characters.
+ */
+export const PushCodeLen = 8;
+/**
+ * PushDeviceNameMaxLen is the longest device name, in characters.
+ */
+export const PushDeviceNameMaxLen = 64;
+/**
+ * PushSubscriptionsMax is how many subscriptions one user may hold (contract D40).
+ */
+export const PushSubscriptionsMax = 10;
+/**
+ * PushVAPID is GET /api/v1/push/vapid: the applicationServerKey a browser subscribes with.
+ */
+export interface PushVAPID {
+  /**
+   * PublicKey is the VAPID public key, an uncompressed P-256 point (65 bytes) in unpadded
+   * base64url, as PushManager.subscribe takes it.
+   */
+  publicKey: string;
+}
+/**
+ * PushKeys are the subscription's keys (RFC 8291), as PushSubscription.toJSON() gives them.
+ */
+export interface PushKeys {
+  /**
+   * P256dh is the device's P-256 public key, uncompressed (65 bytes), in unpadded base64url.
+   */
+  p256dh: string;
+  /**
+   * Auth is the 16-byte authentication secret in unpadded base64url.
+   */
+  auth: string;
+}
+/**
+ * PushNotify is what a subscription receives besides verification and test pushes.
+ */
+export interface PushNotify {
+  /**
+   * Approvals pushes every approval request of the subscription's user.
+   */
+  approvals: boolean;
+  /**
+   * Attention is the lowest severity of attention item pushed: crit, warn or off.
+   */
+  attention: string;
+}
+/**
+ * PushSubscriptionRequest is the body of POST /api/v1/push/subscriptions. Registering an
+ * endpoint the user already holds replaces that subscription (same ID); it stays verified when
+ * the keys are unchanged, and is verified again otherwise. An endpoint another user holds is
+ * refused (409).
+ */
+export interface PushSubscriptionRequest {
+  /**
+   * Endpoint is the push service URL the subscription posts to: https, at most 2048 bytes.
+   * dash never shows, logs or audits it: anyone holding it can post to the device.
+   */
+  endpoint: string;
+  keys: PushKeys;
+  kind: string;
+  /**
+   * DeviceName is 1 to 64 characters, chosen by the user ("Pixel 9", "Firefox on the laptop").
+   */
+  deviceName: string;
+  notify: PushNotify;
+}
+/**
+ * PushSubscriptionInfo is one subscription as the API shows it: never the endpoint or the keys.
+ */
+export interface PushSubscriptionInfo {
+  id: string; // sub_<26 base32>
+  kind: string;
+  deviceName: string;
+  notify: PushNotify;
+  state: string;
+  /**
+   * EndpointHost is the push service's host name (fcm.googleapis.com, ntfy.example.com).
+   */
+  endpointHost: string;
+  createdAt: string;
+  /**
+   * VerifiedAt is when the code came back; null while pending.
+   */
+  verifiedAt: string | null;
+}
+/**
+ * PushSubscriptionList is GET /api/v1/push/subscriptions: the caller's subscriptions.
+ */
+export interface PushSubscriptionList {
+  subscriptions: PushSubscriptionInfo[];
+}
+/**
+ * PushVerifyRequest is the body of POST /api/v1/push/subscriptions/{id}/verify. Five wrong
+ * codes delete the subscription.
+ */
+export interface PushVerifyRequest {
+  /**
+   * Code is the 8 Crockford base32 characters of the verify push; case, I, L, O and U are
+   * read as Crockford does, and hyphens and spaces are ignored.
+   */
+  code: string;
+}
+/**
+ * PushMessage is the JSON a push carries, encrypted end to end (RFC 8291), at most 3 KiB. It
+ * holds lab text (titles, pod names) and never a secret; a tap opens URL.
+ */
+export interface PushMessage {
+  type: string;
+  /**
+   * ID names what the push is about (the approval or attention item); the notification's tag.
+   */
+  id: string;
+  title: string;
+  body: string;
+  /**
+   * URL is the absolute URL a tap opens: dash's public URL and a path, or the public URL itself
+   * when there is nothing in particular to open.
+   */
+  url: string;
+  ts: string;
+  /**
+   * Code is the verification code of a verify push; absent from every other type.
+   */
+  code?: string;
 }
 
 //////////

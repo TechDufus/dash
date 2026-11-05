@@ -28,6 +28,7 @@ type Tree struct {
 	UI       pluginconf.UI  `json:"ui" doc:"What the web UI is told by the server."`
 	MCP      MCPConfig      `json:"mcp" doc:"The read-only MCP server at /mcp, for AI clients holding an mcp-audience token."`
 	Plugins  PluginsConfig  `json:"plugins" doc:"One section per plugin. An empty URL turns that source off."`
+	Push     PushConfig     `json:"push" doc:"Web Push and UnifiedPush notifications to the devices people register in Settings -> Devices. Push needs a writable data dir and DASH_SECRET_KEY in auth.mode local, oidc or proxy."`
 }
 
 // ServerConfig is how dash listens and what it calls itself.
@@ -186,6 +187,7 @@ func (t *Tree) normalize() {
 	t.Server.AllowedHosts = splitHosts(strings.Join(t.Server.AllowedHosts, ","))
 	t.Server.CORSOrigins = normalizeOrigins(t.Server.CORSOrigins)
 	t.Server.ReadyRequires = splitHosts(strings.Join(t.Server.ReadyRequires, ","))
+	t.Push.AllowPrivate = splitHosts(strings.Join(t.Push.AllowPrivate, ","))
 	t.Auth.normalize()
 	for i := range t.Plugins.Kubernetes.BackupJobs {
 		j := &t.Plugins.Kubernetes.BackupJobs[i]
@@ -219,6 +221,8 @@ func (t Tree) config(dev, demo bool) Config {
 		DataDir:     t.DataDir,
 		SettingsUI:  t.Settings.UI,
 		IconBaseURL: t.UI.IconBaseURL,
+		PushContact: pushContact(t),
 	}
+	c.PushAllow, _ = parsePushAllow(t.Push.AllowPrivate)
 	return c
 }

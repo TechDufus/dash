@@ -42,12 +42,15 @@ type processAuth struct {
 	// oauth is the OAuth authorization server (contract D21): auth.oauth.enabled in local, oidc
 	// or proxy mode with a credential store that outlives the process; nil otherwise.
 	oauth *oauth.Server
+	// push says dash sends push notifications (contract D37): a credential store in a writable
+	// data dir, DASH_SECRET_KEY and a push contact, in local, oidc or proxy mode.
+	push bool
 }
 
 // deps hands the authenticator, the token resolver, the credential store and the session
 // machinery to the API.
 func (p processAuth) deps(d *api.Deps) {
-	d.Auth, d.Credentials, d.OAuth = p.authn, p.store, p.oauth
+	d.Auth, d.Credentials, d.OAuth, d.PushEnabled = p.authn, p.store, p.oauth, p.push
 	if p.tokens != nil { // a nil *Resolver in the interface would not be a nil TokenResolver
 		d.Tokens = p.tokens
 	}
@@ -127,6 +130,7 @@ func startAuth(res *config.Resolved, env sessionEnv, log *slog.Logger) (processA
 		pa.oauth = srv
 		pa.tokens.SetOAuth(srv)
 	}
+	pa.push = pushOn(res, fixed, pa.store, log)
 	return pa, nil
 }
 
@@ -161,6 +165,36 @@ func oauthOn(a config.AuthConfig, fixed bool, store *credentials.Store, log *slo
 		return false
 	}
 	log.Info("auth: OAuth authorization server", "configClients", len(a.OAuth.Clients), "cimdAllowPrivate", a.OAuth.CIMDAllowPrivate)
+	return true
+}
+
+// pushOn reports whether push can run (contract D37): never in dev, demo or auth.mode=none
+// (no outbound traffic from a demo), and otherwise only with a credential store in a writable
+// data dir, DASH_SECRET_KEY to seal the VAPID key and endpoints, and a contact for the VAPID
+// signature. When it cannot, one INFO names what is missing.
+func pushOn(res *config.Resolved, fixed bool, store *credentials.Store, log *slog.Logger) bool {
+	var missing []string
+	switch {
+	case fixed:
+		missing = append(missing, "dev and demo mode send no push")
+	case res.Tree.Auth.Mode == config.AuthModeNone:
+		missing = append(missing, "auth.mode=none has no push")
+	default:
+		if store == nil || !store.Persistent() {
+			missing = append(missing, "a writable data dir (DASH_DATA_DIR)")
+		}
+		if res.Keys == nil {
+			missing = append(missing, "DASH_SECRET_KEY")
+		}
+		if res.Config.PushContact == "" {
+			missing = append(missing, "push.contact (DASH_PUSH_CONTACT), since server.publicURL is not https")
+		}
+	}
+	if len(missing) > 0 {
+		log.Info("push: off", "missing", strings.Join(missing, "; "))
+		return false
+	}
+	log.Info("push: on", "allowPrivate", len(res.Tree.Push.AllowPrivate))
 	return true
 }
 

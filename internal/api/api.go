@@ -126,6 +126,9 @@ type Deps struct {
 	// OAuth is the authorization server (contract D21): auth.oauth.enabled in local, oidc or
 	// proxy mode with a writable data dir; nil otherwise, and its routes answer 404.
 	OAuth *oauth.Server
+	// PushEnabled says this dash sends push notifications (contract D37): a credential store in
+	// a writable data dir, DASH_SECRET_KEY and a push contact, in local, oidc or proxy mode.
+	PushEnabled bool
 
 	// The session modes (auth.mode local and oidc); every field is nil in the other modes.
 	// Sessions issues and clears the session cookie (login, setup, the OIDC callback, logout).
@@ -287,7 +290,8 @@ func firstOf(r *http.Request, keys ...string) string {
 // the principal can run some action, capabilities.tokens whether it may create personal access
 // tokens, capabilities.oauth whether dash serves its OAuth authorization server (Settings ->
 // Connected apps), capabilities.mcp whether the MCP server is on (mcp.enabled, read per request,
-// and never in auth.mode none). push is a later release.
+// and never in auth.mode none), capabilities.push whether it may register push devices
+// (Settings -> Devices).
 func (s *Server) me(w http.ResponseWriter, r *http.Request) {
 	p := principalFrom(r.Context())
 	scopes := []string{"read", "logs"}
@@ -300,7 +304,7 @@ func (s *Server) me(w http.ResponseWriter, r *http.Request) {
 		// Every principal reads /me: a URL's userinfo (credentials) is never in it.
 		UI:           model.MeUI{IconBaseURL: config.RedactURLs(s.d.Cfg.IconBaseURL).(string)},
 		Warnings:     []string{},
-		Capabilities: model.MeCapabilities{Tokens: p.Interactive() && s.tokensAvailable(), OAuth: s.d.OAuth != nil, MCP: s.mcpEnabled()},
+		Capabilities: model.MeCapabilities{Tokens: p.Interactive() && s.tokensAvailable(), OAuth: s.d.OAuth != nil, MCP: s.mcpEnabled(), Push: s.pushAllowed(p)},
 	}
 	// Standing warnings of the authenticator, for the SPA's banners. admin_wildcard and auth_none
 	// go to everyone, as they always did; anonymous_viewer and oidc_open are for administrators,
@@ -345,6 +349,13 @@ func (s *Server) tokensAvailable() bool {
 // tokens (every one but none).
 func (s *Server) mcpEnabled() bool {
 	return s.d.Tokens != nil && s.d.MCPEnabled != nil && s.d.MCPEnabled()
+}
+
+// pushAllowed reports whether p may register push devices (contract D37, D45): push is enabled
+// and p is a named person or a token holding the push scope. The anonymous viewer has no
+// devices; a static token never holds push.
+func (s *Server) pushAllowed(p auth.Principal) bool {
+	return s.d.PushEnabled && p.User != "" && p.Kind != auth.KindAnonymous && p.HasScope(model.OAuthScopePush)
 }
 
 // adminOnlyWarning reports whether Me carries the warning to administrators only.

@@ -64,6 +64,7 @@ func TestFileLoadsIntoConfig(t *testing.T) {
 		Listen: "0.0.0.0:9090", HealthListen: "127.0.0.1:9091", PublicURL: "https://dash.example.com",
 		AllowedHosts: []string{"media.example.com", "192.0.2.10"}, ReadyRequires: []string{"kubernetes", "flux"}, ReadyTimeout: 2 * time.Minute,
 		DataDir: "/var/lib/dash", SettingsUI: SettingsReadOnly, Limits: defaultLimits, CSP: CSPEnforce,
+		PushContact: "https://dash.example.com",
 	}
 	if !reflect.DeepEqual(res.Config, want) {
 		t.Errorf("Config =\n%+v\nwant\n%+v", res.Config, want)

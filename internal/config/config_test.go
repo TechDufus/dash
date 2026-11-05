@@ -42,10 +42,11 @@ func TestNoSiteDefaults(t *testing.T) {
 }
 
 // The empty environment of a production start (only the required public URL) switches nothing on.
+// The https public URL is push's contact; push itself stays off without DASH_SECRET_KEY.
 func TestPublicURLAloneConfiguresNoUpstream(t *testing.T) {
 	c := mustLoad(t, map[string]string{"DASH_SERVER_PUBLIC_URL": "https://dash.example.com"})
 	want := Defaults()
-	want.PublicURL = "https://dash.example.com"
+	want.PublicURL, want.PushContact = "https://dash.example.com", "https://dash.example.com"
 	if !reflect.DeepEqual(c, want) {
 		t.Errorf("Config =\n%+v\nwant\n%+v", c, want)
 	}
