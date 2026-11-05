@@ -88,8 +88,8 @@ Proxmox or the monitoring services, the actions (restart, reconcile) answer 202 
 anything, and every link points at `example.com`.
 
 ```sh
-cd web && npm ci && npm run build && cd ..   # the SPA is embedded at build time
-DASH_DEMO=true go run ./cmd/dash             # http://127.0.0.1:8080
+cd web && npm ci --ignore-scripts && npm run build && cd ..   # the SPA is embedded at build time
+DASH_DEMO=true go run ./cmd/dash                              # http://127.0.0.1:8080
 ```
 
 For UI work against the demo data, run `DASH_DEMO=true go run ./cmd/dash` and `make dev-web`,
@@ -710,7 +710,8 @@ DASH_DEMO=true make dev-api   # Go API on 127.0.0.1:8080, the demo twins' fake d
 make dev-web                  # Vite on http://localhost:5173, proxying /api to the Go API
 ```
 
-`make dev-web` runs `npm ci` first when `web/node_modules` is missing or older than the lockfile.
+`make dev-web` runs `npm ci --ignore-scripts` first when `web/node_modules` is missing or older
+than the lockfile.
 Health answers on http://127.0.0.1:8081/healthz.
 
 When those ports are taken, move the API and point Vite at it. Start `make dev-web` first, with
@@ -746,10 +747,15 @@ through the API server. To reach in-cluster services such as
 `DASH_PLUGINS_KUBERNETES_UPSTREAM_VIA_API_SERVER=true` (`plugins.kubernetes.upstreamViaAPIServer`;
 both dev examples set it, and the service proxy needs `get` and `create` on `services/proxy`).
 
-Open http://localhost:5173. `make check` runs everything CI runs: it regenerates the generated
-files and fails if they differ from what is committed (the table below), lints the OpenAPI
-document with vacuum, checks the Go and npm licences against the policy, then runs `go vet`,
-`go test`, `tsc`, Biome, the web tests and the production build.
+Open http://localhost:5173. `make check` runs what CI's `check` job runs: it regenerates the
+generated files and fails if they differ from what is committed (the table below), lints the
+OpenAPI document with vacuum, checks the Go and npm licences against the policy, then runs
+`go vet`, `go test`, `tsc`, Biome, the web tests and the production build.
+
+`make scan` runs CI's `scan` job: gitleaks and trufflehog over every commit of every ref,
+govulncheck, and actionlint and zizmor on the workflows. Its scanner binaries are pinned by
+sha256 in `scripts/ci/scan.sh`; made-up values (test fixtures, doc examples) are allowlisted in
+`.gitleaks.toml` and `scripts/ci/trufflehog-allow.txt`, each with a reason.
 
 Web tests run on Vitest with jsdom and Testing Library (`cd web && npm test`; `npx vitest` watches).
 Tests sit next to the code as `*.test.ts(x)`. `web/src/test/harness.tsx` has the shared helpers:
@@ -801,9 +807,10 @@ Run it after a UI change those pages show, and commit the images with the change
 
 ### Pre-push hook (opt-in)
 
-CI runs only on `main` and tags, so `.githooks/pre-push` is the pre-merge gate. It diffs the
-pushed commits against the remote (a new branch against its merge-base with `origin/main`) and
-checks only what changed, usually in a few seconds:
+CI runs on pushes to `main` and tags, and on pull requests once the repository is public; until
+then `.githooks/pre-push` is the pre-merge gate. It diffs the pushed commits against the remote (a
+new branch against its merge-base with `origin/main`) and checks only what changed, usually in a
+few seconds:
 
 - Go files: `go vet` and `go test` on the changed packages (`./...` if `go.mod`/`go.sum` changed
   or a package was deleted). Packages that import a changed package are not re-tested.
@@ -815,7 +822,7 @@ checks only what changed, usually in a few seconds:
   currency test.
 - `web/`: `tsc --noEmit`, Biome on the changed files (all of `web/` if its config, package or lock
   files changed) and `vitest run` whenever TypeScript or web config changed. Skipped with a hint
-  if `web/node_modules` is missing (`npm ci`).
+  if `web/node_modules` is missing (`npm ci --ignore-scripts`).
 - Anything else (other docs, CI, Dockerfile): nothing; the hook exits at once.
 
 It never runs `vite build` (too slow for a push); that, and checks across every package, stay in
