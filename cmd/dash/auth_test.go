@@ -53,14 +53,14 @@ func (c *logCapture) with(t *testing.T, level, msg string) []map[string]any {
 
 // resolvedAuth is a resolved configuration with the default auth section in the proxy mode (what
 // most of these tests build; the default mode is local), changed by mod, and the process flags
-// dev and demo.
+// dev and demo. It listens on the loopback, as a sidecar install does.
 func resolvedAuth(dev, demo bool, mod func(*config.AuthConfig)) *config.Resolved {
 	a := config.DefaultAuth()
 	a.Mode = config.AuthModeProxy
 	if mod != nil {
 		mod(&a)
 	}
-	return &config.Resolved{Tree: config.Tree{Auth: a}, Config: config.Config{Dev: dev, Demo: demo}}
+	return &config.Resolved{Tree: config.Tree{Auth: a}, Config: config.Config{Dev: dev, Demo: demo, Listen: "127.0.0.1:8080"}}
 }
 
 // authRequest is a request from peer carrying the user header.

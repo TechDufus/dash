@@ -183,7 +183,10 @@ reads `X-Forwarded-For`; any other peer sending it gets 401.
 **Example: an oauth2-proxy sidecar in the same pod.** The proxy listens for the world and forwards
 to dash on the pod's loopback, so the default `trustedProxies` already believe it. Since v0.14.0
 dash listens on `0.0.0.0:8080` by default, so the sidecar setup sets
-`DASH_SERVER_LISTEN=127.0.0.1:8080` explicitly; then nothing else can reach dash's port:
+`DASH_SERVER_LISTEN=127.0.0.1:8080` explicitly; then nothing else can reach dash's port. Without
+that line dash still refuses identity headers from any other peer, and it logs a WARN at start
+("the API listens on a non-loopback address but only loopback proxies are trusted") whenever
+every trusted proxy is a loopback address and the listener is not:
 
 ```yaml
 containers:

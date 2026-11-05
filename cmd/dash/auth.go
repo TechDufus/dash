@@ -3,7 +3,9 @@ package main
 import (
 	"fmt"
 	"log/slog"
+	"net/netip"
 	"slices"
+	"strings"
 
 	"github.com/TechDufus/dash/internal/auth"
 	"github.com/TechDufus/dash/internal/config"
@@ -23,7 +25,7 @@ func buildAuthenticator(res *config.Resolved, log *slog.Logger) (auth.Authentica
 	}
 	switch a.Mode {
 	case config.AuthModeProxy:
-		return buildProxy(a.Proxy, log)
+		return buildProxy(a.Proxy, res.Config.Listen, log)
 	case config.AuthModeNone:
 		return buildNone(res.Config.Listen, log), nil, nil
 	}
@@ -54,7 +56,7 @@ func fixedPrincipal(c config.Config) (auth.Principal, bool) {
 
 // buildProxy is the authenticator of auth.mode=proxy, with the startup lines an operator reads
 // to learn what is trusted: counts only, never names.
-func buildProxy(c config.AuthProxyConfig, log *slog.Logger) (auth.Authenticator, *auth.Proxy, error) {
+func buildProxy(c config.AuthProxyConfig, listen string, log *slog.Logger) (auth.Authenticator, *auth.Proxy, error) {
 	trust, err := auth.ParseTrust(c.TrustedProxies)
 	if err != nil {
 		return nil, nil, fmt.Errorf("auth.proxy.trustedProxies: %w", err)
@@ -76,8 +78,38 @@ func buildProxy(c config.AuthProxyConfig, log *slog.Logger) (auth.Authenticator,
 		}
 		log.Warn("auth.proxy.trustedProxies holds a very wide prefix: dash believes the identity headers of every peer in it", "prefix", b.String())
 	}
+	// A sidecar install that missed DASH_SERVER_LISTEN=127.0.0.1:8080 (the default before v0.14.0)
+	// exposes nothing, since a remote peer's identity is refused, but it should not pass silently.
+	if !config.LoopbackAddr(listen) && onlyLoopback(c.TrustedProxies) {
+		log.Warn(proxyListenWarning, "listen", listen)
+	}
 	return p, p, nil
 }
+
+// onlyLoopback reports whether every trustedProxies entry (a CIDR or an address, as ParseTrust
+// takes them) lies inside the loopback range. A list ParseTrust accepted is never empty.
+func onlyLoopback(entries []string) bool {
+	for _, e := range entries {
+		e = strings.TrimSpace(e)
+		p, err := netip.ParsePrefix(e)
+		if err != nil {
+			a, aerr := netip.ParseAddr(e)
+			if aerr != nil {
+				return false
+			}
+			p = netip.PrefixFrom(a, a.BitLen())
+		}
+		a := p.Addr().Unmap()
+		if !a.IsLoopback() || (a.Is4() && p.Bits() < 8) || (a.Is6() && p.Bits() < 128) {
+			return false
+		}
+	}
+	return len(entries) > 0
+}
+
+// proxyListenWarning is the startup WARN for proxy mode on a listener other machines can reach
+// while only loopback peers are believed.
+const proxyListenWarning = "the API listens on a non-loopback address but only loopback proxies are trusted; behind a sidecar set DASH_SERVER_LISTEN=127.0.0.1:8080"
 
 // adminWildcardWarning is the startup and reload WARN for adminUsers: ["*"].
 const adminWildcardWarning = `auth.proxy.adminUsers contains "*": every authenticated user is an administrator`

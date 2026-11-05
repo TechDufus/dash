@@ -71,3 +71,44 @@ func TestProxyModeOnTheDefaultListenRefusesRemotePeers(t *testing.T) {
 		}
 	}
 }
+
+// A sidecar install that kept the loopback trustedProxies but not the loopback listener warns at
+// start; a listener on loopback, or a trusted proxy outside loopback (in another pod), does not.
+func TestProxyModeWarnsWhenOnlyLoopbackProxiesAreTrustedOffLoopback(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		env  []string
+		warn bool
+	}{
+		{"default listen, default proxies", nil, true},
+		{"default listen, 127.0.0.0/8 and ::1", []string{`DASH_AUTH_PROXY_TRUSTED_PROXIES=["127.0.0.0/8","::1"]`}, true},
+		{"loopback listen", []string{"DASH_SERVER_LISTEN=127.0.0.1:8080"}, false},
+		{"ipv6 loopback listen", []string{"DASH_SERVER_LISTEN=[::1]:8080"}, false},
+		{"a proxy in another pod", []string{`DASH_AUTH_PROXY_TRUSTED_PROXIES=["127.0.0.1/32","10.42.0.0/16"]`}, false},
+		{"a proxy address", []string{`DASH_AUTH_PROXY_TRUSTED_PROXIES=["192.0.2.7"]`}, false},
+		// A prefix wider than the loopback range starts at a loopback address but is not loopback.
+		{"127.0.0.0/1", []string{`DASH_AUTH_PROXY_TRUSTED_PROXIES=["127.0.0.0/1"]`}, false},
+		{"::1/64", []string{`DASH_AUTH_PROXY_TRUSTED_PROXIES=["::1/64"]`}, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			res, err := config.Resolve(config.Sources{
+				Environ:  append([]string{"DASH_SERVER_PUBLIC_URL=https://dash.example.com", "DASH_AUTH_MODE=proxy"}, tc.env...),
+				Registry: secret.NewRegistry(),
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			var logs logCapture
+			if _, _, err := buildAuthenticator(res, logs.logger()); err != nil {
+				t.Fatal(err)
+			}
+			got := logs.with(t, "WARN", proxyListenWarning)
+			if (len(got) == 1) != tc.warn || len(got) > 1 {
+				t.Fatalf("WARN %v, want %v:\n%s", got, tc.warn, &logs.buf)
+			}
+			if tc.warn && got[0]["listen"] != res.Config.Listen {
+				t.Errorf("WARN names listen %v, want %s", got[0]["listen"], res.Config.Listen)
+			}
+		})
+	}
+}
