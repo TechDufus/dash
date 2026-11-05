@@ -54,6 +54,12 @@ Writes are refused in two more cases:
   audience, the scopes, when it was created and last used, with a revoke behind a confirmation.
   An administrator also lists one user's or everyone's. In the proxy mode, which has no logout,
   **Revoke all my connected apps** revokes every one of the caller's grants.
+- **`/settings/mcp`** switches the read-only MCP server (`mcp.enabled`, saved like any setting
+  and applied at once, without a restart) and shows whether dash serves it now. It names the
+  endpoint (`<server.publicURL>/mcp`), links to Tokens for a token with the `mcp` audience,
+  and gives a Claude Code example:
+  `claude mcp add --transport http dash <endpoint> --header "Authorization: Bearer <token>"`.
+  dash never serves MCP in the `none` mode.
 
 A viewer gets the navigation entries for the settings pages a viewer may use, **Tokens**
 (personal access tokens) and, with OAuth on, **Connected apps**: `/settings` shows them only
@@ -72,7 +78,7 @@ warnings of `/api/v1/me`, which can be dismissed for the rest of the tab's sessi
 |---|---|
 | `GET /api/v1/settings` | the revision, the store (`readonly`, `reason`, `dataDir`, `writable`, `secretKey`), `restartRequired`, the general fields and the plugin list |
 | `GET /api/v1/settings/schema` | the JSON Schema 2020-12 of the configuration |
-| `PUT /api/v1/settings/general` | a JSON merge patch relative to the root; only `ui.*` may be written; `If-Match` required |
+| `PUT /api/v1/settings/general` | a JSON merge patch relative to the root; only `ui.*` and `mcp.*` may be written; `If-Match` required |
 | `GET /api/v1/settings/plugins/{id}` | a plugin's schema, every field with its provenance, the revision and `testable` |
 | `PUT /api/v1/settings/plugins/{id}` | a JSON merge patch relative to `plugins.<id>`; `If-Match` required |
 | `POST /api/v1/settings/plugins/{id}/test` | the connection check with `{patch, secrets}` from the form; nothing is saved; 10 a minute per user |

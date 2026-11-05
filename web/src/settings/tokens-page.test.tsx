@@ -182,9 +182,9 @@ describe("TokensPage", () => {
 
     const dialog = await openCreate(user);
     expect(within(dialog).queryByLabelText("Action namespaces")).toBeNull();
-    // The MCP server is a later release: its audience cannot be picked yet.
+    // MCP is off (capabilities.mcp false): its audience cannot be picked.
     expect(within(dialog).getByLabelText(/^mcp/)).toBeDisabled();
-    expect(within(dialog).getByText("MCP server (later release)")).toBeInTheDocument();
+    expect(within(dialog).getByText("the MCP server (/mcp)")).toBeInTheDocument();
     await user.click(within(dialog).getByRole("checkbox", { name: "actions:kubernetes" }));
     await user.type(within(dialog).getByLabelText("Action namespaces"), "media, apps-*");
     await user.type(within(dialog).getByLabelText("Name"), "agent");

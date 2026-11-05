@@ -24,6 +24,12 @@ const PAGES: { href: string; label: string; note: string; gate: Gate }[] = [
     gate: "admin",
   },
   {
+    href: "/settings/mcp",
+    label: "MCP",
+    note: "The MCP server for AI clients.",
+    gate: "admin",
+  },
+  {
     href: "/settings/tokens",
     label: "Tokens",
     note: "Personal access tokens for scripts and agents.",

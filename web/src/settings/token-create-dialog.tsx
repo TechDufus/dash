@@ -35,7 +35,7 @@ import { createToken, invalidateTokens, useActionScopes } from "./tokens-api";
 
 const AUDIENCES = [
   { value: TokenAudienceAPI, label: "api", note: "the REST API (/api/v1)" },
-  { value: TokenAudienceMCP, label: "mcp", note: "MCP server (later release)" },
+  { value: TokenAudienceMCP, label: "mcp", note: "the MCP server (/mcp)" },
 ];
 
 const BASE_SCOPES = [
@@ -221,7 +221,7 @@ function CreateForm({
       >
         <legend className="mb-1 text-xs font-medium text-muted">Audience</legend>
         {AUDIENCES.map((a) => {
-          // The mcp audience is for the MCP server, which arrives in a later release.
+          // The mcp audience is offered while dash serves MCP (Settings → MCP turns it on).
           const off = a.value === TokenAudienceMCP && !mcp;
           return (
             <label

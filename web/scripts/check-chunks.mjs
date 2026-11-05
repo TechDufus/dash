@@ -25,6 +25,7 @@ const PAGES = {
   "plugin-settings-page": "No plugin named",
   "audit-page": "No loaded records of this kind",
   "tokens-page": "Type a user name, then Show.",
+  "mcp-page": "then give it to the client as a bearer token.",
   "settings-nav": "Personal access tokens for scripts and agents.",
   "consent-page": "This request expired; start again from the app.",
   "connected-apps-page": "Apps with access to dash",

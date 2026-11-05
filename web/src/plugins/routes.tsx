@@ -30,6 +30,7 @@ const TokensPage = lazy(() =>
 const ConnectedAppsPage = lazy(() =>
   import("@/settings/connected-apps-page").then((m) => ({ default: m.ConnectedAppsPage })),
 );
+const McpPage = lazy(() => import("@/settings/mcp-page").then((m) => ({ default: m.McpPage })));
 const UserSettingsPage = lazy(() =>
   import("@/settings/settings-nav").then((m) => ({ default: m.UserSettingsPage })),
 );
@@ -217,6 +218,11 @@ export function PluginRoutes() {
       <Route path="/settings/audit">
         <AdminOnly>
           <AuditPage />
+        </AdminOnly>
+      </Route>
+      <Route path="/settings/mcp">
+        <AdminOnly>
+          <McpPage />
         </AdminOnly>
       </Route>
       <Route path="/settings/tokens">

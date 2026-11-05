@@ -252,7 +252,7 @@ describe("SettingsPage plugin list", () => {
     const u = userEvent.setup();
 
     const order: string[] = [];
-    for (let i = 0; i < 11; i++) {
+    for (let i = 0; i < 12; i++) {
       await u.tab();
       const el = document.activeElement as HTMLElement;
       order.push(`${el.getAttribute("role") ?? el.tagName.toLowerCase()}:${accessibleName(el)}`);
@@ -261,6 +261,7 @@ describe("SettingsPage plugin list", () => {
     // the reason; Launcher is not configurable.
     expect(order).toEqual([
       "a:Audit log",
+      "a:MCP",
       "a:Tokens",
       "button:Export as config.yaml snippet",
       "a:Configure Proxmox VE",

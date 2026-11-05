@@ -89,14 +89,14 @@ describe("TestViewerCannotOpenSettings", () => {
     expect(f.calls.filter((c) => c.path.startsWith("/api/v1/settings"))).toEqual([]);
   });
 
-  it("an administrator's navigation is unchanged, with Tokens beside the audit log", async () => {
+  it("an administrator's navigation has Tokens and MCP beside the audit log", async () => {
     const f = stubFetch(settingsRoutes());
     renderAt("/settings");
     await screen.findByRole("heading", { name: "Settings" }, wait);
     expect(screen.queryByText(/Not authorised/)).toBeNull();
     expect(railLabels()).toContain("Settings");
     await waitFor(() => expect(f.callsTo("GET /api/v1/settings").length).toBeGreaterThan(0), wait);
-    expect(settingsLinks()).toEqual(["/settings/audit", "/settings/tokens"]);
+    expect(settingsLinks()).toEqual(["/settings/audit", "/settings/mcp", "/settings/tokens"]);
     expect(screen.getByRole("button", { name: /Export/ })).toBeInTheDocument();
   });
 
@@ -104,7 +104,7 @@ describe("TestViewerCannotOpenSettings", () => {
     stubFetch(settingsRoutes({ "GET /api/v1/me": me("admin", { authMode: "none" }) }));
     renderAt("/settings");
     await screen.findByRole("link", { name: "Audit log" }, wait);
-    expect(settingsLinks()).toEqual(["/settings/audit"]);
+    expect(settingsLinks()).toEqual(["/settings/audit", "/settings/mcp"]);
   });
 
   // Connected apps exists only where the OAuth server is on (capabilities.oauth); every test
@@ -123,7 +123,7 @@ describe("TestViewerCannotOpenSettings", () => {
       await screen.findByRole("link", { name: "Connected apps" }, wait);
       expect(settingsLinks()).toEqual(
         role === "admin"
-          ? ["/settings/audit", "/settings/tokens", "/settings/connected-apps"]
+          ? ["/settings/audit", "/settings/mcp", "/settings/tokens", "/settings/connected-apps"]
           : ["/settings/tokens", "/settings/connected-apps"],
       );
       await userEvent.click(screen.getByRole("link", { name: "Connected apps" }));
@@ -183,11 +183,19 @@ describe("TestViewerCannotOpenSettings", () => {
     );
   });
 
-  it("gates the audit page the same way", async () => {
+  it.each(["/settings/audit", "/settings/mcp"])("gates %s the same way", async (path) => {
     const viewer = stubFetch(settingsRoutes({ "GET /api/v1/me": me("viewer") }));
-    renderAt("/settings/audit");
+    renderAt(path);
     await screen.findByText(/Not authorised/, undefined, wait);
     expect(viewer.calls.filter((c) => c.path.startsWith("/api/v1/settings"))).toEqual([]);
+  });
+
+  it("opens the MCP page from the Settings page", async () => {
+    stubFetch(settingsRoutes());
+    renderAt("/settings");
+    await userEvent.click(await screen.findByRole("link", { name: "MCP" }, wait));
+    await screen.findByRole("heading", { name: "MCP" }, wait);
+    expect(screen.getByRole("switch", { name: "Serve MCP at /mcp" })).toBeInTheDocument();
   });
 
   it("opens the audit page from the Settings page", async () => {
@@ -208,6 +216,7 @@ describe("TestViewerCannotOpenSettings", () => {
     ["/settings", "heading"],
     ["/settings/audit", "notice"],
     ["/settings/plugins/proxmox", "notice"],
+    ["/settings/mcp", "notice"],
   ])("in demo mode %s makes no settings request", async (path, shows) => {
     const f = stubFetch(
       settingsRoutes({

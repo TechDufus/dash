@@ -169,7 +169,7 @@ export function settingsPlugin(id: string, over: Partial<SettingsPlugin> = {}): 
 }
 
 /** The general section: server.*, auth.*, settings.*, dataDir are ui-ineligible; ui.iconBaseURL
- * is writable and restart-marked. */
+ * is writable and restart-marked; mcp.enabled is writable and live. */
 export function generalFields(): SettingField[] {
   const ineligible = { locked: true, lockedBy: "ui-ineligible" } as const;
   return [
@@ -193,6 +193,7 @@ export function generalFields(): SettingField[] {
     field("settings.secretNamespaces", "array", { value: [], restart: true, ...ineligible }),
     field("dataDir", "string", { value: "/data", restart: true, ...ineligible }),
     field("ui.iconBaseURL", "string", { value: "", restart: true }),
+    field("mcp.enabled", "boolean", { value: false }),
   ];
 }
 
