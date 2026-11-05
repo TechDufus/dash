@@ -6,7 +6,7 @@ it unchanged; what differs is whether it gives dash a disk.
 
 Until `ghcr.io/techdufus/dash` is published, build for linux/amd64 and push to a registry your
 platform can pull from (Artifact Registry for Cloud Run, ECR for ECS), e.g.
-`docker buildx build --platform linux/amd64 --build-arg VERSION=0.14.6 -t REGISTRY/dash:0.14.6 --push .`,
+`docker buildx build --platform linux/amd64 --build-arg VERSION=0.14.7 -t REGISTRY/dash:0.14.7 --push .`,
 and use that name below.
 
 ## Configuration: environment and mounted files
@@ -28,7 +28,7 @@ variables, or mount them as files and refer to them:
 Make the password hash with the image itself (it asks for the password twice, without echo):
 
 ```sh
-docker run --rm -it REGISTRY/dash:0.14.6 hash-password
+docker run --rm -it REGISTRY/dash:0.14.7 hash-password
 ```
 
 A value from the environment or the file wins over the settings page, which shows it locked
@@ -93,7 +93,7 @@ prefer a stop-then-start deploy to a rolling one when a volume is attached. Netw
 
 ## Platform notes
 
-**Fly.io.** `fly launch --image REGISTRY/dash:0.14.6 --internal-port 8080 --no-deploy`,
+**Fly.io.** `fly launch --image REGISTRY/dash:0.14.7 --internal-port 8080 --no-deploy`,
 then in `fly.toml` keep `[http_service]` with `internal_port = 8080` and set
 `auto_stop_machines = "off"` (a stopped machine is a restart). Add `[mounts]` with
 `source = "dash_data"`, `destination = "/data"`, and a top-level `[checks.readyz]` with
@@ -116,7 +116,7 @@ locking; its file system is in memory): use `oidc` or `proxy`, or local mode wit
 the sign-out caveat above.
 
 ```sh
-gcloud run deploy dash --image REGISTRY/dash:0.14.6 --region REGION --allow-unauthenticated \
+gcloud run deploy dash --image REGISTRY/dash:0.14.7 --region REGION --allow-unauthenticated \
   --port 8080 --min-instances 1 --max-instances 1 --no-cpu-throttling \
   --set-env-vars DASH_SERVER_PUBLIC_URL=https://…,DASH_SETTINGS_UI=readonly,DASH_CONFIG=/etc/dash/config.yaml \
   --set-secrets DASH_ADMIN_PASSWORD_HASH=dash-admin-hash:1,/etc/dash/config.yaml=dash-config:latest
