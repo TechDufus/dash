@@ -1,0 +1,123 @@
+{{- if .Values.rbac.create }}
+{{- $actions := .Values.rbac.actions }}
+{{- if or .Values.rbac.read (include "dash.anyAction" .) }}
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "dash.clusterName" . }}
+  labels:
+    {{- include "dash.labels" . | nindent 4 }}
+rules:
+  {{- if .Values.rbac.read }}
+  # The kubernetes plugin's informers, in every namespace.
+  - apiGroups: [""]
+    resources: [nodes, namespaces, pods, persistentvolumeclaims, events]
+    verbs: [get, list, watch]
+  - apiGroups: [apps]
+    resources: [deployments, statefulsets, daemonsets, replicasets]
+    verbs: [get, list, watch]
+  - apiGroups: [batch]
+    resources: [jobs, cronjobs]
+    verbs: [get, list, watch]
+  # The CRDs the plugins show when the cluster has them.
+  - apiGroups: [cert-manager.io]
+    resources: [certificates]
+    verbs: [get, list, watch]
+  - apiGroups: [external-secrets.io]
+    resources: [externalsecrets]
+    verbs: [get, list, watch]
+  - apiGroups: [gateway.networking.k8s.io]
+    resources: [httproutes]
+    verbs: [get, list, watch]
+  - apiGroups: [postgresql.cnpg.io]
+    resources: [clusters]
+    verbs: [get, list, watch]
+  - apiGroups: [kustomize.toolkit.fluxcd.io]
+    resources: [kustomizations]
+    verbs: [get, list, watch]
+  - apiGroups: [helm.toolkit.fluxcd.io]
+    resources: [helmreleases]
+    verbs: [get, list, watch]
+  - apiGroups: [source.toolkit.fluxcd.io]
+    resources: [gitrepositories, ocirepositories, helmrepositories]
+    verbs: [get, list, watch]
+  {{- if include "dash.readIngresses" . }}
+  # config.plugins.kubernetes.apps.ingress
+  - apiGroups: [networking.k8s.io]
+    resources: [ingresses]
+    verbs: [get, list, watch]
+  {{- end }}
+  {{- end }}
+  {{- if $actions.restart }}
+  # The restart action: the pod template's restartedAt annotation. It reads the namespace first
+  # for its protected-label check.
+  - apiGroups: [""]
+    resources: [namespaces]
+    verbs: [get]
+  - apiGroups: [apps]
+    resources: [deployments, statefulsets, daemonsets]
+    verbs: [patch]
+  {{- end }}
+  {{- if $actions.fluxReconcile }}
+  # The reconcile action: the requestedAt annotation.
+  - apiGroups: [kustomize.toolkit.fluxcd.io]
+    resources: [kustomizations]
+    verbs: [patch]
+  - apiGroups: [helm.toolkit.fluxcd.io]
+    resources: [helmreleases]
+    verbs: [patch]
+  - apiGroups: [source.toolkit.fluxcd.io]
+    resources: [gitrepositories, ocirepositories, helmrepositories]
+    verbs: [patch]
+  {{- end }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "dash.clusterName" . }}
+  labels:
+    {{- include "dash.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ include "dash.clusterName" . }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "dash.serviceAccountName" . }}
+    namespace: {{ .Release.Namespace }}
+{{- end }}
+{{- range .Values.rbac.secretRefs }}
+---
+# k8s: references: dash gets each named Secret and watches it with a metadata.name field
+# selector; it can read nothing else of the namespace.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "dash.fullname" $ }}-secret-refs
+  namespace: {{ .namespace }}
+  labels:
+    {{- include "dash.labels" $ | nindent 4 }}
+rules:
+  - apiGroups: [""]
+    resources: [secrets]
+    resourceNames:
+      {{- toYaml .names | nindent 6 }}
+    verbs: [get, list, watch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "dash.fullname" $ }}-secret-refs
+  namespace: {{ .namespace }}
+  labels:
+    {{- include "dash.labels" $ | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ include "dash.fullname" $ }}-secret-refs
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "dash.serviceAccountName" $ }}
+    namespace: {{ $.Release.Namespace }}
+{{- end }}
+{{- end }}

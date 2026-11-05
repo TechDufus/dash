@@ -1,0 +1,5 @@
+# The value sets the tests and CI render; not part of the packaged chart.
+ci/
+.DS_Store
+*.swp
+*.tmp

@@ -1,0 +1,178 @@
+{{- include "dash.validate" . }}
+{{- $sidecar := .Values.auth.oauth2ProxySidecar }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "dash.fullname" . }}
+  labels:
+    {{- include "dash.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  # Always Recreate: the data volume holds one dash's state, and during a rolling update two pods
+  # on one node can both mount a ReadWriteOnce volume.
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "dash.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      annotations:
+        # A config change restarts dash, so restart-only settings apply too.
+        checksum/config: {{ include "dash.config" . | sha256sum }}
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      labels:
+        {{- include "dash.selectorLabels" . | nindent 8 }}
+        {{- with .Values.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      serviceAccountName: {{ include "dash.serviceAccountName" . }}
+      automountServiceAccountToken: {{ include "dash.apiAccess" . | eq "true" }}
+      # Service links would add DASH_PORT, DASH_SERVICE_HOST and the like for a Service named
+      # dash, and dash reads every DASH_* variable as a setting.
+      enableServiceLinks: false
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: dash
+          image: {{ include "dash.imageRef" (dict "image" .Values.image "default" .Chart.AppVersion) }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          env:
+            - name: DASH_CONFIG
+              value: /etc/dash/config.yaml
+            - name: DASH_SERVER_LISTEN
+              value: {{ include "dash.listen" . | quote }}
+            # The probes below need the health listener on the pod's address.
+            - name: DASH_SERVER_HEALTH_LISTEN
+              value: "0.0.0.0:8081"
+            - name: DASH_SETTINGS_UI
+              value: {{ .Values.settings.ui | quote }}
+            - name: DASH_SECRET_KEY_FILE
+              value: /run/secrets/dash/secret-key
+            {{- range .Values.secretEnv }}
+            - name: {{ .name }}
+              valueFrom:
+                secretKeyRef:
+                  {{- toYaml .secretKeyRef | nindent 18 }}
+            {{- end }}
+            {{- with .Values.env }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          ports:
+            {{- if not $sidecar.enabled }}
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+            {{- end }}
+            - name: health
+              containerPort: 8081
+              protocol: TCP
+          # /readyz answers 503 for up to server.readyTimeout (1m by default) while the plugins in
+          # server.readyRequires start; the startup probe allows 2 minutes.
+          startupProbe:
+            httpGet: {path: /readyz, port: health}
+            periodSeconds: 5
+            failureThreshold: 24
+          readinessProbe:
+            httpGet: {path: /readyz, port: health}
+            periodSeconds: 10
+            failureThreshold: 3
+          livenessProbe:
+            httpGet: {path: /healthz, port: health}
+            periodSeconds: 10
+            failureThreshold: 3
+          {{- with .Values.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          volumeMounts:
+            - name: config
+              mountPath: /etc/dash
+              readOnly: true
+            - name: data
+              mountPath: /data
+            - name: secret-key
+              mountPath: /run/secrets/dash
+              readOnly: true
+            {{- with .Values.extraVolumeMounts }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+        {{- if $sidecar.enabled }}
+        - name: oauth2-proxy
+          image: {{ include "dash.imageRef" (dict "image" $sidecar.image "default" "") }}
+          imagePullPolicy: {{ $sidecar.image.pullPolicy }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          args:
+            - --upstream=http://127.0.0.1:8080/
+            - --http-address=0.0.0.0:{{ $sidecar.port }}
+            - --reverse-proxy=true
+            - --pass-user-headers=true
+            {{- range $sidecar.args }}
+            - {{ . | quote }}
+            {{- end }}
+          {{- with $sidecar.env }}
+          env:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with $sidecar.envFrom }}
+          envFrom:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          ports:
+            - name: http
+              containerPort: {{ $sidecar.port }}
+              protocol: TCP
+          readinessProbe:
+            httpGet: {path: /ready, port: http}
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: {path: /ping, port: http}
+            periodSeconds: 10
+          {{- with $sidecar.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+        {{- end }}
+      volumes:
+        - name: config
+          configMap:
+            name: {{ include "dash.fullname" . }}
+        - name: data
+          {{- if .Values.persistence.enabled }}
+          persistentVolumeClaim:
+            claimName: {{ include "dash.fullname" . }}-data
+          {{- else }}
+          emptyDir: {}
+          {{- end }}
+        - name: secret-key
+          secret:
+            secretName: {{ .Values.secretKey.existingSecret }}
+            items:
+              - key: {{ .Values.secretKey.key }}
+                path: secret-key
+            defaultMode: 0440
+        {{- with .Values.extraVolumes }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

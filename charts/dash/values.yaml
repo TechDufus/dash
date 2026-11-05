@@ -1,0 +1,196 @@
+# Values for the dash chart. docs/deploy/kubernetes.md describes every option;
+# values.schema.json checks their shape.
+
+image:
+  repository: ghcr.io/techdufus/dash
+  # Defaults to the chart's appVersion.
+  tag: ""
+  # sha256:... pins the image; the tag then stays in the reference for people to read.
+  digest: ""
+  pullPolicy: IfNotPresent
+imagePullSecrets: []
+
+nameOverride: ""
+fullnameOverride: ""
+
+# More than one replica renders only with settings.ui: readonly and persistence.enabled: false,
+# and works only with auth.mode: proxy (the sidecar, or an identity proxy in front): in local and
+# oidc mode each replica keeps its own session salt (and, without DASH_ADMIN_PASSWORD_HASH, its
+# own setup token), so a request the Service sends to another replica is signed out. Rendering
+# fails otherwise. The Deployment always uses the Recreate strategy, so a rollout never runs two
+# pods on one data volume.
+replicaCount: 1
+
+# dash's config file (`dash config schema`), rendered into a ConfigMap mounted at
+# /etc/dash/config.yaml and passed as DASH_CONFIG. server.publicURL is required.
+# A secret field (x-dash-secret in the schema) takes only an env:NAME, file:/path or
+# k8s:<namespace>/<name>#<key> reference: rendering fails on a literal, so no secret ends up in
+# values or in the ConfigMap; a URL with user:password@ in it is refused too. The chart sets
+# server.listen, server.healthListen, settings.ui (use the settings.ui value here) and dataDir
+# itself; rendering fails when config sets them.
+config: {}
+#  server:
+#    publicURL: https://dash.example.com
+#  plugins:
+#    proxmox:
+#      url: https://pve.example.com:8006
+#      tokenID: dash@pve!dash
+#      tokenSecret: env:PROXMOX_TOKEN_SECRET
+
+# Extra environment variables for dash: name/value or name/valueFrom. Rendering refuses a literal
+# value for a secret setting's variable (use secretEnv or a reference) and any variable the chart
+# sets (DASH_CONFIG, DASH_SERVER_LISTEN, DASH_SERVER_HEALTH_LISTEN, DASH_SETTINGS_UI,
+# DASH_SECRET_KEY, DASH_DATA_DIR and their _FILE forms).
+env: []
+
+# Environment variables from Secrets, for env: references in config or for DASH_* variables:
+#  - name: PROXMOX_TOKEN_SECRET
+#    secretKeyRef: {name: proxmox, key: tokenSecret}
+secretEnv: []
+
+settings:
+  # editable: settings can be changed in the UI and are saved on the data volume.
+  # readonly: the UI shows every setting and the server refuses every write (GitOps installs,
+  # and required for more than one replica).
+  ui: editable
+
+# Required: an existing Secret with dash's secret key (`openssl rand -base64 32`), which encrypts
+# secrets entered in the UI and signs sessions. It is mounted and passed as DASH_SECRET_KEY_FILE.
+# Rendering fails without it.
+secretKey:
+  existingSecret: ""
+  key: secretKey
+
+persistence:
+  # true: a PersistentVolumeClaim for /data (UI settings, credentials, audit log, backups).
+  # false: an emptyDir, lost with the pod. Set settings.ui: readonly then: edits made in the UI
+  # would vanish at the next restart, and so would every sign-in.
+  enabled: true
+  size: 256Mi
+  # [ReadWriteOncePod] keeps any second pod in the cluster off the volume, where the CSI driver
+  # supports it.
+  accessModes: [ReadWriteOnce]
+  # Empty: the cluster's default StorageClass.
+  storageClassName: ""
+
+serviceAccount:
+  create: true
+  # Defaults to the full name of the release; required when create is false.
+  name: ""
+  annotations: {}
+
+rbac:
+  # Render the ClusterRole, the Roles and their bindings. false: you grant them yourself; the
+  # flags below still decide whether the pod mounts a ServiceAccount token at all.
+  create: true
+  # What the kubernetes, flux and cnpg plugins read: nodes, namespaces, pods, PVCs, events,
+  # workloads, jobs and cronjobs, plus the CRDs they show when the cluster has them. Ingresses
+  # are added when config.plugins.kubernetes.apps.ingress is true.
+  read: true
+  actions:
+    # patch on Deployments, StatefulSets and DaemonSets: the kubernetes plugin's restart action
+    # (also set config.plugins.kubernetes.actions.enabled).
+    restart: false
+    # patch on the Flux sources, Kustomizations and HelmReleases: the flux plugin's reconcile
+    # action (also set config.plugins.flux.actions.enabled).
+    fluxReconcile: false
+  # The Secrets dash may read for k8s: references, by namespace. Each entry renders a Role with
+  # get, list and watch limited to these names (resourceNames), and its RoleBinding.
+  secretRefs: []
+  #  - namespace: dash
+  #    names: [proxmox]
+
+guardrails:
+  # A ValidatingAdmissionPolicy that lets dash's ServiceAccount change only what the enabled
+  # actions need: the restartedAt annotation of a pod template, the requestedAt annotation of a
+  # Flux object. auto renders it whenever an rbac.actions flag is true; true or false force it.
+  enabled: auto
+
+auth:
+  # An oauth2-proxy container in the pod: dash listens on 127.0.0.1:8080 and the Service sends
+  # traffic to the proxy. config.auth.mode defaults to proxy and config.auth.proxy.trustedProxies
+  # to the loopback. Add your provider, client, allowed users or groups and --email-domain
+  # (oauth2-proxy refuses to start without it; --email-domain=* when --github-user or an org
+  # already limits who signs in) to args, and the client and cookie secrets through valueFrom in
+  # env or through envFrom (rendering refuses a literal, and --client-secret or --cookie-secret in
+  # args).
+  oauth2ProxySidecar:
+    enabled: false
+    image:
+      repository: quay.io/oauth2-proxy/oauth2-proxy
+      tag: v7.15.5
+      digest: ""
+      pullPolicy: IfNotPresent
+    port: 4180
+    args: []
+    #  - --provider=github
+    #  - --github-user=alice
+    #  - --email-domain=*
+    #  - --redirect-url=https://dash.example.com/oauth2/callback
+    #  - --cookie-secure=true
+    env: []
+    envFrom: []
+    #  - secretRef: {name: oauth2-proxy}
+    resources: {}
+
+service:
+  type: ClusterIP
+  # Leads to dash, or to the proxy with auth.oauth2ProxySidecar.
+  port: 8080
+  annotations: {}
+
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  hosts: []
+  #  - host: dash.example.com
+  #    paths:
+  #      - {path: /, pathType: Prefix}
+  tls: []
+  #  - {secretName: dash-tls, hosts: [dash.example.com]}
+
+httpRoute:
+  enabled: false
+  annotations: {}
+  parentRefs: []
+  #  - {name: gateway, namespace: gateway, sectionName: https}
+  hostnames: []
+  #  - dash.example.com
+
+networkPolicy:
+  # Admit traffic only to the served port (dash, or the proxy), and the probes' port 8081.
+  # Egress stays open: dash calls the APIs it shows.
+  enabled: false
+  # NetworkPolicyPeers allowed to reach the served port; empty allows any source.
+  from: []
+  #  - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: gateway}}
+
+podAnnotations: {}
+podLabels: {}
+
+# The restricted Pod Security Standard.
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 65532
+  runAsGroup: 65532
+  fsGroup: 65532
+  seccompProfile:
+    type: RuntimeDefault
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop: [ALL]
+
+resources: {}
+nodeSelector: {}
+tolerations: []
+affinity: {}
+
+# More volumes, for example a Secret mounted for file: references.
+extraVolumes: []
+#  - name: proxmox
+#    secret: {secretName: proxmox}
+extraVolumeMounts: []
+#  - {name: proxmox, mountPath: /run/secrets/proxmox, readOnly: true}

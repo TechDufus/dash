@@ -1,0 +1,123 @@
+{{- if include "dash.guardrails" . }}
+{{- $restart := .Values.rbac.actions.restart | toString }}
+{{- $reconcile := .Values.rbac.actions.fluxReconcile | toString }}
+# The guardrail: dash's ServiceAccount may change a workload or a Flux object only the way an
+# enabled action does, whatever RBAC grants it. The restart action sets the pod template's
+# kubectl.kubernetes.io/restartedAt annotation of a Deployment, StatefulSet or DaemonSet; the
+# reconcile action sets the reconcile.fluxcd.io/requestedAt annotation of a Flux object. Anything
+# else (another field, another annotation, a subresource such as scale or status, a create or a
+# delete, an action that is off) is denied.
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: {{ include "dash.clusterName" . }}-guardrail
+  labels:
+    {{- include "dash.labels" . | nindent 4 }}
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+      - apiGroups: [apps]
+        apiVersions: ["*"]
+        operations: [CREATE, UPDATE, DELETE]
+        resources: [deployments, statefulsets, daemonsets, deployments/*, statefulsets/*, daemonsets/*]
+      - apiGroups: [kustomize.toolkit.fluxcd.io, helm.toolkit.fluxcd.io, source.toolkit.fluxcd.io]
+        apiVersions: ["*"]
+        operations: [CREATE, UPDATE, DELETE]
+        resources:
+          - kustomizations
+          - helmreleases
+          - gitrepositories
+          - ocirepositories
+          - helmrepositories
+          - kustomizations/*
+          - helmreleases/*
+          - gitrepositories/*
+          - ocirepositories/*
+          - helmrepositories/*
+  matchConditions:
+    - name: dash-service-account
+      expression: request.userInfo.username == 'system:serviceaccount:{{ .Release.Namespace }}:{{ include "dash.serviceAccountName" . }}'
+  variables:
+    # The subresource of the request (absent, not empty, for the object itself).
+    - name: subresource
+      expression: request.?subResource.orValue('')
+    # An update of the object itself; dash never writes a subresource.
+    - name: update
+      expression: request.operation == 'UPDATE' && variables.subresource == ''
+    - name: workload
+      expression: request.resource.group == 'apps'
+    # The one object annotation that may change: the reconcile request on a Flux object, or on a
+    # DaemonSet the template generation the API server itself bumps on every template change.
+    - name: annotationKey
+      expression: >-
+        request.resource.resource == 'daemonsets' ? 'deprecated.daemonset.template.generation' :
+        variables.workload ? '' : 'reconcile.fluxcd.io/requestedAt'
+    - name: newAnnotations
+      expression: "variables.update ? object.metadata.?annotations.orValue({}) : {}"
+    - name: oldAnnotations
+      expression: "variables.update ? oldObject.metadata.?annotations.orValue({}) : {}"
+    - name: restartKey
+      expression: "'kubectl.kubernetes.io/restartedAt'"
+    - name: newTemplateAnnotations
+      expression: "variables.update && variables.workload ? object.spec.template.metadata.?annotations.orValue({}) : {}"
+    - name: oldTemplateAnnotations
+      expression: "variables.update && variables.workload ? oldObject.spec.template.metadata.?annotations.orValue({}) : {}"
+  validations:
+    - expression: variables.subresource == ''
+      message: dash's ServiceAccount may not change a subresource (scale, status) of a workload or a Flux object
+      reason: Forbidden
+    - expression: request.operation == 'UPDATE'
+      message: dash's ServiceAccount may not create or delete workloads or Flux objects
+      reason: Forbidden
+    - expression: "!variables.update || !variables.workload || {{ $restart }}"
+      message: dash's restart action is off (rbac.actions.restart), so dash may not change workloads
+      reason: Forbidden
+    - expression: "!variables.update || variables.workload || {{ $reconcile }}"
+      message: dash's reconcile action is off (rbac.actions.fluxReconcile), so dash may not change Flux objects
+      reason: Forbidden
+    - expression: >-
+        !variables.update || (
+        object.metadata.?labels.orValue({}) == oldObject.metadata.?labels.orValue({}) &&
+        object.metadata.?finalizers.orValue([]) == oldObject.metadata.?finalizers.orValue([]) &&
+        object.metadata.?ownerReferences.orValue([]) == oldObject.metadata.?ownerReferences.orValue([]))
+      message: dash may not change labels, finalizers or owner references
+      reason: Forbidden
+    - expression: >-
+        !variables.update || (
+        variables.newAnnotations.all(k, k == variables.annotationKey ||
+        (k in variables.oldAnnotations && variables.oldAnnotations[k] == variables.newAnnotations[k])) &&
+        variables.oldAnnotations.all(k, k == variables.annotationKey || k in variables.newAnnotations))
+      message: dash may change no annotation but the reconcile request (reconcile.fluxcd.io/requestedAt)
+      reason: Forbidden
+    - expression: "!variables.update || variables.workload || object.?spec == oldObject.?spec"
+      message: dash may not change a Flux object's spec
+      reason: Forbidden
+    - expression: >-
+        !variables.update || !variables.workload || (
+        object.spec.all(k, k == 'template' || (k in oldObject.spec && object.spec[k] == oldObject.spec[k])) &&
+        oldObject.spec.all(k, k == 'template' || k in object.spec) &&
+        object.spec.template.?spec == oldObject.spec.template.?spec &&
+        object.spec.template.metadata.all(k, k == 'annotations' ||
+        (k in oldObject.spec.template.metadata && object.spec.template.metadata[k] == oldObject.spec.template.metadata[k])) &&
+        oldObject.spec.template.metadata.all(k, k == 'annotations' || k in object.spec.template.metadata))
+      message: dash may change nothing of a workload's spec but the pod template's restartedAt annotation
+      reason: Forbidden
+    - expression: >-
+        !variables.update || !variables.workload || (
+        variables.newTemplateAnnotations.all(k, k == variables.restartKey ||
+        (k in variables.oldTemplateAnnotations && variables.oldTemplateAnnotations[k] == variables.newTemplateAnnotations[k])) &&
+        variables.oldTemplateAnnotations.all(k, k == variables.restartKey || k in variables.newTemplateAnnotations))
+      message: dash may change no pod template annotation but kubectl.kubernetes.io/restartedAt
+      reason: Forbidden
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: {{ include "dash.clusterName" . }}-guardrail
+  labels:
+    {{- include "dash.labels" . | nindent 4 }}
+spec:
+  policyName: {{ include "dash.clusterName" . }}-guardrail
+  validationActions: [Deny]
+{{- end }}

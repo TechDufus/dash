@@ -1,0 +1,6 @@
+# The chart's defaults (editable settings, a PVC, read-only RBAC) plus what every install sets.
+secretKey:
+  existingSecret: dash-secret-key
+config:
+  server:
+    publicURL: http://dash.example.com

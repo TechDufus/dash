@@ -1,0 +1,17 @@
+# Both write actions on: patch RBAC for them, and (guardrails.enabled: auto) the guardrail policy.
+secretKey:
+  existingSecret: dash-secret-key
+config:
+  server:
+    publicURL: https://dash.example.com
+  plugins:
+    kubernetes:
+      actions:
+        enabled: true
+    flux:
+      actions:
+        enabled: true
+rbac:
+  actions:
+    restart: true
+    fluxReconcile: true

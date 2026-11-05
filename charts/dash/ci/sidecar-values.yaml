@@ -1,0 +1,31 @@
+# oauth2-proxy in the pod: dash on the loopback in proxy mode, the Service and the route to the
+# proxy, and a NetworkPolicy.
+secretKey:
+  existingSecret: dash-secret-key
+config:
+  server:
+    publicURL: https://dash.example.com
+  auth:
+    proxy:
+      adminUsers: [alice]
+auth:
+  oauth2ProxySidecar:
+    enabled: true
+    args:
+      - --provider=github
+      - --github-user=alice
+      - --email-domain=*
+      - --redirect-url=https://dash.example.com/oauth2/callback
+      - --cookie-secure=true
+    envFrom:
+      - secretRef: {name: oauth2-proxy}
+httpRoute:
+  enabled: true
+  parentRefs:
+    - {name: gateway, namespace: gateway, sectionName: https}
+  hostnames: [dash.example.com]
+networkPolicy:
+  enabled: true
+  from:
+    - namespaceSelector:
+        matchLabels: {kubernetes.io/metadata.name: gateway}

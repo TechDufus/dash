@@ -1,0 +1,33 @@
+{{- $mode := include "dash.authMode" . -}}
+dash {{ .Chart.AppVersion }} is installed as {{ include "dash.fullname" . }} in {{ .Release.Namespace }}.
+
+Reach it:
+  kubectl -n {{ .Release.Namespace }} port-forward svc/{{ include "dash.fullname" . }} {{ .Values.service.port }}
+{{- if not (dig "server" "publicURL" "" .Values.config) }}
+
+WARNING: config.server.publicURL is not set; dash refuses to start without it.
+{{- end }}
+{{- if include "dash.sidecar" . }}
+
+dash listens on the pod's loopback (127.0.0.1:8080) behind oauth2-proxy ({{ $mode }} mode); the
+Service leads to the proxy.
+{{- else }}
+
+dash listens on 0.0.0.0:8080 ({{ $mode }} mode).
+{{- end }}
+{{- if eq $mode "local" }}
+Without DASH_ADMIN_PASSWORD_HASH the first start logs a one-time setup link:
+  kubectl -n {{ .Release.Namespace }} rollout status deploy/{{ include "dash.fullname" . }}
+  kubectl -n {{ .Release.Namespace }} logs deploy/{{ include "dash.fullname" . }} -c dash | grep -m1 'setup token'
+{{- end }}
+{{- if and (not .Values.persistence.enabled) (ne .Values.settings.ui "readonly") }}
+
+WARNING: persistence is off, so /data is an emptyDir lost with the pod: settings saved in the UI
+and every sign-in end at the next restart. Set settings.ui: readonly and configure dash through
+config, env and secretEnv.
+{{- end }}
+{{- if and (include "dash.anyAction" .) (not (include "dash.guardrails" .)) }}
+
+WARNING: an rbac.actions flag is on without the guardrail: dash's ServiceAccount may patch those
+objects in any way. Keep guardrails.enabled at auto or true.
+{{- end }}

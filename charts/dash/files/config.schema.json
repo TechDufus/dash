@@ -1,0 +1,1404 @@
+{
+  "$defs": {
+    "Actions": {
+      "additionalProperties": false,
+      "properties": {
+        "denyNamespaces": {
+          "description": "Namespaces the plugin's actions refuse, whatever the role. A JSON list in the environment.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "enabled": {
+          "description": "Offer the plugin's actions. Off by default: without it the actions are not mounted and the web UI does not show their buttons.",
+          "type": "boolean"
+        }
+      },
+      "type": "object"
+    },
+    "ActionsToggle": {
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "description": "Offer the plugin's actions. Off by default: without it the actions are not mounted and the web UI does not show their buttons.",
+          "type": "boolean"
+        }
+      },
+      "type": "object"
+    },
+    "Alertmanager": {
+      "additionalProperties": false,
+      "properties": {
+        "actions": {
+          "$ref": "#/$defs/ActionsToggle",
+          "description": "The silence actions."
+        },
+        "auth": {
+          "$ref": "#/$defs/Auth",
+          "description": "How dash authenticates to Alertmanager. Neither basic nor bearerToken sends no credentials."
+        },
+        "enabled": {
+          "description": "false turns the plugin off: its topics are removed, and the web UI drops its rail entry, palette entries, overview tiles and panels and shows a switched-off page at its address. Unset turns it on when it has the settings it needs (rustfs is off unless enabled: true, because nothing in its settings says an object store exists); a plugin without them is disabled (\"not configured: set plugins.<id>.url\", naming the setting to make) and the web UI hides its pages. true with settings missing or invalid makes it unconfigured, which hides its pages too. This is how prometheus, alertmanager, gatus, victorialogs, proxmox, hardware, kubernetes, flux, cnpg, rustfs, grafana, headlamp and launcher behave, and a change to any of their settings applies live: that plugin restarts, and so do the plugins that use or require it (a prometheus change restarts proxmox, hardware, kubernetes, cnpg and rustfs; a gatus change restarts hardware and kubernetes; a proxmox change restarts hardware; a kubernetes change restarts proxmox, flux and cnpg; a grafana change restarts alertmanager).",
+          "type": "boolean"
+        },
+        "ignoreAlerts": {
+          "default": [
+            "Watchdog",
+            "InfoInhibitor"
+          ],
+          "description": "Alert names dash drops everywhere: the alert list, the attention items and the firing count. A JSON list in the environment.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "protectedAlerts": {
+          "default": [
+            "Watchdog"
+          ],
+          "description": "Alert names nobody can silence through dash, whatever the role. A JSON list in the environment.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "severityMap": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "default": {
+            "critical": "crit",
+            "warning": "warn"
+          },
+          "description": "How an alert's severity label value becomes dash's severity (crit or warn), as {label value: severity}. A JSON object in the environment.",
+          "type": "object"
+        },
+        "silenceDurations": {
+          "default": [
+            "1h",
+            "4h",
+            "24h",
+            "7d"
+          ],
+          "description": "The silence lengths the dialog offers, from 1h, 4h, 24h and 7d. A JSON list in the environment.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "tls": {
+          "$ref": "#/$defs/TLS",
+          "description": "How dash verifies Alertmanager's certificate."
+        },
+        "type": {
+          "description": "The plugin type. dash runs one instance per type, so this is empty or the section name.",
+          "type": "string"
+        },
+        "url": {
+          "description": "Base URL of the service, e.g. http://host:9090. Empty turns the source off: dash makes no request and its panels show \"source not configured\".",
+          "format": "uri",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "AppsGateway": {
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "description": "Name of the gateway.",
+          "type": "string"
+        },
+        "namespace": {
+          "description": "Namespace of the gateway.",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "Auth": {
+      "additionalProperties": false,
+      "properties": {
+        "basic": {
+          "$ref": "#/$defs/BasicAuth",
+          "description": "HTTP Basic authentication. Not together with bearerToken."
+        },
+        "bearerToken": {
+          "description": "Bearer token sent as Authorization: Bearer: a literal, env:NAME, file:/path or k8s:<namespace>/<name>#<key> (read from that Kubernetes Secret by the kubernetes plugin, which must run and be allowed to read it). Not together with basic.",
+          "type": "string",
+          "writeOnly": true,
+          "x-dash-secret": true
+        }
+      },
+      "type": "object"
+    },
+    "AuthConfig": {
+      "additionalProperties": false,
+      "properties": {
+        "local": {
+          "$ref": "#/$defs/AuthLocalConfig",
+          "description": "The local mode: the one administrator account and the optional read-only access without signing in."
+        },
+        "mode": {
+          "default": "local",
+          "description": "How dash learns who is making a request. proxy: an identity proxy in front of dash (oauth2-proxy, Authelia, Authentik) forwards the user name in a header, and dash believes it only from the peers in auth.proxy.trustedProxies. local: one administrator account (auth.local.adminUser) signs in at /login with a password; the first start prints a one-time setup link, or DASH_ADMIN_PASSWORD_HASH supplies the password hash. oidc: users sign in at an OpenID Connect provider (auth.oidc), admitted only by auth.oidc.allowedUsers or allowedGroups. none: no authentication at all, every request is signed in as an administrator named anonymous; dash warns at every start and shows a banner on every page. It refuses to start unless server.listen is a loopback address such as 127.0.0.1:8080 (or auth.none.allowRemote is true), so keep the port reachable only from the machine itself. It is never the default.",
+          "enum": [
+            "proxy",
+            "none",
+            "local",
+            "oidc"
+          ],
+          "type": "string",
+          "x-dash-restart": true
+        },
+        "none": {
+          "$ref": "#/$defs/AuthNoneConfig",
+          "description": "The none mode: whether it may run on a listener other machines can reach."
+        },
+        "oidc": {
+          "$ref": "#/$defs/AuthOIDCConfig",
+          "description": "The oidc mode: the OpenID Connect provider, who may sign in, and who is an administrator."
+        },
+        "proxy": {
+          "$ref": "#/$defs/AuthProxyConfig",
+          "description": "The proxy mode: which headers name the user, which peers are believed, and who is an administrator."
+        }
+      },
+      "type": "object"
+    },
+    "AuthLocalConfig": {
+      "additionalProperties": false,
+      "properties": {
+        "adminUser": {
+          "default": "admin",
+          "description": "The name of the one administrator account; a login succeeds for this name only. Changing it after setup makes dash refuse to start until it is set back or credentials.yaml is deleted to run setup again.",
+          "type": "string",
+          "x-dash-restart": true
+        },
+        "anonymousViewer": {
+          "description": "Let a visitor who has not signed in read the dashboard as a viewer once the administrator account exists (before setup, a visitor is sent to the setup link instead): GET requests only, never logs, never actions. Only in auth.mode=local; dash warns at every start while it is on and lists anonymous_viewer in an administrator's /api/v1/me warnings.",
+          "type": "boolean",
+          "x-dash-restart": true
+        }
+      },
+      "type": "object"
+    },
+    "AuthNoneConfig": {
+      "additionalProperties": false,
+      "properties": {
+        "allowRemote": {
+          "description": "Let auth.mode=none start on a server.listen address that is not loopback (such as the default 0.0.0.0:8080). Anyone who can reach dash is then an administrator; dash warns at every start and refuses settings changes and connection tests. Without it, none on such an address refuses to start. It cannot be set from the settings page.",
+          "type": "boolean",
+          "x-dash-restart": true
+        }
+      },
+      "type": "object"
+    },
+    "AuthOIDCConfig": {
+      "additionalProperties": false,
+      "properties": {
+        "adminGroups": {
+          "description": "Groups whose members are administrators; needs groupsClaim. A group added here applies at the member's next login, a removed one at once. A JSON list in the environment. Applies without a restart.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "adminRoles": {
+          "default": [
+            "admin"
+          ],
+          "description": "Values of roleClaim that make the user an administrator. A JSON list in the environment. Applies without a restart.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "adminUsers": {
+          "description": "User names that are administrators: exact and case-sensitive. [\"*\"] makes every user who may sign in an administrator (dash warns). A JSON list in the environment. Applies without a restart.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "allowedGroups": {
+          "description": "Groups whose members may sign in; needs groupsClaim. A JSON list in the environment.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array",
+          "x-dash-restart": true
+        },
+        "allowedUsers": {
+          "description": "The users who may sign in, exactly as userClaim names them. [\"*\"] admits every account the provider signs in (dash warns at every start). With allowedGroups empty one of the two must be set: dash does not start otherwise. A JSON list in the environment.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array",
+          "x-dash-restart": true
+        },
+        "clientID": {
+          "description": "The client ID dash is registered under at the provider. Its redirect URL is server.publicURL followed by /auth/callback.",
+          "type": "string",
+          "x-dash-restart": true
+        },
+        "clientSecret": {
+          "description": "The client secret: a literal, env:NAME, file:/path or k8s:<namespace>/<name>#<key>. It is read at each login, so a rotated file applies without a restart.",
+          "type": "string",
+          "writeOnly": true,
+          "x-dash-restart": true,
+          "x-dash-secret": true
+        },
+        "groupsClaim": {
+          "default": "groups",
+          "description": "The ID token claim that lists the user's groups: a list of strings or one comma-separated string. Empty turns groups off; adminGroups and allowedGroups need it.",
+          "type": "string",
+          "x-dash-restart": true
+        },
+        "issuer": {
+          "description": "The provider's issuer URL, exactly as its ID tokens name it (e.g. https://login.example.com/realms/home). https unless the host is a loopback address. dash discovers the provider on the first login, so an unreachable provider does not stop dash from starting.",
+          "type": "string",
+          "x-dash-restart": true
+        },
+        "roleClaim": {
+          "description": "The ID token claim whose values are matched against adminRoles. Empty turns it off.",
+          "type": "string",
+          "x-dash-restart": true
+        },
+        "scopes": {
+          "default": [
+            "openid",
+            "profile",
+            "email"
+          ],
+          "description": "The scopes dash asks for; openid is always added. A JSON list in the environment.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array",
+          "x-dash-restart": true
+        },
+        "userClaim": {
+          "default": "preferred_username",
+          "description": "The ID token claim that names the user. preferred_username can be changed by the user at some providers: use sub there. email is accepted only with email_verified true.",
+          "type": "string",
+          "x-dash-restart": true
+        }
+      },
+      "type": "object"
+    },
+    "AuthProxyConfig": {
+      "additionalProperties": false,
+      "properties": {
+        "adminGroups": {
+          "description": "Groups whose members are administrators; needs groupsHeader. A JSON list in the environment. Applies without a restart.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "adminUsers": {
+          "description": "User names that are administrators: exact and case-sensitive. [\"*\"] makes every user an administrator (dash warns). With both admin lists empty every user is a viewer: read-only, no actions. A JSON list in the environment. Applies without a restart.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "allowAnyPeer": {
+          "description": "Allow 0.0.0.0/0 or ::/0 in trustedProxies. Every client could then forge an identity, so it needs this explicit opt-in and dash warns at every start.",
+          "type": "boolean",
+          "x-dash-restart": true
+        },
+        "groupsHeader": {
+          "description": "The request header the proxy lists the user's groups in, comma-separated (oauth2-proxy: X-Forwarded-Groups). Empty turns groups off; adminGroups needs it.",
+          "type": "string",
+          "x-dash-restart": true
+        },
+        "trustedProxies": {
+          "default": [
+            "127.0.0.1/32",
+            "::1/128"
+          ],
+          "description": "The peers whose identity headers dash believes: CIDRs or IP addresses of the TCP connection (X-Forwarded-For is never read). A request with identity headers from any other peer gets 401. The default is the loopback, where a sidecar proxy connects from. A JSON list in the environment.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array",
+          "x-dash-restart": true
+        },
+        "userHeaders": {
+          "default": [
+            "X-Forwarded-Preferred-Username",
+            "X-Forwarded-User"
+          ],
+          "description": "Request headers that carry the user name, in order of preference: the first one the proxy sets is the user. A JSON list in the environment.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array",
+          "x-dash-restart": true
+        }
+      },
+      "type": "object"
+    },
+    "BackupJob": {
+      "additionalProperties": false,
+      "properties": {
+        "cronjob": {
+          "description": "Name of the backup CronJob. CronJobs named <cronjob>-<suffix> match too.",
+          "type": "string"
+        },
+        "label": {
+          "description": "The row's name. Empty names each row after its CronJob.",
+          "type": "string"
+        },
+        "namespace": {
+          "description": "Namespace of the backup CronJob.",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "BasicAuth": {
+      "additionalProperties": false,
+      "properties": {
+        "password": {
+          "description": "Password: a literal, env:NAME, file:/path or k8s:<namespace>/<name>#<key> (read from that Kubernetes Secret by the kubernetes plugin, which must run and be allowed to read it). Set together with username.",
+          "type": "string",
+          "writeOnly": true,
+          "x-dash-secret": true
+        },
+        "username": {
+          "description": "User name.",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "CNPG": {
+      "additionalProperties": false,
+      "properties": {
+        "backupMetric": {
+          "default": "barman_cloud_cloudnative_pg_io_last_available_backup_timestamp",
+          "description": "Name of the Prometheus series that holds the Unix time of a cluster's last available backup, labelled namespace and cluster (role=\"primary\" selects the primary's). The default is the Barman Cloud plugin's barman_cloud_cloudnative_pg_io_last_available_backup_timestamp. Must be a valid metric name.",
+          "type": "string"
+        },
+        "enabled": {
+          "description": "false turns the plugin off: its topics are removed, and the web UI drops its rail entry, palette entries, overview tiles and panels and shows a switched-off page at its address. Unset turns it on when it has the settings it needs (rustfs is off unless enabled: true, because nothing in its settings says an object store exists); a plugin without them is disabled (\"not configured: set plugins.<id>.url\", naming the setting to make) and the web UI hides its pages. true with settings missing or invalid makes it unconfigured, which hides its pages too. This is how prometheus, alertmanager, gatus, victorialogs, proxmox, hardware, kubernetes, flux, cnpg, rustfs, grafana, headlamp and launcher behave, and a change to any of their settings applies live: that plugin restarts, and so do the plugins that use or require it (a prometheus change restarts proxmox, hardware, kubernetes, cnpg and rustfs; a gatus change restarts hardware and kubernetes; a proxmox change restarts hardware; a kubernetes change restarts proxmox, flux and cnpg; a grafana change restarts alertmanager).",
+          "type": "boolean"
+        },
+        "type": {
+          "description": "The plugin type. dash runs one instance per type, so this is empty or the section name.",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "CriticalVMs": {
+      "additionalProperties": false,
+      "properties": {
+        "ids": {
+          "description": "VM ids that are critical. A stopped critical VM is a critical attention item; any other stopped VM is a warning. A JSON list of integers in the environment.",
+          "items": {
+            "type": "integer"
+          },
+          "type": "array"
+        },
+        "tags": {
+          "description": "VM tags that make a VM critical (compared without regard to case). A JSON list in the environment.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "type": "object"
+    },
+    "Flux": {
+      "additionalProperties": false,
+      "properties": {
+        "actions": {
+          "$ref": "#/$defs/Actions",
+          "description": "The reconcile action."
+        },
+        "enabled": {
+          "description": "false turns the plugin off: its topics are removed, and the web UI drops its rail entry, palette entries, overview tiles and panels and shows a switched-off page at its address. Unset turns it on when it has the settings it needs (rustfs is off unless enabled: true, because nothing in its settings says an object store exists); a plugin without them is disabled (\"not configured: set plugins.<id>.url\", naming the setting to make) and the web UI hides its pages. true with settings missing or invalid makes it unconfigured, which hides its pages too. This is how prometheus, alertmanager, gatus, victorialogs, proxmox, hardware, kubernetes, flux, cnpg, rustfs, grafana, headlamp and launcher behave, and a change to any of their settings applies live: that plugin restarts, and so do the plugins that use or require it (a prometheus change restarts proxmox, hardware, kubernetes, cnpg and rustfs; a gatus change restarts hardware and kubernetes; a proxmox change restarts hardware; a kubernetes change restarts proxmox, flux and cnpg; a grafana change restarts alertmanager).",
+          "type": "boolean"
+        },
+        "suspendReasonAnnotation": {
+          "description": "Flux object annotation whose value is shown as the reason the object is suspended. Empty hides the reason.",
+          "type": "string"
+        },
+        "type": {
+          "description": "The plugin type. dash runs one instance per type, so this is empty or the section name.",
+          "type": "string"
+        },
+        "verify": {
+          "$ref": "#/$defs/FluxVerify",
+          "description": "Which Flux sources must be signature-verified."
+        }
+      },
+      "type": "object"
+    },
+    "FluxVerify": {
+      "additionalProperties": false,
+      "properties": {
+        "requireWhenSpecVerify": {
+          "default": true,
+          "description": "A GitRepository or OCIRepository that has spec.verify must report SourceVerified=True: without it the source is critical on the overview, in the verified tile and on the GitOps page. false puts only the sources listed in sources in scope, for the attention items, the tile and the page alike. The default is true.",
+          "type": "boolean"
+        },
+        "sources": {
+          "description": "Sources that must be signed and verified, as [{kind, namespace, name}] with kind GitRepository or OCIRepository. Each is critical on the overview when it lacks spec.verify or SourceVerified=True, or when it does not exist, and each is listed on the GitOps page. A JSON list in the environment.",
+          "items": {
+            "$ref": "#/$defs/VerifySource"
+          },
+          "type": "array"
+        }
+      },
+      "type": "object"
+    },
+    "Gatus": {
+      "additionalProperties": false,
+      "properties": {
+        "auth": {
+          "$ref": "#/$defs/Auth",
+          "description": "How dash authenticates to Gatus. Neither basic nor bearerToken sends no credentials."
+        },
+        "criticalGroups": {
+          "description": "Gatus groups whose failing checks are critical (compared without regard to case); a failing check in any other group is a warning. The Status page lists these groups first. Empty makes every failure a warning. A JSON list in the environment.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "enabled": {
+          "description": "false turns the plugin off: its topics are removed, and the web UI drops its rail entry, palette entries, overview tiles and panels and shows a switched-off page at its address. Unset turns it on when it has the settings it needs (rustfs is off unless enabled: true, because nothing in its settings says an object store exists); a plugin without them is disabled (\"not configured: set plugins.<id>.url\", naming the setting to make) and the web UI hides its pages. true with settings missing or invalid makes it unconfigured, which hides its pages too. This is how prometheus, alertmanager, gatus, victorialogs, proxmox, hardware, kubernetes, flux, cnpg, rustfs, grafana, headlamp and launcher behave, and a change to any of their settings applies live: that plugin restarts, and so do the plugins that use or require it (a prometheus change restarts proxmox, hardware, kubernetes, cnpg and rustfs; a gatus change restarts hardware and kubernetes; a proxmox change restarts hardware; a kubernetes change restarts proxmox, flux and cnpg; a grafana change restarts alertmanager).",
+          "type": "boolean"
+        },
+        "pageSize": {
+          "default": 30,
+          "description": "Check results Gatus returns per endpoint (the pageSize query parameter); the Status page draws them as the endpoint's history. Greater than zero.",
+          "type": "integer"
+        },
+        "tls": {
+          "$ref": "#/$defs/TLS",
+          "description": "How dash verifies Gatus's certificate."
+        },
+        "type": {
+          "description": "The plugin type. dash runs one instance per type, so this is empty or the section name.",
+          "type": "string"
+        },
+        "url": {
+          "description": "Base URL of the service, e.g. http://host:9090. Empty turns the source off: dash makes no request and its panels show \"source not configured\".",
+          "format": "uri",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "Grafana": {
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "description": "false turns the plugin off: its topics are removed, and the web UI drops its rail entry, palette entries, overview tiles and panels and shows a switched-off page at its address. Unset turns it on when it has the settings it needs (rustfs is off unless enabled: true, because nothing in its settings says an object store exists); a plugin without them is disabled (\"not configured: set plugins.<id>.url\", naming the setting to make) and the web UI hides its pages. true with settings missing or invalid makes it unconfigured, which hides its pages too. This is how prometheus, alertmanager, gatus, victorialogs, proxmox, hardware, kubernetes, flux, cnpg, rustfs, grafana, headlamp and launcher behave, and a change to any of their settings applies live: that plugin restarts, and so do the plugins that use or require it (a prometheus change restarts proxmox, hardware, kubernetes, cnpg and rustfs; a gatus change restarts hardware and kubernetes; a proxmox change restarts hardware; a kubernetes change restarts proxmox, flux and cnpg; a grafana change restarts alertmanager).",
+          "type": "boolean"
+        },
+        "type": {
+          "description": "The plugin type. dash runs one instance per type, so this is empty or the section name.",
+          "type": "string"
+        },
+        "url": {
+          "description": "Base URL of Grafana, e.g. https://grafana.example.com. Adds a link to Grafana's alert list on alerts and to Grafana on the host. Empty turns the Grafana links off.",
+          "format": "uri",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "Hardware": {
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "description": "false turns the plugin off: its topics are removed, and the web UI drops its rail entry, palette entries, overview tiles and panels and shows a switched-off page at its address. Unset turns it on when it has the settings it needs (rustfs is off unless enabled: true, because nothing in its settings says an object store exists); a plugin without them is disabled (\"not configured: set plugins.<id>.url\", naming the setting to make) and the web UI hides its pages. true with settings missing or invalid makes it unconfigured, which hides its pages too. This is how prometheus, alertmanager, gatus, victorialogs, proxmox, hardware, kubernetes, flux, cnpg, rustfs, grafana, headlamp and launcher behave, and a change to any of their settings applies live: that plugin restarts, and so do the plugins that use or require it (a prometheus change restarts proxmox, hardware, kubernetes, cnpg and rustfs; a gatus change restarts hardware and kubernetes; a proxmox change restarts hardware; a kubernetes change restarts proxmox, flux and cnpg; a grafana change restarts alertmanager).",
+          "type": "boolean"
+        },
+        "hosts": {
+          "description": "The machine behind the cluster, as [{name, nodename, model, bays, fanMaxRPM, sensorAliases}]; every key is optional, and [{}] reads the Proxmox node, which needs the proxmox plugin to run (its URL, token ID and token secret set) unless nodename is set. One entry is supported for now. A JSON list in the environment.",
+          "items": {
+            "$ref": "#/$defs/HardwareHost"
+          },
+          "type": "array"
+        },
+        "machines": {
+          "description": "Machines outside the cluster to show as up or down, as [{name, nodeExporterNodename}] (up while their node-exporter is scraped) or [{name, gatusEndpoint}] (up while that Gatus check passes). A JSON list in the environment.",
+          "items": {
+            "$ref": "#/$defs/HardwareMachine"
+          },
+          "type": "array"
+        },
+        "selectors": {
+          "$ref": "#/$defs/HardwareSelectors",
+          "description": "The label values dash's queries select by."
+        },
+        "tempThresholds": {
+          "$ref": "#/$defs/TempThresholds",
+          "description": "CPU package temperature, in °C, at which the host turns warning and critical (whole degrees)."
+        },
+        "type": {
+          "description": "The plugin type. dash runs one instance per type, so this is empty or the section name.",
+          "type": "string"
+        },
+        "zfsScrubMetricPrefix": {
+          "description": "Prefix of the ZFS scrub series: <prefix>_last_end_timestamp_seconds, <prefix>_last_errors and <prefix>_in_progress. Must be a valid metric name. Empty queries no scrub data and the pool cards show none.",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "HardwareHost": {
+      "additionalProperties": false,
+      "properties": {
+        "bays": {
+          "description": "Drive bays the Disks grid draws, 0 to 128. 0 numbers the slots from 1 (from 0 when a disk sits in slot 0) up to the highest one that holds a disk, at most 128; above that, or when the disks' bay labels are not distinct numbers, the page lists the disks sorted.",
+          "type": "integer"
+        },
+        "fanMaxRPM": {
+          "description": "Top of the fan gauges, in RPM, 0 to 100000. 0 scales them to the fastest fan seen. A gauge never ends below the speed a fan reports.",
+          "type": "integer"
+        },
+        "model": {
+          "description": "Shown next to the host's name, e.g. Dell R730.",
+          "type": "string"
+        },
+        "name": {
+          "description": "The host's name in the web UI. Empty uses the Proxmox node's name, then the nodename.",
+          "type": "string"
+        },
+        "nodename": {
+          "description": "The nodename label of the host's node-exporter and IPMI series. Empty uses the node of the running proxmox plugin (plugins.proxmox.node, or the node it discovers), so the plugin needs its URL, token ID and token secret; without it the Hardware row stays unavailable (waiting for the Proxmox node name) until nodename is set.",
+          "type": "string"
+        },
+        "sensorAliases": {
+          "$ref": "#/$defs/HardwareSensorAliases",
+          "description": "Which temperature sensors the Inlet and Exhaust tiles read."
+        }
+      },
+      "type": "object"
+    },
+    "HardwareMachine": {
+      "additionalProperties": false,
+      "properties": {
+        "gatusEndpoint": {
+          "description": "The name of the Gatus check that tells whether the machine is reachable (compared without regard to case). A check that does not exist counts as down. Exactly one of nodeExporterNodename and gatusEndpoint.",
+          "type": "string"
+        },
+        "name": {
+          "description": "The machine's name in the web UI, unique ignoring case, at most 64 bytes.",
+          "type": "string"
+        },
+        "nodeExporterNodename": {
+          "description": "The nodename label of the machine's node-exporter: it is up while the node-exporter is scraped. Exactly one of nodeExporterNodename and gatusEndpoint.",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "HardwareSelectors": {
+      "additionalProperties": false,
+      "properties": {
+        "hwmonChip": {
+          "default": "platform_coretemp_.*",
+          "description": "RE2 regular expression for the chip label of the CPU package temperature (node_hwmon_temp_celsius), e.g. platform_coretemp_.* for Intel.",
+          "type": "string"
+        },
+        "nodeExporterJob": {
+          "default": "node-exporter",
+          "description": "The job label of the node-exporter targets, which the machines' up queries select.",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "HardwareSensorAliases": {
+      "additionalProperties": false,
+      "properties": {
+        "exhaust": {
+          "description": "Text the exhaust sensor's name contains, ignoring case. Empty means exhaust.",
+          "type": "string"
+        },
+        "inlet": {
+          "description": "Text the inlet sensor's name contains, ignoring case. Empty means inlet.",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "Headlamp": {
+      "additionalProperties": false,
+      "properties": {
+        "cluster": {
+          "default": "main",
+          "description": "Name of the cluster in Headlamp's URLs.",
+          "type": "string"
+        },
+        "enabled": {
+          "description": "false turns the plugin off: its topics are removed, and the web UI drops its rail entry, palette entries, overview tiles and panels and shows a switched-off page at its address. Unset turns it on when it has the settings it needs (rustfs is off unless enabled: true, because nothing in its settings says an object store exists); a plugin without them is disabled (\"not configured: set plugins.<id>.url\", naming the setting to make) and the web UI hides its pages. true with settings missing or invalid makes it unconfigured, which hides its pages too. This is how prometheus, alertmanager, gatus, victorialogs, proxmox, hardware, kubernetes, flux, cnpg, rustfs, grafana, headlamp and launcher behave, and a change to any of their settings applies live: that plugin restarts, and so do the plugins that use or require it (a prometheus change restarts proxmox, hardware, kubernetes, cnpg and rustfs; a gatus change restarts hardware and kubernetes; a proxmox change restarts hardware; a kubernetes change restarts proxmox, flux and cnpg; a grafana change restarts alertmanager).",
+          "type": "boolean"
+        },
+        "type": {
+          "description": "The plugin type. dash runs one instance per type, so this is empty or the section name.",
+          "type": "string"
+        },
+        "url": {
+          "description": "Base URL of Headlamp, e.g. https://headlamp.example.com. Empty turns the deep links off.",
+          "format": "uri",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "Kubernetes": {
+      "additionalProperties": false,
+      "properties": {
+        "actions": {
+          "$ref": "#/$defs/Actions",
+          "description": "The restart action."
+        },
+        "apps": {
+          "$ref": "#/$defs/KubernetesApps",
+          "description": "Which routes make the apps on the Apps page and how their annotations are read."
+        },
+        "backupJobs": {
+          "description": "The CronJobs behind the backup ages, as [{namespace, cronjob, label}] (up to 8). cronjob also matches every CronJob named cronjob-<suffix>. label names the row; empty names each row after the CronJob. Empty hides the backup rows. A JSON list in the environment.",
+          "items": {
+            "$ref": "#/$defs/BackupJob"
+          },
+          "type": "array"
+        },
+        "burst": {
+          "default": 40,
+          "description": "Burst of requests the client may send at once, at least qps. 0 or unset means the default, 40; a negative value is refused.",
+          "type": "integer"
+        },
+        "context": {
+          "description": "The kubeconfig context to use. Empty uses the kubeconfig's current context. Only read with a kubeconfig.",
+          "type": "string"
+        },
+        "conventions": {
+          "$ref": "#/$defs/KubernetesConventions",
+          "description": "Labels dash reads from namespaces. None has a default: while one is empty the feature that depends on it is off."
+        },
+        "enabled": {
+          "description": "false turns the plugin off: its topics are removed, and the web UI drops its rail entry, palette entries, overview tiles and panels and shows a switched-off page at its address. Unset turns it on when it has the settings it needs (rustfs is off unless enabled: true, because nothing in its settings says an object store exists); a plugin without them is disabled (\"not configured: set plugins.<id>.url\", naming the setting to make) and the web UI hides its pages. true with settings missing or invalid makes it unconfigured, which hides its pages too. This is how prometheus, alertmanager, gatus, victorialogs, proxmox, hardware, kubernetes, flux, cnpg, rustfs, grafana, headlamp and launcher behave, and a change to any of their settings applies live: that plugin restarts, and so do the plugins that use or require it (a prometheus change restarts proxmox, hardware, kubernetes, cnpg and rustfs; a gatus change restarts hardware and kubernetes; a proxmox change restarts hardware; a kubernetes change restarts proxmox, flux and cnpg; a grafana change restarts alertmanager).",
+          "type": "boolean"
+        },
+        "etcd": {
+          "$ref": "#/$defs/KubernetesEtcd",
+          "description": "How dash finds etcd's metrics."
+        },
+        "kubeconfig": {
+          "description": "Path of a kubeconfig file, used outside the cluster (development). Empty means the in-cluster configuration. The standard KUBECONFIG variable fills it too; this setting's own variable wins.",
+          "type": "string"
+        },
+        "mode": {
+          "default": "auto",
+          "description": "How dash reaches the cluster: auto uses the kubeconfig when kubeconfig (or the standard KUBECONFIG variable) is set, else the in-cluster configuration, else runs without a cluster (the plugin is unavailable and the pages that need it are hidden); inCluster and kubeconfig insist on that one source and report an error when it is missing.",
+          "enum": [
+            "auto",
+            "inCluster",
+            "kubeconfig"
+          ],
+          "type": "string"
+        },
+        "optional": {
+          "$ref": "#/$defs/KubernetesOptional",
+          "description": "CRDs that a cluster may not have. A missing CRD of the kinds the plugin reads shows as a note and makes the plugin degraded, unless it is marked optional here."
+        },
+        "qps": {
+          "default": 20,
+          "description": "Requests per second dash's Kubernetes client may send. 0 or unset means the default, 20; a negative value is refused.",
+          "type": "integer"
+        },
+        "type": {
+          "description": "The plugin type. dash runs one instance per type, so this is empty or the section name.",
+          "type": "string"
+        },
+        "upstreamViaAPIServer": {
+          "description": "Send the requests of the other plugins to in-cluster service URLs (http://<service>.<namespace>.svc) through the API server's service proxy, with the Kubernetes credentials. For running dash on a laptop against a remote cluster (development); off by default. Applies to requests made after the plugin starts.",
+          "type": "boolean"
+        }
+      },
+      "type": "object"
+    },
+    "KubernetesApps": {
+      "additionalProperties": false,
+      "properties": {
+        "annotationPrefix": {
+          "default": "gethomepage.dev",
+          "description": "The annotation prefix an app's name, group, description and icon are read from: <prefix>/name, <prefix>/group, <prefix>/description and <prefix>/icon. A trailing / is ignored. The default is gethomepage.dev.",
+          "type": "string"
+        },
+        "excludeNamespaces": {
+          "description": "Namespaces whose routes and ingresses are never apps (typically dash's own). Empty skips nothing. A JSON list in the environment.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "gateways": {
+          "description": "Only routes whose spec.parentRefs name one of these gateways are apps, as [{namespace, name}]. A parent reference without a namespace means the route's own namespace. Empty accepts every HTTPRoute. A JSON list in the environment.",
+          "items": {
+            "$ref": "#/$defs/AppsGateway"
+          },
+          "type": "array"
+        },
+        "ingress": {
+          "description": "Also read networking.k8s.io Ingresses: one app per rule host. Needs get, list and watch on ingresses in the cluster role; off by default.",
+          "type": "boolean"
+        }
+      },
+      "type": "object"
+    },
+    "KubernetesConventions": {
+      "additionalProperties": false,
+      "properties": {
+        "appsFluxPrefix": {
+          "description": "Namespaces applied by a Flux Kustomization whose name starts with this prefix are listed under Apps. Empty turns the grouping off.",
+          "type": "string"
+        },
+        "protectedLabel": {
+          "description": "Namespace label (value \"true\") that makes a restart ask you to type the namespace name. Empty protects no namespace.",
+          "type": "string"
+        },
+        "tenantLabel": {
+          "description": "Namespace label that puts the namespace under Tenants; its value is the tenant. Empty turns the grouping off.",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "KubernetesEtcd": {
+      "additionalProperties": false,
+      "properties": {
+        "job": {
+          "default": "etcd",
+          "description": "The job label of etcd's metrics in Prometheus. The default is etcd.",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "KubernetesOptional": {
+      "additionalProperties": false,
+      "properties": {
+        "certificates": {
+          "description": "The cluster may lack the cert-manager CRDs: their absence is not a note.",
+          "type": "boolean"
+        },
+        "externalSecrets": {
+          "description": "The cluster may lack the external-secrets CRDs: their absence is not a note.",
+          "type": "boolean"
+        },
+        "httpRoutes": {
+          "description": "The cluster may lack the Gateway API CRDs: their absence is not a note.",
+          "type": "boolean"
+        }
+      },
+      "type": "object"
+    },
+    "Launcher": {
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "description": "false turns the plugin off: its topics are removed, and the web UI drops its rail entry, palette entries, overview tiles and panels and shows a switched-off page at its address. Unset turns it on when it has the settings it needs (rustfs is off unless enabled: true, because nothing in its settings says an object store exists); a plugin without them is disabled (\"not configured: set plugins.<id>.url\", naming the setting to make) and the web UI hides its pages. true with settings missing or invalid makes it unconfigured, which hides its pages too. This is how prometheus, alertmanager, gatus, victorialogs, proxmox, hardware, kubernetes, flux, cnpg, rustfs, grafana, headlamp and launcher behave, and a change to any of their settings applies live: that plugin restarts, and so do the plugins that use or require it (a prometheus change restarts proxmox, hardware, kubernetes, cnpg and rustfs; a gatus change restarts hardware and kubernetes; a proxmox change restarts hardware; a kubernetes change restarts proxmox, flux and cnpg; a grafana change restarts alertmanager).",
+          "type": "boolean"
+        },
+        "file": {
+          "description": "Path of a YAML or JSON file with the launcher's links (see docs/launcher.example.yaml). The file is read when the launcher starts: restart dash, or change the launcher's settings, to read it again; an unreadable file makes the launcher report an error. Not together with links.",
+          "type": "string"
+        },
+        "links": {
+          "description": "The launcher's links, inline: a list of {name, href, icon, description}. icon is an icon name (resolved against ui.iconBaseURL; without it the link shows a letter tile), a same-origin path, or an image URL under ui.iconBaseURL. Not together with file.",
+          "items": {
+            "$ref": "#/$defs/LauncherLink"
+          },
+          "type": "array"
+        },
+        "type": {
+          "description": "The plugin type. dash runs one instance per type, so this is empty or the section name.",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "LauncherLink": {
+      "additionalProperties": false,
+      "properties": {
+        "description": {
+          "type": "string"
+        },
+        "href": {
+          "type": "string"
+        },
+        "icon": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "LimitsConfig": {
+      "additionalProperties": false,
+      "properties": {
+        "bodyReadTimeout": {
+          "default": "10s",
+          "description": "A request body must arrive within this long.",
+          "examples": [
+            "30s",
+            "5m",
+            "1h30m"
+          ],
+          "format": "duration",
+          "type": "string",
+          "x-dash-restart": true
+        },
+        "maxHeaderBytes": {
+          "default": 65536,
+          "description": "Largest request header block the API listener accepts, in bytes.",
+          "type": "integer",
+          "x-dash-restart": true
+        },
+        "sseWriteTimeout": {
+          "default": "10s",
+          "description": "A stalled stream write fails after this long.",
+          "examples": [
+            "30s",
+            "5m",
+            "1h30m"
+          ],
+          "format": "duration",
+          "type": "string",
+          "x-dash-restart": true
+        },
+        "streams": {
+          "default": 256,
+          "description": "Open /api/v1/stream connections in all; more get 503.",
+          "type": "integer",
+          "x-dash-restart": true
+        },
+        "streamsPerUser": {
+          "default": 16,
+          "description": "Open /api/v1/stream connections one user may hold; more get 429.",
+          "type": "integer",
+          "x-dash-restart": true
+        },
+        "tailMaxDuration": {
+          "default": "30m",
+          "description": "A log tail ends after this long and the browser reconnects.",
+          "examples": [
+            "30s",
+            "5m",
+            "1h30m"
+          ],
+          "format": "duration",
+          "type": "string",
+          "x-dash-restart": true
+        },
+        "tails": {
+          "default": 32,
+          "description": "Open plugin stream connections (the log tail) in all; more get 503.",
+          "type": "integer",
+          "x-dash-restart": true
+        },
+        "tailsPerUser": {
+          "default": 4,
+          "description": "Open plugin stream connections (the log tail) one user may hold; more get 429.",
+          "type": "integer",
+          "x-dash-restart": true
+        }
+      },
+      "type": "object"
+    },
+    "LogFields": {
+      "additionalProperties": false,
+      "properties": {
+        "container": {
+          "default": "kubernetes.container_name",
+          "description": "Field holding the container's name.",
+          "type": "string"
+        },
+        "namespace": {
+          "default": "kubernetes.pod_namespace",
+          "description": "Field holding the pod's namespace.",
+          "type": "string"
+        },
+        "pod": {
+          "default": "kubernetes.pod_name",
+          "description": "Field holding the pod's name.",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "PluginsConfig": {
+      "additionalProperties": false,
+      "properties": {
+        "alertmanager": {
+          "$ref": "#/$defs/Alertmanager",
+          "description": "Alertmanager: alerts and silences."
+        },
+        "cnpg": {
+          "$ref": "#/$defs/CNPG",
+          "description": "CloudNativePG: how dash reads the PostgreSQL clusters and the age of their last backup."
+        },
+        "flux": {
+          "$ref": "#/$defs/Flux",
+          "description": "Flux: how dash reads Flux objects."
+        },
+        "gatus": {
+          "$ref": "#/$defs/Gatus",
+          "description": "Gatus: endpoint health."
+        },
+        "grafana": {
+          "$ref": "#/$defs/Grafana",
+          "description": "Grafana: links to dashboards."
+        },
+        "hardware": {
+          "$ref": "#/$defs/Hardware",
+          "description": "The physical host behind the cluster."
+        },
+        "headlamp": {
+          "$ref": "#/$defs/Headlamp",
+          "description": "Headlamp: deep links into the Kubernetes UI."
+        },
+        "kubernetes": {
+          "$ref": "#/$defs/Kubernetes",
+          "description": "Kubernetes: how dash reaches and reads the cluster."
+        },
+        "launcher": {
+          "$ref": "#/$defs/Launcher",
+          "description": "The launcher: links to your infrastructure."
+        },
+        "prometheus": {
+          "$ref": "#/$defs/Prometheus",
+          "description": "VictoriaMetrics or Prometheus: the series behind charts, KPIs and host metrics."
+        },
+        "proxmox": {
+          "$ref": "#/$defs/Proxmox",
+          "description": "Proxmox VE: virtual machines, containers and the hypervisor."
+        },
+        "rustfs": {
+          "$ref": "#/$defs/RustFS",
+          "description": "RustFS: the buckets and capacity of the object store, read from Prometheus. Off unless enabled is true."
+        },
+        "victorialogs": {
+          "$ref": "#/$defs/VictoriaLogs",
+          "description": "VictoriaLogs: the pod logs the UI shows."
+        }
+      },
+      "type": "object"
+    },
+    "Prometheus": {
+      "additionalProperties": false,
+      "properties": {
+        "auth": {
+          "$ref": "#/$defs/Auth",
+          "description": "How dash authenticates to the service. Neither basic nor bearerToken sends no credentials."
+        },
+        "enabled": {
+          "description": "false turns the plugin off: its topics are removed, and the web UI drops its rail entry, palette entries, overview tiles and panels and shows a switched-off page at its address. Unset turns it on when it has the settings it needs (rustfs is off unless enabled: true, because nothing in its settings says an object store exists); a plugin without them is disabled (\"not configured: set plugins.<id>.url\", naming the setting to make) and the web UI hides its pages. true with settings missing or invalid makes it unconfigured, which hides its pages too. This is how prometheus, alertmanager, gatus, victorialogs, proxmox, hardware, kubernetes, flux, cnpg, rustfs, grafana, headlamp and launcher behave, and a change to any of their settings applies live: that plugin restarts, and so do the plugins that use or require it (a prometheus change restarts proxmox, hardware, kubernetes, cnpg and rustfs; a gatus change restarts hardware and kubernetes; a proxmox change restarts hardware; a kubernetes change restarts proxmox, flux and cnpg; a grafana change restarts alertmanager).",
+          "type": "boolean"
+        },
+        "headers": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "Extra headers sent with every request, as {name: value}. Plain configuration, not secrets: put credentials in auth. Authorization, Proxy-Authorization, Cookie and Host cannot be set. A JSON object in the environment.",
+          "type": "object"
+        },
+        "timeout": {
+          "default": "5s",
+          "description": "How long one query may take before dash gives up on it.",
+          "examples": [
+            "30s",
+            "5m",
+            "1h30m"
+          ],
+          "format": "duration",
+          "type": "string"
+        },
+        "tls": {
+          "$ref": "#/$defs/TLS",
+          "description": "How dash verifies the service's certificate."
+        },
+        "type": {
+          "description": "The plugin type. dash runs one instance per type, so this is empty or the section name.",
+          "type": "string"
+        },
+        "url": {
+          "description": "Base URL of the service, e.g. http://host:9090. Empty turns the source off: dash makes no request and its panels show \"source not configured\".",
+          "format": "uri",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "Proxmox": {
+      "additionalProperties": false,
+      "properties": {
+        "criticalVMs": {
+          "$ref": "#/$defs/CriticalVMs",
+          "description": "Which VMs are critical. No VM is critical by default."
+        },
+        "enabled": {
+          "description": "false turns the plugin off: its topics are removed, and the web UI drops its rail entry, palette entries, overview tiles and panels and shows a switched-off page at its address. Unset turns it on when it has the settings it needs (rustfs is off unless enabled: true, because nothing in its settings says an object store exists); a plugin without them is disabled (\"not configured: set plugins.<id>.url\", naming the setting to make) and the web UI hides its pages. true with settings missing or invalid makes it unconfigured, which hides its pages too. This is how prometheus, alertmanager, gatus, victorialogs, proxmox, hardware, kubernetes, flux, cnpg, rustfs, grafana, headlamp and launcher behave, and a change to any of their settings applies live: that plugin restarts, and so do the plugins that use or require it (a prometheus change restarts proxmox, hardware, kubernetes, cnpg and rustfs; a gatus change restarts hardware and kubernetes; a proxmox change restarts hardware; a kubernetes change restarts proxmox, flux and cnpg; a grafana change restarts alertmanager).",
+          "type": "boolean"
+        },
+        "node": {
+          "description": "The Proxmox node to read. Empty is discovered from the API when the cluster has exactly one node; set it for several nodes or to skip discovery. The hardware plugin reads the host's node from the running proxmox plugin, so without hosts[0].nodename it needs Proxmox to run (url, tokenID and tokenSecret all set).",
+          "type": "string"
+        },
+        "series": {
+          "$ref": "#/$defs/ProxmoxSeries",
+          "description": "How the VM chart queries select a VM."
+        },
+        "storage": {
+          "$ref": "#/$defs/ProxmoxStorage",
+          "description": "Where the Proxmox storage list comes from."
+        },
+        "tls": {
+          "$ref": "#/$defs/TLS",
+          "description": "How dash verifies the Proxmox API's certificate."
+        },
+        "tokenID": {
+          "description": "API token ID, user@realm!tokenname. Proxmox runs only with url, tokenID and tokenSecret all set and is disabled with none of the token set. A token ID without tokenSecret, a tokenSecret without tokenID, or a token without url is a configuration error that stops dash at startup.",
+          "type": "string"
+        },
+        "tokenSecret": {
+          "description": "API token secret: a literal, env:NAME, file:/path or k8s:<namespace>/<name>#<key> (read from that Kubernetes Secret by the kubernetes plugin, which must run and be allowed to read it). Set together with tokenID: one without the other is a configuration error.",
+          "type": "string",
+          "writeOnly": true,
+          "x-dash-secret": true
+        },
+        "type": {
+          "description": "The plugin type. dash runs one instance per type, so this is empty or the section name.",
+          "type": "string"
+        },
+        "url": {
+          "description": "Base URL of the Proxmox API, e.g. https://pve.example.com:8006. Required with a token; a URL alone leaves Proxmox disabled.",
+          "format": "uri",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "ProxmoxSeries": {
+      "additionalProperties": false,
+      "properties": {
+        "vmSelector": {
+          "default": "id=\"qemu/{vmid}\"",
+          "description": "The label matcher that selects one VM in the pve-exporter series of the VM charts: one label, = or =~, and a quoted value with {vmid} once, e.g. id=\"qemu/{vmid}\".",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "ProxmoxStorage": {
+      "additionalProperties": false,
+      "properties": {
+        "source": {
+          "default": "api",
+          "description": "Where the storage list comes from: api reads the node's storages from the Proxmox API (the API token needs the Datastore.Audit privilege on /storage); prometheus reads the pve-exporter series pve_disk_usage_bytes, pve_disk_size_bytes and pve_storage_info through the prometheus plugin.",
+          "enum": [
+            "api",
+            "prometheus"
+          ],
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "RustFS": {
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "description": "false turns the plugin off: its topics are removed, and the web UI drops its rail entry, palette entries, overview tiles and panels and shows a switched-off page at its address. Unset turns it on when it has the settings it needs (rustfs is off unless enabled: true, because nothing in its settings says an object store exists); a plugin without them is disabled (\"not configured: set plugins.<id>.url\", naming the setting to make) and the web UI hides its pages. true with settings missing or invalid makes it unconfigured, which hides its pages too. This is how prometheus, alertmanager, gatus, victorialogs, proxmox, hardware, kubernetes, flux, cnpg, rustfs, grafana, headlamp and launcher behave, and a change to any of their settings applies live: that plugin restarts, and so do the plugins that use or require it (a prometheus change restarts proxmox, hardware, kubernetes, cnpg and rustfs; a gatus change restarts hardware and kubernetes; a proxmox change restarts hardware; a kubernetes change restarts proxmox, flux and cnpg; a grafana change restarts alertmanager).",
+          "type": "boolean"
+        },
+        "metrics": {
+          "$ref": "#/$defs/RustFSMetrics",
+          "description": "The names of the Prometheus series dash reads. Each must be a valid metric name."
+        },
+        "type": {
+          "description": "The plugin type. dash runs one instance per type, so this is empty or the section name.",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "RustFSMetrics": {
+      "additionalProperties": false,
+      "properties": {
+        "bucketQuota": {
+          "default": "rustfs_bucket_usage_quota_bytes",
+          "description": "Series of a bucket's quota in bytes, labelled bucket. A bucket without one has no quota. The default is rustfs_bucket_usage_quota_bytes.",
+          "type": "string"
+        },
+        "bucketUsed": {
+          "default": "rustfs_bucket_usage_usage_bytes",
+          "description": "Series of a bucket's used bytes, labelled bucket. The default is rustfs_bucket_usage_usage_bytes.",
+          "type": "string"
+        },
+        "capacityUsable": {
+          "default": "rustfs_cluster_capacity_usable_total_bytes",
+          "description": "Series of the cluster's usable bytes. The default is rustfs_cluster_capacity_usable_total_bytes.",
+          "type": "string"
+        },
+        "capacityUsed": {
+          "default": "rustfs_cluster_capacity_used_bytes",
+          "description": "Series of the cluster's used bytes. The default is rustfs_cluster_capacity_used_bytes.",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "ServerConfig": {
+      "additionalProperties": false,
+      "properties": {
+        "allowedHosts": {
+          "description": "Host names the API answers besides the host of publicURL: names or IP addresses without scheme or port. [\"*\"] accepts any. A JSON list in the environment.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array",
+          "x-dash-restart": true
+        },
+        "csp": {
+          "default": "enforce",
+          "description": "Whether dash sends a Content-Security-Policy header. enforce (the default): the browser blocks what the policy does not allow. report-only: the browser only reports violations in its console, so a page that the policy would break keeps working while you find the cause. off: no policy header at all. This is the kill switch for a browser that blanks the web UI under enforce; X-Content-Type-Options and Referrer-Policy are sent in every mode. Prefer DASH_SERVER_CSP: an image rollback to a release before this setting only warns about the unknown variable, while it refuses an unknown key in a config file. In a YAML file quote the value (csp: \"off\"): a bare off is YAML false and is refused.",
+          "enum": [
+            "enforce",
+            "report-only",
+            "off"
+          ],
+          "type": "string",
+          "x-dash-restart": true
+        },
+        "healthListen": {
+          "default": "0.0.0.0:8081",
+          "description": "Address of /healthz and /readyz. In dev and demo mode it defaults to 127.0.0.1:8081.",
+          "type": "string",
+          "x-dash-restart": true
+        },
+        "limits": {
+          "$ref": "#/$defs/LimitsConfig",
+          "description": "What one client, and all clients together, may hold open or send."
+        },
+        "listen": {
+          "default": "0.0.0.0:8080",
+          "description": "Address of the API and the web UI. The default 0.0.0.0:8080 accepts connections from any address, so keep authentication on (auth.mode local, proxy or oidc); behind a sidecar identity proxy set 127.0.0.1:8080. In dev and demo mode it defaults to 127.0.0.1:8080, and dev mode only accepts a loopback address.",
+          "type": "string",
+          "x-dash-restart": true
+        },
+        "metrics": {
+          "description": "Serve dash's own Prometheus metrics at /metrics on the health listener. Off by default. The listener is unauthenticated and the metrics name plugins and their states, so keep it cluster-internal.",
+          "type": "boolean",
+          "x-dash-restart": true
+        },
+        "publicURL": {
+          "description": "The URL people open, with scheme and host (https://dash.example.com). Required; the only Origin accepted on writes. In dev and demo mode it defaults to http://localhost:5173.",
+          "format": "uri",
+          "type": "string",
+          "x-dash-restart": true
+        },
+        "readyRequires": {
+          "description": "Plugins /readyz waits for: each listed plugin must have finished starting (its first poll or cache sync) before dash reports ready, up to readyTimeout. Empty: /readyz needs only that dash is serving and every plugin's start has returned. Names are plugins.<id> sections, e.g. [\"kubernetes\"]. A JSON list in the environment.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array",
+          "x-dash-restart": true
+        },
+        "readyTimeout": {
+          "default": "1m",
+          "description": "How long /readyz waits for the readyRequires plugins, counted from startup. After that dash reports ready anyway and logs a warning naming the plugins still starting.",
+          "examples": [
+            "30s",
+            "5m",
+            "1h30m"
+          ],
+          "format": "duration",
+          "type": "string",
+          "x-dash-restart": true
+        }
+      },
+      "type": "object"
+    },
+    "SettingsConfig": {
+      "additionalProperties": false,
+      "properties": {
+        "secretNamespaces": {
+          "description": "Kubernetes namespaces, besides the one dash runs in, that a k8s:<namespace>/<name>#<key> secret reference saved from the settings page may name. Empty: only dash's own namespace. References in the config file or the environment are the operator's and may name any namespace. It cannot be set from the settings page. A JSON list in the environment.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array",
+          "x-dash-restart": true
+        },
+        "ui": {
+          "default": "editable",
+          "description": "Whether the settings page may save values: editable, or readonly (fully managed, GitOps). A data directory that is missing or not writable is read-only either way.",
+          "enum": [
+            "editable",
+            "readonly"
+          ],
+          "type": "string",
+          "x-dash-restart": true
+        }
+      },
+      "type": "object"
+    },
+    "TLS": {
+      "additionalProperties": false,
+      "properties": {
+        "caFile": {
+          "description": "Path of a PEM file with the certificate authority that signed the service's certificate, added to the system roots. Empty uses the system roots only.",
+          "type": "string",
+          "x-dash-dest": true
+        },
+        "insecureSkipVerify": {
+          "description": "Skip verifying the service's certificate and host name. Anyone on the network path can then impersonate the service: prefer caFile.",
+          "type": "boolean",
+          "x-dash-dest": true
+        }
+      },
+      "type": "object"
+    },
+    "TempThresholds": {
+      "additionalProperties": false,
+      "properties": {
+        "crit": {
+          "default": 90,
+          "description": "The CPU package temperature, in °C, from which the host is critical.",
+          "type": "integer"
+        },
+        "warn": {
+          "default": 85,
+          "description": "The CPU package temperature, in °C, from which the host is warning. Greater than zero and below crit.",
+          "type": "integer"
+        }
+      },
+      "type": "object"
+    },
+    "UI": {
+      "additionalProperties": false,
+      "properties": {
+        "iconBaseURL": {
+          "description": "Where icons resolve, for launcher links and for the apps on the Apps page: an icon called proxmox is requested from <iconBaseURL>/proxmox.png (one trailing .png, .svg or .webp on the name is dropped first), and an absolute icon URL is used only when it lies under this URL. Homepage-style names (mdi-, si- and sh- prefixes) show no icon. An http(s) URL with a host, without query or fragment, e.g. https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/png. Empty (the default) shows letter tiles for launcher links and apps, so dash makes no third-party request for icons.",
+          "format": "uri",
+          "type": "string",
+          "x-dash-restart": true
+        }
+      },
+      "type": "object"
+    },
+    "VerifySource": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "description": "GitRepository or OCIRepository.",
+          "type": "string"
+        },
+        "name": {
+          "description": "Name of the source.",
+          "type": "string"
+        },
+        "namespace": {
+          "description": "Namespace of the source.",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "VictoriaLogs": {
+      "additionalProperties": false,
+      "properties": {
+        "auth": {
+          "$ref": "#/$defs/Auth",
+          "description": "How dash authenticates to VictoriaLogs. Neither basic nor bearerToken sends no credentials."
+        },
+        "denyNamespaces": {
+          "description": "Namespaces whose logs dash refuses to show, whatever the role. A JSON list in the environment.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "enabled": {
+          "description": "false turns the plugin off: its topics are removed, and the web UI drops its rail entry, palette entries, overview tiles and panels and shows a switched-off page at its address. Unset turns it on when it has the settings it needs (rustfs is off unless enabled: true, because nothing in its settings says an object store exists); a plugin without them is disabled (\"not configured: set plugins.<id>.url\", naming the setting to make) and the web UI hides its pages. true with settings missing or invalid makes it unconfigured, which hides its pages too. This is how prometheus, alertmanager, gatus, victorialogs, proxmox, hardware, kubernetes, flux, cnpg, rustfs, grafana, headlamp and launcher behave, and a change to any of their settings applies live: that plugin restarts, and so do the plugins that use or require it (a prometheus change restarts proxmox, hardware, kubernetes, cnpg and rustfs; a gatus change restarts hardware and kubernetes; a proxmox change restarts hardware; a kubernetes change restarts proxmox, flux and cnpg; a grafana change restarts alertmanager).",
+          "type": "boolean"
+        },
+        "fields": {
+          "$ref": "#/$defs/LogFields",
+          "description": "The field names of the log records that identify the pod. Letters, digits, underscores and dots, not starting with a digit or a dot."
+        },
+        "limit": {
+          "default": 500,
+          "description": "Most log lines one query returns. Greater than zero.",
+          "type": "integer"
+        },
+        "tls": {
+          "$ref": "#/$defs/TLS",
+          "description": "How dash verifies VictoriaLogs's certificate."
+        },
+        "type": {
+          "description": "The plugin type. dash runs one instance per type, so this is empty or the section name.",
+          "type": "string"
+        },
+        "url": {
+          "description": "Base URL of the service, e.g. http://host:9090. Empty turns the source off: dash makes no request and its panels show \"source not configured\".",
+          "format": "uri",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "The dash config file. The environment overrides it, setting by setting: DASH_ plus the path in UPPER_SNAKE case.",
+  "properties": {
+    "auth": {
+      "$ref": "#/$defs/AuthConfig",
+      "description": "How dash learns who is making a request and what they may do."
+    },
+    "dataDir": {
+      "default": "/data",
+      "description": "Where dash keeps its state (ui-settings.yaml, audit.jsonl) and looks for config.yaml. Demo mode uses none.",
+      "type": "string",
+      "x-dash-restart": true
+    },
+    "plugins": {
+      "$ref": "#/$defs/PluginsConfig",
+      "description": "One section per plugin. An empty URL turns that source off."
+    },
+    "server": {
+      "$ref": "#/$defs/ServerConfig",
+      "description": "How dash listens and what it calls itself."
+    },
+    "settings": {
+      "$ref": "#/$defs/SettingsConfig",
+      "description": "The settings store behind the settings page."
+    },
+    "ui": {
+      "$ref": "#/$defs/UI",
+      "description": "What the web UI is told by the server."
+    }
+  },
+  "title": "dash configuration",
+  "type": "object"
+}

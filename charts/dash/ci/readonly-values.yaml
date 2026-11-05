@@ -1,0 +1,42 @@
+# A GitOps install behind an identity proxy in the cluster: read-only settings, no volume, two
+# replicas (which needs proxy auth: sessions then live in the proxy, not in each replica), secrets
+# from Secrets.
+replicaCount: 2
+secretKey:
+  existingSecret: dash-secret-key
+settings:
+  ui: readonly
+persistence:
+  enabled: false
+config:
+  server:
+    publicURL: https://dash.example.com
+  auth:
+    mode: proxy
+    proxy:
+      # The pod network the identity proxy (for example an ingress controller doing forward
+      # auth) runs in. Wider than the proxy's own pods, so the NetworkPolicy below admits only
+      # the proxy's namespace to dash's port: no other pod can send the identity headers.
+      trustedProxies: ["10.244.0.0/16"]
+      adminUsers: [alice]
+  plugins:
+    proxmox:
+      url: https://pve.example.com:8006
+      tokenID: dash@pve!dash
+      tokenSecret: env:PROXMOX_TOKEN_SECRET
+    alertmanager:
+      url: http://alertmanager.monitoring.svc:9093
+      auth:
+        bearerToken: k8s:monitoring/alertmanager#token
+secretEnv:
+  - name: PROXMOX_TOKEN_SECRET
+    secretKeyRef: {name: proxmox, key: tokenSecret}
+rbac:
+  secretRefs:
+    - namespace: monitoring
+      names: [alertmanager]
+networkPolicy:
+  enabled: true
+  from:
+    - namespaceSelector:
+        matchLabels: {kubernetes.io/metadata.name: ingress}
