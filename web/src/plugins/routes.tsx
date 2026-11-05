@@ -13,9 +13,12 @@ import { MODULES } from "./registry";
 import { isVisible, usePluginsState } from "./state";
 import type { ModuleRoute as ModuleRouteDecl, PluginModule } from "./types";
 
-// The settings pages are their own chunk: only an administrator ever loads them.
+// The settings pages are their own chunks: only an administrator ever loads them.
 const SettingsPage = lazy(() =>
   import("@/settings/settings-page").then((m) => ({ default: m.SettingsPage })),
+);
+const PluginSettingsPage = lazy(() =>
+  import("@/settings/plugin-settings-page").then((m) => ({ default: m.PluginSettingsPage })),
 );
 
 export function PageLoading() {
@@ -183,6 +186,14 @@ export function PluginRoutes() {
         <AdminOnly>
           <SettingsPage />
         </AdminOnly>
+      </Route>
+      <Route path="/settings/plugins/:id">
+        {(params) => (
+          // Keyed by plugin: one plugin's form state must not carry over to the next.
+          <AdminOnly key={params.id}>
+            <PluginSettingsPage id={params.id ?? ""} />
+          </AdminOnly>
+        )}
       </Route>
       {MODULES.flatMap((m) =>
         (m.routes ?? []).map((r) => (

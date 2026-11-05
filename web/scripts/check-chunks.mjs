@@ -21,6 +21,7 @@ const PAGES = {
   alerts: "firing since",
   status: "Average duration of the shown checks",
   "settings-page": "Settings are read-only",
+  "plugin-settings-page": "No plugin named",
 };
 
 const html = readFileSync(join(dist, "index.html"), "utf8");

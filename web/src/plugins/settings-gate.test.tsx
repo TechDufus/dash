@@ -61,4 +61,19 @@ describe("TestViewerCannotOpenSettings", () => {
     expect(railLabels()).toContain("Settings");
     expect(f.callsTo("GET /api/v1/settings").length).toBeGreaterThan(0);
   });
+
+  it("gates the plugin settings page the same way", async () => {
+    const f = stubFetch(settingsRoutes({ "GET /api/v1/me": me("viewer") }));
+    renderAt("/settings/plugins/proxmox");
+    await screen.findByText(/Not authorised/, undefined, wait);
+    expect(f.calls.filter((c) => c.path.startsWith("/api/v1/settings"))).toEqual([]);
+  });
+
+  it("opens a plugin's form for an administrator", async () => {
+    const f = stubFetch(settingsRoutes());
+    renderAt("/settings/plugins/proxmox");
+    await screen.findByRole("heading", { name: "Proxmox VE" }, wait);
+    await screen.findByLabelText(/node/i, undefined, wait);
+    expect(f.callsTo("GET /api/v1/settings/plugins/proxmox").length).toBeGreaterThan(0);
+  });
 });
