@@ -7,6 +7,7 @@ package netguard
 
 import (
 	"crypto/tls"
+	"crypto/x509"
 	"errors"
 	"fmt"
 	"io"
@@ -100,6 +101,8 @@ type Options struct {
 	AllowPrivate bool
 	// Timeout bounds the whole exchange, body included; zero means 5 seconds.
 	Timeout time.Duration
+	// RootCAs are the certificate authorities the client trusts; nil means the system's.
+	RootCAs *x509.CertPool
 }
 
 // NewClient builds a client that dials only the addresses Check passes, uses no proxy, follows
@@ -120,7 +123,7 @@ func NewClient(o Options) *http.Client {
 		Transport: &http.Transport{
 			Proxy:                 nil, // never the environment's: the guard would check the proxy
 			DialContext:           dialer.DialContext,
-			TLSClientConfig:       &tls.Config{MinVersion: tls.VersionTLS12},
+			TLSClientConfig:       &tls.Config{MinVersion: tls.VersionTLS12, RootCAs: o.RootCAs},
 			TLSHandshakeTimeout:   timeout,
 			ResponseHeaderTimeout: timeout,
 			ForceAttemptHTTP2:     true,

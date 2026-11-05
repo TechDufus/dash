@@ -85,10 +85,10 @@ func securityHeaders(mode cspMode) func(http.Handler) http.Handler {
 	}
 }
 
-// authPath reports whether p is one of the login, setup or auth routes, or below one.
+// authPath reports whether p is one of the login, setup, auth or OAuth routes, or below one.
 func authPath(p string) bool {
 	p = path.Clean("/" + p)
-	for _, root := range []string{"/login", "/setup", "/auth"} {
+	for _, root := range []string{"/login", "/setup", "/auth", "/oauth"} {
 		if p == root || strings.HasPrefix(p, root+"/") {
 			return true
 		}

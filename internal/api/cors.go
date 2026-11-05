@@ -22,7 +22,10 @@ const (
 //   - a response to a request authn resolved to a token principal gets
 //     Access-Control-Allow-Origin, Vary: Origin and the exposed headers, as does a 401 to any
 //     request, so a client can read the challenge. A Bearer header alone grants nothing: the
-//     decision is the resolved principal's (the CSRF rule of contract D3, applied to CORS).
+//     decision is the resolved principal's (the CSRF rule of contract D3, applied to CORS);
+//   - every answer on the OAuth metadata documents and the token and revoke endpoints gets
+//     them too (oauthCORSPath): a browser-based client calls those without a credential. Never
+//     /oauth/authorize, a navigation.
 //
 // Access-Control-Allow-Credentials is never sent: cookies and the identity proxy's session stay
 // same-origin, so the web UI's own requests are never readable cross-origin.
@@ -47,7 +50,7 @@ func (s *Server) cors(next http.Handler) http.Handler {
 			w.WriteHeader(http.StatusNoContent)
 			return
 		}
-		cw := &corsWriter{ResponseWriter: w, origin: origin}
+		cw := &corsWriter{ResponseWriter: w, origin: origin, token: oauthCORSPath(r.URL.Path)}
 		next.ServeHTTP(cw, r.WithContext(context.WithValue(r.Context(), corsKey{}, cw)))
 	})
 }
@@ -67,7 +70,7 @@ func markTokenForCORS(r *http.Request) {
 type corsWriter struct {
 	http.ResponseWriter
 	origin string
-	token  bool // set by authn (markTokenForCORS)
+	token  bool // set by authn (markTokenForCORS), or from the start on an OAuth endpoint
 	wrote  bool
 }
 

@@ -15,6 +15,7 @@ import (
 	"github.com/TechDufus/dash/internal/config"
 	"github.com/TechDufus/dash/internal/credentials"
 	"github.com/TechDufus/dash/internal/localauth"
+	"github.com/TechDufus/dash/internal/oauth"
 	"github.com/TechDufus/dash/internal/oidcauth"
 	"github.com/TechDufus/dash/internal/secret"
 	"github.com/TechDufus/dash/internal/session"
@@ -38,15 +39,15 @@ type processAuth struct {
 	// tokens resolves bearer credentials (contract D2): the store's personal access tokens and
 	// auth.tokens; nil in auth.mode=none, like store.
 	tokens *tokens.Resolver
-	// oauth says dash serves its OAuth authorization server (contract D21): auth.oauth.enabled
-	// in local, oidc or proxy mode with a credential store that outlives the process.
-	oauth bool
+	// oauth is the OAuth authorization server (contract D21): auth.oauth.enabled in local, oidc
+	// or proxy mode with a credential store that outlives the process; nil otherwise.
+	oauth *oauth.Server
 }
 
 // deps hands the authenticator, the token resolver, the credential store and the session
 // machinery to the API.
 func (p processAuth) deps(d *api.Deps) {
-	d.Auth, d.Credentials, d.OAuthEnabled = p.authn, p.store, p.oauth
+	d.Auth, d.Credentials, d.OAuth = p.authn, p.store, p.oauth
 	if p.tokens != nil { // a nil *Resolver in the interface would not be a nil TokenResolver
 		d.Tokens = p.tokens
 	}
@@ -118,8 +119,29 @@ func startAuth(res *config.Resolved, env sessionEnv, log *slog.Logger) (processA
 			log.Warn("server.corsOrigins is ignored: auth.mode=none has no bearer clients, and every other request stays same-origin")
 		}
 	}
-	pa.oauth = oauthOn(res.Tree.Auth, fixed, pa.store, log)
+	if oauthOn(res.Tree.Auth, fixed, pa.store, log) {
+		srv, err := buildOAuth(res, pa.store)
+		if err != nil {
+			return processAuth{}, err
+		}
+		pa.oauth = srv
+	}
 	return pa, nil
+}
+
+// buildOAuth is the authorization server over the store. Its access tokens are sealed under a
+// key derived from DASH_SECRET_KEY and the store's salt, so they survive a restart; without the
+// key they are sealed under a random one and end with the process (the refresh tokens do not).
+func buildOAuth(res *config.Resolved, store *credentials.Store) (*oauth.Server, error) {
+	key, _, err := sessionKey(res.Keys, store, oauth.AccessPurpose)
+	if err != nil {
+		return nil, fmt.Errorf("oauth access key: %w", err)
+	}
+	o := res.Tree.Auth.OAuth
+	return oauth.New(oauth.Options{
+		PublicURL: res.Config.PublicURL, DirectURL: res.Config.DirectURL, Store: store, AccessKey: key,
+		Clients: o.Clients, CIMDAllowPrivate: o.CIMDAllowPrivate,
+	})
 }
 
 // oauthOn reports whether auth.oauth.enabled can take effect (contract D21): never in dev, demo

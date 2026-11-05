@@ -116,6 +116,7 @@ func (s *Server) routeTable() []Route {
 	}
 	rows = append(rows, s.settingsRoutes()...)
 	rows = append(rows, s.tokenRoutes()...)
+	rows = append(rows, s.oauthRoutes()...)
 	return append(rows, []Route{
 		// The sign-in routes of the session modes (docs/auth.md). They are outside /api, so authn
 		// does not run (logout reads the session itself) and the guard has no role to enforce;
@@ -129,11 +130,9 @@ func (s *Server) routeTable() []Route {
 		{Path: "/api/", Infra: true, Handler: func(w http.ResponseWriter, _ *http.Request) {
 			writeErr(w, http.StatusNotFound, model.ErrCodeNotFound, "not found")
 		}},
-		// The 401 challenge points at /.well-known/oauth-protected-resource/<api|mcp>; until the
-		// OAuth server serves those documents, the path answers a JSON 404, never the SPA.
-		{Path: "/.well-known/", Infra: true, Handler: func(w http.ResponseWriter, _ *http.Request) {
-			writeErr(w, http.StatusNotFound, model.ErrCodeNotFound, "not found")
-		}},
+		// Every other /.well-known/ path answers a JSON 404, never the SPA: a client probing for
+		// a document (openid-configuration, a path-inserted metadata URL) learns it is absent.
+		{Path: "/.well-known/", Infra: true, Handler: notFound},
 		{Path: "/", Infra: true, Handler: s.serveStatic},
 	}...)
 }

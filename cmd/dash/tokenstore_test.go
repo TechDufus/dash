@@ -107,8 +107,8 @@ func TestOAuthRunsOnlyWithAWritableDataDir(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if pa.oauth != tc.want {
-				t.Errorf("oauth = %v, want %v", pa.oauth, tc.want)
+			if (pa.oauth != nil) != tc.want {
+				t.Errorf("oauth server built = %v, want %v", pa.oauth != nil, tc.want)
 			}
 			if tc.warn != "" && len(logs.with(t, "WARN", "auth.oauth.enabled is ignored: "+tc.warn)) != 1 {
 				t.Errorf("no WARN about %q:\n%s", tc.warn, &logs.buf)

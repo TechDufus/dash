@@ -115,9 +115,13 @@ func TestMeIconBaseURLComesFromTheConfiguration(t *testing.T) {
 func TestMeCapabilitiesOAuth(t *testing.T) {
 	for _, on := range []bool{true, false} {
 		var me model.Me
-		decodeJSON(t, req{path: "/api/v1/me"}.do(newServer(func(d *Deps) { d.OAuthEnabled = on }).Handler()), &me)
+		decodeJSON(t, req{path: "/api/v1/me"}.do(newServer(func(d *Deps) {
+			if on {
+				d.OAuth = testOAuth(t, d)
+			}
+		}).Handler()), &me)
 		if me.Capabilities.OAuth != on {
-			t.Errorf("OAuthEnabled %v: capabilities.oauth = %v", on, me.Capabilities.OAuth)
+			t.Errorf("OAuth server %v: capabilities.oauth = %v", on, me.Capabilities.OAuth)
 		}
 	}
 }

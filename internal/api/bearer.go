@@ -1,6 +1,7 @@
 package api
 
 import (
+	"cmp"
 	"errors"
 	"math"
 	"net/http"
@@ -67,13 +68,18 @@ func (s *Server) bearer(r *http.Request) (p auth.Principal, fail *auth.Failure, 
 }
 
 // wwwAuthenticate is the challenge of a 401 at path (design M.1): where an OAuth client learns
-// how to authenticate at that surface. The documents themselves arrive with the OAuth server.
+// how to authenticate at that surface. The document is on server.directURL when it is set
+// (contract D20), the address a client reaches past an identity proxy.
 func (s *Server) wwwAuthenticate(path string) string {
 	aud := audienceFor(path)
 	if aud == "" {
 		aud = "api"
 	}
-	return `Bearer resource_metadata="` + strings.TrimSuffix(s.d.Cfg.PublicURL, "/") + `/.well-known/oauth-protected-resource/` + aud + `"`
+	if s.d.OAuth != nil {
+		return `Bearer resource_metadata="` + s.d.OAuth.ResourceMetadataURL(aud) + `"`
+	}
+	base := strings.TrimSuffix(cmp.Or(s.d.Cfg.DirectURL, s.d.Cfg.PublicURL), "/")
+	return `Bearer resource_metadata="` + base + `/.well-known/oauth-protected-resource/` + aud + `"`
 }
 
 // The rate limit of an api token (design M.5, contract D10): a bucket of tokenBurst requests
