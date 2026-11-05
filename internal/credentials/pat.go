@@ -154,9 +154,10 @@ func validPAT(id string, p PAT) error {
 }
 
 // writtenVersion is the schemaVersion a document is written with (contract D4): 2 once it holds
-// a personal access token, 1 before, so an install that never made one can still roll back.
+// a personal access token or an OAuth grant, 1 before, so an install that never made one can
+// still roll back.
 func writtenVersion(d document) int {
-	if len(d.PATs) > 0 {
+	if len(d.PATs) > 0 || len(d.Grants) > 0 {
 		return 2
 	}
 	return 1
@@ -203,14 +204,17 @@ func activeOf(pats map[string]PAT, user string, now time.Time) int {
 	return n
 }
 
-// PruneExpired deletes the tokens that expired more than PruneAfter before now: past that they
-// only grow the file and keep it at schemaVersion 2. It reports how many it deleted; like a
-// revocation, the deletion holds in this process even when the write fails.
+// PruneExpired deletes the tokens that expired more than PruneAfter before now (past that they
+// only grow the file and keep it at schemaVersion 2) and the OAuth grants that are no longer
+// active, which no refresh can bring back. It reports how many it deleted; like a revocation,
+// the deletion holds in this process even when the write fails.
 func (s *Store) PruneExpired(now time.Time) (int, error) {
 	cut := now.Add(-PruneAfter)
 	stale := func(p PAT) bool { return p.ExpiresAt.Before(cut) }
+	gone := func(g Grant) bool { return !g.Active(now) }
 	s.mu.RLock()
-	found := slices.ContainsFunc(slices.Collect(maps.Values(s.doc.PATs)), stale)
+	found := slices.ContainsFunc(slices.Collect(maps.Values(s.doc.PATs)), stale) ||
+		slices.ContainsFunc(slices.Collect(maps.Values(s.doc.Grants)), gone)
 	s.mu.RUnlock()
 	if !found {
 		return 0, nil
@@ -225,6 +229,15 @@ func (s *Store) PruneExpired(now time.Time) (int, error) {
 		}
 		if len(d.PATs) == 0 {
 			d.PATs = nil
+		}
+		for id, g := range d.Grants {
+			if gone(g) {
+				delete(d.Grants, id)
+				n++
+			}
+		}
+		if len(d.Grants) == 0 {
+			d.Grants = nil
 		}
 		return n > 0
 	})
@@ -391,24 +404,24 @@ func (s *Store) RunLastUsedFlush(ctx context.Context, every time.Duration) {
 	}
 }
 
-// SyncIdentity records groups and roleClaim on every personal access token of user whose
-// recorded values differ (design M.8: tokens follow the identity provider), and reports whether
-// it changed any. The values are compared as sets. When nothing differs it takes no write lock
-// and writes nothing, so a caller may run it on every request of a person. Like an epoch bump the
-// change holds in this process even when the write fails (the error says so): a demotion must
-// reach the tokens at once, and the next request finds nothing to change, so a broken file is
-// not rewritten on every request.
+// SyncIdentity records groups and roleClaim on every personal access token and OAuth grant of
+// user whose recorded values differ (design M.8: tokens follow the identity provider), and
+// reports whether it changed any. The values are compared as sets. When nothing differs it
+// takes no write lock and writes nothing, so a caller may run it on every request of a person.
+// Like an epoch bump the change holds in this process even when the write fails (the error says
+// so): a demotion must reach the tokens at once, and the next request finds nothing to change,
+// so a broken file is not rewritten on every request.
 func (s *Store) SyncIdentity(user string, groups, roleClaim []string) (changed bool, err error) {
-	differs := func(p PAT) bool {
-		return p.User == user && (!sameSet(p.Groups, groups) || !sameSet(p.RoleClaim, roleClaim))
+	differs := func(u string, g, rc []string) bool {
+		return u == user && (!sameSet(g, groups) || !sameSet(rc, roleClaim))
 	}
 	s.mu.RLock()
 	stale := false
 	for _, p := range s.doc.PATs {
-		if differs(p) {
-			stale = true
-			break
-		}
+		stale = stale || differs(p.User, p.Groups, p.RoleClaim)
+	}
+	for _, g := range s.doc.Grants {
+		stale = stale || differs(g.User, g.Groups, g.RoleClaim)
 	}
 	s.mu.RUnlock()
 	if !stale {
@@ -416,9 +429,16 @@ func (s *Store) SyncIdentity(user string, groups, roleClaim []string) (changed b
 	}
 	err = s.update(true, func(d *document) bool {
 		for id, p := range d.PATs {
-			if differs(p) {
+			if differs(p.User, p.Groups, p.RoleClaim) {
 				p.Groups, p.RoleClaim = slices.Clone(groups), slices.Clone(roleClaim)
 				d.PATs[id] = p
+				changed = true
+			}
+		}
+		for id, g := range d.Grants {
+			if differs(g.User, g.Groups, g.RoleClaim) {
+				g.Groups, g.RoleClaim = slices.Clone(groups), slices.Clone(roleClaim)
+				d.Grants[id] = g
 				changed = true
 			}
 		}

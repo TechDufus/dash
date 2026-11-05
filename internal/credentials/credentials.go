@@ -1,11 +1,12 @@
 // Package credentials is dash's credential store, credentials.yaml in the data directory (design
 // M.7, contract D10): the local administrator account, the per-user session epochs, the global
-// epoch, the session salt and the personal access tokens (hashes only). It is not the settings
-// store: auth.* is not editable from the UI, and a restored settings backup must never bring
-// back an old password or a revoked token.
+// epoch, the session salt, the personal access tokens and the OAuth grants (hashes only). It is
+// not the settings store: auth.* is not editable from the UI, and a restored settings backup
+// must never bring back an old password, a revoked token or a revoked grant.
 //
-// The file is mode 0600 and carries a schemaVersion: 1 until it holds a personal access token,
-// 2 from then on, so an older dash refuses it rather than dropping the tokens on its next write.
+// The file is mode 0600 and carries a schemaVersion: 1 until it holds a personal access token
+// or an OAuth grant, 2 from then on, so an older dash refuses it rather than dropping them on
+// its next write.
 // Every write is atomic (a temporary file, fsync, rename, fsync of the directory) and there are
 // no .bak copies. The store has a mutex of its own and holds its own flock on
 // .credentials.lock, so a second dash on the same data directory is refused even when the
@@ -60,8 +61,8 @@ var ErrFileChanged = errors.New("credentials: credentials.yaml was removed or re
 // tempPattern names the temporary files of the atomic write; Open removes the ones a crash left.
 const tempPattern = ".credentials.yaml.tmp-*"
 
-const header = "# Managed by dash: the local administrator account, the session epochs and the personal access tokens. Do not edit.\n" +
-	"# Stop dash, then delete this file to end every session, revoke every token and reopen /setup.\n"
+const header = "# Managed by dash: the local administrator account, the session epochs, the personal access tokens and the OAuth grants. Do not edit.\n" +
+	"# Stop dash, then delete this file to end every session, revoke every token and grant, and reopen /setup.\n"
 
 // Admin is the local administrator account (auth.mode=local).
 type Admin struct {
@@ -84,6 +85,8 @@ type document struct {
 	SessionSalt string `json:"sessionSalt"`
 	// PATs are the personal access tokens by ID.
 	PATs map[string]PAT `json:"pats,omitempty"`
+	// Grants are the OAuth grants by ID.
+	Grants map[string]Grant `json:"grants,omitempty"`
 }
 
 // Store is the open credential store. Its methods are safe for concurrent use.
@@ -281,6 +284,11 @@ func decode(data []byte) (document, []byte, error) {
 			return document{}, nil, err
 		}
 	}
+	for id, g := range doc.Grants {
+		if err := validGrant(id, g); err != nil {
+			return document{}, nil, err
+		}
+	}
 	return doc, salt, nil
 }
 
@@ -363,6 +371,7 @@ func (s *Store) update(keepOnFailure bool, change func(*document) bool) error {
 		next.Admin = &a
 	}
 	next.PATs = clonePATs(s.doc.PATs)
+	next.Grants = cloneGrants(s.doc.Grants)
 	if !change(&next) {
 		return nil
 	}
