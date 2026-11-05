@@ -372,19 +372,25 @@ func stored[T any](t *testing.T, h *hub.Hub, topic string) (T, []model.SourceSta
 // waitTopic waits for a published payload of the topic that satisfies ok.
 func waitTopic[T any](t *testing.T, h *hub.Hub, topic string, ok func(T) bool) (T, []model.SourceStatus) {
 	t.Helper()
+	return waitPublished(t, h, topic, func(d T, _ []model.SourceStatus) bool { return ok(d) })
+}
+
+// waitPublished waits for a published payload of the topic that, with its sources, satisfies ok.
+func waitPublished[T any](t *testing.T, h *hub.Hub, topic string, ok func(T, []model.SourceStatus) bool) (T, []model.SourceStatus) {
+	t.Helper()
 	var last T
 	var srcs []model.SourceStatus
 	deadline := time.Now().Add(3 * time.Second)
 	for time.Now().Before(deadline) {
 		if d, s, found := stored[T](t, h, topic); found {
 			last, srcs = d, s
-			if ok(d) {
+			if ok(d, s) {
 				return d, s
 			}
 		}
 		time.Sleep(3 * time.Millisecond)
 	}
-	t.Fatalf("timed out waiting for a payload of %s; last %+v", topic, last)
+	t.Fatalf("timed out waiting for a payload of %s; last %+v, sources %+v", topic, last, srcs)
 	return last, srcs
 }
 

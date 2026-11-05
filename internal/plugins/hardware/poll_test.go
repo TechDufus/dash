@@ -89,16 +89,17 @@ func TestFailedQueryKeepsTheLastGoodValues(t *testing.T) {
 
 	r.q.setErr(r.ex.power(node), errors.New("boom"))
 	r.q.set(r.ex.cpu(node), sample(0.5))
-	d, srcs := waitTopic(t, r.hub, "hardware.hosts", func(d model.HostData) bool { return d.CPURatio == 0.5 })
+	// A poll in flight when the failure lands can still publish CPU 0.5 with a good source, so
+	// wait for a poll that saw both: the failure in the sources, the new CPU in the data.
+	d, _ := waitPublished(t, r.hub, "hardware.hosts", func(d model.HostData, srcs []model.SourceStatus) bool {
+		return d.CPURatio == 0.5 && hasSource(srcs, "prometheus", false, "unreachable")
+	})
 	if d.PowerWatts != 214 {
 		t.Errorf("power = %v after a failed query, want the last good 214", d.PowerWatts)
 	}
-	if !hasSource(srcs, "prometheus", false, "unreachable") {
-		t.Errorf("sources = %+v, want prometheus unreachable", srcs)
-	}
 
 	r.q.set(r.ex.power(node), sample(50))
-	d, srcs = waitTopic(t, r.hub, "hardware.hosts", func(d model.HostData) bool { return d.PowerWatts == 50 })
+	_, srcs := waitTopic(t, r.hub, "hardware.hosts", func(d model.HostData) bool { return d.PowerWatts == 50 })
 	if !hasSource(srcs, "prometheus", true, "") {
 		t.Errorf("sources = %+v, want prometheus ok after recovery", srcs)
 	}
