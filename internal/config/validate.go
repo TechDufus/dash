@@ -90,6 +90,10 @@ func validate(t Tree, dev, demo bool, prov map[string]Provenance) error {
 	if dev && !LoopbackAddr(s.Listen) {
 		v.fail("server.listen", "DASH_DEV=true signs requests in as %q without authentication, so the listen address must be a loopback address such as 127.0.0.1:8080", "dev")
 	}
+	// Dev and demo sign in their own fixed user whatever auth.mode says, so the rule is theirs above.
+	if t.Auth.Mode == AuthModeNone && !dev && !demo && !t.Auth.None.AllowRemote && !LoopbackAddr(s.Listen) {
+		v.fail("server.listen", "auth.mode=none signs every request in as an administrator without authentication, so it needs a loopback listen address: set %s=127.0.0.1:8080 (in a container only with --network host: -p cannot reach a loopback listener), or set %s=true (auth.none.allowRemote) knowing that anyone who can reach dash is an administrator", envName("server.listen"), envName("auth.none.allowRemote"))
+	}
 	// The message names the entry by its position, never its text: a URL pasted here can carry a
 	// password (user:password@host). The position counts the list as normalize left it: every
 	// entry split at its commas and the empty ones dropped, so ["a,b", "bad"] reports entry 3.

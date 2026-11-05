@@ -25,10 +25,16 @@ const (
 // may do (design E.2, E.4). Every key is a restart setting except the admin lists, which a
 // reload applies to the next request.
 type AuthConfig struct {
-	Mode  string          `json:"mode" dash:"restart,enum=proxy|none|local|oidc" doc:"How dash learns who is making a request. proxy: an identity proxy in front of dash (oauth2-proxy, Authelia, Authentik) forwards the user name in a header, and dash believes it only from the peers in auth.proxy.trustedProxies. local: one administrator account (auth.local.adminUser) signs in at /login with a password; the first start prints a one-time setup link, or DASH_ADMIN_PASSWORD_HASH supplies the password hash. oidc: users sign in at an OpenID Connect provider (auth.oidc), admitted only by auth.oidc.allowedUsers or allowedGroups. none: no authentication at all, every request is signed in as an administrator named anonymous; dash warns at every start and shows a banner on every page, so bind server.listen to 127.0.0.1 and keep the port reachable only from the machine itself. It is never the default."`
+	Mode  string          `json:"mode" dash:"restart,enum=proxy|none|local|oidc" doc:"How dash learns who is making a request. proxy: an identity proxy in front of dash (oauth2-proxy, Authelia, Authentik) forwards the user name in a header, and dash believes it only from the peers in auth.proxy.trustedProxies. local: one administrator account (auth.local.adminUser) signs in at /login with a password; the first start prints a one-time setup link, or DASH_ADMIN_PASSWORD_HASH supplies the password hash. oidc: users sign in at an OpenID Connect provider (auth.oidc), admitted only by auth.oidc.allowedUsers or allowedGroups. none: no authentication at all, every request is signed in as an administrator named anonymous; dash warns at every start and shows a banner on every page. It refuses to start unless server.listen is a loopback address such as 127.0.0.1:8080 (or auth.none.allowRemote is true), so keep the port reachable only from the machine itself. It is never the default."`
 	Proxy AuthProxyConfig `json:"proxy" doc:"The proxy mode: which headers name the user, which peers are believed, and who is an administrator."`
 	Local AuthLocalConfig `json:"local" doc:"The local mode: the one administrator account and the optional read-only access without signing in."`
 	OIDC  AuthOIDCConfig  `json:"oidc" doc:"The oidc mode: the OpenID Connect provider, who may sign in, and who is an administrator."`
+	None  AuthNoneConfig  `json:"none" doc:"The none mode: whether it may run on a listener other machines can reach."`
+}
+
+// AuthNoneConfig is the none mode of AuthConfig.
+type AuthNoneConfig struct {
+	AllowRemote bool `json:"allowRemote" dash:"restart" doc:"Let auth.mode=none start on a server.listen address that is not loopback (such as the default 0.0.0.0:8080). Anyone who can reach dash is then an administrator; dash warns at every start and refuses settings changes and connection tests. Without it, none on such an address refuses to start. It cannot be set from the settings page."`
 }
 
 // AuthOIDCConfig is the oidc mode of AuthConfig. The admin lists and adminRoles apply on a

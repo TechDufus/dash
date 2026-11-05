@@ -99,19 +99,30 @@ func TestDemoDoesNotImplyDev(t *testing.T) {
 
 // The API listens on every address by default, so a container port mapping reaches it; dev and
 // demo keep loopback, and the environment `make dev-api` sets (DASH_DEV=true with nothing for
-// server.listen) is valid without naming a listen address.
+// server.listen) is valid without naming a listen address. auth.mode=none does not move the
+// listener: on the default it refuses to load (want ""), and an explicit listen stays as set.
 func TestListenDefaultPerMode(t *testing.T) {
+	const prod = "https://dash.example.com"
 	for _, tc := range []struct {
 		name string
 		env  map[string]string
 		want string
 	}{
-		{"prod", map[string]string{"DASH_SERVER_PUBLIC_URL": "https://dash.example.com"}, "0.0.0.0:8080"},
+		{"prod", map[string]string{"DASH_SERVER_PUBLIC_URL": prod}, "0.0.0.0:8080"},
 		{"make dev-api", map[string]string{"DASH_DEV": "true", "KUBECONFIG": "/nonexistent/kubeconfig"}, "127.0.0.1:8080"},
 		{"demo", map[string]string{"DASH_DEMO": "true"}, "127.0.0.1:8080"},
 		{"dev and demo", map[string]string{"DASH_DEV": "true", "DASH_DEMO": "true"}, "127.0.0.1:8080"},
+		{"none", map[string]string{"DASH_SERVER_PUBLIC_URL": prod, "DASH_AUTH_MODE": "none"}, ""},
+		{"none with an explicit loopback listen", map[string]string{"DASH_SERVER_PUBLIC_URL": prod, "DASH_AUTH_MODE": "none", "DASH_SERVER_LISTEN": "127.0.0.1:9090"}, "127.0.0.1:9090"},
+		{"none with an explicit listen and the opt-in", map[string]string{"DASH_SERVER_PUBLIC_URL": prod, "DASH_AUTH_MODE": "none", "DASH_SERVER_LISTEN": "0.0.0.0:8080", "DASH_AUTH_NONE_ALLOW_REMOTE": "true"}, "0.0.0.0:8080"},
 	} {
-		if c := mustLoad(t, tc.env); c.Listen != tc.want {
+		c, err := load(tc.env)
+		switch {
+		case tc.want == "" && (err == nil || !strings.Contains(err.Error(), "DASH_AUTH_NONE_ALLOW_REMOTE")):
+			t.Errorf("%s: Listen = %q, err = %v; want the refusal of none off loopback", tc.name, c.Listen, err)
+		case tc.want != "" && err != nil:
+			t.Errorf("%s: %v", tc.name, err)
+		case tc.want != "" && c.Listen != tc.want:
 			t.Errorf("%s: Listen = %q, want %q", tc.name, c.Listen, tc.want)
 		}
 	}

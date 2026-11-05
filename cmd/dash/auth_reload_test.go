@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -134,10 +135,11 @@ func TestOtherAuthKeysNeedARestart(t *testing.T) {
 	}
 	check("before the reload")
 
-	writeTestFile(t, cfgPath, "auth:\n  mode: none\n  proxy:\n    adminUsers: [alice]\n    trustedProxies: [\"10.0.0.0/8\"]\n")
+	// none off loopback needs its opt-in to load at all; that key is restart-only too.
+	writeTestFile(t, cfgPath, "auth:\n  mode: none\n  none:\n    allowRemote: true\n  proxy:\n    adminUsers: [alice]\n    trustedProxies: [\"10.0.0.0/8\"]\n")
 	waitFor(t, func() bool { return len(fw.reloader.RestartRequired()) > 0 })
-	if got := fw.reloader.RestartRequired(); len(got) != 2 || got[0] != "auth.mode" || got[1] != "auth.proxy.trustedProxies" {
-		t.Errorf("restart required = %v, want auth.mode and auth.proxy.trustedProxies", got)
+	if got, want := fw.reloader.RestartRequired(), []string{"auth.mode", "auth.none.allowRemote", "auth.proxy.trustedProxies"}; !slices.Equal(got, want) {
+		t.Errorf("restart required = %v, want %v", got, want)
 	}
 	check("after the reload")
 }

@@ -142,7 +142,7 @@
         },
         "mode": {
           "default": "local",
-          "description": "How dash learns who is making a request. proxy: an identity proxy in front of dash (oauth2-proxy, Authelia, Authentik) forwards the user name in a header, and dash believes it only from the peers in auth.proxy.trustedProxies. local: one administrator account (auth.local.adminUser) signs in at /login with a password; the first start prints a one-time setup link, or DASH_ADMIN_PASSWORD_HASH supplies the password hash. oidc: users sign in at an OpenID Connect provider (auth.oidc), admitted only by auth.oidc.allowedUsers or allowedGroups. none: no authentication at all, every request is signed in as an administrator named anonymous; dash warns at every start and shows a banner on every page, so bind server.listen to 127.0.0.1 and keep the port reachable only from the machine itself. It is never the default.",
+          "description": "How dash learns who is making a request. proxy: an identity proxy in front of dash (oauth2-proxy, Authelia, Authentik) forwards the user name in a header, and dash believes it only from the peers in auth.proxy.trustedProxies. local: one administrator account (auth.local.adminUser) signs in at /login with a password; the first start prints a one-time setup link, or DASH_ADMIN_PASSWORD_HASH supplies the password hash. oidc: users sign in at an OpenID Connect provider (auth.oidc), admitted only by auth.oidc.allowedUsers or allowedGroups. none: no authentication at all, every request is signed in as an administrator named anonymous; dash warns at every start and shows a banner on every page. It refuses to start unless server.listen is a loopback address such as 127.0.0.1:8080 (or auth.none.allowRemote is true), so keep the port reachable only from the machine itself. It is never the default.",
           "enum": [
             "proxy",
             "none",
@@ -151,6 +151,10 @@
           ],
           "type": "string",
           "x-dash-restart": true
+        },
+        "none": {
+          "$ref": "#/$defs/AuthNoneConfig",
+          "description": "The none mode: whether it may run on a listener other machines can reach."
         },
         "oidc": {
           "$ref": "#/$defs/AuthOIDCConfig",
@@ -174,6 +178,17 @@
         },
         "anonymousViewer": {
           "description": "Let a visitor who has not signed in read the dashboard as a viewer once the administrator account exists (before setup, a visitor is sent to the setup link instead): GET requests only, never logs, never actions. Only in auth.mode=local; dash warns at every start while it is on and lists anonymous_viewer in an administrator's /api/v1/me warnings.",
+          "type": "boolean",
+          "x-dash-restart": true
+        }
+      },
+      "type": "object"
+    },
+    "AuthNoneConfig": {
+      "additionalProperties": false,
+      "properties": {
+        "allowRemote": {
+          "description": "Let auth.mode=none start on a server.listen address that is not loopback (such as the default 0.0.0.0:8080). Anyone who can reach dash is then an administrator; dash warns at every start and refuses settings changes and connection tests. Without it, none on such an address refuses to start. It cannot be set from the settings page.",
           "type": "boolean",
           "x-dash-restart": true
         }

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"maps"
 	"net/http"
+	"net/http/httptest"
 	"slices"
 	"strconv"
 	"strings"
@@ -440,6 +441,38 @@ func TestSettingsWritesRefusedInNoneModeOffLoopback(t *testing.T) {
 	}
 	lo := newSettingsEnv(t, settingstest.Options{}, none("127.0.0.1:8080"))
 	wantOK(t, lo.put(proxmoxPath, map[string]any{"node": "pve"}))
+}
+
+// The connection test makes dash call an address the caller chooses, so auth.mode=none off
+// loopback (auth.none.allowRemote) refuses it as it refuses the writes: 403 with the same message,
+// before the rate limit or the body is read. On loopback it runs.
+func TestSettingsConnectionTestRefusedInNoneModeOffLoopback(t *testing.T) {
+	none := func(listen string) func(*Deps) {
+		return func(d *Deps) {
+			d.Auth = auth.Fixed(auth.Principal{Kind: auth.KindNone, User: "anonymous", Role: auth.RoleAdmin})
+			d.Cfg.Listen = listen
+		}
+	}
+	errorText := func(w *httptest.ResponseRecorder) string {
+		var body struct {
+			Error string `json:"error"`
+		}
+		if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
+			t.Fatalf("body %q: %v", w.Body.String(), err)
+		}
+		return body.Error
+	}
+	e := newSettingsEnv(t, settingstest.Options{Checker: checkSupervisor(t, nil)}, none("0.0.0.0:8080"))
+	write := e.do("PUT", proxmoxPath, map[string]any{"node": "pve"}, e.ifMatch())
+	wantErr(t, write, http.StatusForbidden, model.ErrCodeForbidden)
+	// A loopback URL from the form is blocked without a dial, so the check is quick either way.
+	test := e.test("gatus", map[string]any{"patch": map[string]any{"url": "http://127.0.0.1:1"}})
+	wantErr(t, test, http.StatusForbidden, model.ErrCodeForbidden)
+	if got, want := errorText(test), errorText(write); got != want {
+		t.Errorf("connection test refusal %q, want the settings write's %q", got, want)
+	}
+	lo := newSettingsEnv(t, settingstest.Options{Checker: checkSupervisor(t, nil)}, none("127.0.0.1:8080"))
+	checkReport(t, lo.test("gatus", map[string]any{"patch": map[string]any{"url": "http://127.0.0.1:1"}}))
 }
 
 // A k8s: reference from the UI may name dash's own namespace or one settings.secretNamespaces

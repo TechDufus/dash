@@ -16,6 +16,16 @@ change to the admin lists applies on the next request.
 
 `DASH_DEV` and `DASH_DEMO` outrank the mode and sign every request in as their fixed user.
 
+**`none` needs a loopback listener.** Since v0.14.0 `server.listen` defaults to `0.0.0.0:8080`,
+and `none` refuses to start there (as does `dash config validate`): set
+`DASH_SERVER_LISTEN=127.0.0.1:8080`. In a container a loopback listener cannot be reached through
+`-p`: on Linux use `--network host` with that loopback listener, or set
+`DASH_AUTH_NONE_ALLOW_REMOTE=true` (`auth.none.allowRemote`), publish the port to the host's
+loopback only (`-p 127.0.0.1:8080:8080`) and put dash on a Docker network of its own: every host
+process, and every container on dash's network (it reaches port 8080 directly, past `-p`), is an
+administrator. With the opt-in dash logs a second WARN naming the address at
+every start, and off loopback it refuses every settings change and connection test (403).
+
 **Upgrading from v0.11 or earlier:** the default used to be `proxy`. If dash sits behind an
 identity proxy and you never set the mode, set `DASH_AUTH_MODE=proxy` together with the new image.
 An `auth.proxy.adminUsers` or `adminGroups` without that line stops dash from starting, with a

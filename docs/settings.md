@@ -18,9 +18,10 @@ Writes are refused in two more cases:
 - **A read-only store** (no or an unwritable data directory, or `settings.ui: readonly`): every
   write answers 409 `readonly_settings`, `DELETE …/stored/{field}` included. The pages still
   show every value with its provenance, the audit log, the restart notice and the export.
-- **`auth.mode: none` on a listener that is not loopback:** every write answers 403
+- **`auth.mode: none` on a listener that is not loopback** (it starts there only with
+  `auth.none.allowRemote: true`): every write and every connection test answers 403
   `forbidden`. An unauthenticated administrator and a writable store would let anyone who
-  reaches dash change where it sends credentials.
+  reaches dash change where it sends credentials, and the test would make dash call any address.
 
 ## The pages
 

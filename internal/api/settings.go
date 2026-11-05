@@ -292,19 +292,25 @@ func (s *Server) settingsField(w http.ResponseWriter, r *http.Request) (Settings
 }
 
 // writable refuses a write the store or the auth mode does not allow (design D15): a read-only
-// store (409), and auth.mode=none on a listener that is not loopback (403: an unauthenticated
-// administrator plus a writable store is a takeover).
+// store (409), and auth.mode=none on a listener that is not loopback (403, noneRemoteRefused).
 func (s *Server) writable(w http.ResponseWriter, r *http.Request, b SettingsBackend) bool {
 	if b.Store().Readonly {
 		readonlyReply().write(w)
 		return false
 	}
+	return !s.noneRemoteRefused(w, r)
+}
+
+// noneRemoteRefused answers 403 to auth.mode=none on a listener that is not loopback (only with
+// auth.none.allowRemote): an unauthenticated administrator plus a settings write, or a connection
+// test that makes dash call an address of the caller's choosing, is a takeover.
+func (s *Server) noneRemoteRefused(w http.ResponseWriter, r *http.Request) bool {
 	if principalFrom(r.Context()).Kind == auth.KindNone && !config.LoopbackAddr(s.d.Cfg.Listen) {
 		s.deny(r, obs.AuthForbidden)
 		writeErr(w, http.StatusForbidden, model.ErrCodeForbidden, "settings cannot be changed in auth.mode=none on a listener that is not loopback")
-		return false
+		return true
 	}
-	return true
+	return false
 }
 
 // ifMatch reads If-Match: "<revision>" (a bare number too). sent is false without the header;

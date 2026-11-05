@@ -26,7 +26,7 @@ import (
 // principal; each is audited as a settings.test event naming the plugin only.
 func (s *Server) testSettingsPlugin(w http.ResponseWriter, r *http.Request) {
 	b, id, ok := s.settingsPlugin(w, r)
-	if !ok {
+	if !ok || s.noneRemoteRefused(w, r) {
 		return
 	}
 	if !b.Testable(id) {

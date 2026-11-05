@@ -25,9 +25,11 @@ func TestNoneModeIsNeverTheDefaultSetting(t *testing.T) {
 	}
 }
 
-// DASH_AUTH_MODE=none selects the mode and passes validation; a value that is not a mode does not.
+// DASH_AUTH_MODE=none selects the mode and passes validation on a loopback listener (off loopback
+// it needs auth.none.allowRemote: cmd/dash TestNoneModeOnTheDefaultListenRefusesToStart); a value
+// that is not a mode does not.
 func TestAuthModeNoneIsAcceptedOnlyWhenSet(t *testing.T) {
-	env := []string{"DASH_SERVER_PUBLIC_URL=https://dash.example.com", "DASH_AUTH_MODE=none"}
+	env := []string{"DASH_SERVER_PUBLIC_URL=https://dash.example.com", "DASH_AUTH_MODE=none", "DASH_SERVER_LISTEN=127.0.0.1:8080"}
 	res, err := Resolve(Sources{Environ: env})
 	if err != nil {
 		t.Fatalf("auth.mode none does not load: %v", err)

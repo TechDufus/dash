@@ -56,7 +56,7 @@ How dash learns who is making a request and what they may do.
 
 | Setting | Variable | Type | Default | Description |
 |---|---|---|---|---|
-| `auth.mode` | `DASH_AUTH_MODE` | string | `local` | How dash learns who is making a request. proxy: an identity proxy in front of dash (oauth2-proxy, Authelia, Authentik) forwards the user name in a header, and dash believes it only from the peers in auth.proxy.trustedProxies. local: one administrator account (auth.local.adminUser) signs in at /login with a password; the first start prints a one-time setup link, or DASH_ADMIN_PASSWORD_HASH supplies the password hash. oidc: users sign in at an OpenID Connect provider (auth.oidc), admitted only by auth.oidc.allowedUsers or allowedGroups. none: no authentication at all, every request is signed in as an administrator named anonymous; dash warns at every start and shows a banner on every page, so bind server.listen to 127.0.0.1 and keep the port reachable only from the machine itself. It is never the default. _Restart-only._ |
+| `auth.mode` | `DASH_AUTH_MODE` | string | `local` | How dash learns who is making a request. proxy: an identity proxy in front of dash (oauth2-proxy, Authelia, Authentik) forwards the user name in a header, and dash believes it only from the peers in auth.proxy.trustedProxies. local: one administrator account (auth.local.adminUser) signs in at /login with a password; the first start prints a one-time setup link, or DASH_ADMIN_PASSWORD_HASH supplies the password hash. oidc: users sign in at an OpenID Connect provider (auth.oidc), admitted only by auth.oidc.allowedUsers or allowedGroups. none: no authentication at all, every request is signed in as an administrator named anonymous; dash warns at every start and shows a banner on every page. It refuses to start unless server.listen is a loopback address such as 127.0.0.1:8080 (or auth.none.allowRemote is true), so keep the port reachable only from the machine itself. It is never the default. _Restart-only._ |
 
 ## `auth.proxy`
 
@@ -98,6 +98,14 @@ The oidc mode: the OpenID Connect provider, who may sign in, and who is an admin
 | `auth.oidc.allowedGroups` | `DASH_AUTH_OIDC_ALLOWED_GROUPS` | list of strings (JSON) | - | Groups whose members may sign in; needs groupsClaim. A JSON list in the environment. _Restart-only._ |
 | `auth.oidc.adminUsers` | `DASH_AUTH_OIDC_ADMIN_USERS` | list of strings (JSON) | - | User names that are administrators: exact and case-sensitive. ["*"] makes every user who may sign in an administrator (dash warns). A JSON list in the environment. Applies without a restart. |
 | `auth.oidc.adminGroups` | `DASH_AUTH_OIDC_ADMIN_GROUPS` | list of strings (JSON) | - | Groups whose members are administrators; needs groupsClaim. A group added here applies at the member's next login, a removed one at once. A JSON list in the environment. Applies without a restart. |
+
+## `auth.none`
+
+The none mode: whether it may run on a listener other machines can reach.
+
+| Setting | Variable | Type | Default | Description |
+|---|---|---|---|---|
+| `auth.none.allowRemote` | `DASH_AUTH_NONE_ALLOW_REMOTE` | boolean | - | Let auth.mode=none start on a server.listen address that is not loopback (such as the default 0.0.0.0:8080). Anyone who can reach dash is then an administrator; dash warns at every start and refuses settings changes and connection tests. Without it, none on such an address refuses to start. It cannot be set from the settings page. _Restart-only._ |
 
 ## `settings`
 
