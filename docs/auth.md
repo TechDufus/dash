@@ -462,7 +462,10 @@ they record are rewritten at the user's next login (`local`, `oidc`) or next req
 Removing a user at the identity provider does not reach grants they no longer use
 interactively, so offboarding includes revoking them. "Log out everywhere" revokes your grants and
 "Sign out all users" everyone's; the proxy mode, which has no logout, offers "Revoke all my
-connected apps" instead. Approving a consent and revoking a grant are audited before they
+connected apps" on the Mine tab instead. In every mode an administrator's "All users" tab has
+"Revoke every user's connected apps" (`DELETE /api/v1/oauth/grants?user=*`; a viewer gets 403),
+the step to take before rolling back to v0.14.6. Each asks first. Approving a consent and
+revoking a grant are audited before they
 happen: when the audit log cannot be written the answer is 503 `audit_unavailable` and nothing
 changes.
 

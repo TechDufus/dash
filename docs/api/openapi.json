@@ -3382,11 +3382,11 @@
     },
     "/api/v1/oauth/grants": {
       "delete": {
-        "description": "?user=me revokes every grant of the caller (the identity proxy's \"Revoke all my connected apps\": proxy mode has no logout). Personal access tokens are not touched. 503 audit_unavailable when the audit log cannot be written.",
-        "operationId": "revokeMyOAuthGrants",
+        "description": "?user=me revokes every grant of the caller (the identity proxy's \"Revoke all my connected apps\": proxy mode has no logout); ?user=* (administrators, in every auth mode) revokes every grant of every user, and a viewer gets 403. Personal access tokens are not touched. 503 audit_unavailable when the audit log cannot be written, and nothing is revoked.",
+        "operationId": "revokeOAuthGrants",
         "parameters": [
           {
-            "description": "Must be me.",
+            "description": "me, or * for every user (administrators only).",
             "in": "query",
             "name": "user",
             "required": true,
@@ -3397,7 +3397,7 @@
         ],
         "responses": {
           "204": {
-            "description": "Revoke all of one's OAuth grants",
+            "description": "Revoke all of one's, or (administrators) every user's, OAuth grants",
             "headers": {
               "X-Request-Id": {
                 "$ref": "#/components/headers/XRequestId"
@@ -3416,7 +3416,7 @@
             "sessionCookie": []
           }
         ],
-        "summary": "Revoke all of one's OAuth grants",
+        "summary": "Revoke all of one's, or (administrators) every user's, OAuth grants",
         "tags": [
           "OAuth"
         ],

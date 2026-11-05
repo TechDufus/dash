@@ -32,6 +32,7 @@ import {
   audienceWords,
   invalidateGrants,
   revokeAllMyGrants,
+  revokeEveryUsersGrants,
   revokeGrant,
   useGrants,
 } from "@/oauth/api";
@@ -43,10 +44,10 @@ const TD = "px-3 py-2 align-top";
 
 /**
  * /settings/connected-apps: the apps the caller let in through the OAuth consent screen (design
- * M.6), with revocation. An administrator also lists one user's or everyone's. Open to every
- * interactive user where the OAuth server is on (capabilities.oauth); elsewhere the page says so
- * and reads nothing. The proxy mode, which has no "Log out everywhere", gets "Revoke all my
- * connected apps" (D23).
+ * M.6), with revocation. An administrator also lists one user's or everyone's, and on "All
+ * users" revokes every user's (any mode). Open to every interactive user where the OAuth server
+ * is on (capabilities.oauth); elsewhere the page says so and reads nothing. The proxy mode, which
+ * has no "Log out everywhere", gets "Revoke all my connected apps" on "Mine" (D23).
  */
 export function ConnectedAppsPage(): JSX.Element {
   const me = useMe();
@@ -54,7 +55,7 @@ export function ConnectedAppsPage(): JSX.Element {
   const available = connectedAppsAvailable(me.data);
   const [owner, setOwner] = useState<Owner>({ kind: "own" });
   const [revoking, setRevoking] = useState<OAuthGrantInfo | null>(null);
-  const [revokingAll, setRevokingAll] = useState(false);
+  const [revokingAll, setRevokingAll] = useState<RevokeAllScope | null>(null);
   // A viewer only ever lists their own grants, whatever the state says.
   const effective: Owner = admin ? owner : { kind: "own" };
   // "One user" before a name was typed lists nobody's grants.
@@ -90,10 +91,16 @@ export function ConnectedAppsPage(): JSX.Element {
     <Page>
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h1 className="text-lg font-semibold text-fg">Connected apps</h1>
-        {me.data?.authMode === "proxy" ? (
-          <Button size="sm" variant="destructive" onClick={() => setRevokingAll(true)}>
+        {me.data?.authMode === "proxy" && effective.kind === "own" ? (
+          <Button size="sm" variant="destructive" onClick={() => setRevokingAll("mine")}>
             <Trash2 aria-hidden="true" />
             Revoke all my connected apps
+          </Button>
+        ) : null}
+        {admin && effective.kind === "all" ? (
+          <Button size="sm" variant="destructive" onClick={() => setRevokingAll("everyone")}>
+            <Trash2 aria-hidden="true" />
+            Revoke every user's connected apps
           </Button>
         ) : null}
       </div>
@@ -163,7 +170,7 @@ export function ConnectedAppsPage(): JSX.Element {
         )}
       </Panel>
       <RevokeDialog grant={revoking} onClose={() => setRevoking(null)} />
-      <RevokeAllDialog open={revokingAll} onClose={() => setRevokingAll(false)} />
+      <RevokeAllDialog scope={revokingAll} onClose={() => setRevokingAll(null)} />
     </Page>
   );
 }
@@ -249,21 +256,46 @@ function RevokeDialog({
   );
 }
 
-/** Asks before DELETE /api/v1/oauth/grants?user=me (the proxy mode). */
-function RevokeAllDialog({ open, onClose }: { open: boolean; onClose: () => void }): JSX.Element {
-  const { busy, confirm } = useRevoke(
-    revokeAllMyGrants,
-    "Revoked all your connected apps",
-    onClose,
-  );
+/** Whose grants a "revoke all" removes: the caller's (the proxy mode) or every user's (admins). */
+type RevokeAllScope = "mine" | "everyone";
+
+const REVOKE_ALL: Record<
+  RevokeAllScope,
+  { run: () => Promise<void>; done: string; title: string; text: string }
+> = {
+  mine: {
+    run: revokeAllMyGrants,
+    done: "Revoked all your connected apps",
+    title: "Revoke all your connected apps?",
+    text: "Every app you connected loses its access at once. Your tokens and your sign-in stay.",
+  },
+  everyone: {
+    run: revokeEveryUsersGrants,
+    done: "Revoked every user's connected apps",
+    title: "Revoke every user's connected apps?",
+    text: "Every app any user connected loses its access at once; each has to ask again. Personal access tokens and sign-ins stay.",
+  },
+};
+
+/** Asks before DELETE /api/v1/oauth/grants?user=me or ?user=*. */
+function RevokeAllDialog({
+  scope,
+  onClose,
+}: {
+  scope: RevokeAllScope | null;
+  onClose: () => void;
+}): JSX.Element {
+  // The last scope asked for, so the text does not change while the dialog closes.
+  const [shown, setShown] = useState<RevokeAllScope>("mine");
+  if (scope !== null && scope !== shown) setShown(scope);
+  const what = REVOKE_ALL[scope ?? shown];
+  const { busy, confirm } = useRevoke(what.run, what.done, onClose);
   return (
-    <AlertDialog open={open} onOpenChange={(o) => !o && !busy && onClose()}>
+    <AlertDialog open={scope !== null} onOpenChange={(o) => !o && !busy && onClose()}>
       <AlertDialogContent>
         <AlertDialogHeader>
-          <AlertDialogTitle>Revoke all your connected apps?</AlertDialogTitle>
-          <AlertDialogDescription>
-            Every app you connected loses its access at once. Your tokens and your sign-in stay.
-          </AlertDialogDescription>
+          <AlertDialogTitle>{what.title}</AlertDialogTitle>
+          <AlertDialogDescription>{what.text}</AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>
           <AlertDialogCancel disabled={busy}>Keep</AlertDialogCancel>

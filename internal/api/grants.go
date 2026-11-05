@@ -57,13 +57,14 @@ func (s *Server) grantRoutes() []Route {
 			Status:     http.StatusNoContent, Handler: s.revokeGrant,
 		}),
 		row(Route{
-			ID: "revokeMyOAuthGrants", Method: "DELETE", Path: "/api/v1/oauth/grants",
-			Summary: "Revoke all of one's OAuth grants",
+			ID: "revokeOAuthGrants", Method: "DELETE", Path: "/api/v1/oauth/grants",
+			Summary: "Revoke all of one's, or (administrators) every user's, OAuth grants",
 			Description: "?user=me revokes every grant of the caller (the identity proxy's \"Revoke all my connected apps\": " +
-				"proxy mode has no logout). Personal access tokens are not touched. 503 audit_unavailable when the audit log " +
-				"cannot be written.",
-			Query:  []plugin.Param{{Name: "user", Doc: "Must be me.", Required: true}},
-			Status: http.StatusNoContent, Handler: s.revokeMyGrants,
+				"proxy mode has no logout); ?user=* (administrators, in every auth mode) revokes every grant of every user, " +
+				"and a viewer gets 403. Personal access tokens are not touched. 503 audit_unavailable when the audit log " +
+				"cannot be written, and nothing is revoked.",
+			Query:  []plugin.Param{{Name: "user", Doc: "me, or * for every user (administrators only).", Required: true}},
+			Status: http.StatusNoContent, Handler: s.revokeGrants,
 		}),
 	}
 }
@@ -218,19 +219,30 @@ func (s *Server) revokeGrant(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// revokeMyGrants revokes every grant of the caller (?user=me), the proxy mode's stand-in for
-// "Log out everywhere", which revokes them in the session modes.
-func (s *Server) revokeMyGrants(w http.ResponseWriter, r *http.Request) {
+// revokeGrants revokes every grant of the caller (?user=me), the proxy mode's stand-in for
+// "Log out everywhere", which revokes them in the session modes; or, for an administrator in
+// any mode, every user's (?user=*), the rollback step of the upgrade notes.
+func (s *Server) revokeGrants(w http.ResponseWriter, r *http.Request) {
 	if !s.oauthReady(w, r) {
 		return
 	}
-	if r.URL.Query().Get("user") != "me" {
-		writeErrDetails(w, http.StatusBadRequest, model.ErrCodeInvalidInput, "user must be me",
-			&model.SettingsErrorDetails{Fields: []model.SettingsFieldError{{Path: "user", Message: "must be me"}}})
+	p := principalFrom(r.Context())
+	user := p.User
+	switch r.URL.Query().Get("user") {
+	case "me":
+	case "*":
+		if !p.Role.AtLeast(auth.RoleAdmin) {
+			s.deny(r, obs.AuthForbidden)
+			writeErr(w, http.StatusForbidden, model.ErrCodeForbidden, "only an administrator revokes every user's connected apps")
+			return
+		}
+		user = "" // every user's
+	default:
+		writeErrDetails(w, http.StatusBadRequest, model.ErrCodeInvalidInput, "user must be me or *",
+			&model.SettingsErrorDetails{Fields: []model.SettingsFieldError{{Path: "user", Message: "must be me or *"}}})
 		return
 	}
-	p := principalFrom(r.Context())
-	if err := s.revokeUserGrants(w, r, p.User); err != nil {
+	if err := s.revokeUserGrants(w, r, user); err != nil {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)

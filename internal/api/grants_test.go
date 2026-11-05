@@ -147,6 +147,7 @@ func TestGrantWritesFailClosedOnAudit(t *testing.T) {
 	g := e.s.d.Credentials.Grants("alice")[0]
 	wantError(t, e.do(as("alice", req{method: http.MethodDelete, path: "/api/v1/oauth/grants/" + g.ID})), http.StatusServiceUnavailable, model.ErrCodeAuditUnavailable)
 	wantError(t, e.do(as("alice", req{method: http.MethodDelete, path: "/api/v1/oauth/grants?user=me"})), http.StatusServiceUnavailable, model.ErrCodeAuditUnavailable)
+	wantError(t, e.do(as("alice", req{method: http.MethodDelete, path: "/api/v1/oauth/grants?user=*"})), http.StatusServiceUnavailable, model.ErrCodeAuditUnavailable)
 	if after, _ := os.ReadFile(e.s.d.Credentials.Path()); string(after) != string(before) {
 		t.Error("credentials.yaml changed")
 	}
@@ -213,6 +214,31 @@ func TestGrantListAndRevoke(t *testing.T) {
 	}
 	if _, ok := e.s.d.Credentials.PATByID(pat.ID); !ok {
 		t.Error("revoking grants took a personal access token")
+	}
+}
+
+// An administrator revokes every user's grants (?user=*) in the proxy mode, which has no "log
+// out everywhere", audited. A viewer gets 403 and nothing is revoked.
+func TestAdminRevokesEveryGrant(t *testing.T) {
+	e := newOAuthEnv(t)
+	e.approveAs("alice", e.consentFor(t, "api", "read"), "read")
+	e.approveAs("bob", e.consentAs(t, "bob", "api", "read"), "read")
+	wantError(t, e.do(as("bob", req{method: http.MethodDelete, path: "/api/v1/oauth/grants?user=*"})), http.StatusForbidden, model.ErrCodeForbidden)
+	if n := len(e.s.d.Credentials.Grants("")); n != 2 {
+		t.Fatalf("a viewer's refused request left %d grants, want 2", n)
+	}
+	if w := e.do(as("alice", req{method: http.MethodDelete, path: "/api/v1/oauth/grants?user=*"})); w.Code != http.StatusNoContent {
+		t.Fatalf("an admin revoking everyone's = %d %s", w.Code, w.Body)
+	}
+	if n := len(e.s.d.Credentials.Grants("")); n != 0 {
+		t.Errorf("%d grants left", n)
+	}
+	found := false
+	for _, r := range auditRecords(t, e.auditDir) {
+		found = found || (r.Action == auditGrantRevoke && r.Target.Name == "*" && r.Target.Namespace == "" && r.Actor.User == "alice")
+	}
+	if !found {
+		t.Error("no audit record of the revocation of every grant")
 	}
 }
 

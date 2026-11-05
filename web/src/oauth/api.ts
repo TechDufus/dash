@@ -87,6 +87,14 @@ export function revokeAllMyGrants(): Promise<void> {
   return api.del<void>(`${oauthPaths.grants}?user=me`);
 }
 
+/**
+ * DELETE /api/v1/oauth/grants?user=*: every grant of every user (administrators, in every auth
+ * mode). The rollback step of the upgrade notes.
+ */
+export function revokeEveryUsersGrants(): Promise<void> {
+  return api.del<void>(`${oauthPaths.grants}?user=*`);
+}
+
 /** After a revoke: every grant list is stale. */
 export function invalidateGrants(qc: QueryClient): Promise<void> {
   return qc.invalidateQueries({ queryKey: grantsKeys.all });

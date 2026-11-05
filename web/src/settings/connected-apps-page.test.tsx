@@ -160,6 +160,50 @@ describe("ConnectedAppsPage", () => {
     expect(screen.queryByRole("button", { name: "Revoke all my connected apps" })).toBeNull();
   });
 
+  it("offers Revoke all my connected apps only on Mine", async () => {
+    const user = userEvent.setup();
+    stubFetch(routes(meWith("admin", { authMode: "proxy" })));
+    renderApp(<ConnectedAppsPage />);
+    expect(
+      await screen.findByRole("button", { name: "Revoke all my connected apps" }),
+    ).toBeInTheDocument();
+    const group = screen.getByRole("group", { name: "Whose connected apps" });
+    await user.click(within(group).getByRole("button", { name: "All users" }));
+    await screen.findByRole("columnheader", { name: "User" });
+    expect(screen.queryByRole("button", { name: "Revoke all my connected apps" })).toBeNull();
+  });
+
+  it.each(["proxy", "oidc", "local"])(
+    "lets an administrator revoke every user's apps from All users in the %s mode, after a confirmation",
+    async (authMode) => {
+      const user = userEvent.setup();
+      const stub = stubFetch(routes(meWith("admin", { authMode })));
+      renderApp(<ConnectedAppsPage />);
+      await screen.findByText("Agent");
+      expect(
+        screen.queryByRole("button", { name: "Revoke every user's connected apps" }),
+      ).toBeNull();
+      const group = screen.getByRole("group", { name: "Whose connected apps" });
+      await user.click(within(group).getByRole("button", { name: "All users" }));
+      await user.click(
+        await screen.findByRole("button", { name: "Revoke every user's connected apps" }),
+      );
+      const confirm = await screen.findByRole("alertdialog");
+      expect(within(confirm).getByText("Revoke every user's connected apps?")).toBeInTheDocument();
+      expect(stub.callsTo(REVOKE_ALL)).toHaveLength(0);
+      await user.click(within(confirm).getByRole("button", { name: "Revoke all" }));
+      await waitFor(() => expect(stub.callsTo(REVOKE_ALL)).toHaveLength(1));
+      expect(stub.callsTo(REVOKE_ALL)[0]?.query.get("user")).toBe("*");
+    },
+  );
+
+  it("never offers a viewer Revoke every user's connected apps", async () => {
+    stubFetch(routes(meWith("viewer", { authMode: "proxy" })));
+    renderApp(<ConnectedAppsPage />);
+    await screen.findByText("Agent");
+    expect(screen.queryByRole("button", { name: "Revoke every user's connected apps" })).toBeNull();
+  });
+
   it.each([
     [
       "the OAuth server is off",

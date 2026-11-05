@@ -101,7 +101,8 @@ The API moved under `/api/v1` and the plugins' own routes; every old path answer
   back to v0.14.6, remove `auth.oauth` and `server.directURL` from the config file (and their
   variables): v0.14.6 refuses a file with keys it does not know. v0.14.6 does not know grants
   either: it ignores them, drops them at its next write of `credentials.yaml`, and a later
-  upgrade could find the ones it did not drop. So the file must hold no grants: revoke every
-  connected app before rolling back ("Sign out all users", or Settings → Connected apps), or
-  stop dash and delete `credentials.yaml`, which ends every session and revokes every token and
+  upgrade could find the ones it did not drop. So the file must hold no grants: before rolling
+  back, as an administrator, open Settings → Connected apps, choose "All users" and use "Revoke
+  every user's connected apps" (it works in every auth mode, the proxy mode too); or stop dash
+  and delete `credentials.yaml`, which ends every session and revokes every token and
   grant. With the chart, turn `routes.direct` off first.
