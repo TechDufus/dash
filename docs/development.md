@@ -153,14 +153,20 @@ banner, with Playwright (`web/scripts/screenshots.mjs`; the banner's layout is
 `web/scripts/screenshots/banner.html`). The browser's clock, viewport, timezone and locale are
 fixed, motion is reduced, no request leaves dash, and a page drawn with any font the SPA does not
 bundle fails the run, so two runs on one machine write the same bytes. Playwright's Chromium is
-a one-time download:
+a one-time download; install `web/node_modules` first, or `npx` fetches the latest Playwright
+instead of the pinned one:
 
 ```sh
-cd web && npx playwright install chromium && cd ..
+cd web && npm ci --ignore-scripts && npx playwright install chromium && cd ..
 make screenshots    # rewrites docs/images/*.png
 ```
 
 Run it after a UI change those pages show, and commit the images with the change.
+
+The PWA icons in `web/public/icons` (192 and 512 px, a maskable 512 and the 180 px
+apple-touch-icon) are rendered the same way from the favicon glyph in `web/index.html`, so the
+home-screen icon and the tab icon stay one design: `make icons` (`web/scripts/icons.mjs`) rewrites
+them. Run it after changing the favicon, and commit the PNGs with it.
 
 ## Pre-push hook (opt-in)
 

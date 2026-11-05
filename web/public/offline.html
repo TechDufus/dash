@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#04060b" />
+    <title>dash: offline</title>
+    <style>
+      :root {
+        color-scheme: dark;
+      }
+      body {
+        margin: 0;
+        min-height: 100vh;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: #04060b;
+        color: #e6edf7;
+        font: 15px/1.5 system-ui, sans-serif;
+      }
+      main {
+        max-width: 24rem;
+        padding: 2rem;
+        text-align: center;
+      }
+      img {
+        width: 72px;
+        height: 72px;
+      }
+      h1 {
+        margin: 1rem 0 0.5rem;
+        font-size: 1.25rem;
+        font-weight: 600;
+      }
+      p {
+        margin: 0 0 1.5rem;
+        color: #8b98ad;
+      }
+      a {
+        display: inline-block;
+        padding: 0.5rem 1.25rem;
+        border: 1px solid #38e1ff;
+        border-radius: 0.5rem;
+        color: #38e1ff;
+        text-decoration: none;
+      }
+      a:hover,
+      a:focus-visible {
+        background: #38e1ff;
+        color: #04060b;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <img src="/icons/icon-192.png" alt="" />
+      <h1>dash is offline</h1>
+      <p>This device cannot reach dash right now. Check the connection, then try again.</p>
+      <!-- biome-ignore lint/a11y/useValidAnchor: an empty href is this page's own address, the page that went offline (not "/"); a page without script has no other way to reload it. -->
+      <a href="">Try again</a>
+    </main>
+  </body>
+</html>

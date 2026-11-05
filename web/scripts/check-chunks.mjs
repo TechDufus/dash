@@ -2,12 +2,13 @@
 // contain the page's code (epic P2.7: "each module's page is its own chunk"). It also checks that
 // the build is CSP-ready (a strict `style-src`/`script-src`/`font-src` needs no 'unsafe-inline' and
 // no `data:`): no `url(data:` in built CSS, no inline <script> or <style> in index.html, and the
-// `csp-nonce` meta the server templates.
+// `csp-nonce` meta the server templates. And the PWA files: the manifest and apple-touch-icon links
+// in index.html and the files the manifest names.
 //
 // For each page the script needs (a) a file dist/assets/<page>-<hash>.js and (b) a string that
 // only that page renders, absent from the entry chunk. The strings are literals from the page's
 // source; if a page is reworked so its string changes, update the table.
-import { readdirSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -69,6 +70,34 @@ if (!nonceMeta) {
   );
 } else if (!/\bcontent="__CSP_NONCE__"/.test(nonceMeta)) {
   problems.push('the csp-nonce meta in dist/index.html must have content="__CSP_NONCE__"');
+}
+// The PWA (P7.6): the manifest link keeps crossorigin="use-credentials" (an identity proxy answers
+// a fetch without its cookie with a redirect to its login), the apple-touch-icon link survives, and
+// the files they and the manifest name are in dist.
+const manifestLink = /<link\b[^>]*\brel="manifest"[^>]*>/i.exec(html)?.[0];
+if (!manifestLink) {
+  problems.push('dist/index.html has no <link rel="manifest">');
+} else if (
+  !/\bhref="\/manifest\.webmanifest"/.test(manifestLink) ||
+  !/\bcrossorigin="use-credentials"/.test(manifestLink)
+) {
+  problems.push(
+    'the manifest link in dist/index.html must be href="/manifest.webmanifest" crossorigin="use-credentials"',
+  );
+}
+const touchIcon = /<link\b[^>]*\brel="apple-touch-icon"[^>]*\bhref="\/([^"]+)"/i.exec(html)?.[1];
+if (!touchIcon) {
+  problems.push('dist/index.html has no <link rel="apple-touch-icon" href="/…">');
+}
+const manifest = JSON.parse(readFileSync(join(dist, "manifest.webmanifest"), "utf8"));
+for (const file of [
+  "offline.html",
+  ...(touchIcon ? [touchIcon] : []),
+  ...manifest.icons.map((i) => i.src.replace(/^\//, "")),
+]) {
+  if (!existsSync(join(dist, file))) {
+    problems.push(`dist/${file} is missing`);
+  }
 }
 for (const [page, marker] of Object.entries(PAGES)) {
   const chunks = assets.filter((f) => f.startsWith(`${page}-`) && f.endsWith(".js"));

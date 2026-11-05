@@ -6,7 +6,8 @@
     "check": "tsc --noEmit && biome check .",
     "test": "vitest run",
     "format": "biome format --write .",
-    "screenshots": "node scripts/screenshots.mjs"
+    "screenshots": "node scripts/screenshots.mjs",
+    "icons": "node scripts/icons.mjs"
   },
   "type": "module",
   "private": "true",
