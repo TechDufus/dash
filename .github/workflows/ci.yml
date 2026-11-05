@@ -179,6 +179,18 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      # The chart and the image share one version (charts/dash/Chart.yaml): a tag that does not
+      # name it would ship an image the chart does not run.
+      - name: The tag matches the chart's version and appVersion
+        run: |
+          set -euo pipefail
+          version=${GITHUB_REF_NAME#v}
+          chart=$(awk '$1 == "version:" { print $2 }' charts/dash/Chart.yaml)
+          app=$(awk '$1 == "appVersion:" { gsub(/"/, "", $2); print $2 }' charts/dash/Chart.yaml)
+          if [[ $chart != "$version" || $app != "$version" ]]; then
+            echo "::error::tag $GITHUB_REF_NAME, but charts/dash/Chart.yaml has version $chart and appVersion $app"
+            exit 1
+          fi
       - name: Build and push the image
         run: |
           set -euo pipefail
