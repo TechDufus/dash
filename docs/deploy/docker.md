@@ -7,7 +7,7 @@ API and on `0.0.0.0:8081` for `/healthz` and `/readyz`, and its `HEALTHCHECK` ru
 
 > Until the image is published on GHCR, build it from a checkout under the same name (for this
 > machine's architecture only):
-> `docker build --build-arg VERSION=0.14.5 -t ghcr.io/techdufus/dash:0.14.5 .`
+> `docker build --build-arg VERSION=0.14.6 -t ghcr.io/techdufus/dash:0.14.6 .`
 
 ## docker run
 
@@ -23,7 +23,7 @@ docker run -d --name dash --restart unless-stopped \
   -v "$PWD/secrets/dash_secret_key:/run/secrets/dash_secret_key:ro" \
   -e DASH_SECRET_KEY_FILE=/run/secrets/dash_secret_key \
   -e DASH_SERVER_PUBLIC_URL=http://localhost:8080 \
-  ghcr.io/techdufus/dash:0.14.5
+  ghcr.io/techdufus/dash:0.14.6
 
 docker logs dash 2>&1 | grep -m1 'setup token'
 ```
