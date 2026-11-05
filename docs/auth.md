@@ -150,6 +150,12 @@ Things to know:
   single sign-on session signs you straight back in.
 - A user, group or role entry that the provider's claims can never produce (empty, a control
   character, invalid UTF-8, too long, a comma or `*` in a group or role) stops dash from starting.
+- **RSA keys are at most 4096 bits.** A provider whose key set holds an RSA key over 4096 bits
+  that names a signing algorithm, or none, even if the provider signs with another key, makes the
+  whole key set fail to decode, so every sign-in fails with "Signing in with the identity provider
+  failed. Try again." and dash logs `oidc login refused` with `stage=verify` and `invalid RSA key,
+  modulus too large`. An oversized encryption-only key (`alg: RSA-OAEP`) does no harm. Remove the
+  oversized signing key from the provider's key set (or rotate to keys of at most 4096 bits).
 
 ## The proxy mode
 
