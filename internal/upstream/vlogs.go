@@ -15,6 +15,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/TechDufus/dash/internal/model"
 )
@@ -110,7 +111,11 @@ func BuildQuery(q LogQuery, f LogFields, tail bool) (string, error) {
 	if q.Container != "" {
 		b.WriteString(` ` + f.Container + `:="` + q.Container + `"`)
 	}
-	if t := cleanLogText(q.Text); t != "" {
+	t, err := cleanLogText(q.Text)
+	if err != nil {
+		return "", err
+	}
+	if t != "" {
 		b.WriteString(` "` + logEscaper.Replace(t) + `"`)
 	}
 	if !tail {
@@ -119,15 +124,23 @@ func BuildQuery(q LogQuery, f LogFields, tail bool) (string, error) {
 	return b.String(), nil
 }
 
-// cleanLogText drops NUL and line breaks, then keeps at most 200 runes.
-func cleanLogText(s string) string {
+// errLogTextTooLong refuses a search over maxLogText runes. It never repeats the text: a search
+// goes into the query string, and a cut one would put half of a secret pasted into it where the
+// URL is logged (a transport error names it).
+var errLogTextTooLong = fmt.Errorf("%w: q: at most %d characters", ErrInvalid, maxLogText)
+
+// cleanLogText drops NUL and line breaks, then refuses what is longer than maxLogText runes.
+func cleanLogText(s string) (string, error) {
 	s = strings.Map(func(r rune) rune {
 		if r == 0 || r == '\n' || r == '\r' {
 			return -1
 		}
 		return r
 	}, s)
-	return truncate(s, maxLogText)
+	if utf8.RuneCountInString(s) > maxLogText {
+		return "", errLogTextTooLong
+	}
+	return s, nil
 }
 
 // VLogs queries VictoriaLogs.

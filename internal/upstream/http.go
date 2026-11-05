@@ -13,7 +13,6 @@ import (
 	"net/url"
 	"strings"
 	"time"
-	"unicode/utf8"
 )
 
 var (
@@ -130,12 +129,4 @@ func (c client) getJSON(ctx context.Context, method, path string, q url.Values, 
 		return fmt.Errorf("%w: decode %s: %w", ErrInvalidResponse, path, err)
 	}
 	return nil
-}
-
-// truncate cuts s to at most n runes.
-func truncate(s string, n int) string {
-	if utf8.RuneCountInString(s) <= n {
-		return s
-	}
-	return string([]rune(s)[:n])
 }

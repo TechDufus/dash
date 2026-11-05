@@ -45,10 +45,12 @@ func TestBuildQuery(t *testing.T) {
 			false, `_time:15m kubernetes.pod_namespace:="n" "abc" | sort by (_time desc)`},
 		{"text only breaks leaves no clause", LogQuery{Namespace: "n", Text: "\n\n"},
 			false, `_time:15m kubernetes.pod_namespace:="n" | sort by (_time desc)`},
-		{"text truncated before escaping", LogQuery{Namespace: "n", Text: strings.Repeat(`"`, 250)},
+		{"200 characters, escaped", LogQuery{Namespace: "n", Text: strings.Repeat(`"`, 200)},
 			false, `_time:15m kubernetes.pod_namespace:="n" "` + strings.Repeat(`\"`, 200) + `" | sort by (_time desc)`},
-		{"truncation is rune safe", LogQuery{Namespace: "n", Text: strings.Repeat("é", 201)},
+		{"200 runes", LogQuery{Namespace: "n", Text: strings.Repeat("é", 200)},
 			false, `_time:15m kubernetes.pod_namespace:="n" "` + strings.Repeat("é", 200) + `" | sort by (_time desc)`},
+		{"line breaks do not count", LogQuery{Namespace: "n", Text: strings.Repeat("a\n", 200)},
+			false, `_time:15m kubernetes.pod_namespace:="n" "` + strings.Repeat("a", 200) + `" | sort by (_time desc)`},
 		{"253 char namespace ok", LogQuery{Namespace: long},
 			false, `_time:15m kubernetes.pod_namespace:="` + long + `" | sort by (_time desc)`},
 	}
@@ -81,12 +83,18 @@ func TestBuildQueryInvalid(t *testing.T) {
 		{"bad container", LogQuery{Namespace: "n", Container: "c/d"}},
 		{"bad since", LogQuery{Namespace: "n", Since: "2d"}},
 		{"since injection", LogQuery{Namespace: "n", Since: "5m | delete"}},
+		{"201 runes of text", LogQuery{Namespace: "n", Text: strings.Repeat("é", 201)}},
+		{"201 characters before escaping", LogQuery{Namespace: "n", Text: strings.Repeat(`"`, 201)}},
 	}
 	for _, tc := range tests {
 		for _, tail := range []bool{false, true} {
 			t.Run(fmt.Sprintf("%s/tail=%v", tc.name, tail), func(t *testing.T) {
-				if _, err := BuildQuery(tc.q, DefaultLogFields(), tail); !errors.Is(err, ErrInvalid) {
+				_, err := BuildQuery(tc.q, DefaultLogFields(), tail)
+				if !errors.Is(err, ErrInvalid) {
 					t.Fatalf("err = %v, want ErrInvalid", err)
+				}
+				if tc.q.Text != "" && (err.Error() != "invalid request: q: at most 200 characters" || strings.Contains(err.Error(), tc.q.Text[:2])) {
+					t.Errorf("err = %q, want the fixed message without the text", err)
 				}
 			})
 		}

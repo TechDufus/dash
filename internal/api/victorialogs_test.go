@@ -489,6 +489,86 @@ func TestVictoriaLogsBadTailQueryIs400BeforeSlotAndAudit(t *testing.T) {
 	}
 }
 
+// A Logs search longer than 200 characters is refused with 400 invalid_input, on the query and on
+// the tail, before any upstream request, with a fixed message: a cut search would carry the first
+// part of a secret pasted into it into the query string. 200 characters still work.
+func TestVictoriaLogsSearchOver200CharactersIsRefused(t *testing.T) {
+	up := newFakeVLogs(t, vlRecord1)
+	e := newVLEnv(t, up, cutRegistry(), nil)
+	e.waitRunning(t)
+
+	fits := strings.Repeat("é", 200)
+	if w := e.get(vlLogsPath + "?ns=media&pod=p1&q=" + url.QueryEscape(fits)); w.Code != http.StatusOK || !strings.Contains(up.last().Get("query"), `"`+fits+`"`) {
+		t.Fatalf("GET logs with 200 runes = %d, upstream query %q", w.Code, up.last().Get("query"))
+	}
+	s := e.openStream(t, vlTailPath+"?ns=media&pod=p1&q="+url.QueryEscape(fits), "alice", nil)
+	if s.status() != http.StatusOK {
+		t.Fatalf("tail with 200 runes = %d", s.status())
+	}
+	e.eventually(t, "the 200-rune tail to reach the upstream", func() bool {
+		up.mu.Lock()
+		defer up.mu.Unlock()
+		return up.tails == 1
+	})
+	s.close()
+	up.mu.Lock()
+	before := len(up.queries)
+	up.mu.Unlock()
+
+	long := strings.Repeat("é", 192) + cutSecret + " tail" // 201 runes or more; the secret across rune 200
+	refused := func(route string, code int, raw string) {
+		t.Helper()
+		var body model.APIError
+		if err := json.Unmarshal([]byte(raw), &body); code != http.StatusBadRequest || err != nil || body.Code != model.ErrCodeInvalidInput ||
+			!strings.Contains(body.Error, "q: at most 200 characters") || strings.Contains(raw, cutSecret[:8]) || strings.Contains(raw, "éé") {
+			t.Errorf("%s = %d %s, want 400 invalid_input with the fixed message", route, code, raw)
+		}
+	}
+	query := "?ns=media&pod=p1&q=" + url.QueryEscape(long)
+	w := e.get(vlLogsPath + query)
+	refused("GET logs", w.Code, w.Body.String())
+	// The tail goes through openStream, which ends the request: a tail that is not refused stays
+	// open until its client leaves.
+	tail := e.openStream(t, vlTailPath+query, "alice", nil)
+	raw := ""
+	if tail.status() == http.StatusBadRequest {
+		raw = tail.errorBody()
+	} else {
+		tail.close()
+	}
+	refused("GET logs/tail", tail.status(), raw)
+	up.mu.Lock()
+	after := len(up.queries)
+	up.mu.Unlock()
+	if after != before {
+		t.Errorf("the upstream saw %d requests for refused searches", after-before)
+	}
+}
+
+// From the security verification: the search text went into the query string cut to 200 runes,
+// and a transport failure's url.Error repeats the URL in the WARN of the failed request. A
+// registered secret across rune 200 of the search left its first part in that line. Now the
+// search is refused and never reaches the URL, VictoriaLogs or the log.
+func TestVictoriaLogsSearchSecretNeverReachesTheLog(t *testing.T) {
+	closed := httptest.NewServer(http.NotFoundHandler())
+	closedURL := closed.URL
+	closed.Close()
+	logs := captureSlog(t)
+	e := newVLEnv(t, newFakeVLogs(t), cutRegistry(), func(c *pluginconf.VictoriaLogs, _ *plugin.InstanceConfig) { c.URL = closedURL })
+	e.waitRunning(t)
+	q := strings.Repeat("x", 200-12) + cutSecret + " more"
+	w := e.get(vlLogsPath + "?ns=media&pod=p1&q=" + url.QueryEscape(q))
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("GET logs = %d, want 400", w.Code)
+	}
+	out := logs.String()
+	for _, part := range []string{cutSecret[:12], url.QueryEscape(cutSecret[:12])} {
+		if strings.Contains(out, part) || strings.Contains(w.Body.String(), part) {
+			t.Errorf("the start of the secret reached the log or the answer:\n%s", out)
+		}
+	}
+}
+
 // plugins.victorialogs.limit is the limit of the upstream query and the most lines the answer
 // holds, whatever the upstream sends: the newest ones stay.
 func TestVictoriaLogsLimitBoundsTheQueryAndTheAnswer(t *testing.T) {

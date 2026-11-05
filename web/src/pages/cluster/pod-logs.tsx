@@ -201,6 +201,7 @@ export function PodLogs({ ns, pod, containers, active }: PodLogsProps) {
             type="search"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
+            maxLength={200}
             placeholder="Search logs"
             aria-label="Search logs"
             className="h-7 pl-8"
