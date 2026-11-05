@@ -210,7 +210,7 @@
       "additionalProperties": false,
       "properties": {
         "cimdAllowPrivate": {
-          "description": "Let dash fetch a client ID metadata document (an MCP client whose client_id is an https URL) from a private, loopback or link-local address. Off by default: dash fetches them only from global addresses, so a client_id cannot make dash probe the local network.",
+          "description": "Let dash fetch a client ID metadata document (an MCP client whose client_id is an https URL) from a private (RFC 1918, CGNAT, ULA) or loopback address. Off by default: dash fetches them only from global addresses, so a client_id cannot make dash probe the local network. Link-local addresses, which hold cloud metadata services, stay refused.",
           "type": "boolean",
           "x-dash-restart": true
         },
