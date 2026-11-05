@@ -78,13 +78,84 @@ self.addEventListener("fetch", (event) => {
   }
 });
 
-// Web Push arrives with P7.7; until then no subscription exists and these never run. A push must
-// still show a notification (userVisibleOnly), and a tap opens dash.
+// Web Push (P7.7). Every push shows a notification (userVisibleOnly), all inside waitUntil. The
+// payload is dash's PushMessage JSON {type, id, title, body, url, ts}; a verify push carries
+// {type: "verify", code} and is also posted to every window of the origin, so an open Settings →
+// Devices page submits the code itself. A payload that is not such JSON still shows "dash". The
+// icon and the badge are dash's own (the worker's policy allows img-src 'self' for them).
+const VERIFY_MESSAGE = "dash-push-verify";
+const ICON = "/icons/icon-192.png";
+
+/** The push's JSON payload, or null when it has none or it does not parse. */
+function pushMessage(event) {
+  try {
+    const msg = event.data?.json();
+    return msg !== null && typeof msg === "object" ? msg : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Shows the verify code and posts it to every window of the origin. */
+function verify(code, url) {
+  return Promise.all([
+    self.registration.showNotification("dash: verify this device", {
+      body: `Code ${code}`,
+      icon: ICON,
+      badge: ICON,
+      tag: "dash-push-verify",
+      data: { url },
+    }),
+    self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((wins) => {
+      for (const w of wins) {
+        w.postMessage({ type: VERIFY_MESSAGE, code });
+      }
+    }),
+  ]);
+}
+
 self.addEventListener("push", (event) => {
-  event.waitUntil(self.registration.showNotification("dash", { icon: "/icons/icon-192.png" }));
+  const msg = pushMessage(event);
+  const url = typeof msg?.url === "string" ? msg.url : "/";
+  if (msg?.type === "verify" && typeof msg.code === "string") {
+    event.waitUntil(verify(msg.code, url));
+    return;
+  }
+  const options = {
+    body: typeof msg?.body === "string" ? msg.body : "",
+    icon: ICON,
+    badge: ICON,
+    data: { url },
+  };
+  if (typeof msg?.id === "string" && msg.id !== "") {
+    options.tag = msg.id;
+  }
+  const title = typeof msg?.title === "string" && msg.title !== "" ? msg.title : "dash";
+  event.waitUntil(self.registration.showNotification(title, options));
 });
 
+/** The URL a tap opens: the notification's url when it is on the worker's own origin, else /. */
+function clickTarget(url) {
+  const home = new URL("/", self.location.origin).href;
+  if (typeof url !== "string") {
+    return home;
+  }
+  try {
+    const target = new URL(url, self.location.origin);
+    return target.origin === self.location.origin ? target.href : home;
+  } catch {
+    return home;
+  }
+}
+
+// A tap focuses a window already on the target, or opens one.
 self.addEventListener("notificationclick", (event) => {
   event.notification.close();
-  event.waitUntil(self.clients.openWindow("/"));
+  const target = clickTarget(event.notification.data?.url);
+  event.waitUntil(
+    self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((wins) => {
+      const open = wins.find((w) => w.url === target);
+      return open ? open.focus() : self.clients.openWindow(target);
+    }),
+  );
 });

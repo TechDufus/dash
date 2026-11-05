@@ -94,7 +94,8 @@ loopback, so nothing arriving on the direct host is signed in by a header.
   dash, styles from dash plus a per-response nonce, images from dash, `data:` and the
   `ui.iconBaseURL` path only, no framing (`frame-ancestors 'none'`), `base-uri 'none'`,
   `object-src 'none'` and `form-action 'self'`. The service worker (`/sw.js`) runs under
-  `default-src 'none'; connect-src 'self'`: it may fetch dash and nothing else. The offline page
+  `default-src 'none'; connect-src 'self'; img-src 'self'`: it may fetch dash and nothing else,
+  and its notifications show dash's own icon. The offline page
   (`/offline.html`), which the worker keeps and so cannot carry a per-response nonce, runs no
   script, allows its inline CSS by hash and loads only dash's own icon. Every other response of
   the API listener gets `default-src 'none'; frame-ancestors 'none'`. `server.csp` is `enforce`

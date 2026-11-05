@@ -49,7 +49,7 @@ func TestPWAFilesGetTheirHeadersInEveryCSPMode(t *testing.T) {
 	styleHash := "'sha256-" + base64.StdEncoding.EncodeToString(sum[:]) + "'"
 	offline := "default-src 'none'; style-src " + styleHash +
 		"; img-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'"
-	worker := "default-src 'none'; connect-src 'self'; frame-ancestors 'none'"
+	worker := "default-src 'none'; connect-src 'self'; img-src 'self'; frame-ancestors 'none'"
 	for _, tc := range []struct {
 		mode, name string // name: the header that carries the mode's policy ("" = none)
 	}{

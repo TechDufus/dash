@@ -5,7 +5,7 @@
 //
 // It starts dash in demo mode on free loopback ports, behind a loopback proxy that counts the
 // requests reaching dash (http://127.0.0.1 is a secure context, so the service worker registers),
-// and drives Playwright's pinned Chromium through the P7.6 acceptance:
+// and drives Playwright's pinned Chromium through the P7.6 acceptance and P7.7's service worker:
 //
 // 1. installable: CDP Page.getInstallabilityErrors reports nothing;
 // 2. a sign-in callback navigation (/auth/callback?code=…) reaches dash exactly once, sent by the
@@ -14,7 +14,9 @@
 //    Cache Storage holds exactly the worker's precache list and no /api, /oauth or /mcp URL. The
 //    whole list cached also proves the worker's own CSP let its fetches through;
 // 4. reloading offline shows the offline page, answered by the worker, with its CSS applied;
-// 5. no CSP violation: in any document (securitypolicyviolation events and the console) or in the
+// 5. a push (CDP ServiceWorker.deliverPushMessage) shows its notification, as
+//    registration.getNotifications() reads it back: title, body, tag, icon, badge and the url;
+// 6. no CSP violation: in any document (securitypolicyviolation events and the console) or in the
 //    worker (its securitypolicyviolation events and its console).
 //
 // It prints one line per check and exits 1 listing every check that failed, or after 120 s. dash,
@@ -85,6 +87,39 @@ function countingProxy(target) {
     req.pipe(upstream);
   });
   return { server, seen };
+}
+
+/** The ID of origin's service worker registration, from the CDP ServiceWorker domain. */
+async function registrationOf(cdp, origin) {
+  const found = new Promise((resolve) => {
+    cdp.on("ServiceWorker.workerRegistrationUpdated", ({ registrations }) => {
+      const r = registrations.find((x) => x.scopeURL === `${origin}/` && !x.isDeleted);
+      if (r) resolve(r.registrationId);
+    });
+  });
+  await cdp.send("ServiceWorker.enable");
+  return found;
+}
+
+/** The notifications the worker shows with tag, polled until there is one or 10 s passed. */
+async function notificationsTagged(page, tag) {
+  const deadline = Date.now() + 10_000;
+  for (;;) {
+    const shown = await page.evaluate(async (t) => {
+      const reg = await navigator.serviceWorker.ready;
+      const list = await reg.getNotifications({ tag: t });
+      return list.map((n) => ({
+        title: n.title,
+        body: n.body,
+        tag: n.tag,
+        url: n.data?.url,
+        icon: n.icon,
+        badge: n.badge,
+      }));
+    }, tag);
+    if (shown.length > 0 || Date.now() > deadline) return shown;
+    await new Promise((r) => setTimeout(r, 200));
+  }
 }
 
 async function smoke(ctx, origin, seen) {
@@ -218,7 +253,39 @@ async function smoke(ctx, origin, seen) {
   await visit(page, origin, "/");
   check((await page.title()) === "dash", "back online, the app loads again");
 
-  // 5. CSP violations.
+  // 5. A push shows a notification. The page is the worker's origin, so it may show them.
+  await ctx.grantPermissions(["notifications"], { origin });
+  const registrationId = await registrationOf(cdp, origin);
+  const pushed = {
+    type: "test",
+    id: "smoke-push",
+    title: "dash: test push",
+    body: "Push notifications work on this device.",
+    url: `${origin}/alerts`,
+    ts: new Date().toISOString(),
+  };
+  await cdp.send("ServiceWorker.deliverPushMessage", {
+    origin,
+    registrationId,
+    data: JSON.stringify(pushed),
+  });
+  const shown = await notificationsTagged(page, pushed.id);
+  const icon = `${origin}/icons/icon-192.png`;
+  const want = {
+    title: pushed.title,
+    body: pushed.body,
+    tag: pushed.id,
+    url: pushed.url,
+    icon,
+    badge: icon,
+  };
+  check(
+    shown.length === 1 && JSON.stringify(shown[0]) === JSON.stringify(want),
+    "a delivered push shows its notification",
+    JSON.stringify(shown),
+  );
+
+  // 6. CSP violations.
   const workerViolations =
     (await ctx.serviceWorkers()[0]?.evaluate(() => self.__dashSmokeViolations)) ?? [];
   const all = [...violations, ...workerViolations];

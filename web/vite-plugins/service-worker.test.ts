@@ -163,6 +163,12 @@ describe("sw.js", () => {
     claim: Mock;
     showNotification: Mock;
     openWindow: Mock;
+    windows: FakeWindow[]; // what clients.matchAll answers
+  }
+  interface FakeWindow {
+    url: string;
+    postMessage: Mock;
+    focus: Mock;
   }
 
   let current: Worker | undefined;
@@ -221,12 +227,17 @@ describe("sw.js", () => {
       claim: vi.fn(async () => {}),
       showNotification: vi.fn(async () => {}),
       openWindow: vi.fn(async () => null),
+      windows: [],
     };
+    const matchAll = vi.fn(async (opts: unknown) => {
+      expect(opts).toEqual({ type: "window", includeUncontrolled: true });
+      return w.windows;
+    });
     const self = {
       addEventListener: (type: string, fn: Listener) => on.set(type, fn),
       location: new URL(`${ORIGIN}/sw.js`),
       skipWaiting: w.skipWaiting,
-      clients: { claim: w.claim, openWindow: w.openWindow },
+      clients: { claim: w.claim, openWindow: w.openWindow, matchAll },
       registration: { showNotification: w.showNotification },
     };
     new Function("self", "caches", "fetch", renderServiceWorker(SOURCE, PRECACHE, "b1"))(
@@ -394,16 +405,108 @@ describe("sw.js", () => {
     expect(res?.type).toBe("error");
   });
 
-  it("shows a notification for every push and opens dash on a tap", async () => {
+  /** A push event whose data is text (JSON for dash's payloads), or one without data. */
+  function push(w: Worker, text?: string) {
+    const data =
+      text === undefined ? null : { json: () => JSON.parse(text) as unknown, text: () => text };
+    return dispatch(w, "push", { data });
+  }
+  const win = (path: string): FakeWindow => ({
+    url: abs(path),
+    postMessage: vi.fn(),
+    focus: vi.fn(async () => null),
+  });
+
+  it("shows a push's title and body, tagged with its id, with its url as data", async () => {
     const w = load();
     await install(w);
-    await dispatch(w, "push");
-    expect(w.showNotification).toHaveBeenCalledExactlyOnceWith("dash", {
+    const url = `${ORIGIN}/approve/appr_1`;
+    const tab = win("/");
+    w.windows.push(tab);
+    const msg = { type: "approval", id: "appr_1", title: "Restart?", body: "web-0", url, ts: "x" };
+    await push(w, JSON.stringify(msg));
+    expect(w.showNotification).toHaveBeenCalledExactlyOnceWith("Restart?", {
+      body: "web-0",
       icon: "/icons/icon-192.png",
+      badge: "/icons/icon-192.png",
+      tag: "appr_1",
+      data: { url },
     });
+    expect(tab.postMessage).not.toHaveBeenCalled();
+  });
+
+  it("shows a verify push's code and posts it to every window", async () => {
+    const w = load();
+    await install(w);
+    const tabs = [win("/settings/devices"), win("/")];
+    w.windows.push(...tabs);
+    await push(w, JSON.stringify({ type: "verify", code: "ABCD2345" }));
+    expect(w.showNotification).toHaveBeenCalledExactlyOnceWith("dash: verify this device", {
+      body: "Code ABCD2345",
+      icon: "/icons/icon-192.png",
+      badge: "/icons/icon-192.png",
+      tag: "dash-push-verify",
+      data: { url: "/" },
+    });
+    for (const t of tabs) {
+      expect(t.postMessage).toHaveBeenCalledExactlyOnceWith({
+        type: "dash-push-verify",
+        code: "ABCD2345",
+      });
+    }
+  });
+
+  it.each([
+    ["no payload", undefined],
+    ["a payload that is not JSON", "not json"],
+    ["JSON that is not an object", "42"],
+  ])("still shows a notification for %s", async (_what, text) => {
+    const w = load();
+    await install(w);
+    await push(w, text);
+    expect(w.showNotification).toHaveBeenCalledExactlyOnceWith("dash", {
+      body: "",
+      icon: "/icons/icon-192.png",
+      badge: "/icons/icon-192.png",
+      data: { url: "/" },
+    });
+  });
+
+  /** Taps a notification whose data.url is url, which the worker must close. */
+  async function tap(w: Worker, url: unknown) {
     const close = vi.fn();
-    await dispatch(w, "notificationclick", { notification: { close } });
+    await dispatch(w, "notificationclick", { notification: { close, data: { url } } });
     expect(close).toHaveBeenCalledTimes(1);
-    expect(w.openWindow).toHaveBeenCalledExactlyOnceWith("/");
+  }
+
+  it("opens a tapped notification's url on the worker's origin", async () => {
+    const w = load();
+    await install(w);
+    await tap(w, `${ORIGIN}/approve/appr_1?x=1`);
+    expect(w.openWindow).toHaveBeenCalledExactlyOnceWith(`${ORIGIN}/approve/appr_1?x=1`);
+  });
+
+  it("focuses a window already on the tapped url instead of opening one", async () => {
+    const w = load();
+    await install(w);
+    const other = win("/");
+    const there = win("/alerts");
+    w.windows.push(other, there);
+    await tap(w, `${ORIGIN}/alerts`);
+    expect(there.focus).toHaveBeenCalledTimes(1);
+    expect(other.focus).not.toHaveBeenCalled();
+    expect(w.openWindow).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["another origin", "https://evil.example.com/alerts"],
+    ["a javascript: URL", "javascript:alert(1)"],
+    ["the same host on another scheme", "http://dash.example.com/alerts"],
+    ["no url", undefined],
+  ])("opens / for a tap on %s", async (_what, url) => {
+    const w = load();
+    await install(w);
+    await tap(w, url);
+    expect(w.openWindow).toHaveBeenCalledExactlyOnceWith(`${ORIGIN}/`);
   });
 });

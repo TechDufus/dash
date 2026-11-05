@@ -39,8 +39,9 @@ const (
 	// workerPolicy is what /sw.js gets instead of apiPolicy. A worker runs under the policy of its
 	// own script response, so under apiPolicy every fetch the service worker makes (its precache,
 	// a navigation it answers) would be blocked. It may fetch dash's own origin and load nothing
-	// else: no importScripts, no other origin.
-	workerPolicy = "default-src 'none'; connect-src 'self'; frame-ancestors 'none'"
+	// else: no importScripts, no other origin. img-src 'self' lets its notifications load dash's
+	// own icon and badge.
+	workerPolicy = "default-src 'none'; connect-src 'self'; img-src 'self'; frame-ancestors 'none'"
 )
 
 // headerName returns the header that carries the policy in this mode, or "" for none. Any value
