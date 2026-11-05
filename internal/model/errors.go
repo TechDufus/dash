@@ -35,6 +35,7 @@ const (
 	ErrCodePreconditionFailed   = "precondition_failed"   // 412
 	ErrCodePreconditionRequired = "precondition_required" // 428: a settings write without If-Match
 	ErrCodeAuditUnavailable     = "audit_unavailable"     // 503
+	ErrCodeTokensUnavailable    = "tokens_unavailable"    // 409: no writable data dir keeps a new token
 	ErrCodeUnknownHost          = "unknown_host"          // 421
 	ErrCodeInternal             = "internal"              // 500
 )
@@ -48,6 +49,6 @@ func ErrCodes() []string {
 		ErrCodeLockedField, ErrCodeReadonlySettings, ErrCodeRateLimited, ErrCodeTooManyStreams,
 		ErrCodeUpstreamUnavailable, ErrCodeApprovalRequired, ErrCodeApprovalDenied,
 		ErrCodeApprovalExpired, ErrCodeConflict, ErrCodePreconditionFailed, ErrCodePreconditionRequired,
-		ErrCodeAuditUnavailable, ErrCodeUnknownHost, ErrCodeInternal,
+		ErrCodeAuditUnavailable, ErrCodeTokensUnavailable, ErrCodeUnknownHost, ErrCodeInternal,
 	}
 }

@@ -118,6 +118,38 @@ func TestReflectorEmbeddedStructsAreFlattened(t *testing.T) {
 	}
 }
 
+// min and max bound an integer's value and a string's length; nullable admits null beside the
+// field's own type.
+func TestReflectorBoundsAndNullable(t *testing.T) {
+	type bounded struct {
+		Name string     `json:"name" dash:"min=1,max=64"`
+		Days *int       `json:"days" dash:"min=1,max=365"`
+		At   *time.Time `json:"at" dash:"nullable"`
+	}
+	props := New().Type(reflect.TypeFor[bounded]())["properties"].(Schema)
+	for name, w := range map[string]Schema{
+		"name": {"type": "string", "minLength": int64(1), "maxLength": int64(64)},
+		"days": {"type": "integer", "minimum": int64(1), "maximum": int64(365)},
+		"at":   {"type": []string{"string", "null"}, "format": "date-time"},
+	} {
+		if got := props[name]; !reflect.DeepEqual(got, w) {
+			t.Errorf("%s = %#v, want %#v", name, got, w)
+		}
+	}
+	for name, v := range map[string]any{
+		"min on a bool": struct {
+			B bool `dash:"min=1"`
+		}{},
+		"max not a number": struct {
+			N int `dash:"max=x"`
+		}{},
+	} {
+		if _, err := Document(v); err == nil {
+			t.Errorf("%s: no error", name)
+		}
+	}
+}
+
 type withDefaults struct {
 	Listen string       `json:"listen"`
 	Count  int          `json:"count"`

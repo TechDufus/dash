@@ -722,11 +722,14 @@ type LogLine struct {
 
 // Me is GET /api/v1/me: who the request acts as and what the API offers it (design L.4).
 type Me struct {
-	User         string         `json:"user"`
-	Role         string         `json:"role"`     // admin or viewer
-	AuthMode     string         `json:"authMode"` // proxy, local, oidc, none, dev or demo
-	Scopes       []string       `json:"scopes"`   // read, logs and actions:<plugin> for each plugin with mounted actions
-	Audience     string         `json:"audience"` // api
+	User     string `json:"user"`
+	Role     string `json:"role"`     // admin or viewer
+	AuthMode string `json:"authMode"` // proxy, local, oidc, none, dev or demo
+	// Scopes: for an interactive principal, what they may put on a token (read and logs, and for
+	// an administrator actions:<plugin> for each plugin with mounted actions); for a token, the
+	// scopes it was created with, unchanged (each route still checks the role as well).
+	Scopes       []string       `json:"scopes"`
+	Audience     string         `json:"audience"` // api: /me is an api route, so an mcp token never reaches it
 	Version      string         `json:"version"`
 	Capabilities MeCapabilities `json:"capabilities"`
 	UI           MeUI           `json:"ui"`
@@ -773,6 +776,9 @@ type MeCapabilities struct {
 	MCP     bool `json:"mcp"`
 	Push    bool `json:"push"`
 	OAuth   bool `json:"oauth"`
+	// Tokens is true when the caller may create personal access tokens: an interactive principal
+	// in a mode whose credential store keeps them (a writable data dir, or dev and demo).
+	Tokens bool `json:"tokens"`
 }
 
 // LauncherData is the payload of the launcher.links topic.

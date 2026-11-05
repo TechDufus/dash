@@ -221,11 +221,13 @@ type AuditTarget struct {
 	Name      string `json:"name,omitempty"`
 }
 
-// AuditActor is who acted. Surface is ui, api or mcp.
+// AuditActor is who acted. Surface is ui, api or mcp. TokenID names the personal access token
+// (its ID) or the static token (static:<name>) a token principal used; empty for a person.
 type AuditActor struct {
 	Type    string `json:"type,omitempty"`
 	User    string `json:"user,omitempty"`
 	Surface string `json:"surface,omitempty"`
+	TokenID string `json:"tokenId,omitempty"`
 }
 
 // AuditEntry is one audit record as the audit view shows it: field paths only, never values,

@@ -14,6 +14,9 @@
 //	                          dest            x-dash-dest: true (the field decides where requests go)
 //	                          format=<f>      format: <f>
 //	                          enum=a|b|c      enum: [a, b, c] (numbers for integer fields)
+//	                          min=<n>         minimum (integers) or minLength (strings)
+//	                          max=<n>         maximum (integers) or maxLength (strings)
+//	                          nullable        the type also admits null (a pointer sent as null)
 //	doc:"text"              description
 //
 // tstype tags (read by tygo) are ignored. A pointer is its element type and, unlike required,
@@ -350,11 +353,40 @@ func applyOptions(name string, f reflect.StructField, prop Schema) (required boo
 			prop["format"] = val
 		case key == "enum" && hasVal && val != "":
 			prop["enum"] = enumValues(name, f.Type, val)
+		case (key == "min" || key == "max") && hasVal:
+			n, err := strconv.ParseInt(val, 10, 64)
+			if err != nil {
+				fail("%s: %s value %q is not an integer", name, key, val)
+			}
+			prop[boundKeyword(name, f.Type, key)] = n
+		case key == "nullable" && !hasVal:
+			t, ok := prop["type"].(string)
+			if !ok {
+				fail("%s: nullable needs a field of a simple type", name)
+			}
+			prop["type"] = []string{t, "null"}
 		default:
 			fail("%s: unknown dash tag option %q", name, opt)
 		}
 	}
 	return required
+}
+
+// boundKeyword is the JSON Schema keyword of a min or max option on a field of type t: the
+// value's bound for an integer, the length's for a string.
+func boundKeyword(name string, t reflect.Type, key string) string {
+	for t.Kind() == reflect.Pointer {
+		t = t.Elem()
+	}
+	switch t.Kind() {
+	case reflect.String:
+		return map[string]string{"min": "minLength", "max": "maxLength"}[key]
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64,
+		reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+		return map[string]string{"min": "minimum", "max": "maximum"}[key]
+	}
+	fail("%s: %s is only for strings and integers, not %s", name, key, t)
+	return ""
 }
 
 func enumValues(name string, t reflect.Type, list string) []any {

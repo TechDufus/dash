@@ -35,6 +35,7 @@ export const ErrCodeConflict = "conflict"; // 409
 export const ErrCodePreconditionFailed = "precondition_failed"; // 412
 export const ErrCodePreconditionRequired = "precondition_required"; // 428: a settings write without If-Match
 export const ErrCodeAuditUnavailable = "audit_unavailable"; // 503
+export const ErrCodeTokensUnavailable = "tokens_unavailable"; // 409: no writable data dir keeps a new token
 export const ErrCodeUnknownHost = "unknown_host"; // 421
 export const ErrCodeInternal = "internal"; // 500
 /**
@@ -42,7 +43,7 @@ export const ErrCodeInternal = "internal"; // 500
  * carry several (a 403 is forbidden or csrf_failed, a 429 rate_limited or too_many_streams).
  * ErrCodes lists them all.
  */
-export type ErrCode = typeof ErrCodeUnauthenticated | typeof ErrCodeForbidden | typeof ErrCodeInsufficientScope | typeof ErrCodeInvalidToken | typeof ErrCodeAmbiguousCredentials | typeof ErrCodeCSRFFailed | typeof ErrCodeNotFound | typeof ErrCodeInvalidInput | typeof ErrCodeLockedField | typeof ErrCodeReadonlySettings | typeof ErrCodeRateLimited | typeof ErrCodeTooManyStreams | typeof ErrCodeUpstreamUnavailable | typeof ErrCodeApprovalRequired | typeof ErrCodeApprovalDenied | typeof ErrCodeApprovalExpired | typeof ErrCodeConflict | typeof ErrCodePreconditionFailed | typeof ErrCodePreconditionRequired | typeof ErrCodeAuditUnavailable | typeof ErrCodeUnknownHost | typeof ErrCodeInternal;
+export type ErrCode = typeof ErrCodeUnauthenticated | typeof ErrCodeForbidden | typeof ErrCodeInsufficientScope | typeof ErrCodeInvalidToken | typeof ErrCodeAmbiguousCredentials | typeof ErrCodeCSRFFailed | typeof ErrCodeNotFound | typeof ErrCodeInvalidInput | typeof ErrCodeLockedField | typeof ErrCodeReadonlySettings | typeof ErrCodeRateLimited | typeof ErrCodeTooManyStreams | typeof ErrCodeUpstreamUnavailable | typeof ErrCodeApprovalRequired | typeof ErrCodeApprovalDenied | typeof ErrCodeApprovalExpired | typeof ErrCodeConflict | typeof ErrCodePreconditionFailed | typeof ErrCodePreconditionRequired | typeof ErrCodeAuditUnavailable | typeof ErrCodeTokensUnavailable | typeof ErrCodeUnknownHost | typeof ErrCodeInternal;
 
 //////////
 // source: model.go
@@ -797,8 +798,13 @@ export interface Me {
   user: string;
   role: string; // admin or viewer
   authMode: string; // proxy, local, oidc, none, dev or demo
-  scopes: string[]; // read, logs and actions:<plugin> for each plugin with mounted actions
-  audience: string; // api
+  /**
+   * Scopes: for an interactive principal, what they may put on a token (read and logs, and for
+   * an administrator actions:<plugin> for each plugin with mounted actions); for a token, the
+   * scopes it was created with, unchanged (each route still checks the role as well).
+   */
+  scopes: string[];
+  audience: string; // api: /me is an api route, so an mcp token never reaches it
   version: string;
   capabilities: MeCapabilities;
   ui: MeUI;
@@ -858,6 +864,11 @@ export interface MeCapabilities {
   mcp: boolean;
   push: boolean;
   oauth: boolean;
+  /**
+   * Tokens is true when the caller may create personal access tokens: an interactive principal
+   * in a mode whose credential store keeps them (a writable data dir, or dev and demo).
+   */
+  tokens: boolean;
 }
 /**
  * LauncherData is the payload of the launcher.links topic.
@@ -1290,12 +1301,14 @@ export interface AuditTarget {
   name?: string;
 }
 /**
- * AuditActor is who acted. Surface is ui, api or mcp.
+ * AuditActor is who acted. Surface is ui, api or mcp. TokenID names the personal access token
+ * (its ID) or the static token (static:<name>) a token principal used; empty for a person.
  */
 export interface AuditActor {
   type?: string;
   user?: string;
   surface?: string;
+  tokenId?: string;
 }
 /**
  * AuditEntry is one audit record as the audit view shows it: field paths only, never values,
@@ -1333,4 +1346,105 @@ export interface SettingsAudit {
   ring: AuditRing;
   records: AuditEntry[];
   next?: string;
+}
+
+//////////
+// source: tokens.go
+
+export const TokenAudienceAPI = "api"; // /api/v1
+export const TokenAudienceMCP = "mcp"; // /mcp
+/**
+ * Token audiences (design M.4): a token is bound to one surface, and using it at the other one
+ * is 401 invalid_token.
+ */
+export type TokenAudience = typeof TokenAudienceAPI | typeof TokenAudienceMCP;
+export const TokenScopeRead = "read";
+export const TokenScopeLogs = "logs";
+/**
+ * Token scopes a personal access token or a static token may hold (design M.3, M.5): read,
+ * logs and actions:<plugin>, the actions scopes only for an administrator. approvals and push
+ * are never put on one.
+ */
+export type TokenScope = typeof TokenScopeRead | typeof TokenScopeLogs;
+/**
+ * TokenScopeActionsPrefix starts the scope actions:<plugin>, which runs that plugin's actions.
+ */
+export const TokenScopeActionsPrefix = "actions:";
+/**
+ * TokenExpiryDefaultDays is the expiry of a personal access token created without one (design
+ * M.5); expiry is required.
+ */
+export const TokenExpiryDefaultDays = 30;
+/**
+ * TokenExpiryMaxDays is the longest expiry a personal access token may have.
+ */
+export const TokenExpiryMaxDays = 365;
+/**
+ * TokenNameMaxLen is the longest name of a personal access token, in characters.
+ */
+export const TokenNameMaxLen = 64;
+/**
+ * TokenInfo is one personal access token as GET /api/v1/tokens lists it. The secret is never
+ * part of it: dash keeps only its SHA-256.
+ */
+export interface TokenInfo {
+  id: string; // the 10-character ID inside dash_pat_<id>_<secret>
+  name: string; // 1 to 64 characters, chosen by its owner
+  user: string; // the owner
+  audience: string; // api or mcp
+  /**
+   * Scopes are read, logs and actions:<plugin>.
+   */
+  scopes: string[];
+  /**
+   * ActionNamespaces restricts the namespaces the token's actions may touch: exact names or
+   * prefix* globs. Empty means no restriction beyond the plugin's own.
+   */
+  actionNamespaces: string[];
+  createdAt: string;
+  expiresAt: string;
+  /**
+   * LastUsedAt is when a request last authenticated with the token, to within five minutes;
+   * null when it was never used.
+   */
+  lastUsedAt: string | null;
+}
+/**
+ * TokenList is GET /api/v1/tokens: the caller's tokens, or with ?user= (administrators) one
+ * user's or, for ?user=*, everyone's.
+ */
+export interface TokenList {
+  tokens: TokenInfo[];
+}
+/**
+ * TokenCreateRequest is the body of POST /api/v1/tokens.
+ */
+export interface TokenCreateRequest {
+  /**
+   * Name is 1 to 64 characters, at least one of them visible.
+   */
+  name: string;
+  audience: string;
+  /**
+   * Scopes are read, logs and actions:<plugin> (administrators only, for a plugin whose actions
+   * are enabled); approvals and push are refused (403).
+   */
+  scopes: string[];
+  /**
+   * ActionNamespaces are exact namespace names or prefix* globs; optional, and only with an
+   * actions:<plugin> scope.
+   */
+  actionNamespaces?: string[];
+  /**
+   * ExpiresInDays is 1 to 365; absent means 30.
+   */
+  expiresInDays?: number /* int */;
+}
+/**
+ * TokenCreated answers a successful POST /api/v1/tokens (201). Token is the secret, shown this
+ * once: dash keeps only its hash and can never show it again.
+ */
+export interface TokenCreated {
+  token: string; // dash_pat_<id>_<secret>
+  info: TokenInfo;
 }

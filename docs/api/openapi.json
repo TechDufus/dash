@@ -52,6 +52,7 @@
               "precondition_failed",
               "precondition_required",
               "audit_unavailable",
+              "tokens_unavailable",
               "unknown_host",
               "internal"
             ],
@@ -259,6 +260,9 @@
         "additionalProperties": false,
         "properties": {
           "surface": {
+            "type": "string"
+          },
+          "tokenId": {
             "type": "string"
           },
           "type": {
@@ -1629,6 +1633,9 @@
             "type": "boolean"
           },
           "push": {
+            "type": "boolean"
+          },
+          "tokens": {
             "type": "boolean"
           }
         },

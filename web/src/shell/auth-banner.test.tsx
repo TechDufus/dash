@@ -14,7 +14,7 @@ const me = (over: Partial<Me> = {}) => ({
   scopes: ["read"],
   audience: "api",
   version: "test",
-  capabilities: { actions: false, mcp: false, push: false, oauth: false },
+  capabilities: { actions: false, mcp: false, push: false, oauth: false, tokens: false },
   ui: { iconBaseUrl: "" },
   warnings: [],
   ...over,
