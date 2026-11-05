@@ -1,7 +1,8 @@
-import { KeyRound, Loader2, LogIn, LogOut, UserRound, UsersRound } from "lucide-react";
+import { BellRing, KeyRound, Loader2, LogIn, LogOut, UserRound, UsersRound } from "lucide-react";
 import { type JSX, useState } from "react";
 import { toast } from "sonner";
 import { Link } from "wouter";
+import { pushAvailable } from "@/api/queries";
 import type { Me } from "@/api/types";
 import {
   AlertDialog,
@@ -41,12 +42,12 @@ const CONFIRM: Record<Exclude<LogoutScope, "this">, { title: string; body: strin
 
 /**
  * The topbar's account menu in the session modes (local, oidc): who is signed in, their "Tokens"
- * page, "Log out" (this session), "Log out everywhere" (every session of the user, and their
- * connected apps) and, for an administrator, "Sign out all users" (every session and every
- * connected app of every user). Both of the latter ask first; tokens survive either. Nothing in
- * the other modes, where dash has no session to end. After a logout the browser loads /login; a
- * 401 means the session was gone already, which is the same outcome. The anonymous viewer gets a
- * "Sign in" link instead.
+ * page, their "Devices" page where push is available, "Log out" (this session), "Log out
+ * everywhere" (every session of the user, and their connected apps) and, for an administrator,
+ * "Sign out all users" (every session and every connected app of every user). Both of the latter
+ * ask first; tokens survive either. Nothing in the other modes, where dash has no session to end.
+ * After a logout the browser loads /login; a 401 means the session was gone already, which is the
+ * same outcome. The anonymous viewer gets a "Sign in" link instead.
  */
 export function UserMenu({ me }: { me: Me }): JSX.Element | null {
   const [pending, setPending] = useState(false);
@@ -108,6 +109,14 @@ export function UserMenu({ me }: { me: Me }): JSX.Element | null {
               Tokens
             </Link>
           </DropdownMenuItem>
+          {pushAvailable(me) ? (
+            <DropdownMenuItem asChild>
+              <Link href="/settings/devices">
+                <BellRing aria-hidden="true" />
+                Devices
+              </Link>
+            </DropdownMenuItem>
+          ) : null}
           <DropdownMenuItem disabled={pending} onSelect={() => void out("this")}>
             <LogOut aria-hidden="true" />
             Log out

@@ -16,7 +16,10 @@
 // 4. reloading offline shows the offline page, answered by the worker, with its CSS applied;
 // 5. a push (CDP ServiceWorker.deliverPushMessage) shows its notification, as
 //    registration.getNotifications() reads it back: title, body, tag, icon, badge and the url;
-// 6. no CSP violation: in any document (securitypolicyviolation events and the console) or in the
+// 6. a verify push reaches an open Settings → Devices page, which submits its code: the worker and
+//    the page are the real ones; /api/v1/me (push on) and the push routes are answered by the
+//    smoke, since demo mode has no push and headless Chromium reaches no push service;
+// 7. no CSP violation: in any document (securitypolicyviolation events and the console) or in the
 //    worker (its securitypolicyviolation events and its console).
 //
 // It prints one line per check and exits 1 listing every check that failed, or after 120 s. dash,
@@ -120,6 +123,37 @@ async function notificationsTagged(page, tag) {
     if (shown.length > 0 || Date.now() > deadline) return shown;
     await new Promise((r) => setTimeout(r, 200));
   }
+}
+
+/**
+ * Answers, for page, /api/v1/me with push on and the push routes with one pending subscription,
+ * sub; returns the bodies of the verify requests the page sends for it.
+ */
+async function fakePush(page, sub) {
+  const verified = [];
+  await page.route("**/api/v1/me", async (route) => {
+    const me = await (await route.fetch()).json();
+    await route.fulfill({ json: { ...me, capabilities: { ...me.capabilities, push: true } } });
+  });
+  await page.route("**/api/v1/push/**", async (route) => {
+    const req = route.request();
+    const at = `${req.method()} ${new URL(req.url()).pathname}`;
+    if (at === "GET /api/v1/push/vapid") {
+      // Any P-256 public key: the page never subscribes here, it only reads the key.
+      const publicKey =
+        "BA1Hxzyi1RUM1b5wjxsn7nGxAszw2u61m164i3MrAIxHF6YK5h4SDYic-dRuU_RCPCfA5aq9ojSwk5Y2EmClBPs";
+      return route.fulfill({ json: { publicKey } });
+    }
+    if (at === "GET /api/v1/push/subscriptions") {
+      return route.fulfill({ json: { subscriptions: [sub] } });
+    }
+    if (at === `POST /api/v1/push/subscriptions/${sub.id}/verify`) {
+      verified.push(req.postDataJSON());
+      return route.fulfill({ json: { ...sub, state: "verified" } });
+    }
+    return route.fulfill({ status: 404, json: { error: `pwa-smoke: no fake for ${at}` } });
+  });
+  return verified;
 }
 
 async function smoke(ctx, origin, seen) {
@@ -285,7 +319,40 @@ async function smoke(ctx, origin, seen) {
     JSON.stringify(shown),
   );
 
-  // 6. CSP violations.
+  // 6. A verify push reaches an open Devices page, which submits the code. The page knows this
+  //    browser's subscription from localStorage, as after a subscribe.
+  const sub = {
+    id: "sub_SMOKE234SMOKE234SMOKE234SM",
+    kind: "webpush",
+    deviceName: "pwa-smoke",
+    notify: { approvals: true, attention: "crit" },
+    state: "pending",
+    endpointHost: "push.example.com",
+    createdAt: new Date().toISOString(),
+    verifiedAt: null,
+  };
+  const verified = await fakePush(page, sub);
+  await page.evaluate((id) => localStorage.setItem("dash.push.subscription", id), sub.id);
+  await page.goto(`${origin}/settings/devices`);
+  await page.getByLabel(`Code for ${sub.deviceName}`).waitFor({ timeout: 15_000 });
+  await cdp.send("ServiceWorker.deliverPushMessage", {
+    origin,
+    registrationId,
+    data: JSON.stringify({ type: "verify", code: "SMOKE234" }),
+  });
+  const deadline = Date.now() + 10_000;
+  while (verified.length === 0 && Date.now() < deadline) {
+    await new Promise((r) => setTimeout(r, 200));
+  }
+  check(
+    verified.length === 1 && verified[0]?.code === "SMOKE234",
+    "a verify push reaches an open Devices page, which submits its code",
+    JSON.stringify(verified),
+  );
+  await page.unrouteAll();
+  await page.evaluate(() => localStorage.removeItem("dash.push.subscription"));
+
+  // 7. CSP violations.
   const workerViolations =
     (await ctx.serviceWorkers()[0]?.evaluate(() => self.__dashSmokeViolations)) ?? [];
   const all = [...violations, ...workerViolations];

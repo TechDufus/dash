@@ -14,7 +14,7 @@ import { isVisible, usePluginsState } from "./state";
 import type { ModuleRoute as ModuleRouteDecl, PluginModule } from "./types";
 
 // The settings pages are their own chunks: an administrator loads them, anyone else at most their
-// own settings landing, the tokens page and the connected apps page.
+// own settings landing, the tokens page, the connected apps page and the devices page.
 const SettingsPage = lazy(() =>
   import("@/settings/settings-page").then((m) => ({ default: m.SettingsPage })),
 );
@@ -31,6 +31,9 @@ const ConnectedAppsPage = lazy(() =>
   import("@/settings/connected-apps-page").then((m) => ({ default: m.ConnectedAppsPage })),
 );
 const McpPage = lazy(() => import("@/settings/mcp-page").then((m) => ({ default: m.McpPage })));
+const DevicesPage = lazy(() =>
+  import("@/settings/devices-page").then((m) => ({ default: m.DevicesPage })),
+);
 const UserSettingsPage = lazy(() =>
   import("@/settings/settings-nav").then((m) => ({ default: m.UserSettingsPage })),
 );
@@ -163,10 +166,10 @@ function ModuleRoute({
 
 /**
  * The gate of an administrator's /settings page: an administrator gets the page; a user with a
- * settings page of their own (Tokens, D8; Connected apps) gets `user` when the route has one;
- * anyone else (the anonymous viewer, every user in the none mode) "Not authorised", and the page,
- * which reads the settings API, never mounts. The API refuses them anyway; this keeps the request
- * from being made.
+ * settings page of their own (Tokens, D8; Connected apps; Devices) gets `user` when the route has
+ * one; anyone else (the anonymous viewer, every user in the none mode) "Not authorised", and the
+ * page, which reads the settings API, never mounts. The API refuses them anyway; this keeps the
+ * request from being made.
  * Demo mode has no settings API at all (every settings route is 404): its administrator gets
  * `user` too, or a notice that says so.
  */
@@ -235,6 +238,12 @@ export function PluginRoutes() {
         {/* Every interactive user's page: it explains itself where OAuth is off. */}
         <RouteBoundary>
           <ConnectedAppsPage />
+        </RouteBoundary>
+      </Route>
+      <Route path="/settings/devices">
+        {/* Every user's page where push is available: elsewhere it says so and reads nothing. */}
+        <RouteBoundary>
+          <DevicesPage />
         </RouteBoundary>
       </Route>
       <Route path="/settings/plugins/:id">

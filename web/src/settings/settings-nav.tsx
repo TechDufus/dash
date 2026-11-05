@@ -4,6 +4,7 @@ import { Link } from "wouter";
 import {
   canManageTokens,
   connectedAppsAvailable,
+  pushAvailable,
   settingsAvailable,
   tokensAvailable,
   useMe,
@@ -12,8 +13,11 @@ import type { Me } from "@/api/types";
 import { Page } from "@/components/page";
 import { Panel, PanelHeader } from "@/components/panel";
 
-/** Who may open a settings page: the settings API's administrator, a token user, an OAuth user. */
-type Gate = "admin" | "tokens" | "oauth";
+/**
+ * Who may open a settings page: the settings API's administrator, a token user, an OAuth user,
+ * a push user.
+ */
+type Gate = "admin" | "tokens" | "oauth" | "push";
 
 /** The settings pages besides /settings itself, and who may open each. */
 const PAGES: { href: string; label: string; note: string; gate: Gate }[] = [
@@ -41,20 +45,27 @@ const PAGES: { href: string; label: string; note: string; gate: Gate }[] = [
     note: "Apps you let in with the consent screen.",
     gate: "oauth",
   },
+  {
+    href: "/settings/devices",
+    label: "Devices",
+    note: "Push notifications on your phones and browsers, and the app's QR code.",
+    gate: "push",
+  },
 ];
 
 function opens(me: Me | undefined, gate: Gate): boolean {
   if (gate === "admin") return settingsAvailable(me);
   // An administrator still finds Tokens where they are not kept: the page says why.
   if (gate === "tokens") return me?.role === "admin" ? canManageTokens(me) : tokensAvailable(me);
-  return connectedAppsAvailable(me);
+  if (gate === "oauth") return connectedAppsAvailable(me);
+  return pushAvailable(me);
 }
 
 /**
  * The settings pages /me may open: an administrator every one (none in demo mode, which has no
  * settings API, so the audit log is not offered there), anyone else only their own pages, Tokens
  * where tokens are kept. Connected apps is offered to everyone only where the OAuth server is on
- * (capabilities.oauth).
+ * (capabilities.oauth), Devices only where push is available (capabilities.push).
  */
 function usePages() {
   const me = useMe().data;

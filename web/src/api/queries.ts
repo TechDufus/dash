@@ -86,9 +86,19 @@ export function connectedAppsAvailable(me: Me | undefined): boolean {
   return canManageTokens(me) && me?.capabilities?.oauth === true;
 }
 
+/**
+ * Whether the principal may register push devices (Settings → Devices, P7.7): capabilities.push,
+ * which dash sets only where push is enabled (a writable data dir and DASH_SECRET_KEY, in local,
+ * oidc or proxy mode) and for a signed-in person or a token with the push scope. Without it
+ * nothing requests /api/v1/push.
+ */
+export function pushAvailable(me: Me | undefined): boolean {
+  return me?.capabilities?.push === true;
+}
+
 /** Whether a user who is not an administrator has a settings page of their own (D8). */
 export function userSettingsAvailable(me: Me | undefined): boolean {
-  return tokensAvailable(me) || connectedAppsAvailable(me);
+  return tokensAvailable(me) || connectedAppsAvailable(me) || pushAvailable(me);
 }
 
 /**
