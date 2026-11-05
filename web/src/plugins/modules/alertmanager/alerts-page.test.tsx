@@ -1,6 +1,6 @@
-import { act, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ActionInfo, Alert, AlertsData, OverviewData, PluginInfo, Silence } from "@/api/types";
 import { ui } from "@/api/ui-store";
 import { GlobalDialogs } from "@/components/dialogs";
@@ -97,6 +97,7 @@ describe("the alerts page", () => {
     await screen.findByText("DiskFull");
     await waitFor(() => expect(stub.callsTo("GET /api/v1/me")).toHaveLength(1));
     await act(async () => {}); // /me has been read into the query cache
+    return stub;
   }
 
   const silenceButtons = () => screen.queryAllByRole("button", { name: "Silence" });
@@ -108,7 +109,9 @@ describe("the alerts page", () => {
     expect(
       within(cardOf(screen.getByText("DiskFull"))).getByRole("button", { name: "Silence" }),
     ).toBeTruthy();
-    expect(within(cardOf(screen.getByText("Watchdog"))).queryByRole("button")).toBeNull();
+    expect(
+      within(cardOf(screen.getByText("Watchdog"))).queryByRole("button", { name: "Silence" }),
+    ).toBeNull();
   });
 
   it("offers Expire only on the silences dash created", async () => {
@@ -149,6 +152,34 @@ describe("the alerts page", () => {
   it("offers no Silence without a duration to offer", async () => {
     await show("admin", [row()], data({ silenceDurations: undefined }));
     expect(silenceButtons()).toHaveLength(0);
+  });
+
+  it("copies the context of a firing alert and of a suppressed one by their refs", async () => {
+    const writeText = vi.fn(async (_: string) => {});
+    Object.defineProperty(navigator, "clipboard", { value: { writeText }, configurable: true });
+    try {
+      const muted = alert("f3", "Muted", { silencedBy: ["s-dash"] });
+      const stub = await show(
+        "viewer",
+        [row()],
+        data({ alerts: [alert("f1", "DiskFull"), muted] }),
+      );
+      stub.route("GET /api/v1/context", () => new Response("# dash context bundle\n"));
+      const copy = (el: HTMLElement) =>
+        fireEvent.click(within(el).getByRole("button", { name: "Copy context for AI" }));
+
+      copy(cardOf(screen.getByText("DiskFull")));
+      await waitFor(() => expect(writeText).toHaveBeenCalledTimes(1));
+      fireEvent.click(screen.getByRole("button", { name: /Suppressed/ }));
+      copy(screen.getByText("Muted").parentElement as HTMLElement);
+      await waitFor(() => expect(writeText).toHaveBeenCalledTimes(2));
+      expect(stub.callsTo("GET /api/v1/context").map((c) => c.query.get("ref"))).toEqual([
+        "alertmanager:Alert/f1",
+        "alertmanager:Alert/f3",
+      ]);
+    } finally {
+      Reflect.deleteProperty(navigator, "clipboard");
+    }
   });
 });
 

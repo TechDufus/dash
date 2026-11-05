@@ -1,5 +1,5 @@
 // dash in demo mode on free loopback ports, for the scripts that drive a browser against it
-// (screenshots.mjs, pwa-smoke.mjs).
+// (screenshots.mjs, pwa-smoke.mjs, context-smoke.mjs).
 import { spawn } from "node:child_process";
 import { createServer } from "node:net";
 import { constants } from "node:os";

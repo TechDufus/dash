@@ -1,8 +1,9 @@
-import { screen } from "@testing-library/react";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { fireEvent, screen, waitFor } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AttentionItem } from "@/api/types";
 import { connectStream, type TestStream } from "@/plugins/test-util";
-import { pluginInfo, renderApp } from "@/test/harness";
+import { me } from "@/settings/fixtures";
+import { pluginInfo, renderApp, stubFetch } from "@/test/harness";
 import { shimRows, withState } from "@/test/shims";
 import { AttentionPanel } from "./attention";
 
@@ -68,5 +69,30 @@ describe("AttentionPanel routes", () => {
 
     stream.plugins(withState(withState(rows, "kubernetes", "unavailable"), "queue", "disabled"));
     expect(linked()).toEqual(["flux", "core"]);
+  });
+});
+
+describe("AttentionPanel Copy context for AI", () => {
+  afterEach(() => {
+    Reflect.deleteProperty(navigator, "clipboard");
+  });
+
+  it("copies the context of each item's ref", async () => {
+    const writeText = vi.fn(async (_: string) => {});
+    Object.defineProperty(navigator, "clipboard", { value: { writeText }, configurable: true });
+    const f = stubFetch({
+      "GET /api/v1/me": me("viewer", { scopes: ["read"] }),
+      "GET /api/v1/context": () => new Response("# dash context bundle\n"),
+    });
+    const r = renderApp(<AttentionPanel items={items.slice(0, 2)} />);
+    await waitFor(() => expect(r.queryClient.getQueryData(["me"])).toBeDefined());
+    const buttons = screen.getAllByRole("button", { name: "Copy context for AI" });
+    expect(buttons).toHaveLength(2);
+
+    fireEvent.click(buttons[1]);
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith("# dash context bundle\n"));
+    expect(f.callsTo("GET /api/v1/context").map((c) => c.query.get("ref"))).toEqual([
+      "kubernetes:Item/pvc",
+    ]);
   });
 });

@@ -4,6 +4,7 @@ import { errorMessage } from "@/api/client";
 import { type SeriesRange, useVMDetail } from "@/api/queries";
 import { useTopic, useTopicData } from "@/api/stream";
 import type { Link, VM, VMDetail } from "@/api/types";
+import { CopyContextButton } from "@/components/copy-context";
 import { LinkButtons } from "@/components/links";
 import { Empty, Panel } from "@/components/panel";
 import { SeriesChart } from "@/components/series-chart";
@@ -350,6 +351,12 @@ function VMSheetBody({ vmid }: { vmid: string }) {
                 {vm.template && <span className="text-xs text-muted">template</span>}
               </div>
             </SheetDescription>
+            <CopyContextButton
+              contextRef={`proxmox:VM/${vmid}`}
+              name={vm.name}
+              size="xs"
+              className="self-start"
+            />
           </>
         ) : (
           <>

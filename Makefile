@@ -1,4 +1,4 @@
-.PHONY: generate check scan set-version dev-api dev-api-op dev-web image screenshots icons pwa-smoke hooks hooks-uninstall
+.PHONY: generate check scan set-version dev-api dev-api-op dev-web image screenshots icons pwa-smoke context-smoke hooks hooks-uninstall
 
 generate: web/node_modules/.package-lock.json
 	go tool tygo generate
@@ -115,6 +115,16 @@ pwa-smoke: web/node_modules/.package-lock.json
 	cd web && npm run build
 	tmp=$$(mktemp -d) && trap 'rm -rf "$$tmp"' EXIT && go build -o "$$tmp/dash" ./cmd/dash && \
 	  cd web && npm run --silent pwa-smoke -- "$$tmp/dash"
+
+# The "Copy context for AI" browser smoke (P7.4): it builds the SPA and dash, and
+# web/scripts/context-smoke.mjs runs dash with DASH_DEMO=true on free loopback ports, opens a pod
+# sheet in Playwright's headless Chromium with the clipboard permissions granted, clicks the
+# button and checks the clipboard holds the bundle's Markdown with its untrusted-data framing, and
+# that GET /api/v1/context was the click's only request. Not part of check, as pwa-smoke.
+context-smoke: web/node_modules/.package-lock.json
+	cd web && npm run build
+	tmp=$$(mktemp -d) && trap 'rm -rf "$$tmp"' EXIT && go build -o "$$tmp/dash" ./cmd/dash && \
+	  cd web && npm run --silent context-smoke -- "$$tmp/dash"
 
 hooks:
 	git config core.hooksPath .githooks

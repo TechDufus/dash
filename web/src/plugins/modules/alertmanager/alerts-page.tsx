@@ -12,6 +12,7 @@ import { type ReactNode, useMemo, useState } from "react";
 import { useTopic } from "@/api/stream";
 import type { Alert, Matcher, Silence } from "@/api/types";
 import { ui } from "@/api/ui-store";
+import { CopyContextButton } from "@/components/copy-context";
 import { Page, Reveal } from "@/components/page";
 import { Empty, Panel, PanelSkeleton, SourceChips } from "@/components/panel";
 import { Button } from "@/components/ui/button";
@@ -125,12 +126,15 @@ function AlertCard({
               firing since {formatRelative(alert.startsAt, now)}
             </p>
           </div>
-          {canSilence && !alert.protected && (
-            <Button variant="outline" size="sm" onClick={() => ui.openSilence(alert)}>
-              <BellOff aria-hidden="true" />
-              Silence
-            </Button>
-          )}
+          <div className="flex flex-wrap items-center gap-2">
+            <CopyContextButton contextRef={alert.ref} name={alert.name} />
+            {canSilence && !alert.protected && (
+              <Button variant="outline" size="sm" onClick={() => ui.openSilence(alert)}>
+                <BellOff aria-hidden="true" />
+                Silence
+              </Button>
+            )}
+          </div>
         </div>
         {alert.summary && <p className="text-sm text-fg">{alert.summary}</p>}
         {alert.description && (
@@ -226,6 +230,7 @@ function SuppressedRow({
         <span className="ml-auto text-xs text-muted" title={formatDateTime(alert.startsAt)}>
           since {formatRelative(alert.startsAt, now)}
         </span>
+        <CopyContextButton contextRef={alert.ref} name={alert.name} size="xs" />
       </div>
       {alert.summary && <p className="text-xs text-muted">{alert.summary}</p>}
       <div className="flex flex-wrap items-center gap-1.5 text-xs text-muted">

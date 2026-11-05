@@ -8,7 +8,8 @@
     "format": "biome format --write .",
     "screenshots": "node scripts/screenshots.mjs",
     "icons": "node scripts/icons.mjs",
-    "pwa-smoke": "node scripts/pwa-smoke.mjs"
+    "pwa-smoke": "node scripts/pwa-smoke.mjs",
+    "context-smoke": "node scripts/context-smoke.mjs"
   },
   "type": "module",
   "private": "true",

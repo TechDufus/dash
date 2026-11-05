@@ -2,6 +2,7 @@ import { BellRing, CircleCheck, OctagonAlert, TriangleAlert } from "lucide-react
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { Link } from "wouter";
 import type { AttentionItem, SourceStatus } from "@/api/types";
+import { CopyContextButton } from "@/components/copy-context";
 import { LinkButtons } from "@/components/links";
 import { BorderBeam } from "@/components/magicui/border-beam";
 import { LayoutItem } from "@/components/page";
@@ -48,7 +49,10 @@ function AttentionRow({ item }: { item: AttentionItem }) {
       ) : (
         <div className="flex gap-3 rounded-lg">{body}</div>
       )}
-      {item.links.length > 0 && <LinkButtons links={item.links} size="xs" className="mt-2 pl-7" />}
+      <div className="mt-2 flex flex-wrap items-center gap-2 pl-7">
+        <LinkButtons links={item.links} size="xs" />
+        <CopyContextButton contextRef={item.ref} name={item.title} size="xs" />
+      </div>
     </div>
   );
 }

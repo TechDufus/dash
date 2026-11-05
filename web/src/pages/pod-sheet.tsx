@@ -6,6 +6,7 @@ import { useMe, usePodDetail } from "@/api/queries";
 import { useTopicData } from "@/api/stream";
 import type { ClusterData, Condition, Container, Event, OwnerRef, Pod } from "@/api/types";
 import { ui } from "@/api/ui-store";
+import { CopyContextButton } from "@/components/copy-context";
 import { LinkButtons } from "@/components/links";
 import { Empty } from "@/components/panel";
 import { SeriesChart } from "@/components/series-chart";
@@ -142,6 +143,12 @@ function PodBody({ ns, name, open }: { ns: string; name: string; open: boolean }
               node <span className="num text-fg">{pod.node}</span>
             </span>
           )}
+          <CopyContextButton
+            contextRef={`kubernetes:Pod/${ns}/${name}`}
+            name={name}
+            size="xs"
+            className="ml-auto"
+          />
         </div>
       </SheetHeader>
 

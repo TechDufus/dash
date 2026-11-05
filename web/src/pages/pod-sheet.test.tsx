@@ -1,6 +1,6 @@
-import { act, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ActionInfo, PluginInfo, PodDetail } from "@/api/types";
 import { connectStream, type TestStream } from "@/plugins/test-util";
 import { FakeEventSource, pluginInfo, renderApp, stubFetch } from "@/test/harness";
@@ -193,5 +193,35 @@ describe("the pod sheet's Restart control", () => {
     await waitFor(() => expect(button()).not.toBeNull());
     stream.plugins([kubernetes([])]);
     await waitFor(() => expect(button()).toBeNull());
+  });
+});
+
+describe("the pod sheet's Copy context for AI", () => {
+  let stream: TestStream;
+  afterEach(() => {
+    stream.close();
+    Reflect.deleteProperty(navigator, "clipboard");
+  });
+
+  it("copies the pod's context with one request to /api/v1/context", async () => {
+    const writeText = vi.fn(async (_: string) => {});
+    Object.defineProperty(navigator, "clipboard", { value: { writeText }, configurable: true });
+    const f = stubFetch({
+      "GET /api/v1/plugins/kubernetes/pods/media/plex-0": detail,
+      "GET /api/v1/me": meWith(["read", "logs"]),
+      "GET /api/v1/context": () => new Response("# dash context bundle\n"),
+    });
+    stream = connectStream();
+    const r = renderApp(<PodSheet ns="media" name="plex-0" />);
+    await screen.findByRole("tab", { name: "Overview" });
+    await waitFor(() => expect(r.queryClient.getQueryData(["me"])).toBeDefined());
+    const before = f.calls.length;
+
+    fireEvent.click(screen.getByRole("button", { name: "Copy context for AI" }));
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith("# dash context bundle\n"));
+    const after = f.calls.slice(before);
+    expect(after.map((c) => c.path)).toEqual(["/api/v1/context"]);
+    expect(after[0].query.get("ref")).toBe("kubernetes:Pod/media/plex-0");
+    expect(after[0].query.get("include")).toBe("events,related,attention,series,logs");
   });
 });

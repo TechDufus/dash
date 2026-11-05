@@ -1,6 +1,6 @@
-import { screen, within } from "@testing-library/react";
+import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { PluginInfo, PVETask, VM, VMDetail, VMsData } from "@/api/types";
 import { connectStream, type TestStream } from "@/plugins/test-util";
 import { pluginInfo, renderApp, stubFetch } from "@/test/harness";
@@ -120,6 +120,29 @@ describe("the VMs page", () => {
     expect(await within(sheet).findByText("Configuration")).toBeInTheDocument();
     expect(stub.callsTo("GET /api/v1/plugins/proxmox/vms/101")).toHaveLength(1);
     expect(stub.calls.map((c) => c.path)).not.toContain("/api/vms/101");
+  });
+
+  it("copies the VM's context from the sheet", async () => {
+    const writeText = vi.fn(async (_: string) => {});
+    Object.defineProperty(navigator, "clipboard", { value: { writeText }, configurable: true });
+    try {
+      const stub = stubFetch({
+        "GET /api/v1/plugins/proxmox/vms/101": detail(),
+        "GET /api/v1/context": () => new Response("# dash context bundle\n"),
+      });
+      renderApp(<VMsPage vmid="101" />, { path: "/vms/101" });
+      stream.plugins([proxmox(), hardware()]);
+      stream.send("proxmox.vms", data());
+
+      const sheet = await screen.findByRole("dialog");
+      fireEvent.click(within(sheet).getByRole("button", { name: "Copy context for AI" }));
+      await waitFor(() => expect(writeText).toHaveBeenCalledWith("# dash context bundle\n"));
+      expect(stub.callsTo("GET /api/v1/context").map((c) => c.query.get("ref"))).toEqual([
+        "proxmox:VM/101",
+      ]);
+    } finally {
+      Reflect.deleteProperty(navigator, "clipboard");
+    }
   });
 
   describe("the sheet's Links tab", () => {

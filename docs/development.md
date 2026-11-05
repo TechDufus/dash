@@ -193,6 +193,18 @@ document or worker reports a CSP violation. A run ends after 120 s at most. It n
 one-time setup as the screenshots and is not part of `make check`: run it after a change to
 `web/sw`, `web/public`, the worker's plugin or the headers of `internal/api/static.go`.
 
+## Context smoke
+
+`make context-smoke` checks "Copy context for AI" in a real browser: it builds the SPA and dash,
+starts dash with `DASH_DEMO=true` on free loopback ports, and drives Playwright's headless Chromium
+with the clipboard permissions granted through `web/scripts/context-smoke.mjs`. It opens the first
+pod's sheet, waits until the page is quiet and clicks the button. It fails unless the clipboard
+holds the pod's context bundle as Markdown, its lab data in a closed fence after the untrusted-data
+sentence, `GET /api/v1/context` is the only request the click made, and the toast names the pod.
+A run ends after 60 s at most. It needs the same one-time setup as the screenshots and is not part
+of `make check`: run it after a change to the button, `web/src/lib/clipboard.ts` or the context
+route.
+
 ## Pre-push hook (opt-in)
 
 CI runs on pushes to `main` and tags, and on pull requests once the repository is public; until
