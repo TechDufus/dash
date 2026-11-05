@@ -71,6 +71,7 @@ func defaultTiming() timing {
 
 // Plugin reads the cluster. The supervisor makes a fresh one for every start of the instance.
 type Plugin struct {
+	plugin.ObjectStore
 	t       timing
 	connect Connect
 	refs    *secret.K8sRefs         // the k8s: references the secret watchers read; nil reads none
@@ -168,6 +169,7 @@ const noClusterMsg = "no cluster configuration: set plugins.kubernetes.kubeconfi
 // A cluster that cannot be reached is not an error of Start: the row says why (no configuration:
 // unavailable; an explicit mode that cannot run: error), and dash serves everything else.
 func (p *Plugin) Start(ctx context.Context, h plugin.Host, cfg any) error {
+	h = p.Wrap(h)
 	c, err := settings(cfg)
 	if err != nil {
 		return err

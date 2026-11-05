@@ -77,6 +77,7 @@ func newPlugin(tm timing) *Plugin { return &Plugin{tm: tm} }
 // Plugin is the CNPG integration. The supervisor makes a fresh one for every start of the
 // instance.
 type Plugin struct {
+	plugin.ObjectStore
 	tm timing
 	rt atomic.Pointer[runtime] // set by Start
 	// live counts the goroutines Start and the watch loop launched that have not ended.
@@ -174,6 +175,7 @@ func (p *Plugin) Validate(cfg any) error {
 // fail without a kubernetes service (a kubernetes plugin in error is not this plugin's error):
 // the loop looks for the service on every round.
 func (p *Plugin) Start(_ context.Context, h plugin.Host, cfg any) error {
+	h = p.Wrap(h)
 	c, err := settings(cfg)
 	if err != nil {
 		return err

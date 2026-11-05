@@ -22,6 +22,7 @@ func (p *Plugin) Demo() plugin.Plugin { return &twin{} }
 // the process. Creating a silence mutes the alerts it matches and expiring it unmutes them, so
 // the Alerts page behaves as it would against a real Alertmanager.
 type twin struct {
+	plugin.ObjectStore
 	mu       sync.Mutex
 	h        plugin.Host
 	cfg      pluginconf.Alertmanager
@@ -39,6 +40,7 @@ func (noLinks) VMConsole(int, string) []model.Link           { return []model.Li
 func (t *twin) Manifest() plugin.Manifest { return manifest() }
 
 func (t *twin) Start(_ context.Context, h plugin.Host, cfg any) error {
+	h = t.Wrap(h)
 	c := pluginconf.DefaultAlertmanager()
 	if in, ok := cfg.(*pluginconf.Alertmanager); ok && in != nil {
 		c = *in

@@ -35,6 +35,7 @@ func (noLinks) VMConsole(int, string) []model.Link           { return []model.Li
 // same attention items and contributes the same KPIs and topology as the plugin, and answers the
 // host.* series for the fake host, so that every page and chart of the demo has data.
 type twin struct {
+	plugin.ObjectStore
 	mu     sync.Mutex
 	h      plugin.Host
 	cfg    pluginconf.Hardware
@@ -65,6 +66,7 @@ func demoConfig(cfg any) pluginconf.Hardware {
 
 // Start publishes the fake world's host and machines now and then every demoEvery.
 func (t *twin) Start(_ context.Context, h plugin.Host, cfg any) error {
+	h = t.Wrap(h)
 	c := demoConfig(cfg)
 	w := world.New(h.Now, h.Now(), noLinks{})
 	ctx, cancel := context.WithCancel(context.Background())

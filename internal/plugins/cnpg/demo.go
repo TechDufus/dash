@@ -27,6 +27,7 @@ func (l twinLinks) Headlamp(kind, namespace, name string) []model.Link {
 // world, decorated with its ref as the plugin does, and no network. It is enabled and configured
 // whatever the settings say.
 type twin struct {
+	plugin.ObjectStore
 	mu     sync.Mutex
 	h      plugin.Host
 	w      *world.World
@@ -38,6 +39,7 @@ func (t *twin) Manifest() plugin.Manifest { return manifest() }
 
 // Start publishes the fake world's clusters now and then every demoEvery.
 func (t *twin) Start(_ context.Context, h plugin.Host, _ any) error {
+	h = t.Wrap(h)
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
 	t.mu.Lock()

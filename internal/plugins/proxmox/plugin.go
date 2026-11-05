@@ -62,6 +62,7 @@ func defaultTiming() timing {
 
 // Plugin reads Proxmox. The supervisor makes a fresh one for every start of the instance.
 type Plugin struct {
+	plugin.ObjectStore
 	t  timing
 	rt atomic.Pointer[runtime] // set by Start
 }
@@ -136,6 +137,7 @@ func (p *Plugin) Validate(cfg any) error {
 // discovered in the background (an error from Start would show the generic "failed to start"
 // row and retry only on a configuration change).
 func (p *Plugin) Start(ctx context.Context, h plugin.Host, cfg any) error {
+	h = p.Wrap(h)
 	c, err := settings(cfg)
 	if err != nil {
 		return err

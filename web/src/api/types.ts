@@ -1057,6 +1057,115 @@ export interface OAuthGrantList {
 }
 
 //////////
+// source: objects.go
+
+/**
+ * SearchHit is one object a plugin's Objects.Search found.
+ */
+export interface SearchHit {
+  /**
+   * Ref names the object (design L.6): <plugin>:<Kind>/<id>.
+   */
+  ref: string;
+  /**
+   * Kind is the Kind of the ref: Pod, VM, Alert, Endpoint and so on.
+   */
+  kind: string;
+  /**
+   * Title is the object's name as the plugin shows it.
+   */
+  title: string;
+  /**
+   * Summary is a short line about the object's state ("health crit, phase Running"); empty
+   * when the object has no state.
+   */
+  summary: string;
+}
+/**
+ * ContextInclude names one part of a context bundle.
+ */
+export const ContextIncludeEvents = "events";
+export const ContextIncludeRelated = "related";
+export const ContextIncludeAttention = "attention";
+export const ContextIncludeSeries = "series";
+export const ContextIncludeLogs = "logs";
+export type ContextInclude = typeof ContextIncludeEvents | typeof ContextIncludeRelated | typeof ContextIncludeAttention | typeof ContextIncludeSeries | typeof ContextIncludeLogs;
+/**
+ * ContextMaxEvents is the most events a context part carries, newest first.
+ */
+export const ContextMaxEvents = 20;
+/**
+ * ContextOptions is what a caller asks of a context bundle.
+ */
+export interface ContextOptions {
+  /**
+   * Include lists the parts wanted; empty means every part. The summary, facts and
+   * conditions are always there.
+   */
+  include: ContextInclude[];
+}
+/**
+ * ContextFact is one named value of an object ("phase": "Running").
+ */
+export interface ContextFact {
+  name: string;
+  value: string;
+}
+/**
+ * SeriesRef names a series of /api/v1/series that describes an object: the series' name and
+ * its query parameters (vmid, namespace, pod or node).
+ */
+export interface SeriesRef {
+  name: string;
+  args: { [key: string]: string};
+}
+/**
+ * LogsRef names the logs of an object (the parameters of the victorialogs log query).
+ */
+export interface LogsRef {
+  namespace: string;
+  pod: string;
+  container?: string;
+}
+/**
+ * ContextPart is what the plugin that owns an object adds to its context bundle. Lab-sourced
+ * text (names, events, messages, annotations) stays in these fields; a text rendering frames
+ * them as untrusted (design N.5).
+ */
+export interface ContextPart {
+  ref: string;
+  kind: string;
+  title: string;
+  summary: string;
+  /**
+   * Facts are the object's scalar values, in the plugin's order.
+   */
+  facts: ContextFact[];
+  conditions: Condition[];
+  /**
+   * Events are at most ContextMaxEvents, newest first.
+   */
+  events: Event[];
+  /**
+   * Related are the refs of the objects next to this one (its node, its workload, its pods).
+   */
+  related: string[];
+  links: Link[];
+  /**
+   * Series are the series the plugin considers relevant; core adds their summaries.
+   */
+  series: SeriesRef[];
+  /**
+   * Logs names the object's logs; core adds the lines when the caller has the logs scope.
+   */
+  logs?: LogsRef;
+}
+/**
+ * MaxRefLen bounds a ref a client sends.
+ */
+export const MaxRefLen = 512;
+
+//////////
 // source: plugins.go
 
 /**

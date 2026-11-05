@@ -68,6 +68,7 @@ func defaultTiming() timing { return timing{tick: time.Second} }
 
 // Plugin reads the Flux objects. The supervisor makes a fresh one for every start of the instance.
 type Plugin struct {
+	plugin.ObjectStore
 	t  timing
 	rt atomic.Pointer[runtime] // set by Start
 }
@@ -137,6 +138,7 @@ func (p *Plugin) Validate(cfg any) error {
 // that publishes the topic; it does not wait for a sync. It does not fail without a service
 // (kubernetes may be in error, and that is not an error of flux): the round looks for it again.
 func (p *Plugin) Start(ctx context.Context, h plugin.Host, cfg any) error {
+	h = p.Wrap(h)
 	c, err := settings(cfg)
 	if err != nil {
 		return err

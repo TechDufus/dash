@@ -63,6 +63,7 @@ func (l twinLinks) Headlamp(kind, namespace, name string) []model.Link {
 
 // Start publishes the world's payloads now and then every demoEvery.
 func (t *twin) Start(ctx context.Context, h plugin.Host, _ any) error {
+	h = t.Wrap(h)
 	rctx, cancel := context.WithCancel(ctx)
 	r := &runtime{
 		h: h, cfg: pluginconf.DefaultKubernetes(), t: defaultTiming(), ctx: rctx, cancel: cancel,

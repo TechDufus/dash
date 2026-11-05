@@ -42,6 +42,7 @@ func (twinLinks) VMConsole(vmid int, name string) []model.Link {
 
 // Start publishes the world's payloads now and then every demoEvery.
 func (t *twin) Start(ctx context.Context, h plugin.Host, _ any) error {
+	h = t.Wrap(h)
 	t.w = world.New(h.Now, h.Now(), twinLinks{})
 	cfg := pluginconf.DefaultProxmox()
 	cfg.URL = demoURL

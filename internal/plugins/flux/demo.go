@@ -23,6 +23,7 @@ const demoEvery = 5 * time.Second
 // GitOps repository pinned), so the overview and the GitOps page agree with what a real Flux
 // shows. Reconcile is faked: it checks the object exists and does nothing.
 type twin struct {
+	plugin.ObjectStore
 	mu   sync.Mutex
 	h    plugin.Host
 	cfg  pluginconf.Flux
@@ -47,6 +48,7 @@ func (t *twin) Manifest() plugin.Manifest { return manifest() }
 
 // Start publishes the world's objects now and then every demoEvery.
 func (t *twin) Start(ctx context.Context, h plugin.Host, _ any) error {
+	h = t.Wrap(h)
 	cfg := pluginconf.DefaultFlux()
 	cfg.Verify.Sources = []pluginconf.VerifySource{{
 		Kind: string(world.FluxPinned.Kind), Namespace: world.FluxPinned.Namespace, Name: world.FluxPinned.Name,

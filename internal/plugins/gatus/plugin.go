@@ -29,6 +29,7 @@ const (
 // Plugin is the Gatus integration. The supervisor makes a fresh one for every start of the
 // instance.
 type Plugin struct {
+	plugin.ObjectStore
 	interval time.Duration // pollEvery; tests shorten it
 
 	mu     sync.Mutex
@@ -100,6 +101,7 @@ func authorize(a pluginconf.Auth) func(*http.Request) {
 
 // Start builds the client and launches the poller; it does not wait for the first poll.
 func (p *Plugin) Start(ctx context.Context, h plugin.Host, cfg any) error {
+	h = p.Wrap(h)
 	c, err := settings(cfg)
 	if err != nil {
 		return err

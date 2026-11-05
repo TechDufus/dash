@@ -28,6 +28,7 @@ func (noLinks) VMConsole(int, string) []model.Link           { return []model.Li
 // and no network. It exports the same service and raises the same attention items, so what
 // consumes them behaves as it does against a real Gatus.
 type twin struct {
+	plugin.ObjectStore
 	state *service
 	w     *world.World
 
@@ -42,6 +43,7 @@ func (t *twin) Manifest() plugin.Manifest { return manifest() }
 
 // Start publishes the world's checks now and then every demoEvery.
 func (t *twin) Start(_ context.Context, h plugin.Host, _ any) error {
+	h = t.Wrap(h)
 	s := newService(append([]string(nil), demoCritical...))
 	w := world.New(h.Now, h.Now(), noLinks{})
 	ctx, cancel := context.WithCancel(context.Background())

@@ -55,6 +55,7 @@ func newPlugin(every time.Duration) *Plugin { return &Plugin{every: every} }
 
 // Plugin reads Alertmanager every pollEvery and publishes its alerts and silences.
 type Plugin struct {
+	plugin.ObjectStore
 	every time.Duration
 
 	mu   sync.RWMutex
@@ -96,6 +97,7 @@ func (p *Plugin) Validate(cfg any) error {
 }
 
 func (p *Plugin) Start(ctx context.Context, h plugin.Host, cfg any) error {
+	h = p.Wrap(h)
 	c, ok := cfg.(*pluginconf.Alertmanager)
 	if !ok {
 		return fmt.Errorf("configuration is %T, want *pluginconf.Alertmanager", cfg)
