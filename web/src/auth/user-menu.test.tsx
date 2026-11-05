@@ -1,4 +1,4 @@
-import { screen, waitFor } from "@testing-library/react";
+import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { toast } from "sonner";
 import { beforeEach, describe, expect, it, type MockInstance, vi } from "vitest";
@@ -89,31 +89,66 @@ describe("UserMenu", () => {
     );
   });
 
-  it("offers Log out everywhere to an administrator only", async () => {
+  it("offers Log out everywhere to every user, and Sign out all users to an administrator", async () => {
     await openMenu(me({ role: "admin" }));
     expect(screen.getByRole("menuitem", { name: "Log out everywhere" })).toBeInTheDocument();
+    expect(screen.getByRole("menuitem", { name: "Sign out all users" })).toBeInTheDocument();
   });
 
-  it.each(["viewer", "", "Admin"])("has no Log out everywhere for role %j", async (role) => {
+  it.each(["viewer", "", "Admin"])("has no Sign out all users for role %j", async (role) => {
     await openMenu(me({ authMode: "oidc", role }));
     expect(screen.getByRole("menuitem", { name: "Log out" })).toBeInTheDocument();
-    expect(screen.queryByRole("menuitem", { name: "Log out everywhere" })).toBeNull();
+    expect(screen.getByRole("menuitem", { name: "Log out everywhere" })).toBeInTheDocument();
+    expect(screen.queryByRole("menuitem", { name: "Sign out all users" })).toBeNull();
+  });
+
+  it("Log out POSTs scope this with the CSRF header, then loads /login", async () => {
+    const stub = stubFetch({ [LOGOUT]: undefined });
+    const u = await openMenu(me({ authMode: "oidc", role: "admin" }));
+    await u.click(screen.getByRole("menuitem", { name: "Log out" }));
+
+    await waitFor(() => expect(assign).toHaveBeenCalledWith("/login"));
+    const calls = stub.callsTo(LOGOUT);
+    expect(calls).toHaveLength(1);
+    expect(calls[0].body).toEqual({ scope: "this" });
+    expect(calls[0].headers.get("X-Dash-Csrf")).toBe("1");
   });
 
   it.each([
-    ["Log out", "this"],
-    ["Log out everywhere", "all"],
-  ])("%s POSTs scope %s with the CSRF header, then loads /login", async (item, scope) => {
+    ["Log out everywhere", "user", /every app you connected is disconnected/],
+    ["Sign out all users", "all", /every session of every user ends.*every connected app/i],
+  ])("%s asks first, then POSTs scope %s and loads /login", async (item, scope, says) => {
     const stub = stubFetch({ [LOGOUT]: undefined });
     const u = await openMenu(me({ authMode: "oidc", role: "admin" }));
     await u.click(screen.getByRole("menuitem", { name: item }));
 
+    const confirm = await screen.findByRole("alertdialog");
+    expect(confirm).toHaveTextContent(says);
+    expect(confirm).toHaveTextContent(/personal access tokens stay/i);
+    expect(stub.callsTo(LOGOUT)).toHaveLength(0);
+
+    await u.click(within(confirm).getByRole("button", { name: item }));
     await waitFor(() => expect(assign).toHaveBeenCalledWith("/login"));
     const calls = stub.callsTo(LOGOUT);
     expect(calls).toHaveLength(1);
     expect(calls[0].body).toEqual({ scope });
     expect(calls[0].headers.get("X-Dash-Csrf")).toBe("1");
   });
+
+  it.each(["Log out everywhere", "Sign out all users"])(
+    "sends nothing when %s is cancelled",
+    async (item) => {
+      const stub = stubFetch({ [LOGOUT]: undefined });
+      const u = await openMenu(me({ role: "admin" }));
+      await u.click(screen.getByRole("menuitem", { name: item }));
+      await u.click(
+        within(await screen.findByRole("alertdialog")).getByRole("button", { name: "Cancel" }),
+      );
+      await waitFor(() => expect(screen.queryByRole("alertdialog")).toBeNull());
+      expect(stub.callsTo(LOGOUT)).toHaveLength(0);
+      expect(assign).not.toHaveBeenCalled();
+    },
+  );
 
   it("loads /login when the session was gone already (401)", async () => {
     stubFetch({
@@ -127,11 +162,16 @@ describe("UserMenu", () => {
 
   it.each([
     [500, "Logging out failed. Try again."],
-    [403, "Only an administrator can log everyone out."],
+    [403, "Only an administrator can sign out all users."],
   ])("stays and says so when the logout fails with %i", async (status, want) => {
     stubFetch({ [LOGOUT]: () => json({ error: "nope", code: "x" }, status) });
     const u = await openMenu(me());
-    await u.click(screen.getByRole("menuitem", { name: "Log out everywhere" }));
+    await u.click(screen.getByRole("menuitem", { name: "Sign out all users" }));
+    await u.click(
+      within(await screen.findByRole("alertdialog")).getByRole("button", {
+        name: "Sign out all users",
+      }),
+    );
     await waitFor(() => expect(toast.error).toHaveBeenCalledWith(want));
     expect(assign).not.toHaveBeenCalled();
   });

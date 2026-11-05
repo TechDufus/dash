@@ -107,8 +107,15 @@ export async function setup(token: string, password: string): Promise<SetupResul
   return (await res.json()) as SetupResult;
 }
 
-/** POST /auth/logout: "this" ends this session, "all" every session of every user (admin). */
-export function logout(scope: "this" | "all"): Promise<void> {
+/**
+ * The scopes of POST /auth/logout (D23): "this" ends this session; "user" every session of the
+ * caller and their OAuth grants; "all" (an administrator) every session and every grant of every
+ * user. Personal access tokens survive each.
+ */
+export type LogoutScope = "this" | "user" | "all";
+
+/** POST /auth/logout with `scope`. */
+export function logout(scope: LogoutScope): Promise<void> {
   return post("/auth/logout", { scope });
 }
 
