@@ -43,3 +43,34 @@ func TestInvalidURLErrorNeverRepeatsTheURL(t *testing.T) {
 		}
 	}
 }
+
+// An invalid server.allowedHosts entry is named by its position, never by its text: a URL pasted
+// there can carry a password, which config validate, the startup error and the log would show.
+// The position counts the entries after the split at commas, without the empty ones.
+func TestInvalidAllowedHostIsNamedByItsPosition(t *testing.T) {
+	const pw = "HOSTPASSWORD"
+	for _, tc := range []struct {
+		hosts, want string
+	}{
+		{`["ok.example.com", "https://admin:` + pw + `@dash.example.com"]`, "entry 2 is not a host name or IP address (no scheme or port)"},
+		{`["admin:` + pw + `@dash.example.com:443"]`, "entry 1 is not a host name or IP address (no scheme or port)"},
+		{`["", "ok.example.com", "a/` + pw + `"]`, "entry 2 is not a host name or IP address (no scheme or port)"},          // the empty entry is dropped
+		{`["a.example.com,b.example.com", "a/` + pw + `"]`, "entry 3 is not a host name or IP address (no scheme or port)"}, // split at the comma
+	} {
+		_, err := load(map[string]string{"DASH_SERVER_PUBLIC_URL": "https://d", "DASH_SERVER_ALLOWED_HOSTS": tc.hosts})
+		if err == nil {
+			t.Errorf("%s: no error", tc.hosts)
+			continue
+		}
+		if strings.Contains(strings.ToLower(err.Error()), strings.ToLower(pw)) {
+			t.Errorf("%s: the error repeats the entry: %v", tc.hosts, err)
+		}
+		found := false
+		for _, fe := range FieldErrors(err) {
+			found = found || (fe.Path == "server.allowedHosts" && fe.Message == tc.want)
+		}
+		if !found {
+			t.Errorf("%s: field errors %+v, want server.allowedHosts: %q", tc.hosts, FieldErrors(err), tc.want)
+		}
+	}
+}

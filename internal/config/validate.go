@@ -90,9 +90,12 @@ func validate(t Tree, dev, demo bool, prov map[string]Provenance) error {
 	if dev && !LoopbackAddr(s.Listen) {
 		v.fail("server.listen", "DASH_DEV=true signs requests in as %q without authentication, so the listen address must be a loopback address such as 127.0.0.1:8080, not %q", "dev", s.Listen)
 	}
-	for _, h := range s.AllowedHosts {
+	// The message names the entry by its position, never its text: a URL pasted here can carry a
+	// password (user:password@host). The position counts the list as normalize left it: every
+	// entry split at its commas and the empty ones dropped, so ["a,b", "bad"] reports entry 3.
+	for i, h := range s.AllowedHosts {
 		if h != "*" && net.ParseIP(h) == nil && !hostNameRE.MatchString(h) {
-			v.fail("server.allowedHosts", "entry %q is not a host name or IP address (no scheme or port)", h)
+			v.fail("server.allowedHosts", "entry %d is not a host name or IP address (no scheme or port)", i+1)
 		}
 	}
 	if s.ReadyTimeout <= 0 {
