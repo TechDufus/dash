@@ -126,7 +126,7 @@ function AlertCard({
               firing since {formatRelative(alert.startsAt, now)}
             </p>
           </div>
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="flex basis-full flex-wrap items-center gap-2 sm:basis-auto">
             <CopyContextButton contextRef={alert.ref} name={alert.name} />
             {canSilence && !alert.protected && (
               <Button variant="outline" size="sm" onClick={() => ui.openSilence(alert)}>
