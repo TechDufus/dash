@@ -75,7 +75,7 @@ for prometheus, alertmanager, gatus, victorialogs, proxmox, hardware, kubernetes
 except for a setting marked "restart-only": that plugin restarts, and so do the plugins that use or require it
 (a prometheus change restarts proxmox, hardware, kubernetes, cnpg and rustfs; a gatus change restarts hardware and
 kubernetes; a proxmox change restarts hardware; a kubernetes change restarts proxmox, flux and cnpg; a grafana change
-restarts alertmanager). A change to any section that is not a plugin's needs a restart, except the administrator lists (`auth.proxy.adminUsers`, `auth.proxy.adminGroups`, `auth.oidc.adminUsers`, `auth.oidc.adminGroups` and `auth.oidc.adminRoles`), which apply without one.
+restarts alertmanager). A change to any section that is not a plugin's needs a restart, except the administrator lists (`auth.proxy.adminUsers`, `auth.proxy.adminGroups`, `auth.oidc.adminUsers`, `auth.oidc.adminGroups` and `auth.oidc.adminRoles`), which apply without one, and `mcp.enabled`, which applies to the next request.
 A restarted plugin restarts its own dependents in turn, so the list is longer than it reads: a
 prometheus change also restarts flux (through kubernetes), a gatus change also proxmox, flux and
 cnpg (through kubernetes), and a kubernetes change also hardware (through proxmox). Any other
@@ -221,6 +221,14 @@ What the web UI is told by the server.
 | Setting | Variable | Type | Default | Description |
 |---|---|---|---|---|
 | `ui.iconBaseURL` | `DASH_UI_ICON_BASE_URL` | string | - | Where icons resolve, for launcher links and for the apps on the Apps page: an icon called proxmox is requested from <iconBaseURL>/proxmox.png (one trailing .png, .svg or .webp on the name is dropped first), and an absolute icon URL is used only when it lies under this URL. Homepage-style names (mdi-, si- and sh- prefixes) show no icon. An http(s) URL with a host, without query or fragment, e.g. https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/png. Empty (the default) shows letter tiles for launcher links and apps, so dash makes no third-party request for icons. _Restart-only._ |
+
+## `mcp`
+
+The read-only MCP server at /mcp, for AI clients holding an mcp-audience token.
+
+| Setting | Variable | Type | Default | Description |
+|---|---|---|---|---|
+| `mcp.enabled` | `DASH_MCP_ENABLED` | boolean | - | Serve the MCP server at POST /mcp: read-only tools, resources and prompts for AI clients that present a token with the mcp audience. Off by default; when off, /mcp and /.well-known/oauth-protected-resource/mcp answer 404. Applies live and can be switched from the settings page. Never available with auth.mode none, where dash accepts no token. |
 
 ## `plugins.prometheus`
 

@@ -131,8 +131,9 @@ func newFramework(res *config.Resolved, store *settings.Store, opts config.Reloa
 	}
 	f.hub.SetClock(f.now)
 	// f.sup is set before the reloader's loop can start, so the hook never sees nil. The auth
-	// section is live: its admin lists are applied in-process (reloadAuth).
-	opts.Live = func(section string) bool { return section == "auth" || f.sup.Live(section) }
+	// section is live: its admin lists are applied in-process (reloadAuth). So is mcp: the API
+	// reads mcp.enabled on every request.
+	opts.Live = func(section string) bool { return section == "auth" || section == "mcp" || f.sup.Live(section) }
 	f.reloader = config.NewReloader(res, store, opts)
 	ready := make([]plugin.ID, len(res.Config.ReadyRequires))
 	for i, id := range res.Config.ReadyRequires {

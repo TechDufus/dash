@@ -110,7 +110,8 @@ marked in the RESTART column: that plugin restarts, and so do the plugins that u
 and kubernetes; a proxmox change restarts hardware; a kubernetes change restarts proxmox, flux and cnpg;
 a grafana change restarts alertmanager). A change to any section that is not a plugin's needs a
 restart, except the administrator lists (auth.proxy.adminUsers, auth.proxy.adminGroups,
-auth.oidc.adminUsers, auth.oidc.adminGroups and auth.oidc.adminRoles), which apply without one. A
+auth.oidc.adminUsers, auth.oidc.adminGroups and auth.oidc.adminRoles), which apply without one, and
+mcp.enabled, which applies to the next request. A
 rotated secret (a changed file: reference) applies live. A plugin whose enabled is unset turns on
 when it has the settings it needs, except that rustfs is off unless enabled: true.
 `)

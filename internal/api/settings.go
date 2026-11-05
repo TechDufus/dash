@@ -80,7 +80,7 @@ func (s *Server) settingsRoutes() []Route {
 		}),
 		row(Route{
 			ID: "putSettingsGeneral", Method: "PUT", Path: "/api/v1/settings/general",
-			Summary: "Write settings outside plugins.* (only ui.* may come from the UI): a JSON merge patch relative to the root; " +
+			Summary: "Write settings outside plugins.* (only ui.* and mcp.* may come from the UI): a JSON merge patch relative to the root; " +
 				"If-Match: \"<revision>\" is required. Field errors can come in two rounds: a value of the wrong type stops the " +
 				"resolution before the remaining checks run",
 			Request: map[string]any{}, RequestDoc: "A JSON merge patch (RFC 7396) relative to the root of the configuration.",

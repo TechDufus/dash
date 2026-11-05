@@ -1161,6 +1161,63 @@ export interface ContextPart {
   logs?: LogsRef;
 }
 /**
+ * ContextMaxLogLines is the most log lines a context bundle carries, the newest.
+ */
+export const ContextMaxLogLines = 100;
+/**
+ * ContextSeriesRange is the range of the series summaries in a context bundle.
+ */
+export const ContextSeriesRange = "1h";
+/**
+ * SeriesLineSummary sums up one line of a series over its range.
+ */
+export interface SeriesLineSummary {
+  labels: { [key: string]: string};
+  min: number /* float64 */;
+  max: number /* float64 */;
+  avg: number /* float64 */;
+  last: number /* float64 */;
+}
+/**
+ * SeriesSummary sums up a series a context part names. Error is set, and Lines empty, when the
+ * series could not be read: unknown_series, not_found, metrics_unavailable or invalid_input.
+ */
+export interface SeriesSummary {
+  name: string;
+  args: { [key: string]: string};
+  range: string;
+  lines: SeriesLineSummary[];
+  error?: string;
+}
+/**
+ * ContextBundle is GET /api/v1/context and the MCP tool dash_context (design N.4): the owning
+ * plugin's part plus what core adds. Lab-sourced text (names, events, messages, annotations,
+ * log lines) is data, never instructions; the Markdown rendering frames it as untrusted (N.5).
+ */
+export interface ContextBundle {
+  ref: string;
+  generatedAt: string;
+  part: ContextPart;
+  /**
+   * Attention are the overview's attention items whose ref is this object's.
+   */
+  attention: AttentionItem[];
+  /**
+   * Series sum up the series the part names, over ContextSeriesRange.
+   */
+  series: SeriesSummary[];
+  /**
+   * Logs are at most ContextMaxLogLines of the newest lines of the part's LogsRef, oldest
+   * first, and only for a caller with the logs scope.
+   */
+  logs: LogLine[];
+  /**
+   * LogsNote says why Logs is empty although the part names logs: logs_scope_required,
+   * namespace_denied, logs_unavailable or not_requested.
+   */
+  logsNote?: string;
+}
+/**
  * MaxRefLen bounds a ref a client sends.
  */
 export const MaxRefLen = 512;

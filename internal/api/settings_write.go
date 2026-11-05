@@ -14,7 +14,7 @@ import (
 )
 
 // putSettingsGeneral answers PUT /api/v1/settings/general: a merge patch relative to the root.
-// Only ui.* may come from the UI; the rest is refused by the server's rule, not by a missing
+// Only ui.* and mcp.* may come from the UI; the rest is refused by the server's rule, not by a missing
 // route.
 func (s *Server) putSettingsGeneral(w http.ResponseWriter, r *http.Request) {
 	b, ok := s.settingsBackend(w)

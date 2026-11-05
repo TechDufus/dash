@@ -83,10 +83,10 @@ func TestEnabledDocNamesTheUsers(t *testing.T) {
 	}{
 		{"the enabled doc tag", field.Tag.Get("doc"), tagWants},
 		{"dash config env", table.String(), []string{
-			"applies live for " + joinWith(live, "and") + ",", restarts + ". A change to any section that is not a plugin's needs a restart, except the administrator lists (auth.proxy.adminUsers, auth.proxy.adminGroups, auth.oidc.adminUsers, auth.oidc.adminGroups and auth.oidc.adminRoles), which apply without one.",
+			"applies live for " + joinWith(live, "and") + ",", restarts + ". A change to any section that is not a plugin's needs a restart, except the administrator lists (auth.proxy.adminUsers, auth.proxy.adminGroups, auth.oidc.adminUsers, auth.oidc.adminGroups and auth.oidc.adminRoles), which apply without one, and mcp.enabled, which applies to the next request.",
 		}},
 		{"the generated page", page.String(), []string{
-			"applies live for " + joinWith(live, "and") + ",", restarts + ". A change to any section that is not a plugin's needs a restart, except the administrator lists (auth.proxy.adminUsers, auth.proxy.adminGroups, auth.oidc.adminUsers, auth.oidc.adminGroups and auth.oidc.adminRoles), which apply without one.",
+			"applies live for " + joinWith(live, "and") + ",", restarts + ". A change to any section that is not a plugin's needs a restart, except the administrator lists (auth.proxy.adminUsers, auth.proxy.adminGroups, auth.oidc.adminUsers, auth.oidc.adminGroups and auth.oidc.adminRoles), which apply without one, and mcp.enabled, which applies to the next request.",
 		}},
 	} {
 		for _, want := range missing(doc.text, doc.wants) {

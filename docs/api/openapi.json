@@ -588,6 +588,112 @@
         },
         "type": "object"
       },
+      "ContextBundle": {
+        "additionalProperties": false,
+        "properties": {
+          "attention": {
+            "items": {
+              "$ref": "#/components/schemas/AttentionItem"
+            },
+            "type": "array"
+          },
+          "generatedAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "logs": {
+            "items": {
+              "$ref": "#/components/schemas/LogLine"
+            },
+            "type": "array"
+          },
+          "logsNote": {
+            "type": "string"
+          },
+          "part": {
+            "$ref": "#/components/schemas/ContextPart"
+          },
+          "ref": {
+            "type": "string"
+          },
+          "series": {
+            "items": {
+              "$ref": "#/components/schemas/SeriesSummary"
+            },
+            "type": "array"
+          }
+        },
+        "type": "object"
+      },
+      "ContextFact": {
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "value": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "ContextPart": {
+        "additionalProperties": false,
+        "properties": {
+          "conditions": {
+            "items": {
+              "$ref": "#/components/schemas/Condition"
+            },
+            "type": "array"
+          },
+          "events": {
+            "items": {
+              "$ref": "#/components/schemas/Event"
+            },
+            "type": "array"
+          },
+          "facts": {
+            "items": {
+              "$ref": "#/components/schemas/ContextFact"
+            },
+            "type": "array"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "links": {
+            "items": {
+              "$ref": "#/components/schemas/Link"
+            },
+            "type": "array"
+          },
+          "logs": {
+            "$ref": "#/components/schemas/LogsRef"
+          },
+          "ref": {
+            "type": "string"
+          },
+          "related": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "series": {
+            "items": {
+              "$ref": "#/components/schemas/SeriesRef"
+            },
+            "type": "array"
+          },
+          "summary": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
       "Disk": {
         "additionalProperties": false,
         "properties": {
@@ -1541,6 +1647,21 @@
         },
         "type": "object"
       },
+      "LogsRef": {
+        "additionalProperties": false,
+        "properties": {
+          "container": {
+            "type": "string"
+          },
+          "namespace": {
+            "type": "string"
+          },
+          "pod": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
       "Machine": {
         "additionalProperties": false,
         "properties": {
@@ -2357,6 +2478,72 @@
               "type": "array"
             },
             "type": "array"
+          }
+        },
+        "type": "object"
+      },
+      "SeriesLineSummary": {
+        "additionalProperties": false,
+        "properties": {
+          "avg": {
+            "type": "number"
+          },
+          "labels": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object"
+          },
+          "last": {
+            "type": "number"
+          },
+          "max": {
+            "type": "number"
+          },
+          "min": {
+            "type": "number"
+          }
+        },
+        "type": "object"
+      },
+      "SeriesRef": {
+        "additionalProperties": false,
+        "properties": {
+          "args": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object"
+          },
+          "name": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "SeriesSummary": {
+        "additionalProperties": false,
+        "properties": {
+          "args": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object"
+          },
+          "error": {
+            "type": "string"
+          },
+          "lines": {
+            "items": {
+              "$ref": "#/components/schemas/SeriesLineSummary"
+            },
+            "type": "array"
+          },
+          "name": {
+            "type": "string"
+          },
+          "range": {
+            "type": "string"
           }
         },
         "type": "object"
@@ -3244,6 +3431,70 @@
   },
   "openapi": "3.1.0",
   "paths": {
+    "/api/v1/context": {
+      "get": {
+        "description": "The context bundle of one object (design N.4): the owning plugin's summary, facts, conditions, at most 20 events, related refs, links, series and logs; the overview's attention items for the ref; a summary of each series over 1h; and at most 100 of the newest log lines, only for a caller with the logs scope and never for a namespace victorialogs denies. format=markdown answers text/markdown in which every lab-sourced text sits in a fenced block after the untrusted-data sentence. 400 for a malformed ref, format or include, 404 for an object no running plugin knows.",
+        "operationId": "getContext",
+        "parameters": [
+          {
+            "description": "The object's ref, e.g. kubernetes:Pod/media/web-1.",
+            "in": "query",
+            "name": "ref",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "json (the default) or markdown.",
+            "in": "query",
+            "name": "format",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Comma-separated parts: events, related, attention, series, logs. Empty or absent means all.",
+            "in": "query",
+            "name": "include",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ContextBundle"
+                }
+              },
+              "text/markdown": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "description": "The context bundle of one object, as JSON or Markdown",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/XRequestId"
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "summary": "The context bundle of one object, as JSON or Markdown",
+        "tags": [
+          "Objects"
+        ],
+        "x-dash-min-role": "viewer",
+        "x-dash-scope": "read"
+      }
+    },
     "/api/v1/me": {
       "get": {
         "operationId": "getMe",
@@ -4321,7 +4572,7 @@
                 }
               }
             },
-            "description": "Write settings outside plugins.* (only ui.* may come from the UI): a JSON merge patch relative to the root; If-Match: \"<revision>\" is required. Field errors can come in two rounds: a value of the wrong type stops the resolution before the remaining checks run",
+            "description": "Write settings outside plugins.* (only ui.* and mcp.* may come from the UI): a JSON merge patch relative to the root; If-Match: \"<revision>\" is required. Field errors can come in two rounds: a value of the wrong type stops the resolution before the remaining checks run",
             "headers": {
               "X-Request-Id": {
                 "$ref": "#/components/headers/XRequestId"
@@ -4340,7 +4591,7 @@
             "sessionCookie": []
           }
         ],
-        "summary": "Write settings outside plugins.* (only ui.* may come from the UI): a JSON merge patch relative to the root; If-Match: \"<revision>\" is required. Field errors can come in two rounds: a value of the wrong type stops the resolution before the remaining checks run",
+        "summary": "Write settings outside plugins.* (only ui.* and mcp.* may come from the UI): a JSON merge patch relative to the root; If-Match: \"<revision>\" is required. Field errors can come in two rounds: a value of the wrong type stops the resolution before the remaining checks run",
         "tags": [
           "Settings"
         ],
@@ -5057,6 +5308,9 @@
   "tags": [
     {
       "name": "OAuth"
+    },
+    {
+      "name": "Objects"
     },
     {
       "description": "The plugin instances and the generic plugin routes.",

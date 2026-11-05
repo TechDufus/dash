@@ -979,6 +979,16 @@
       },
       "type": "object"
     },
+    "MCPConfig": {
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "description": "Serve the MCP server at POST /mcp: read-only tools, resources and prompts for AI clients that present a token with the mcp audience. Off by default; when off, /mcp and /.well-known/oauth-protected-resource/mcp answer 404. Applies live and can be switched from the settings page. Never available with auth.mode none, where dash accepts no token.",
+          "type": "boolean"
+        }
+      },
+      "type": "object"
+    },
     "OAuthClient": {
       "additionalProperties": false,
       "properties": {
@@ -1487,6 +1497,10 @@
       "description": "Where dash keeps its state (ui-settings.yaml, audit.jsonl, and credentials.yaml with the local account, the sessions' epochs and the personal access tokens) and looks for config.yaml. Without a writable one, sessions and tokens do not survive a restart, so creating a token is refused outside dev and demo mode. Demo mode uses none.",
       "type": "string",
       "x-dash-restart": true
+    },
+    "mcp": {
+      "$ref": "#/$defs/MCPConfig",
+      "description": "The read-only MCP server at /mcp, for AI clients holding an mcp-audience token."
     },
     "plugins": {
       "$ref": "#/$defs/PluginsConfig",

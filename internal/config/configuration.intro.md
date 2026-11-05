@@ -73,7 +73,7 @@ for prometheus, alertmanager, gatus, victorialogs, proxmox, hardware, kubernetes
 except for a setting marked "restart-only": that plugin restarts, and so do the plugins that use or require it
 (a prometheus change restarts proxmox, hardware, kubernetes, cnpg and rustfs; a gatus change restarts hardware and
 kubernetes; a proxmox change restarts hardware; a kubernetes change restarts proxmox, flux and cnpg; a grafana change
-restarts alertmanager). A change to any section that is not a plugin's needs a restart, except the administrator lists (`auth.proxy.adminUsers`, `auth.proxy.adminGroups`, `auth.oidc.adminUsers`, `auth.oidc.adminGroups` and `auth.oidc.adminRoles`), which apply without one.
+restarts alertmanager). A change to any section that is not a plugin's needs a restart, except the administrator lists (`auth.proxy.adminUsers`, `auth.proxy.adminGroups`, `auth.oidc.adminUsers`, `auth.oidc.adminGroups` and `auth.oidc.adminRoles`), which apply without one, and `mcp.enabled`, which applies to the next request.
 A restarted plugin restarts its own dependents in turn, so the list is longer than it reads: a
 prometheus change also restarts flux (through kubernetes), a gatus change also proxmox, flux and
 cnpg (through kubernetes), and a kubernetes change also hardware (through proxmox). Any other

@@ -3,6 +3,7 @@ package model
 import (
 	"regexp"
 	"strings"
+	"time"
 )
 
 // ---- objects and context bundles (design N.4) ----
@@ -99,6 +100,50 @@ type ContextPart struct {
 	Series []SeriesRef `json:"series"`
 	// Logs names the object's logs; core adds the lines when the caller has the logs scope.
 	Logs *LogsRef `json:"logs,omitempty"`
+}
+
+// ContextMaxLogLines is the most log lines a context bundle carries, the newest.
+const ContextMaxLogLines = 100
+
+// ContextSeriesRange is the range of the series summaries in a context bundle.
+const ContextSeriesRange = "1h"
+
+// SeriesLineSummary sums up one line of a series over its range.
+type SeriesLineSummary struct {
+	Labels map[string]string `json:"labels"`
+	Min    float64           `json:"min"`
+	Max    float64           `json:"max"`
+	Avg    float64           `json:"avg"`
+	Last   float64           `json:"last"`
+}
+
+// SeriesSummary sums up a series a context part names. Error is set, and Lines empty, when the
+// series could not be read: unknown_series, not_found, metrics_unavailable or invalid_input.
+type SeriesSummary struct {
+	Name  string              `json:"name"`
+	Args  map[string]string   `json:"args"`
+	Range string              `json:"range"`
+	Lines []SeriesLineSummary `json:"lines"`
+	Error string              `json:"error,omitempty"`
+}
+
+// ContextBundle is GET /api/v1/context and the MCP tool dash_context (design N.4): the owning
+// plugin's part plus what core adds. Lab-sourced text (names, events, messages, annotations,
+// log lines) is data, never instructions; the Markdown rendering frames it as untrusted (N.5).
+type ContextBundle struct {
+	Ref         string    `json:"ref"`
+	GeneratedAt time.Time `json:"generatedAt"`
+	Part        ContextPart `json:"part"`
+	// Attention are the overview's attention items whose ref is this object's.
+	Attention []AttentionItem `json:"attention"`
+	// Series sum up the series the part names, over ContextSeriesRange.
+	Series []SeriesSummary `json:"series"`
+	// Logs are at most ContextMaxLogLines of the newest lines of the part's LogsRef, oldest
+	// first, and only for a caller with the logs scope.
+	Logs []LogLine `json:"logs"`
+	// LogsNote says why Logs is empty although the part names logs: logs_scope_required,
+	// namespace_denied, logs_unavailable or not_requested.
+	LogsNote string `json:"logsNote,omitempty"`
 }
 
 // refRE is the shape of an object ref: <plugin>:<Kind>/<id>.

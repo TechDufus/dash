@@ -207,7 +207,11 @@ func (b *specBuilder) operation(r Route) object {
 		ok["content"] = jsonContent(object{"oneOf": b.envelopeRefs()})
 		responses["304"] = object{"description": "The envelope still has the ETag in If-None-Match.", "headers": okHeaders()}
 	case r.Response != nil:
-		ok["content"] = jsonContent(b.typeSchema(r.Response))
+		content := jsonContent(b.typeSchema(r.Response))
+		if r.Text != "" { // a route that also answers in another format (GET /api/v1/context)
+			content[r.Text] = object{"schema": object{"type": "string"}}
+		}
+		ok["content"] = content
 	case r.Text != "":
 		ok["content"] = object{r.Text: object{"schema": object{"type": "string"}}}
 	}

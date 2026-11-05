@@ -97,6 +97,16 @@ func (s *Server) routeTable() []Route {
 			TopicEnvelope: true, Handler: s.topic,
 		},
 		{
+			ID: "getContext", Method: "GET", Path: "/api/v1/context", Tag: "Objects", Role: viewer, Scope: "read",
+			Summary: "The context bundle of one object, as JSON or Markdown", Description: contextDoc,
+			Query: []plugin.Param{
+				{Name: "ref", Doc: "The object's ref, e.g. kubernetes:Pod/media/web-1.", Required: true},
+				{Name: "format", Doc: "json (the default) or markdown."},
+				{Name: "include", Doc: "Comma-separated parts: events, related, attention, series, logs. Empty or absent means all."},
+			},
+			Response: model.ContextBundle{}, Text: "text/markdown", Handler: s.contextBundle,
+		},
+		{
 			ID: "listPlugins", Method: "GET", Path: "/api/v1/plugins", Tag: "Plugins", Role: viewer, Scope: "read",
 			Summary:  "Every plugin instance with its state, topics, mounted actions and navigation",
 			Response: []model.PluginInfo{}, Handler: s.plugins,

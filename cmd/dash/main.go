@@ -169,6 +169,7 @@ func run(reg *secret.Registry, onBound func(api, health net.Addr)) error {
 	deps := api.Deps{
 		Cfg: cfg, Version: version, Hub: h, Plugins: sup,
 		Health: sup, Metrics: metrics, Secrets: reg, Audit: alog,
+		MCPEnabled: func() bool { return reloader.Tree().MCP.Enabled },
 	}
 	if store != nil { // demo mode has no store and no settings API
 		deps.Settings = newSettingsBackend(res, store, reloader, sup, alog)

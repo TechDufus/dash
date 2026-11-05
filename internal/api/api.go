@@ -45,6 +45,9 @@ type PluginsAPI interface {
 	// Links resolves deep links through the running link providers.
 	Links() plugin.LinkResolver
 	Series(name string) (plugin.SeriesSpec, plugin.ID, bool)
+	// Objects is the plugin.Objects of a running instance; ObjectInstances lists them.
+	Objects(id plugin.ID) (plugin.Objects, bool)
+	ObjectInstances() []plugin.ID
 	Ready() bool
 }
 
@@ -133,6 +136,9 @@ type Deps struct {
 	OIDC *oidcauth.Provider
 	// Settings backs /api/v1/settings/**; nil (demo mode) makes every settings route 404.
 	Settings SettingsBackend
+	// MCPEnabled reads mcp.enabled as it is now (the setting is live); nil means off. MCP is
+	// off whatever it says without Tokens (auth.mode none).
+	MCPEnabled func() bool
 }
 
 // Server holds the handlers' state.
@@ -272,7 +278,8 @@ func firstOf(r *http.Request, keys ...string) string {
 // with mounted actions. For a token they are its own scopes. capabilities.actions says whether
 // the principal can run some action, capabilities.tokens whether it may create personal access
 // tokens, capabilities.oauth whether dash serves its OAuth authorization server (Settings ->
-// Connected apps). mcp and push are later releases.
+// Connected apps), capabilities.mcp whether the MCP server is on (mcp.enabled, read per request,
+// and never in auth.mode none). push is a later release.
 func (s *Server) me(w http.ResponseWriter, r *http.Request) {
 	p := principalFrom(r.Context())
 	scopes := []string{"read", "logs"}
@@ -285,7 +292,7 @@ func (s *Server) me(w http.ResponseWriter, r *http.Request) {
 		// Every principal reads /me: a URL's userinfo (credentials) is never in it.
 		UI:           model.MeUI{IconBaseURL: config.RedactURLs(s.d.Cfg.IconBaseURL).(string)},
 		Warnings:     []string{},
-		Capabilities: model.MeCapabilities{Tokens: p.Interactive() && s.tokensAvailable(), OAuth: s.d.OAuth != nil},
+		Capabilities: model.MeCapabilities{Tokens: p.Interactive() && s.tokensAvailable(), OAuth: s.d.OAuth != nil, MCP: s.mcpEnabled()},
 	}
 	// Standing warnings of the authenticator, for the SPA's banners. admin_wildcard and auth_none
 	// go to everyone, as they always did; anonymous_viewer and oidc_open are for administrators,
@@ -324,6 +331,12 @@ func (s *Server) me(w http.ResponseWriter, r *http.Request) {
 // writable data dir in local, oidc and proxy mode, it does not.
 func (s *Server) tokensAvailable() bool {
 	return s.d.Tokens != nil && s.d.Credentials != nil && (s.d.Credentials.Persistent() || s.d.Cfg.Dev || s.d.Cfg.Demo)
+}
+
+// mcpEnabled reports whether the MCP server is on: mcp.enabled, in a mode that resolves bearer
+// tokens (every one but none).
+func (s *Server) mcpEnabled() bool {
+	return s.d.Tokens != nil && s.d.MCPEnabled != nil && s.d.MCPEnabled()
 }
 
 // adminOnlyWarning reports whether Me carries the warning to administrators only.
