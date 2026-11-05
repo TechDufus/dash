@@ -126,7 +126,7 @@ echo "trufflehog: $(jq -s length <<<"$found") results, all in scripts/ci/truffle
 echo "== govulncheck: the packages dash builds"
 go tool -modfile=tools/go.mod govulncheck ./...
 
-# shellcheck and pyflakes are left out: they are not pinned here.
+# actionlint runs without its shellcheck and pyflakes integrations: those are not pinned here.
 echo "== actionlint"
 go tool -modfile=tools/go.mod actionlint -shellcheck= -pyflakes=
 
