@@ -1,0 +1,6 @@
+# actionlint (make scan). The self-hosted runner's custom labels, used while the repository is
+# private and by the release job until P6.7 moves it to a GitHub-hosted runner; remove them then.
+self-hosted-runner:
+  labels:
+    - homelab
+    - dash

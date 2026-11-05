@@ -1,0 +1,7 @@
+# zizmor (make scan, scripts/ci/scan.sh). Every action, first-party ones included, is pinned to a
+# full commit SHA; a tag or a branch fails the scan.
+rules:
+  unpinned-uses:
+    config:
+      policies:
+        "*": hash-pin

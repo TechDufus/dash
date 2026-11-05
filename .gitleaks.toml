@@ -1,0 +1,42 @@
+# gitleaks configuration for `make scan` (scripts/ci/scan.sh): the default rules, plus an
+# allowlist of test fixtures only. Each entry names exact values, only in Go test files, and says
+# why the value is not a secret. Never allowlist a real secret: remove it from the history and
+# rotate it instead.
+title = "dash"
+
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Canary values the redaction tests plant to prove that dash never writes a secret to a response, a stream, the audit log or slog"
+condition = "AND"
+regexTarget = "secret"
+paths = ['''_test\.go$''']
+regexes = [
+  # internal/api/kubernetes_restart_test.go, stream_canary_test.go, internal/topics/canary_test.go
+  '''^CANARYSECRET123456$''',
+  # internal/api/authroutes_oidc_test.go: a wrong OIDC client secret that must not be echoed
+  '''^wrong-secret-canary-91c2$''',
+  # internal/audit/scrub_test.go: the secret half of a made-up dash_pat_ token the scrubber must remove
+  '''^Zx9vQm2Lp8Wd$''',
+]
+
+[[allowlists]]
+description = "Made-up plugin token secrets the config, reload and settings tests pass through the environment, a token file or the settings API"
+condition = "AND"
+regexTarget = "secret"
+paths = ['''_test\.go$''']
+regexes = [
+  # cmd/dash/settings_ui_test.go
+  '''^pve-rotated-secret-9876543210$''',
+  # internal/api/settings_write_test.go
+  '''^env-secret-0123456789$''',
+  '''^bearer-0123456789$''',
+  # internal/config/plugins_test.go
+  '''^sekret-0123456789$''',
+  # internal/config/reload_test.go
+  '''^late-secret-0123456789$''',
+  '''^later-secret-0123456789$''',
+  # internal/config/crypt_test.go
+  '''^from-env-0123456789$''',
+]

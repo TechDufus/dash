@@ -1,4 +1,4 @@
-.PHONY: generate check dev-api dev-api-op dev-web image hooks hooks-uninstall
+.PHONY: generate check scan dev-api dev-api-op dev-web image hooks hooks-uninstall
 
 generate: web/node_modules/.package-lock.json
 	go tool tygo generate
@@ -46,6 +46,13 @@ check: generate
 	go vet ./...
 	go test ./...
 	cd web && npm ci --ignore-scripts && node scripts/licenses.mjs check && npm run check && npm test && npm run build && node scripts/check-chunks.mjs
+
+# Secrets in every commit of every ref (gitleaks, trufflehog), known vulnerabilities reachable from
+# dash (govulncheck) and the workflows (actionlint, zizmor, no pull_request_target, workflow_run or
+# issue_comment trigger). The scanner binaries are pinned by sha256 in the script and cached in
+# SCAN_TOOLS_DIR; govulncheck needs vuln.go.dev, the first run needs github.com.
+scan:
+	scripts/ci/scan.sh
 
 # Dev mode needs nothing outside this checkout: `DASH_DEMO=true make dev-api` serves fake data.
 # Against a real cluster, KUBECONFIG comes from your environment, dev/config.yaml (see

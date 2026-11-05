@@ -5,6 +5,8 @@ go 1.27.3
 tool (
 	github.com/daveshanley/vacuum
 	github.com/google/go-licenses/v2
+	github.com/rhysd/actionlint/cmd/actionlint
+	golang.org/x/vuln/cmd/govulncheck
 )
 
 require (
@@ -18,6 +20,7 @@ require (
 	github.com/aymerick/douceur v0.2.0 // indirect
 	github.com/bahlo/generic-list-go v0.2.0 // indirect
 	github.com/basgys/goxml2json v1.1.1-0.20231018121955-e66ee54ceaad // indirect
+	github.com/bmatcuk/doublestar/v4 v4.10.0 // indirect
 	github.com/buger/jsonparser v1.6.1 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/charmbracelet/colorprofile v0.4.3 // indirect
@@ -40,6 +43,7 @@ require (
 	github.com/dop251/goja_nodejs v0.0.0-20260918173711-b481721df8a2 // indirect
 	github.com/dustin/go-humanize v1.1.0 // indirect
 	github.com/evanw/esbuild v0.28.2 // indirect
+	github.com/fatih/color v1.19.0 // indirect
 	github.com/fsnotify/fsnotify v1.10.1 // indirect
 	github.com/go-logr/logr v1.2.0 // indirect
 	github.com/go-openapi/jsonpointer v1.0.2 // indirect
@@ -55,8 +59,10 @@ require (
 	github.com/json-iterator/go v1.1.12 // indirect
 	github.com/lucasb-eyer/go-colorful v1.4.1 // indirect
 	github.com/lucasjones/reggen v0.0.0-20200904144131-37ba4fa293bb // indirect
+	github.com/mattn/go-colorable v0.1.15 // indirect
 	github.com/mattn/go-isatty v0.0.24 // indirect
 	github.com/mattn/go-runewidth v0.0.31 // indirect
+	github.com/mattn/go-shellwords v1.0.12 // indirect
 	github.com/microcosm-cc/bluemonday v1.0.27 // indirect
 	github.com/mitchellh/mapstructure v1.5.0 // indirect
 	github.com/modern-go/concurrent v0.0.0-20180306012644-bacd9c7ef1dd // indirect
@@ -76,7 +82,9 @@ require (
 	github.com/pb33f/ordered-map/v2 v2.3.2 // indirect
 	github.com/pelletier/go-toml/v2 v2.4.3 // indirect
 	github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec // indirect
+	github.com/rhysd/actionlint v1.7.12 // indirect
 	github.com/rivo/uniseg v0.4.7 // indirect
+	github.com/robfig/cron/v3 v3.0.1 // indirect
 	github.com/sagikazarmark/locafero v0.12.0 // indirect
 	github.com/sergi/go-diff v1.2.0 // indirect
 	github.com/sourcegraph/conc v0.3.1-0.20240121214520-5f936abd7ae8 // indirect
@@ -92,14 +100,17 @@ require (
 	github.com/yuin/goldmark-highlighting/v2 v2.0.0-20230729083705-37449abec8cc // indirect
 	go.opencensus.io v0.24.0 // indirect
 	go.yaml.in/yaml/v3 v3.0.5 // indirect
+	go.yaml.in/yaml/v4 v4.0.0-rc.3 // indirect
 	golang.org/x/exp v0.0.0-20261014143641-f0251eb4aa3e // indirect
 	golang.org/x/mod v0.42.0 // indirect
 	golang.org/x/net v0.62.0 // indirect
 	golang.org/x/sync v0.24.0 // indirect
 	golang.org/x/sys v0.49.0 // indirect
+	golang.org/x/telemetry v0.0.0-20261010193011-f71dc92da45e // indirect
 	golang.org/x/term v0.47.0 // indirect
 	golang.org/x/text v0.43.0 // indirect
 	golang.org/x/tools v0.52.0 // indirect
+	golang.org/x/vuln v1.9.0 // indirect
 	k8s.io/klog/v2 v2.90.1 // indirect
 	modernc.org/libc v1.79.0 // indirect
 	modernc.org/mathutil v1.7.1 // indirect
