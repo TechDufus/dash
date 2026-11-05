@@ -162,7 +162,10 @@ func TestK8sRefFillStartsTheConsumer(t *testing.T) {
 	waitFor(t, func() bool { return strings.Contains(p.row(t, "proxmox").Message, "waiting for a Kubernetes Secret") })
 
 	p.refs.Fill(pveRef, k8sCanary)
-	waitFor(t, func() bool { return p.fw.sup.Running("proxmox") })
+	// Running turns true just before the supervisor logs "plugin started": wait for the line too.
+	waitFor(t, func() bool {
+		return p.fw.sup.Running("proxmox") && strings.Contains(p.logs.String(), `plugin started" plugin=proxmox`)
+	})
 	if n := fired.Load(); n != 1 {
 		t.Errorf("a fill must make exactly one change, got %d", n)
 	}
