@@ -16,6 +16,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 )
 
 // quiet drops the slog side, for tests that write many records and only read them back.
@@ -454,6 +455,98 @@ func TestRingsStayUnderOneMiB(t *testing.T) {
 	runtime.KeepAlive(m)
 	used := int64(after.HeapAlloc) - int64(before.HeapAlloc)
 	t.Logf("full rings (%d + %d records) hold %d bytes of heap (%.0f KiB)", mainRingSize, unauthRingSize, used, float64(used)/1024)
+	if used >= 1<<20 {
+		t.Errorf("full rings hold %d bytes, want under 1 MiB", used)
+	}
+}
+
+// A settings write of many paths and a long error keeps its first 32 paths, a "+N more" count
+// and 256 bytes of its error in the ring, cut where no character or token is split; the file
+// keeps the whole record.
+func TestRingBoundsFieldsAndErrorButTheFileDoesNot(t *testing.T) {
+	paths := make([]string, 100)
+	for i := range paths {
+		paths[i] = fmt.Sprintf("plugins.kubernetes.leaf%03d", i)
+	}
+	errText := strings.Repeat("é", 127) + "x" + strings.Repeat("é", 2000) // byte 256 splits an é
+	write := func(l *Log) {
+		p, err := l.Intent(Record{Action: "settings.set", Fields: paths, Source: "ui"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		p.Outcome(errors.New(errText))
+	}
+
+	mem := open(t, "", Options{Logger: quiet})
+	write(mem)
+	recs, _, _ := mem.Recent(10, "", RingMain)
+	if len(recs) != 2 {
+		t.Fatalf("records = %d", len(recs))
+	}
+	out := recs[0]
+	if len(out.Fields) != maxRingFields+1 || !slices.Equal(out.Fields[:maxRingFields], paths[:maxRingFields]) || out.Fields[maxRingFields] != "+68 more" {
+		t.Errorf("ring fields = %d, last %q", len(out.Fields), out.Fields[len(out.Fields)-1])
+	}
+	if len(out.Error) > maxRingError || !utf8.ValidString(out.Error) || !strings.HasPrefix(errText, out.Error) || len(out.Error) < maxRingError-3 {
+		t.Errorf("ring error is %d bytes, valid %v", len(out.Error), utf8.ValidString(out.Error))
+	}
+	if paths[maxRingFields] != "plugins.kubernetes.leaf032" {
+		t.Error("the ring changed the caller's slice")
+	}
+
+	file := open(t, t.TempDir(), Options{})
+	write(file)
+	recs, _, _ = file.Recent(10, "", RingMain)
+	if len(recs) != 2 || !slices.Equal(recs[0].Fields, paths) || recs[0].Error != errText {
+		t.Errorf("the file must keep whole records: %d fields, %d error bytes", len(recs[0].Fields), len(recs[0].Error))
+	}
+}
+
+// The rings of settings writes, the worst case the bound is for: every main record a
+// settings.set over a whole plugin section (40 paths) with an error past the cap and the actor,
+// peer and request id at their caps, and the unauth ring full of denials at theirs. Each request
+// has its own ID, actor, peer, request id and Fields slice, but the path strings in it are the
+// schema's, which every request shares: config.FlattenPatch hands them out
+// (TestFlattenPatchPathsAreTheSchemasStrings). With 40 strings built per request the rings hold
+// about 1.15 MiB. Without the bound a record keeps every path and all of its error. Expected
+// under 1 MiB.
+func TestRingsOfSettingsWritesStayUnderOneMiB(t *testing.T) {
+	text := func(i, n int) string { return fmt.Sprintf("%0*d", n, i) }
+	schema := make([]string, 40)
+	for i := range schema {
+		schema[i] = "plugins.kubernetes." + text(i, 24)
+	}
+	at := time.Date(2026, 11, 1, 12, 0, 0, 0, time.UTC)
+	var before, after runtime.MemStats
+	runtime.GC()
+	runtime.ReadMemStats(&before)
+	m := newRings()
+	for req := range mainRingSize / 2 { // an intent and an outcome per request
+		paths := slices.Clone(schema) // the request's own slice of the schema's strings
+		for _, kind := range []Kind{KindIntent, KindOutcome} {
+			rec := Record{
+				Time: at, Kind: kind, ID: text(req, 16), Action: "settings.set", Fields: paths, Source: "ui",
+				Actor: Actor{Type: "session", User: text(req, 128), Surface: "ui"},
+				Peer:  text(req, 39), RequestID: text(req, 32), AuthMode: "local",
+			}
+			if kind == KindOutcome {
+				rec.Result, rec.Error = ResultError, text(req, 4096)
+			}
+			m.push(rec)
+		}
+	}
+	for i := range unauthRingSize {
+		m.push(Record{
+			Time: at, Kind: KindDenial, Action: text(i, 200), Target: Target{Kind: "user", Name: text(i, 128)},
+			Actor: Actor{Type: "proxy", User: text(i, 128), Surface: "ui"},
+			Peer:  text(i, 39), RequestID: text(i, 32), AuthMode: "proxy", Reason: "login_failed",
+		})
+	}
+	runtime.GC()
+	runtime.ReadMemStats(&after)
+	runtime.KeepAlive(m)
+	used := int64(after.HeapAlloc) - int64(before.HeapAlloc)
+	t.Logf("settings rings hold %d bytes of heap (%.0f KiB)", used, float64(used)/1024)
 	if used >= 1<<20 {
 		t.Errorf("full rings hold %d bytes, want under 1 MiB", used)
 	}

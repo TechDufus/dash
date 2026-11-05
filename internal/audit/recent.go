@@ -8,6 +8,9 @@ import (
 	"os"
 	"slices"
 	"strconv"
+	"strings"
+
+	"github.com/TechDufus/dash/internal/secret"
 )
 
 // Ring is one of the two lists Recent serves. Denials, failed logins among them, are kept apart
@@ -35,6 +38,12 @@ const (
 	// The rings of a log without a file keep this many of the latest records each.
 	mainRingSize   = 500
 	unauthRingSize = 200
+
+	// A ring's copy of a record keeps at most this many changed paths, then one "+N more"
+	// entry, and this many bytes of its error, so a settings write of many paths or a long
+	// error cannot make the rings outgrow their 1 MiB bound. The file keeps whole records.
+	maxRingFields = 32
+	maxRingError  = 256
 
 	// readChunk is how much of a file Recent reads at a time, from its end.
 	readChunk = 64 << 10
@@ -242,7 +251,7 @@ type ring struct {
 }
 
 func (r *ring) push(rec Record) {
-	rec.Fields = slices.Clone(rec.Fields) // the caller may reuse its slice
+	rec = bounded(rec)
 	if len(r.recs) < r.size {
 		if r.recs == nil {
 			r.recs = make([]Record, 0, r.size)
@@ -252,6 +261,25 @@ func (r *ring) push(rec Record) {
 		r.recs[r.n%uint64(r.size)] = rec
 	}
 	r.n++
+}
+
+// bounded is rec as a ring keeps it: its own copy of at most maxRingFields paths, the number of
+// the others as a last "+N more" entry (a count, never a path), and its error cut to maxRingError
+// bytes. The error was scrubbed already; the cut still goes through secret.Registry.Cut, so no
+// token shape is left in half, and never splits a character.
+func bounded(rec Record) Record {
+	if n := len(rec.Fields); n > maxRingFields {
+		f := make([]string, maxRingFields+1)
+		copy(f, rec.Fields[:maxRingFields])
+		f[maxRingFields] = "+" + strconv.Itoa(n-maxRingFields) + " more"
+		rec.Fields = f
+	} else {
+		rec.Fields = slices.Clone(rec.Fields) // the caller may reuse its slice
+	}
+	if out, cut := (*secret.Registry)(nil).Cut(rec.Error, maxRingError); cut {
+		rec.Error = strings.ToValidUTF8(out, "")
+	}
+	return rec
 }
 
 // recent lists up to limit of the held records older than the cursor before (from the newest
