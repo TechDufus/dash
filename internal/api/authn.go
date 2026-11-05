@@ -22,11 +22,24 @@ import (
 // outside /api (the SPA, its assets) needs no principal.
 func (s *Server) authn(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/api" && !strings.HasPrefix(r.URL.Path, "/api/") {
+		isMCP := audienceFor(r.URL.Path) == "mcp"
+		if !isMCP && r.URL.Path != "/api" && !strings.HasPrefix(r.URL.Path, "/api/") {
 			next.ServeHTTP(w, r)
 			return
 		}
-		p, cookie, fail := s.authenticate(r)
+		if isMCP && !s.mcpGate(w, r) {
+			return
+		}
+		var (
+			p      auth.Principal
+			cookie *http.Cookie
+			fail   *auth.Failure
+		)
+		if isMCP {
+			p, fail = s.mcpPrincipal(r)
+		} else {
+			p, cookie, fail = s.authenticate(r)
+		}
 		if cookie != nil {
 			http.SetCookie(w, cookie)
 		}

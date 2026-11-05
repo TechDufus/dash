@@ -141,6 +141,9 @@ func (s *Server) routeTable() []Route {
 		{Path: "/api/", Infra: true, Handler: func(w http.ResponseWriter, _ *http.Request) {
 			writeErr(w, http.StatusNotFound, model.ErrCodeNotFound, "not found")
 		}},
+		// POST /mcp: the MCP server (design N.1). authn has run its whole policy (mcp.enabled,
+		// the Origin rule, a token of audience mcp) before the mux; the SDK answers other methods.
+		{Path: "/mcp", Infra: true, Handler: s.serveMCP},
 		// Every other /.well-known/ path answers a JSON 404, never the SPA: a client probing for
 		// a document (openid-configuration, a path-inserted metadata URL) learns it is absent.
 		{Path: "/.well-known/", Infra: true, Handler: notFound},

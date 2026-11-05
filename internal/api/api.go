@@ -21,6 +21,7 @@ import (
 	"github.com/TechDufus/dash/internal/credentials"
 	"github.com/TechDufus/dash/internal/hub"
 	"github.com/TechDufus/dash/internal/localauth"
+	dashmcp "github.com/TechDufus/dash/internal/mcp"
 	"github.com/TechDufus/dash/internal/model"
 	"github.com/TechDufus/dash/internal/oauth"
 	"github.com/TechDufus/dash/internal/obs"
@@ -167,6 +168,8 @@ type Server struct {
 	serving     atomic.Bool      // the listeners are bound (MarkServing)
 	probe       principalProbe   // first sighting of each user name, for the log
 	schemas     sync.Map         // reflect.Type -> json.RawMessage: action input schemas
+	mcpOnce     sync.Once
+	mcp         *dashmcp.Server // built at the first /mcp request
 }
 
 // New builds a Server serving the embedded SPA.
