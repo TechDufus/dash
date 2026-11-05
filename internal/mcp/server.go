@@ -34,10 +34,33 @@ const maxRequestBody = 1 << 20
 // Backend is what the tools read: the API server implements it, so the tools answer exactly
 // what the REST routes would, under the same policies. r is the /mcp request, whose context
 // holds the principal; reads that go through a plugin route (the logs) are made as it.
+//
+// A refusal the caller can act on (a bad argument, an unknown object) is an *Error; any other
+// error is an upstream failure, answered with no detail.
 type Backend interface {
 	// Overview is the current core.overview payload.
 	Overview() (model.OverviewData, bool)
+	// Search asks every running plugin with objects, in registry order, for at most limit hits.
+	Search(query string, limit int) []model.SearchHit
+	// Get is one object by ref; Secret and ConfigMap objects are never returned.
+	Get(ctx context.Context, ref string) (any, error)
+	// Topic is the current envelope of topic as user reads it (their own copy of a scoped
+	// topic, else the global one).
+	Topic(user, topic string) (model.Envelope, bool)
+	// Series reads a named series over rng with its query parameters (vmid, namespace, pod,
+	// node), with the step it was read at in seconds.
+	Series(ctx context.Context, name, rng string, args map[string]string) ([]model.SeriesLine, int, error)
+	// Logs reads at most limit of the newest log lines, oldest first, as r's principal through
+	// the victorialogs route (its scope and deny lists apply).
+	Logs(r *http.Request, ref model.LogsRef, since, query string, limit int) ([]model.LogLine, error)
+	// Context is the context bundle of ref, as r's principal.
+	Context(r *http.Request, ref string, o model.ContextOptions) (model.ContextBundle, error)
 }
+
+// Error is a refusal a tool reports to the caller: code is a model.ErrCode*.
+type Error struct{ Code, Message string }
+
+func (e *Error) Error() string { return e.Code + ": " + e.Message }
 
 // Options configure a Server.
 type Options struct {
@@ -79,6 +102,7 @@ func New(o Options) *Server {
 	for _, t := range s.tools {
 		s.srv.AddTool(t.sdkTool(), s.toolHandler(t))
 	}
+	s.srv.AddReceivingMiddleware(s.scopeFilter)
 	h := sdk.NewStreamableHTTPHandler(func(*http.Request) *sdk.Server { return s.srv }, &sdk.StreamableHTTPOptions{
 		Stateless:                    true,
 		JSONResponse:                 true,
@@ -153,14 +177,10 @@ func (t tool) sdkTool() *sdk.Tool {
 	}
 }
 
-// toolError is a refusal a tool answers as an error result: the caller's mistake, never a
-// failure of dash.
-type toolError struct{ code, msg string }
-
-func (e *toolError) Error() string { return e.code + ": " + e.msg }
-
+// refuse is a refusal a tool answers as an error result: the caller's mistake, never a failure
+// of dash.
 func refuse(code, format string, args ...any) error {
-	return &toolError{code: code, msg: fmt.Sprintf(format, args...)}
+	return &Error{Code: code, Message: fmt.Sprintf(format, args...)}
 }
 
 // toolHandler decodes the input strictly, runs the tool and renders its result: the scrubbed
@@ -181,8 +201,8 @@ func (s *Server) toolHandler(t tool) sdk.ToolHandler {
 			}
 		}
 		out, text, err := t.run(ctx, c, in)
-		if te, ok := errors.AsType[*toolError](err); ok {
-			return errorResult(te.code, s.o.Scrub(te.msg)), nil
+		if te, ok := errors.AsType[*Error](err); ok {
+			return errorResult(te.Code, s.o.Scrub(te.Message)), nil
 		}
 		if err != nil {
 			s.o.Log.Warn("mcp tool failed", "tool", t.name, "err", s.o.Scrub(err.Error()))

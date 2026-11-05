@@ -5,7 +5,6 @@ import (
 	"cmp"
 	"encoding/json"
 	"errors"
-	"math"
 	"net/http"
 	"net/url"
 	"slices"
@@ -14,6 +13,7 @@ import (
 
 	"github.com/TechDufus/dash/internal/auth"
 	"github.com/TechDufus/dash/internal/bundle"
+	dashmcp "github.com/TechDufus/dash/internal/mcp"
 	"github.com/TechDufus/dash/internal/model"
 	"github.com/TechDufus/dash/internal/plugin"
 	"github.com/TechDufus/dash/internal/queries"
@@ -204,34 +204,11 @@ func (s *Server) seriesSummary(r *http.Request, sr model.SeriesRef) model.Series
 		return out
 	}
 	for _, l := range lines {
-		if sum, ok := summarize(l); ok {
+		if sum, ok := dashmcp.Summarize(l); ok {
 			out.Lines = append(out.Lines, sum)
 		}
 	}
 	return out
-}
-
-// summarize is the minimum, maximum, average and last value of a line's finite points.
-func summarize(l model.SeriesLine) (model.SeriesLineSummary, bool) {
-	sum := model.SeriesLineSummary{Labels: l.Labels, Min: math.Inf(1), Max: math.Inf(-1)}
-	if sum.Labels == nil {
-		sum.Labels = map[string]string{}
-	}
-	n, total := 0, 0.0
-	for _, p := range l.Points {
-		v := p[1]
-		if math.IsNaN(v) || math.IsInf(v, 0) {
-			continue
-		}
-		n++
-		total += v
-		sum.Min, sum.Max, sum.Last = min(sum.Min, v), max(sum.Max, v), v
-	}
-	if n == 0 {
-		return model.SeriesLineSummary{}, false
-	}
-	sum.Avg = total / float64(n)
-	return sum, true
 }
 
 // readLogs reads at most limit of the newest log lines of ref, oldest first, through the
