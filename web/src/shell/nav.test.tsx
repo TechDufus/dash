@@ -216,11 +216,12 @@ describe("mobile navigation sheet", () => {
 
     await userEvent.click(screen.getByRole("button", { name: "Open navigation" }));
     const mobile = await screen.findByRole("navigation", { name: "Mobile" });
+    // /me has answered by now: the administrator also gets Settings, last.
     expect(
       within(mobile)
         .getAllByRole("link")
         .map((a) => a.textContent),
-    ).toEqual([...RAIL_LABELS]);
+    ).toEqual([...RAIL_LABELS, "Settings"]);
 
     act(() =>
       es.emit("core.plugins", pluginsEnvelope(withState(shimRows(), "hardware", "disabled"))),

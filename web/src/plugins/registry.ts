@@ -1,4 +1,4 @@
-import { Database, LayoutDashboard, LayoutGrid, type LucideIcon } from "lucide-react";
+import { Database, LayoutDashboard, LayoutGrid, type LucideIcon, Settings } from "lucide-react";
 import alertmanager from "./modules/alertmanager";
 import cnpg from "./modules/cnpg";
 import flux from "./modules/flux";
@@ -71,4 +71,13 @@ export const CORE_PAGES: readonly CorePage[] = [
     order: 50,
   },
   { key: "core:apps", path: "/apps", label: "Apps", title: "Apps", icon: LayoutGrid, order: 80 },
+  {
+    key: "core:settings",
+    path: "/settings",
+    label: "Settings",
+    title: "Settings",
+    icon: Settings,
+    order: 900,
+    adminOnly: true,
+  },
 ];

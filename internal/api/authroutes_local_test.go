@@ -448,7 +448,7 @@ func TestThirdConcurrentHashGets429(t *testing.T) {
 	if !e.local.Setup.Usable() {
 		t.Fatal("a busy hasher burned the setup token")
 	}
-	if w := e.setup(tok, localPassword); w.Code != http.StatusNoContent {
+	if w := e.setup(tok, localPassword); w.Code != http.StatusOK {
 		t.Fatalf("setup after the slots came back: %d %s", w.Code, w.Body.String())
 	}
 }
@@ -463,8 +463,9 @@ func TestSetupTokenIsSingleUseAndExpires(t *testing.T) {
 	}
 
 	w := e.setup(tok, localPassword)
-	if w.Code != http.StatusNoContent {
-		t.Fatalf("setup: %d %s", w.Code, w.Body.String())
+	var res model.SetupResult
+	if w.Code != http.StatusOK || json.Unmarshal(w.Body.Bytes(), &res) != nil || res.AdminUser != localAdmin {
+		t.Fatalf("setup: %d %s, want 200 naming the account it created", w.Code, w.Body.String())
 	}
 	c := sessionCookie(t, w)
 	if m := meUser(t, e.me(c)); m.User != localAdmin || m.Role != string(auth.RoleAdmin) {
@@ -518,8 +519,8 @@ func TestSetupTokenIsSingleUseAndExpires(t *testing.T) {
 	for c := range codes {
 		got[c]++
 	}
-	if got[http.StatusNoContent] != 1 || got[http.StatusUnauthorized] != 1 {
-		t.Errorf("two setups with one token answered %v, want one 204 and one 401", got)
+	if got[http.StatusOK] != 1 || got[http.StatusUnauthorized] != 1 {
+		t.Errorf("two setups with one token answered %v, want one 200 and one 401", got)
 	}
 
 	// At 1 h + 1 s the token is refused and nothing is stored.
@@ -557,12 +558,12 @@ func TestPasswordLengthBounds(t *testing.T) {
 	if _, hashed := e.rec.calls(); hashed != 0 || !e.local.Setup.Usable() {
 		t.Fatalf("a refused password was hashed (%d) or burned the token", hashed)
 	}
-	if w := e.setup(tok, strings.Repeat("a", localauth.MaxPasswordBytes)); w.Code != http.StatusNoContent {
+	if w := e.setup(tok, strings.Repeat("a", localauth.MaxPasswordBytes)); w.Code != http.StatusOK {
 		t.Fatalf("a 256-byte password: %d %s", w.Code, w.Body.String())
 	}
 
 	lower := newLocalEnv(t, localOpts{setup: true})
-	if w := lower.setup(lower.local.Setup.Value(), strings.Repeat("a", localauth.MinPasswordBytes)); w.Code != http.StatusNoContent {
+	if w := lower.setup(lower.local.Setup.Value(), strings.Repeat("a", localauth.MinPasswordBytes)); w.Code != http.StatusOK {
 		t.Fatalf("a 12-byte password: %d %s", w.Code, w.Body.String())
 	}
 }

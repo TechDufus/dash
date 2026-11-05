@@ -112,10 +112,12 @@ func (s *Server) checkPassword(l *localauth.Local, user, password string) (bool,
 
 // setup answers POST /setup {token, password} (contract §4.4 Setup token): with the token of this
 // start it creates the administrator, consumes the token, bumps the account's epoch and signs it
-// in. 404 once an account exists (stored or from the environment); 401 invalid_token for a wrong,
-// used or expired token, counted against the peer; 400 for a password outside 12..256 bytes; 429
-// when the throttle refuses the peer or no hash slot is free. The password is hashed before the
-// token is consumed, so a busy hasher never burns the one token of this start.
+// in, and answers 200 with SetupResult: the account's name, which only the token holder learns
+// (no unauthenticated answer names it). 404 once an account exists (stored or from the
+// environment); 401 invalid_token for a wrong, used or expired token, counted against the peer;
+// 400 for a password outside 12..256 bytes; 429 when the throttle refuses the peer or no hash
+// slot is free. The password is hashed before the token is consumed, so a busy hasher never
+// burns the one token of this start.
 func (s *Server) setup(w http.ResponseWriter, r *http.Request) {
 	l := s.d.Local
 	if l == nil || l.Setup == nil || s.d.Sessions == nil || l.Account.Store == nil || l.Account.Exists() {
@@ -165,22 +167,32 @@ func (s *Server) setup(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	l.Throttle.Succeed(peer, "")
-	s.signIn(w, r, user, auditSetup)
+	if s.startSession(w, r, user, auditSetup) {
+		writeJSON(w, http.StatusOK, model.SetupResult{AdminUser: user})
+	}
 }
 
 // signIn issues the session of user, audits action and answers 204 with the cookie.
 func (s *Server) signIn(w http.ResponseWriter, r *http.Request, user, action string) {
+	if s.startSession(w, r, user, action) {
+		w.WriteHeader(http.StatusNoContent)
+	}
+}
+
+// startSession issues the session of user, audits action and sets the cookie; on failure it
+// answers 500 itself and reports false.
+func (s *Server) startSession(w http.ResponseWriter, r *http.Request, user, action string) bool {
 	c, err := s.d.Sessions.Issue(session.Identity{User: user}, session.Keep{})
 	if err != nil {
 		slog.Error("sign-in: issuing the session failed", "error", err.Error())
 		writeErr(w, http.StatusInternalServerError, model.ErrCodeInternal, "could not start a session")
-		return
+		return false
 	}
 	rec := s.localRecord(r, action, auth.Principal{Kind: auth.KindSession, User: user})
 	rec.Target = audit.Target{Kind: "user", Name: user}
 	s.d.Audit.Event(rec)
 	http.SetCookie(w, c)
-	w.WriteHeader(http.StatusNoContent)
+	return true
 }
 
 // logout answers POST /auth/logout {scope} (contract §4.4 Sessions): every scope clears the

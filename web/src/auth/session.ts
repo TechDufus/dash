@@ -2,7 +2,7 @@
 // from /login or /setup is an answer to show, not an expired session to reauthenticate, and the
 // pages need the Retry-After header of a 429, which ApiError does not carry.
 import { ApiError } from "@/api/client";
-import type { APIError, AuthDetails, Me } from "@/api/types";
+import type { APIError, AuthDetails, Me, SetupResult } from "@/api/types";
 import { authDetails } from "./handle401";
 
 /** The longest wait the pages report; a larger Retry-After is shown as this. */
@@ -100,9 +100,11 @@ export function login(username: string, password: string): Promise<void> {
   return post("/login", { username, password });
 }
 
-/** POST /setup: resolves on 204 (the account exists and the user is signed in). */
-export function setup(token: string, password: string): Promise<void> {
-  return post("/setup", { token, password });
+/** POST /setup: resolves with the account it created (the user is signed in already). */
+export async function setup(token: string, password: string): Promise<SetupResult> {
+  const res = await send("POST", "/setup", { token, password });
+  if (!res.ok) throw await failure(res);
+  return (await res.json()) as SetupResult;
 }
 
 /** POST /auth/logout: "this" ends this session, "all" every session of every user (admin). */

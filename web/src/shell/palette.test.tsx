@@ -134,6 +134,7 @@ describe("command palette", () => {
       "Alerts",
       "Status",
       "Apps",
+      "Settings", // the stubbed /me is an administrator
     ]);
     expect(itemsOf(dialog, "VMs")).toEqual(["media101"]); // the template is left out
     expect(itemsOf(dialog, "Nodes")).toEqual(["node-a192.0.2.10"]);

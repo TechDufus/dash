@@ -20,6 +20,7 @@ const PAGES = {
   hardware: "Disk bays",
   alerts: "firing since",
   status: "Average duration of the shown checks",
+  "settings-page": "Settings are read-only",
 };
 
 const html = readFileSync(join(dist, "index.html"), "utf8");

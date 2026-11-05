@@ -1,9 +1,9 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { type FormEvent, useLayoutEffect, useState } from "react";
+import type { SetupResult } from "@/api/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { AuthAlert, AuthCard, Field } from "./auth-card";
-import { browserNav } from "./handle401";
 import {
   AuthRequestError,
   formatWait,
@@ -61,6 +61,8 @@ export function SetupPage() {
   const [confirm, setConfirm] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
+  // The account POST /setup created; set once setup succeeded.
+  const [created, setCreated] = useState<string | null>(null);
 
   useLayoutEffect(stripFragment, []);
 
@@ -74,8 +76,9 @@ export function SetupPage() {
     }
     setPending(true);
     setError(null);
+    let result: SetupResult;
     try {
-      await setup(token, password);
+      result = await setup(token, password);
     } catch (err) {
       // React copies a controlled input's value into its value attribute: clear both, so the
       // refused password is not left in the page's HTML (as the login page does).
@@ -85,8 +88,24 @@ export function SetupPage() {
       setPending(false);
       return;
     }
+    setPassword("");
+    setConfirm("");
+    setCreated(result.adminUser);
     void queryClient.invalidateQueries({ queryKey: ["me"] });
-    browserNav.assign("/");
+  }
+
+  if (created !== null) {
+    // POST /setup set the session cookie already: the link continues into the app.
+    return (
+      <AuthCard title="Set up dash">
+        <p className="text-sm text-fg" role="status">
+          Account <code className="font-mono">{created}</code> created.{" "}
+          <a className="text-accent underline-offset-4 hover:underline" href="/">
+            Continue
+          </a>
+        </p>
+      </AuthCard>
+    );
   }
 
   if (token === null) {
@@ -105,7 +124,7 @@ export function SetupPage() {
   return (
     <AuthCard
       title="Set up dash"
-      description={`Choose the administrator's password: ${MIN_PASSWORD_BYTES} to ${MAX_PASSWORD_BYTES} bytes.`}
+      description={`Choose the password of the administrator account set by auth.local.adminUser: ${MIN_PASSWORD_BYTES} to ${MAX_PASSWORD_BYTES} bytes.`}
     >
       <form className="space-y-4" onSubmit={submit}>
         <Field label="New password">

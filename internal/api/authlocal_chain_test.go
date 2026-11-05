@@ -79,7 +79,7 @@ func newLocalChain(t *testing.T, setup, anonymous bool, envHash string) *localCh
 func (c *localChain) signIn(t *testing.T) *http.Cookie {
 	t.Helper()
 	w := req{method: http.MethodPost, path: "/setup", body: map[string]string{"token": c.local.Setup.Value(), "password": chainPassword}}.do(c.Handler())
-	if w.Code != http.StatusNoContent {
+	if w.Code != http.StatusOK {
 		t.Fatalf("setup = %d %s", w.Code, w.Body)
 	}
 	for _, ck := range w.Result().Cookies() {
@@ -367,7 +367,7 @@ func TestSetupLineWorksAndLogsAPIRedactsIt(t *testing.T) {
 		t.Fatalf("fragment %q holds no setup token", u.Fragment)
 	}
 	w := req{method: http.MethodPost, path: "/setup", body: map[string]string{"token": tok, "password": chainPassword}}.do(c.Handler())
-	if w.Code != http.StatusNoContent {
+	if w.Code != http.StatusOK {
 		t.Fatalf("setup with the printed token = %d %s", w.Code, w.Body)
 	}
 

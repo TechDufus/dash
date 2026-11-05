@@ -45,12 +45,40 @@ describe("UserMenu", () => {
     expect(view.container).toBeEmptyDOMElement();
   });
 
-  it.each(["local", "oidc"])("shows the name and role in %s mode", async (mode) => {
-    await openMenu(me({ authMode: mode, user: "alice", role: "viewer" }));
+  it.each([
+    ["local", "admin"],
+    ["oidc", "viewer"],
+  ])("shows the name and role in %s mode (%s)", async (mode, role) => {
+    await openMenu(me({ authMode: mode, user: "alice", role }));
     const menu = screen.getByRole("menu");
     expect(menu).toHaveTextContent("alice");
-    expect(menu).toHaveTextContent("viewer");
+    expect(menu).toHaveTextContent(role);
     expect(screen.getByRole("menuitem", { name: "Log out" })).toBeInTheDocument();
+  });
+
+  it("gives the local viewer (the anonymous viewer) a Sign in link back to this page", () => {
+    window.history.replaceState(null, "", "/pods?ns=media");
+    try {
+      renderApp(<UserMenu me={me({ authMode: "local", user: "anonymous", role: "viewer" })} />);
+      expect(screen.getByRole("link", { name: "Sign in" })).toHaveAttribute(
+        "href",
+        `/login?next=${encodeURIComponent("/pods?ns=media")}`,
+      );
+      expect(screen.queryByRole("button", { name: /Account/ })).toBeNull();
+    } finally {
+      window.history.replaceState(null, "", "/");
+    }
+  });
+
+  it("has no Sign in link for the local administrator", () => {
+    renderApp(<UserMenu me={me({ authMode: "local", role: "admin" })} />);
+    expect(screen.queryByRole("link", { name: "Sign in" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Account: alice" })).toBeInTheDocument();
+  });
+
+  it.each(["proxy", "oidc"])("has no Sign in link for a %s viewer", (mode) => {
+    renderApp(<UserMenu me={me({ authMode: mode, role: "viewer" })} />);
+    expect(screen.queryByRole("link", { name: "Sign in" })).toBeNull();
   });
 
   it("offers Log out everywhere to an administrator only", async () => {
@@ -59,7 +87,7 @@ describe("UserMenu", () => {
   });
 
   it.each(["viewer", "", "Admin"])("has no Log out everywhere for role %j", async (role) => {
-    await openMenu(me({ role }));
+    await openMenu(me({ authMode: "oidc", role }));
     expect(screen.getByRole("menuitem", { name: "Log out" })).toBeInTheDocument();
     expect(screen.queryByRole("menuitem", { name: "Log out everywhere" })).toBeNull();
   });

@@ -1,4 +1,4 @@
-import { LogOut, UserRound } from "lucide-react";
+import { LogIn, LogOut, UserRound } from "lucide-react";
 import { type JSX, useState } from "react";
 import { toast } from "sonner";
 import type { Me } from "@/api/types";
@@ -11,18 +11,31 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { browserNav } from "./handle401";
+import { browserNav, safeNext } from "./handle401";
 import { AuthRequestError, logout } from "./session";
 
 /**
  * The topbar's account menu in the session modes (local, oidc): who is signed in, "Log out" (this
  * session) and, for an administrator, "Log out everywhere" (every session of every user). Nothing in
  * the other modes, where dash has no session to end. After a logout the browser loads /login; a 401
- * means the session was gone already, which is the same outcome.
+ * means the session was gone already, which is the same outcome. The anonymous viewer gets a
+ * "Sign in" link instead.
  */
 export function UserMenu({ me }: { me: Me }): JSX.Element | null {
   const [pending, setPending] = useState(false);
   if (me.authMode !== "local" && me.authMode !== "oidc") return null;
+  // The anonymous viewer exists only in the local mode, whose one account is the administrator:
+  // a local viewer is therefore the anonymous viewer, who has no session to end.
+  if (me.authMode === "local" && me.role === "viewer") {
+    return (
+      <Button asChild variant="ghost" size="sm">
+        <a href={`/login?next=${encodeURIComponent(safeNext(window.location))}`}>
+          <LogIn aria-hidden="true" />
+          Sign in
+        </a>
+      </Button>
+    );
+  }
 
   async function out(scope: "this" | "all") {
     if (pending) return;

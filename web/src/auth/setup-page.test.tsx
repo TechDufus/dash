@@ -1,4 +1,4 @@
-import { screen, waitFor } from "@testing-library/react";
+import { screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, type MockInstance, vi } from "vitest";
 import { type FetchStub, json, renderApp, stubFetch } from "@/test/harness";
@@ -7,6 +7,8 @@ import { SetupPage } from "./setup-page";
 
 const TOKEN = "dash_setup_q5Zk3m0D1yWb8c4tVfN2uE7xLpR9sJhA6oGiKwTnY0Q";
 const GOOD = "a long enough password";
+/** The 200 body of POST /setup (SetupResult): the account it created. */
+const CREATED = { adminUser: "owner" };
 
 let assign: MockInstance<(url: string) => void>;
 
@@ -60,6 +62,22 @@ describe("SetupPage", () => {
     expectTokenNowhere();
   });
 
+  it("names the account only after setup, from the answer of POST /setup", async () => {
+    stubFetch({ "POST /setup": CREATED });
+    open(`#token=${TOKEN}`);
+    await screen.findByLabelText("New password");
+    expect(document.body).toHaveTextContent("administrator account set by auth.local.adminUser");
+    expect(document.body.textContent).not.toContain(CREATED.adminUser);
+    await fill(GOOD);
+
+    const done = await screen.findByRole("status");
+    expect(done).toHaveTextContent("Account owner created. Continue");
+    expect(within(done).getByRole("link", { name: "Continue" })).toHaveAttribute("href", "/");
+    expect(within(done).queryByRole("link", { name: "sign in" })).toBeNull();
+    expect(screen.queryByLabelText("New password")).toBeNull();
+    expect(document.body.innerHTML).not.toContain(GOOD);
+  });
+
   it("keeps the query while it strips the fragment", async () => {
     open(`?x=1#token=${TOKEN}`);
     await screen.findByLabelText("New password");
@@ -67,13 +85,13 @@ describe("SetupPage", () => {
     expectTokenNowhere();
   });
 
-  it("POSTs the token and the password with the CSRF header, then loads the app; the token never reaches a URL", async () => {
-    const stub = stubFetch({ "POST /setup": undefined });
+  it("POSTs the token and the password with the CSRF header, then says the account exists; the token never reaches a URL", async () => {
+    const stub = stubFetch({ "POST /setup": CREATED });
     const view = open(`#token=${TOKEN}`);
     const invalidate = vi.spyOn(view.queryClient, "invalidateQueries");
     await fill(GOOD);
 
-    await waitFor(() => expect(assign).toHaveBeenCalledWith("/"));
+    expect(await screen.findByRole("status")).toHaveTextContent("Account owner created");
     const [call] = stub.callsTo("POST /setup");
     expect(call.body).toEqual({ token: TOKEN, password: GOOD });
     expect(call.headers.get("X-Dash-Csrf")).toBe("1");
@@ -85,10 +103,10 @@ describe("SetupPage", () => {
   // StrictMode outermost, as main.tsx renders it: React then runs every effect twice (inside the
   // providers it would not), so a page that read the token in an effect would lose it.
   it("keeps the token through StrictMode's second effect run", async () => {
-    const stub = stubFetch({ "POST /setup": undefined });
+    const stub = stubFetch({ "POST /setup": CREATED });
     open(`#token=${TOKEN}`, { strict: true });
     await fill(GOOD);
-    await waitFor(() => expect(assign).toHaveBeenCalledWith("/"));
+    expect(await screen.findByRole("status")).toHaveTextContent("Account owner created");
     expect(stub.callsTo("POST /setup")[0].body).toEqual({ token: TOKEN, password: GOOD });
     expectTokenNowhere(stub);
   });
@@ -113,7 +131,7 @@ describe("SetupPage", () => {
     ["257 bytes", "a".repeat(257), "Use at most 256 bytes."],
     ["129 two-byte characters (258 bytes)", "é".repeat(129), "Use at most 256 bytes."],
   ])("refuses %s before sending anything", async (_name, password, want) => {
-    const stub = stubFetch({ "POST /setup": undefined });
+    const stub = stubFetch({ "POST /setup": CREATED });
     open(`#token=${TOKEN}`);
     await fill(password);
     expect(await screen.findByRole("alert")).toHaveTextContent(want);
@@ -126,15 +144,15 @@ describe("SetupPage", () => {
     ["6 two-byte characters (12 bytes)", "é".repeat(6)],
     ["256 bytes", "a".repeat(256)],
   ])("accepts %s", async (_name, password) => {
-    const stub = stubFetch({ "POST /setup": undefined });
+    const stub = stubFetch({ "POST /setup": CREATED });
     open(`#token=${TOKEN}`);
     await fill(password);
-    await waitFor(() => expect(assign).toHaveBeenCalledWith("/"));
+    expect(await screen.findByRole("status")).toHaveTextContent("Account owner created");
     expect(stub.callsTo("POST /setup")[0].body).toEqual({ token: TOKEN, password });
   });
 
   it("refuses two different passwords before sending anything", async () => {
-    const stub = stubFetch({ "POST /setup": undefined });
+    const stub = stubFetch({ "POST /setup": CREATED });
     open(`#token=${TOKEN}`);
     await fill(GOOD, `${GOOD}!`);
     expect(await screen.findByRole("alert")).toHaveTextContent("The two passwords differ.");

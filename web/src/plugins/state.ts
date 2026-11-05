@@ -4,6 +4,7 @@ import type { ComponentType } from "react";
 import { useMemo } from "react";
 import { matchRoute, useRouter } from "wouter";
 import { api } from "@/api/client";
+import { useMe } from "@/api/queries";
 import { useEnvelope } from "@/api/stream";
 import type { PluginInfo, PluginsData } from "@/api/types";
 import { iconFor } from "./icons";
@@ -99,15 +100,17 @@ function canRender(
 }
 
 /**
- * The rail, mobile sheet and palette entries: the core pages, plus every nav entry of a visible
- * plugin that a module can render. A backend entry with no module is a build mismatch, not a user
- * error: it is dropped with one console warning.
+ * The rail, mobile sheet and palette entries: the core pages (an adminOnly one only for an
+ * administrator), plus every nav entry of a visible plugin that a module can render. A backend
+ * entry with no module is a build mismatch, not a user error: it is dropped with one console
+ * warning.
  */
 export function useNavEntries(): { ready: boolean; entries: NavEntry[] } {
   const { ready, plugins } = usePluginsState();
   const { parser } = useRouter();
+  const admin = useMe().data?.role === "admin";
   const entries = useMemo(() => {
-    const out: NavEntry[] = CORE_PAGES.map((c) => ({
+    const out: NavEntry[] = CORE_PAGES.filter((c) => admin || !c.adminOnly).map((c) => ({
       key: c.key,
       path: c.path,
       label: c.label,
@@ -143,7 +146,7 @@ export function useNavEntries(): { ready: boolean; entries: NavEntry[] } {
       }
     }
     return out.sort((a, b) => a.order - b.order);
-  }, [plugins, parser]);
+  }, [plugins, parser, admin]);
   return { ready, entries };
 }
 

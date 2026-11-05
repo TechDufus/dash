@@ -61,6 +61,7 @@ describe("module registry", () => {
       "alertmanager",
       "gatus",
       "core:apps",
+      "core:settings",
     ]);
   });
 

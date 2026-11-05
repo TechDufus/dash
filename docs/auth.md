@@ -214,7 +214,7 @@ The sign-in routes are outside `/api` and not in the OpenAPI document:
 | Route | What |
 |---|---|
 | `POST /login` `{"username","password"}` | 204 and the session cookie; 401 `unauthenticated` for any wrong name or password; 429 `rate_limited` with `Retry-After` |
-| `POST /setup` `{"token","password"}` | 204 and the session cookie; 401 `invalid_token`; 400 for a password out of bounds; 404 once the account exists |
+| `POST /setup` `{"token","password"}` | 200 `{"adminUser"}` (the account it created; no other answer names it) and the session cookie; 401 `invalid_token`; 400 for a password out of bounds; 404 once the account exists |
 | `POST /auth/logout` `{"scope":"this"\|"user"\|"all"}` | 204 and a cookie that clears the session; `all` is for administrators |
 | `GET /auth/oidc/start?next=/path` | 302 to the provider; 503 `upstream_unavailable` when it cannot be reached |
 | `GET /auth/callback` | 302 to `next` with the session, or to `/login?error=not_allowed` / `oidc_failed` |

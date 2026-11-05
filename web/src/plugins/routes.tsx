@@ -1,5 +1,6 @@
-import { Component, type ErrorInfo, type ReactNode, Suspense } from "react";
+import { Component, type ErrorInfo, lazy, type ReactNode, Suspense } from "react";
 import { Link, Route, Switch } from "wouter";
+import { useMe } from "@/api/queries";
 import type { PluginInfo } from "@/api/types";
 import { Page } from "@/components/page";
 import { Empty, Panel, PanelSkeleton } from "@/components/panel";
@@ -11,6 +12,11 @@ import { GenericPluginPage } from "./generic/generic";
 import { MODULES } from "./registry";
 import { isVisible, usePluginsState } from "./state";
 import type { ModuleRoute as ModuleRouteDecl, PluginModule } from "./types";
+
+// The settings pages are their own chunk: only an administrator ever loads them.
+const SettingsPage = lazy(() =>
+  import("@/settings/settings-page").then((m) => ({ default: m.SettingsPage })),
+);
 
 export function PageLoading() {
   return (
@@ -134,6 +140,33 @@ function ModuleRoute({
   );
 }
 
+/**
+ * The gate of every /settings page: an administrator gets the page, anyone else (a viewer, the
+ * anonymous viewer) "Not authorised", and the page, which reads the settings API, never mounts.
+ * The API refuses them anyway; this keeps the request from being made at all.
+ */
+export function AdminOnly({ children }: { children: ReactNode }) {
+  const me = useMe();
+  if (me.isPending) return <PageLoading />;
+  if (me.data?.role !== "admin") {
+    return (
+      <Page>
+        <Panel className="space-y-3 p-2">
+          <Empty>
+            <div role="status" className="space-y-3">
+              <p>Not authorised: the settings are for administrators.</p>
+              <Link href="/" className="text-accent underline-offset-4 hover:underline">
+                Back to Overview
+              </Link>
+            </div>
+          </Empty>
+        </Panel>
+      </Page>
+    );
+  }
+  return <RouteBoundary>{children}</RouteBoundary>;
+}
+
 export function PluginRoutes() {
   return (
     <Switch>
@@ -145,6 +178,11 @@ export function PluginRoutes() {
       </Route>
       <Route path="/apps">
         <AppsPage />
+      </Route>
+      <Route path="/settings">
+        <AdminOnly>
+          <SettingsPage />
+        </AdminOnly>
       </Route>
       {MODULES.flatMap((m) =>
         (m.routes ?? []).map((r) => (

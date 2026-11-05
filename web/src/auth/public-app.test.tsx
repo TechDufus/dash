@@ -84,3 +84,55 @@ describe("isPublicPath", () => {
     expect(isPublicPath(path)).toBe(want);
   });
 });
+
+// The source of every module under src, to walk the public shell's static import graph.
+const SOURCES = import.meta.glob(["/src/**/*.{ts,tsx}", "!/src/**/*.test.{ts,tsx}"], {
+  query: "?raw",
+  import: "default",
+  eager: true,
+}) as Record<string, string>;
+
+/** The module a local specifier names, or undefined for a package, an asset or a JSON file. */
+function resolveLocal(from: string, spec: string): string | undefined {
+  let base: string;
+  if (spec.startsWith("@/")) base = `/src/${spec.slice(2)}`;
+  else if (spec.startsWith("./") || spec.startsWith("../"))
+    base = new URL(spec, `http://x${from}`).pathname;
+  else return undefined;
+  return [base, `${base}.ts`, `${base}.tsx`, `${base}/index.ts`, `${base}/index.tsx`].find(
+    (p) => p in SOURCES,
+  );
+}
+
+/** Every module the public shell loads, starting at public-app.tsx, following static imports. */
+function publicShellModules(): Map<string, string> {
+  const seen = new Map<string, string>();
+  const todo = ["/src/auth/public-app.tsx"];
+  while (todo.length > 0) {
+    const file = todo.pop() as string;
+    if (seen.has(file)) continue;
+    const src = SOURCES[file];
+    seen.set(file, src);
+    for (const m of src.matchAll(/^\s*(?:import|export)\b[^;]*?\bfrom\s+["']([^"']+)["']/gms)) {
+      const dep = resolveLocal(file, m[1]);
+      if (dep) todo.push(dep);
+    }
+  }
+  return seen;
+}
+
+/** The source without comments, so a comment that mentions import() is not code. */
+function code(src: string): string {
+  return src.replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:"'`])\/\/.*$/gm, "$1");
+}
+
+describe("the public shell (N2)", () => {
+  it("loads no module with a dynamic import()", () => {
+    const mods = publicShellModules();
+    expect([...mods.keys()]).toEqual(
+      expect.arrayContaining(["/src/auth/login-page.tsx", "/src/auth/setup-page.tsx"]),
+    );
+    const dynamic = [...mods].filter(([, src]) => /\bimport\s*\(/.test(code(src))).map(([f]) => f);
+    expect(dynamic).toEqual([]);
+  });
+});
