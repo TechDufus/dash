@@ -3148,12 +3148,12 @@ limitations under the License.
 
 ### golang.org/x/crypto and 6 more
 
-- golang.org/x/crypto v0.56.0: BSD-3-Clause
-- golang.org/x/net v0.57.0: BSD-3-Clause
+- golang.org/x/crypto v0.58.0: BSD-3-Clause
+- golang.org/x/net v0.62.0: BSD-3-Clause
 - golang.org/x/oauth2 v0.36.0: BSD-3-Clause
-- golang.org/x/sys v0.47.0: BSD-3-Clause
-- golang.org/x/term v0.45.0: BSD-3-Clause
-- golang.org/x/text v0.41.0: BSD-3-Clause
+- golang.org/x/sys v0.49.0: BSD-3-Clause
+- golang.org/x/term v0.47.0: BSD-3-Clause
+- golang.org/x/text v0.43.0: BSD-3-Clause
 - golang.org/x/time/rate v0.15.0: BSD-3-Clause
 
 ```text
