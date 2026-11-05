@@ -19,6 +19,7 @@ vi.mock("uqr", async (importOriginal) => {
 
 const VAPID =
   "BNcRdreALRFXTkOOUHK1EtK2wtaz5Ry4YfYCA_0QTpQtUbVlUls0VJXg7A8u-Ts1XbjhazAkj7I99e8QcYP7DkM";
+const SERVER_URL = "https://dash.example.com";
 const ENDPOINT = "https://push.example.com/send/abc123";
 const P256DH = "BPdeviceKey";
 const AUTH = "authSecret";
@@ -49,7 +50,7 @@ function meWith(push: boolean, over: Partial<Me> = {}): Me {
 function routes(who: Me, over: Record<string, unknown> = {}) {
   return {
     "GET /api/v1/me": who,
-    "GET /api/v1/push/vapid": { publicKey: VAPID },
+    "GET /api/v1/push/vapid": { publicKey: VAPID, serverUrl: SERVER_URL },
     [LIST]: { subscriptions: [] },
     [REGISTER]: () => json(sub({ state: "pending", verifiedAt: null }), 201),
     [`POST /api/v1/push/subscriptions/${ID}/verify`]: () => sub(),
@@ -231,7 +232,13 @@ describe("DevicesPage", () => {
     expect(within(row).getByText("ntfy.example.com")).toBeInTheDocument();
     expect(within(row).getByText(/UnifiedPush/)).toBeInTheDocument();
     expect(within(row).getByText("verified")).toBeInTheDocument();
-    expect(within(row).getByText(/Approvals off · attention:\s*Warnings/)).toBeInTheDocument();
+    expect(
+      within(row).getByText(
+        /Approvals off · attention:\s*Warnings\. Change this on the device itself\./,
+      ),
+    ).toBeInTheDocument();
+    expect(within(row).queryByRole("switch")).not.toBeInTheDocument();
+    expect(within(row).getByRole("button", { name: "Remove Pixel" })).toBeInTheDocument();
     const old = screen.getByText("Old tablet").closest("li") as HTMLElement;
     expect(within(old).getByText("stale")).toBeInTheDocument();
     expect(within(old).getByText(/Subscribe again on that device/)).toBeInTheDocument();
@@ -303,15 +310,10 @@ describe("DevicesPage", () => {
     expect(localStorage.getItem("dash.push.subscription")).toBeNull();
   });
 
-  it("encodes the address dash was opened at, and only that, in the QR code", async () => {
-    stubFetch(routes(meWith(true)));
-    renderApp(<DevicesPage />);
-    const origin = window.location.origin;
-    const svg = await screen.findByRole("img", { name: `QR code of ${origin}` });
-    expect(vi.mocked(encode)).toHaveBeenCalled();
-    for (const [input] of vi.mocked(encode).mock.calls) expect(input).toBe(origin);
-    // The drawn modules are exactly the matrix of the address.
-    const want = encode(origin, { ecc: "M", border: 4 });
+  /** The QR code's SVG once it shows `url`, checked to draw exactly the matrix of `url`. */
+  async function qrOf(url: string) {
+    const svg = await screen.findByRole("img", { name: `QR code of ${url}` });
+    const want = encode(url, { ecc: "M", border: 4 });
     const drawn = new Set(
       [...svg.querySelectorAll("g > rect")].map(
         (r) => `${r.getAttribute("x")},${r.getAttribute("y")}`,
@@ -325,6 +327,27 @@ describe("DevicesPage", () => {
     });
     expect(drawn).toEqual(dark);
     expect(svg.getAttribute("viewBox")).toBe(`0 0 ${want.size} ${want.size}`);
+  }
+
+  it("encodes dash's server URL, and only that, in the QR code", async () => {
+    vi.mocked(encode).mockClear();
+    stubFetch(routes(meWith(true)));
+    renderApp(<DevicesPage />);
+    await qrOf(SERVER_URL);
+    expect(screen.getByText(SERVER_URL)).toBeInTheDocument();
+    expect(vi.mocked(encode)).toHaveBeenCalled();
+    // Every QR the page drew holds the server URL: none was drawn before /push/vapid answered.
+    for (const [input] of vi.mocked(encode).mock.calls.slice(0, -1)) expect(input).toBe(SERVER_URL);
+  });
+
+  it("encodes the address dash was opened at when the answer has no server URL", async () => {
+    vi.mocked(encode).mockClear();
+    stubFetch(routes(meWith(true), { "GET /api/v1/push/vapid": { publicKey: VAPID } }));
+    renderApp(<DevicesPage />);
+    await qrOf(window.location.origin);
+    for (const [input] of vi.mocked(encode).mock.calls.slice(0, -1)) {
+      expect(input).toBe(window.location.origin);
+    }
   });
 
   it("shows the iOS home-screen hint", async () => {
@@ -338,7 +361,7 @@ describe("DevicesPage", () => {
   it("says so where this browser cannot receive push, and still lists the devices", async () => {
     vi.stubGlobal("PushManager", undefined);
     Reflect.deleteProperty(window, "PushManager");
-    const stub = stubFetch(routes(meWith(true), { [LIST]: { subscriptions: [sub()] } }));
+    stubFetch(routes(meWith(true), { [LIST]: { subscriptions: [sub()] } }));
     renderApp(<DevicesPage />);
     expect(
       await screen.findByText("This browser cannot receive push notifications here."),
@@ -347,7 +370,9 @@ describe("DevicesPage", () => {
     expect(
       screen.queryByRole("button", { name: "Subscribe this browser" }),
     ).not.toBeInTheDocument();
-    expect(stub.callsTo("GET /api/v1/push/vapid")).toEqual([]);
+    expect(pushManager.subscribe).not.toHaveBeenCalled();
+    // The QR code does not need push in this browser.
+    await qrOf(SERVER_URL);
   });
 
   it("is hidden without capabilities.push: no link to it, and the page reads nothing", async () => {

@@ -43,8 +43,9 @@ export function useSubscriptions(enabled: boolean) {
 }
 
 /**
- * GET /api/v1/push/vapid, read when the page opens so that Subscribe calls the browser without
- * waiting on the network first. The key changes only when dash generates a new pair.
+ * GET /api/v1/push/vapid: the VAPID key, read when the page opens so that Subscribe calls the
+ * browser without waiting on the network first, and the server URL the QR code holds. Both change
+ * only with dash's configuration or a new key pair.
  */
 export function useVapid(enabled: boolean) {
   return useQuery({

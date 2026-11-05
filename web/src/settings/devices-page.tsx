@@ -78,7 +78,7 @@ export function DevicesPage(): JSX.Element {
   const available = pushAvailable(me.data);
   const supported = available && pushSupported();
   const subs = useSubscriptions(available);
-  const vapid = useVapid(supported);
+  const vapid = useVapid(available);
   const queryClient = useQueryClient();
   const [mine, setMine] = useState<string | null>(thisBrowserID);
   // The subscription this page just registered, which waits for its code.
@@ -188,7 +188,9 @@ export function DevicesPage(): JSX.Element {
           </ul>
         )}
       </Panel>
-      <AppPanel />
+      {/* Drawn once /push/vapid answered, so the code never shows another address first; the
+          address the page was opened at stands in when the answer has no serverUrl. */}
+      {vapid.isPending ? null : <AppPanel url={vapid.data?.serverUrl || window.location.origin} />}
       <RemoveDialog
         sub={removing}
         mine={removing !== null && removing.id === mine}
@@ -441,7 +443,8 @@ function NotifySummary({ notify }: { notify: PushNotify }): JSX.Element {
   return (
     <p className="text-sm text-muted">
       Approvals {notify.approvals ? "on" : "off"} · attention:{" "}
-      {ATTENTION.find((a) => a.value === notify.attention)?.label ?? notify.attention}
+      {ATTENTION.find((a) => a.value === notify.attention)?.label ?? notify.attention}. Change this
+      on the device itself.
     </p>
   );
 }
@@ -510,9 +513,7 @@ function NotifyEditor({ sub }: { sub: PushSubscriptionInfo }): JSX.Element {
 }
 
 /** The QR code the Android app scans: dash's address, nothing else (D47). */
-function AppPanel(): JSX.Element {
-  // The SPA knows no public URL of its own: the address it was opened at is the one that works.
-  const url = window.location.origin;
+function AppPanel({ url }: { url: string }): JSX.Element {
   return (
     <Panel>
       <PanelHeader title="The Android app" icon={<QrIcon />} />

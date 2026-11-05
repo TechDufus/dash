@@ -52,6 +52,9 @@ type PushVAPID struct {
 	// PublicKey is the VAPID public key, an uncompressed P-256 point (65 bytes) in unpadded
 	// base64url, as PushManager.subscribe takes it.
 	PublicKey string `json:"publicKey" dash:"required"`
+	// ServerURL is the address the Android app connects to, encoded in Settings -> Devices' QR
+	// code: server.directURL when set, otherwise server.publicURL.
+	ServerURL string `json:"serverUrl" dash:"required"`
 }
 
 // PushKeys are the subscription's keys (RFC 8291), as PushSubscription.toJSON() gives them.

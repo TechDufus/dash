@@ -1426,6 +1426,11 @@ export interface PushVAPID {
    * base64url, as PushManager.subscribe takes it.
    */
   publicKey: string;
+  /**
+   * ServerURL is the address the Android app connects to, encoded in Settings -> Devices' QR
+   * code: server.directURL when set, otherwise server.publicURL.
+   */
+  serverUrl: string;
 }
 /**
  * PushKeys are the subscription's keys (RFC 8291), as PushSubscription.toJSON() gives them.

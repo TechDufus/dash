@@ -142,7 +142,7 @@ async function fakePush(page, sub) {
       // Any P-256 public key: the page never subscribes here, it only reads the key.
       const publicKey =
         "BA1Hxzyi1RUM1b5wjxsn7nGxAszw2u61m164i3MrAIxHF6YK5h4SDYic-dRuU_RCPCfA5aq9ojSwk5Y2EmClBPs";
-      return route.fulfill({ json: { publicKey } });
+      return route.fulfill({ json: { publicKey, serverUrl: new URL(req.url()).origin } });
     }
     if (at === "GET /api/v1/push/subscriptions") {
       return route.fulfill({ json: { subscriptions: [sub] } });
