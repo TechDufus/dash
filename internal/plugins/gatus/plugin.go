@@ -112,7 +112,7 @@ func (p *Plugin) Start(ctx context.Context, h plugin.Host, cfg any) error {
 		return err
 	}
 	client := upstream.NewGatus(c.URL, hc.Transport, c.PageSize,
-		upstream.Timeout(hc.Timeout), upstream.CheckRedirect(hc.CheckRedirect))
+		upstream.Timeout(hc.Timeout), upstream.CheckRedirect(hc.CheckRedirect), upstream.Cut(h.CutLog))
 	s := newService(append([]string(nil), c.CriticalGroups...))
 
 	pctx, cancel := context.WithCancel(context.Background())

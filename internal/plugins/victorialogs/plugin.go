@@ -105,8 +105,8 @@ func (p *Plugin) Start(_ context.Context, h plugin.Host, cfg any) error {
 		return err
 	}
 	fields := upstream.LogFields{Namespace: c.Fields.Namespace, Pod: c.Fields.Pod, Container: c.Fields.Container}
-	// The transport alone would lose the client's redirect policy: pass it on.
-	src := upstream.NewVLogs(c.URL, hc.Transport, c.Limit, upstream.CheckRedirect(hc.CheckRedirect)).WithFields(fields)
+	// The transport alone would lose the client's redirect policy: pass it on, and the host's cut.
+	src := upstream.NewVLogs(c.URL, hc.Transport, c.Limit, upstream.CheckRedirect(hc.CheckRedirect), upstream.Cut(h.CutLog)).WithFields(fields)
 	p.st.Store(&running{src: src, fields: fields, scrub: h.ScrubLog, now: h.Now})
 	return nil
 }

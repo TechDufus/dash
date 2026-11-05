@@ -23,6 +23,7 @@ import (
 	"github.com/TechDufus/dash/internal/model"
 	"github.com/TechDufus/dash/internal/plugin"
 	"github.com/TechDufus/dash/internal/pluginconf"
+	"github.com/TechDufus/dash/internal/secret"
 )
 
 // restartSecret is a value restartHost.ScrubLog removes, standing for a secret of the core.
@@ -46,6 +47,9 @@ func (restartHost) HTTPClient(plugin.HTTPConfig) (*http.Client, error) {
 }
 func (restartHost) ScrubLog(s string) string {
 	return strings.ReplaceAll(s, restartSecret, "[redacted]")
+}
+func (restartHost) CutLog(s string, n int) (string, bool) {
+	return (*secret.Registry)(nil).CutRunes(s, n)
 }
 func (restartHost) Links() plugin.LinkResolver    { return nil }
 func (restartHost) IconBaseURL() string           { return "" }

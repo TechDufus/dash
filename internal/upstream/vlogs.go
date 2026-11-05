@@ -163,8 +163,9 @@ func (v *VLogs) WithFields(f LogFields) *VLogs {
 // recordLine turns one VictoriaLogs record into a LogLine, reading the pod and the container
 // through f. vlagent moves a JSON log line's "msg" into _msg and every other key into its own
 // field, so the remaining fields are appended after the message as " k=v" (sorted by key) to keep
-// structured lines such as audit entries readable; the fields f.hidden names are not.
-func recordLine(rec map[string]string, f LogFields) (model.LogLine, bool) {
+// structured lines such as audit entries readable; the fields f.hidden names are not. A message
+// over maxLogMsg runes is cut by cut, which redacts a secret that straddles the cut whole.
+func recordLine(rec map[string]string, f LogFields, cut cutFunc) (model.LogLine, bool) {
 	t, err := time.Parse(time.RFC3339Nano, rec["_time"])
 	if err != nil {
 		return model.LogLine{}, false
@@ -187,8 +188,8 @@ func recordLine(rec map[string]string, f LogFields) (model.LogLine, bool) {
 		msg.WriteString(" " + k + "=" + v)
 	}
 	m := msg.String()
-	if t := truncate(m, maxLogMsg); len(t) < len(m) {
-		m = t + "…"
+	if out, ok := cut(m, maxLogMsg); ok {
+		m = out + "…"
 	}
 	return model.LogLine{Time: t, Pod: rec[f.Pod], Container: rec[f.Container], Msg: m}, true
 }
@@ -205,7 +206,7 @@ func (v *VLogs) Query(ctx context.Context, q LogQuery) ([]model.LogLine, error) 
 	}
 	defer resp.Body.Close()
 	out := []model.LogLine{}
-	err = readLogLines(io.LimitReader(resp.Body, maxLogResponse), v.fields, func(l model.LogLine) error {
+	err = readLogLines(io.LimitReader(resp.Body, maxLogResponse), v.fields, v.short.cut, func(l model.LogLine) error {
 		out = append(out, l)
 		return nil
 	})
@@ -241,7 +242,7 @@ func (v *VLogs) Tail(ctx context.Context, q LogQuery, emit func(model.LogLine) e
 	}
 	defer resp.Body.Close()
 	var emitErr error
-	err = readLogLines(resp.Body, v.fields, func(l model.LogLine) error {
+	err = readLogLines(resp.Body, v.fields, v.stream.cut, func(l model.LogLine) error {
 		emitErr = emit(l)
 		return emitErr
 	})
@@ -254,9 +255,9 @@ func (v *VLogs) Tail(ctx context.Context, q LogQuery, emit func(model.LogLine) e
 	return nil
 }
 
-// readLogLines decodes JSON lines from r and passes each to emit; malformed
-// and oversized lines are skipped. An emit error is returned as is.
-func readLogLines(r io.Reader, f LogFields, emit func(model.LogLine) error) error {
+// readLogLines decodes JSON lines from r and passes each to emit, its message cut by cut;
+// malformed and oversized lines are skipped. An emit error is returned as is.
+func readLogLines(r io.Reader, f LogFields, cut cutFunc, emit func(model.LogLine) error) error {
 	br := bufio.NewReaderSize(r, 64<<10)
 	var buf []byte
 	skip := false // the current record exceeds maxLogRecord
@@ -275,7 +276,7 @@ func readLogLines(r io.Reader, f LogFields, emit func(model.LogLine) error) erro
 		if !skip && len(bytes.TrimSpace(buf)) > 0 {
 			var rec map[string]string
 			if json.Unmarshal(buf, &rec) == nil {
-				if l, ok := recordLine(rec, f); ok {
+				if l, ok := recordLine(rec, f, cut); ok {
 					if eerr := emit(l); eerr != nil {
 						return eerr
 					}

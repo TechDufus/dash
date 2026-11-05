@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/TechDufus/dash/internal/model"
+	"github.com/TechDufus/dash/internal/secret"
 )
 
 // host is the Host of one instance. A Host made for Start (gen != 0) acts only for that start:
@@ -97,6 +98,8 @@ func (h *host) HTTPClient(c HTTPConfig) (*http.Client, error) {
 
 func (h *host) ScrubLog(s string) string { return h.s.scrubLog(s) }
 
+func (h *host) CutLog(s string, n int) (string, bool) { return h.s.cutLog(s, n) }
+
 func (h *host) Links() LinkResolver { return h.s.Links() }
 
 func (h *host) IconBaseURL() string { return h.s.opt.IconBase }
@@ -143,6 +146,13 @@ func (s *Supervisor) scrubLog(line string) string {
 		return line
 	}
 	return s.opt.ScrubLog(line)
+}
+
+func (s *Supervisor) cutLog(text string, n int) (string, bool) {
+	if s.opt.CutLog == nil {
+		return (*secret.Registry)(nil).CutRunes(text, n)
+	}
+	return s.opt.CutLog(text, n)
 }
 
 func (h *host) Go(name string, fn func()) {
@@ -203,6 +213,8 @@ func (c coreHost) HTTPClient(cfg HTTPConfig) (*http.Client, error) { return newH
 func (c coreHost) Service(ID) (any, bool) { return nil, false }
 
 func (c coreHost) ScrubLog(s string) string { return c.s.scrubLog(s) }
+
+func (c coreHost) CutLog(s string, n int) (string, bool) { return c.s.cutLog(s, n) }
 
 func (c coreHost) Links() LinkResolver { return c.s.Links() }
 

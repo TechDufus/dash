@@ -113,7 +113,7 @@ func (p *Plugin) Start(_ context.Context, h plugin.Host, cfg any) error {
 	}
 	// NewProm takes the timeout and the redirect policy as options: it only receives the
 	// transport, so it would otherwise lose both (design D7).
-	prom := upstream.NewProm(c.URL, hc.Transport, upstream.Timeout(timeout), upstream.CheckRedirect(hc.CheckRedirect))
+	prom := upstream.NewProm(c.URL, hc.Transport, upstream.Timeout(timeout), upstream.CheckRedirect(hc.CheckRedirect), upstream.Cut(h.CutLog))
 	p.mu.Lock()
 	p.prom = prom
 	p.mu.Unlock()

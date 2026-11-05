@@ -130,7 +130,7 @@ func newFramework(res *config.Resolved, store *settings.Store, opts config.Reloa
 	}
 	f.sup = plugin.NewSupervisor(plugin.Options{
 		Publisher: f.hub, Settings: resolvedSettings{f.reloader.Resolved}, ReadyRequires: ready, ReadyTimeout: res.Config.ReadyTimeout,
-		Transport: transport, ScrubLog: reg.ScrubLogLine, Demo: demo, IconBase: res.Config.IconBaseURL,
+		Transport: transport, ScrubLog: reg.ScrubLogLine, CutLog: reg.CutRunes, Demo: demo, IconBase: res.Config.IconBaseURL,
 	})
 	f.hub.SetOrder(f.sup.TopicOrder)
 	f.reloader.Subscribe(func(c config.Change) {

@@ -152,7 +152,7 @@ func (p *Plugin) Start(ctx context.Context, h plugin.Host, cfg any) error {
 		transport: hc.Transport,
 		// The transport carries TLS and the dial guard; the timeout and the redirect policy of hc
 		// ride as options, because a client built from the transport alone loses them (design D7).
-		opts:      []upstream.Option{upstream.Timeout(hc.Timeout), upstream.CheckRedirect(hc.CheckRedirect)},
+		opts:      []upstream.Option{upstream.Timeout(hc.Timeout), upstream.CheckRedirect(hc.CheckRedirect), upstream.Cut(h.CutLog)},
 		nodeReady: make(chan struct{}),
 		logged:    map[string]string{},
 	}

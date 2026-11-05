@@ -26,7 +26,7 @@ var (
 // StatusError is a non-2xx answer from an upstream.
 type StatusError struct {
 	Code int
-	Body string // at most 200 characters
+	Body string // at most maxErrorText characters (a straddling secret ends it as "[redacted]")
 }
 
 func (e *StatusError) Error() string {
@@ -38,19 +38,30 @@ func (e *StatusError) Error() string {
 
 const maxJSONBody = 32 << 20
 
+const (
+	// maxErrorText is how much of an error answer's body a StatusError keeps, in runes.
+	maxErrorText = 200
+	// maxErrorBody is how much of an error answer's body is read: transient, and only for an error.
+	// The cut needs the text past maxErrorText up to the end of a secret that starts before it,
+	// so that secret is redacted whole; a registered form longer than about 63 KiB that starts
+	// in the first maxErrorText runes can still lose its end to this read.
+	maxErrorBody = 64 << 10
+)
+
 type client struct {
 	base string
 	hc   *http.Client
+	cut  cutFunc // Cut, or shapeCut
 }
 
 // newClient builds a client for base; def is the default timeout of its requests, which opts may
 // replace. A timeout of 0 means none (streaming requests end with their context).
 func newClient(base string, rt http.RoundTripper, def time.Duration, opts ...Option) client {
-	cfg := clientConfig{timeout: def}
+	cfg := clientConfig{timeout: def, cut: shapeCut}
 	for _, o := range opts {
 		o(&cfg)
 	}
-	return client{base: strings.TrimRight(base, "/"), hc: &http.Client{Transport: rt, Timeout: cfg.timeout, CheckRedirect: cfg.checkRedirect}}
+	return client{base: strings.TrimRight(base, "/"), hc: &http.Client{Transport: rt, Timeout: cfg.timeout, CheckRedirect: cfg.checkRedirect}, cut: cfg.cut}
 }
 
 // newStreamClient is newClient for requests that end with their context: no timeout, whatever
@@ -97,8 +108,9 @@ func (c client) open(ctx context.Context, method, path string, q url.Values, bod
 	}
 	if resp.StatusCode/100 != 2 {
 		defer resp.Body.Close()
-		b, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
-		return nil, &StatusError{Code: resp.StatusCode, Body: truncate(strings.TrimSpace(string(b)), 200)}
+		b, _ := io.ReadAll(io.LimitReader(resp.Body, maxErrorBody))
+		body, _ := c.cut(strings.TrimSpace(string(b)), maxErrorText)
+		return nil, &StatusError{Code: resp.StatusCode, Body: body}
 	}
 	return resp, nil
 }

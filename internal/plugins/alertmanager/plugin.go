@@ -112,7 +112,7 @@ func (p *Plugin) Start(ctx context.Context, h plugin.Host, cfg any) error {
 	// The transport carries TLS, the credentials and the dial guard; the timeout and the redirect
 	// policy of hc ride as options, because a client built from the transport alone loses them.
 	am := upstream.NewAlertmanager(c.URL, hc.Transport, c.IgnoreAlerts,
-		upstream.Timeout(hc.Timeout), upstream.CheckRedirect(hc.CheckRedirect))
+		upstream.Timeout(hc.Timeout), upstream.CheckRedirect(hc.CheckRedirect), upstream.Cut(h.CutLog))
 
 	done := make(chan struct{})
 	p.mu.Lock()

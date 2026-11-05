@@ -307,6 +307,10 @@ func TestNewFrameworkWiresScrubbingAndTransport(t *testing.T) {
 	if got := f.Host().ScrubLog("password hunter2-hunter2 failed"); got != "password [redacted] failed" {
 		t.Errorf("ScrubLog = %q", got)
 	}
+	// CutLog cuts with the same registry: the secret across the cut is redacted whole.
+	if got, cut := f.Host().CutLog("password hunter2-hunter2 failed", 12); got != "password [redacted]" || !cut {
+		t.Errorf("CutLog = %q, %v", got, cut)
+	}
 	hc, err := f.Host().HTTPClient(plugin.HTTPConfig{})
 	if err != nil {
 		t.Fatal(err)
@@ -327,6 +331,9 @@ func TestNewFrameworkWiresScrubbingAndTransport(t *testing.T) {
 	waitFor(t, func() bool { return plain.sup.Running("grafana") })
 	if got := g.Host().ScrubLog("hunter2-hunter2"); got != "hunter2-hunter2" {
 		t.Errorf("ScrubLog without a registry = %q, want the line unchanged", got)
+	}
+	if got, _ := g.Host().CutLog("password hunter2-hunter2 failed", 12); got != "password hun" {
+		t.Errorf("CutLog without a registry = %q, want the plain cut", got)
 	}
 }
 

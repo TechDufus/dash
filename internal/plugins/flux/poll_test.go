@@ -19,6 +19,7 @@ import (
 	"github.com/TechDufus/dash/internal/model"
 	"github.com/TechDufus/dash/internal/plugin"
 	"github.com/TechDufus/dash/internal/plugin/plugintest"
+	"github.com/TechDufus/dash/internal/secret"
 	"github.com/TechDufus/dash/internal/svc"
 )
 
@@ -43,7 +44,10 @@ func (h *stubHost) Logger() *slog.Logger                      { return slog.New(
 func (h *stubHost) HTTPClient(plugin.HTTPConfig) (*http.Client, error) {
 	return nil, errors.New("flux makes no request of its own")
 }
-func (h *stubHost) ScrubLog(s string) string   { return s }
+func (h *stubHost) ScrubLog(s string) string { return s }
+func (h *stubHost) CutLog(s string, n int) (string, bool) {
+	return (*secret.Registry)(nil).CutRunes(s, n)
+}
 func (h *stubHost) Links() plugin.LinkResolver { return plugin.NoLinks }
 func (h *stubHost) IconBaseURL() string        { return "" }
 func (h *stubHost) Now() time.Time             { return t0 }

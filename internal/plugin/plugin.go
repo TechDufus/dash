@@ -299,6 +299,12 @@ type Host interface {
 	// before it builds the payload: scrubbing the encoded JSON would miss a secret that contains
 	// a character json.Marshal escapes.
 	ScrubLog(s string) string
+	// CutLog cuts text an upstream sent to n runes before a log or a response shows it, without
+	// leaving part of a secret: every secret ScrubLog would redact that starts before the cut is
+	// redacted whole, and the text ends after its marker (secret.Registry.CutRunes). Text of at
+	// most n runes comes back unchanged and false; it still goes through ScrubLog. A plugin
+	// passes it to its upstream client (upstream.Cut).
+	CutLog(s string, n int) (string, bool)
 	// Links resolves the deep links the running link providers offer for an object (design A.9:
 	// a plugin never imports another). The providers are read when Links is called.
 	Links() LinkResolver

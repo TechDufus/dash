@@ -192,6 +192,33 @@ func TestScrubLogUsesTheOption(t *testing.T) {
 	}
 }
 
+// Host.CutLog is Options.CutLog for every host; without it the token shapes that straddle the
+// cut are still redacted whole.
+func TestCutLogUsesTheOption(t *testing.T) {
+	f := plugintest.New("aa")
+	var calls atomic.Int32
+	e := newEnv(t, func(o *plugin.Options) {
+		o.CutLog = func(s string, n int) (string, bool) { calls.Add(1); return "cut:" + s[:n], true }
+	}, f.Factory()).run(t)
+	if got, cut := f.Host().CutLog("hunter2 and more", 7); got != "cut:hunter2" || !cut {
+		t.Errorf("CutLog = %q, %v", got, cut)
+	}
+	if got, _ := e.sup.HostFor(plugin.Core).CutLog("hunter2 and more", 7); got != "cut:hunter2" {
+		t.Errorf("core CutLog = %q", got)
+	}
+	if calls.Load() != 2 {
+		t.Errorf("the option was called %d times, want 2", calls.Load())
+	}
+	plain := plugintest.New("bb")
+	start(t, plain.Factory())
+	if got, cut := plain.Host().CutLog("abc dash_pat_0123456789 tail", 8); got != "abc [redacted]" || !cut {
+		t.Errorf("without the option = %q, %v; want the token redacted whole", got, cut)
+	}
+	if got, cut := plain.Host().CutLog("short", 8); got != "short" || cut {
+		t.Errorf("without the option, uncut = %q, %v", got, cut)
+	}
+}
+
 func TestIconBaseURLUsesTheOption(t *testing.T) {
 	const base = "https://cdn.example.com/icons/png"
 	f := plugintest.New("aa")

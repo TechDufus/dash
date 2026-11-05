@@ -36,6 +36,10 @@ type Options struct {
 	// ScrubLog is Host.ScrubLog: it removes every secret the core knows from a log line. nil
 	// returns the line unchanged.
 	ScrubLog func(string) string
+	// CutLog is Host.CutLog: it cuts text to n runes with every secret ScrubLog would redact that
+	// straddles the cut redacted whole (secret.Registry.CutRunes of the registry ScrubLog uses).
+	// nil redacts only the token shapes at the cut (a nil registry's CutRunes).
+	CutLog func(s string, n int) (string, bool)
 	// IconBase is ui.iconBaseURL: what Host.IconBaseURL returns to every instance. Empty means
 	// none is configured.
 	IconBase string

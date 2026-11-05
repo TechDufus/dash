@@ -14,6 +14,7 @@ import (
 	"github.com/TechDufus/dash/internal/auth"
 	"github.com/TechDufus/dash/internal/model"
 	"github.com/TechDufus/dash/internal/plugin"
+	"github.com/TechDufus/dash/internal/secret"
 )
 
 // Fake is a plugin whose behaviour tests set field by field. It implements every optional
@@ -336,9 +337,12 @@ func (h runningHost) HTTPClient(c plugin.HTTPConfig) (*http.Client, error) {
 }
 func (h runningHost) Service(plugin.ID) (any, bool) { return nil, false }
 func (h runningHost) ScrubLog(s string) string      { return s }
-func (h runningHost) Links() plugin.LinkResolver    { return plugin.NoLinks }
-func (h runningHost) IconBaseURL() string           { return h.a.iconBase }
-func (h runningHost) Now() time.Time                { return time.Now() }
+func (h runningHost) CutLog(s string, n int) (string, bool) {
+	return (*secret.Registry)(nil).CutRunes(s, n)
+}
+func (h runningHost) Links() plugin.LinkResolver { return plugin.NoLinks }
+func (h runningHost) IconBaseURL() string        { return h.a.iconBase }
+func (h runningHost) Now() time.Time             { return time.Now() }
 func (h runningHost) Go(_ string, fn func()) {
 	go func() {
 		defer func() { _ = recover() }()

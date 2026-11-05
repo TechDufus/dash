@@ -238,12 +238,12 @@ func TestRecordLineAppendsFields(t *testing.T) {
 		for k, v := range tc.extra {
 			rec[k] = v
 		}
-		l, ok := recordLine(rec, DefaultLogFields())
+		l, ok := recordLine(rec, DefaultLogFields(), shapeCut)
 		if !ok || l.Msg != tc.want || l.Pod != "dash-1" || l.Container != "dash" {
 			t.Errorf("%s: got %+v ok=%v, want msg %q", tc.name, l, ok, tc.want)
 		}
 	}
-	if _, ok := recordLine(map[string]string{"_msg": "x", "_time": "nope"}, DefaultLogFields()); ok {
+	if _, ok := recordLine(map[string]string{"_msg": "x", "_time": "nope"}, DefaultLogFields(), shapeCut); ok {
 		t.Error("a record with a bad _time must be skipped")
 	}
 }
@@ -272,7 +272,7 @@ func TestVLogsTailEmitError(t *testing.T) {
 func TestReadLogLinesSkipsOversizedRecord(t *testing.T) {
 	huge := `{"_msg":"` + strings.Repeat("x", 300<<10) + `","_time":"2026-10-30T21:39:17.5Z"}`
 	var got []model.LogLine
-	err := readLogLines(strings.NewReader(vlOldest+"\n"+huge+"\n"+vlNewest+"\n"), DefaultLogFields(), func(l model.LogLine) error {
+	err := readLogLines(strings.NewReader(vlOldest+"\n"+huge+"\n"+vlNewest+"\n"), DefaultLogFields(), shapeCut, func(l model.LogLine) error {
 		got = append(got, l)
 		return nil
 	})
@@ -285,7 +285,7 @@ func TestReadLogLinesSkipsOversizedRecord(t *testing.T) {
 }
 
 func TestRecordLineCapsMessage(t *testing.T) {
-	l, ok := recordLine(map[string]string{"_time": "2026-10-30T21:39:17.5Z", "_msg": strings.Repeat("é", 10000)}, DefaultLogFields())
+	l, ok := recordLine(map[string]string{"_time": "2026-10-30T21:39:17.5Z", "_msg": strings.Repeat("é", 10000)}, DefaultLogFields(), shapeCut)
 	if !ok {
 		t.Fatal("record skipped")
 	}

@@ -122,7 +122,7 @@ type vlEnv struct {
 }
 
 // newVLEnv starts the plugin with settings from mod on top of the defaults, pointed at up unless
-// mod sets a URL. Secrets known to reg are scrubbed by Host.ScrubLog.
+// mod sets a URL. Secrets known to reg are scrubbed by Host.ScrubLog and cut by Host.CutLog.
 func newVLEnv(t *testing.T, up *fakeVLogs, reg *secret.Registry, mod func(*pluginconf.VictoriaLogs, *plugin.InstanceConfig)) *vlEnv {
 	t.Helper()
 	cfg := pluginconf.DefaultVictoriaLogs()
@@ -134,7 +134,7 @@ func newVLEnv(t *testing.T, up *fakeVLogs, reg *secret.Registry, mod func(*plugi
 	ic.Config = &cfg
 	var opt func(*plugin.Options)
 	if reg != nil {
-		opt = func(o *plugin.Options) { o.ScrubLog = reg.ScrubLogLine }
+		opt = func(o *plugin.Options) { o.ScrubLog, o.CutLog = reg.ScrubLogLine, reg.CutRunes }
 	}
 	env := newPluginEnvOpt(t, opt, []plugin.InstanceConfig{ic}, vlFactory{})
 	env.Server.d.Metrics = obs.New("test", RoutePatterns(), env.sup.Infos)
@@ -388,6 +388,33 @@ func TestVictoriaLogsScrubSecretsOnQueryAndTail(t *testing.T) {
 		}
 	}
 	check(t, "tail", out.String())
+}
+
+// A pod's long line is cut to 8192 runes before the plugin scrubs it: a registered secret across
+// the cut is redacted whole on a query and on a tail, not left half for ScrubLog to miss.
+func TestVictoriaLogsCutKeepsNoPartOfASecret(t *testing.T) {
+	reg := cutRegistry()
+	pad := strings.Repeat("é", 8192-8)
+	b, _ := json.Marshal(map[string]string{"_msg": pad + cutSecret + " tail", "_time": "2026-10-30T21:39:17.5Z", "kubernetes.pod_name": "p1", "kubernetes.container_name": "c1"})
+	up := newFakeVLogs(t, string(b))
+	e := newVLEnv(t, up, reg, nil)
+	e.waitRunning(t)
+	want := `"msg":"` + pad + `[redacted]…"`
+	if w := e.get(vlLogsPath + "?ns=media&pod=p1"); w.Code != 200 || !strings.Contains(w.Body.String(), want) || strings.Contains(w.Body.String(), cutSecret[:8]) {
+		t.Errorf("logs = %d …%s", w.Code, w.Body.String()[max(0, w.Body.Len()-80):])
+	}
+	s := e.openStream(t, vlTailPath+"?ns=media&pod=p1", "alice", nil)
+	select {
+	case l := <-s.lines:
+		for !strings.HasPrefix(l, "data: ") {
+			l = <-s.lines
+		}
+		if !strings.Contains(l, want) || strings.Contains(l, cutSecret[:8]) {
+			t.Errorf("tail line …%s", l[max(0, len(l)-80):])
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("no tail line")
+	}
 }
 
 // The routes exist while the instance runs: 404 while it is off, 200 after enabling it, with no

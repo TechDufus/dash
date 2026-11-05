@@ -18,6 +18,7 @@ import (
 	"github.com/TechDufus/dash/internal/plugin"
 	"github.com/TechDufus/dash/internal/plugin/plugintest"
 	"github.com/TechDufus/dash/internal/pluginconf"
+	"github.com/TechDufus/dash/internal/secret"
 	"github.com/TechDufus/dash/internal/svc"
 )
 
@@ -474,8 +475,11 @@ func (h *stubHost) advance(d time.Duration) {
 	h.now = h.now.Add(d)
 }
 
-func (h *stubHost) Logger() *slog.Logger       { return slog.New(slog.DiscardHandler) }
-func (h *stubHost) ScrubLog(s string) string   { return s }
+func (h *stubHost) Logger() *slog.Logger     { return slog.New(slog.DiscardHandler) }
+func (h *stubHost) ScrubLog(s string) string { return s }
+func (h *stubHost) CutLog(s string, n int) (string, bool) {
+	return (*secret.Registry)(nil).CutRunes(s, n)
+}
 func (h *stubHost) Links() plugin.LinkResolver { return plugin.NoLinks }
 func (h *stubHost) IconBaseURL() string        { return "" }
 func (h *stubHost) Go(_ string, fn func())     { go fn() }

@@ -15,6 +15,7 @@ import (
 	"github.com/TechDufus/dash/internal/model"
 	"github.com/TechDufus/dash/internal/plugin"
 	"github.com/TechDufus/dash/internal/pluginconf"
+	"github.com/TechDufus/dash/internal/secret"
 )
 
 // kubeconfigFile writes a kubeconfig with the contexts a (192.0.2.10) and b (192.0.2.11).
@@ -178,8 +179,11 @@ func (connHost) Publish(string, any, []model.SourceStatus)          {}
 func (connHost) Logger() *slog.Logger                               { return slog.New(slog.DiscardHandler) }
 func (connHost) HTTPClient(plugin.HTTPConfig) (*http.Client, error) { return http.DefaultClient, nil }
 func (connHost) ScrubLog(s string) string                           { return s }
-func (connHost) Links() plugin.LinkResolver                         { return plugin.NoLinks }
-func (connHost) IconBaseURL() string                                { return "" }
-func (connHost) Service(plugin.ID) (any, bool)                      { return nil, false }
-func (connHost) Now() time.Time                                     { return time.Now() }
-func (connHost) Go(_ string, fn func())                             { go fn() }
+func (connHost) CutLog(s string, n int) (string, bool) {
+	return (*secret.Registry)(nil).CutRunes(s, n)
+}
+func (connHost) Links() plugin.LinkResolver    { return plugin.NoLinks }
+func (connHost) IconBaseURL() string           { return "" }
+func (connHost) Service(plugin.ID) (any, bool) { return nil, false }
+func (connHost) Now() time.Time                { return time.Now() }
+func (connHost) Go(_ string, fn func())        { go fn() }
