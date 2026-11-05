@@ -20,6 +20,9 @@ const SettingsPage = lazy(() =>
 const PluginSettingsPage = lazy(() =>
   import("@/settings/plugin-settings-page").then((m) => ({ default: m.PluginSettingsPage })),
 );
+const AuditPage = lazy(() =>
+  import("@/settings/audit-page").then((m) => ({ default: m.AuditPage })),
+);
 
 export function PageLoading() {
   return (
@@ -185,6 +188,11 @@ export function PluginRoutes() {
       <Route path="/settings">
         <AdminOnly>
           <SettingsPage />
+        </AdminOnly>
+      </Route>
+      <Route path="/settings/audit">
+        <AdminOnly>
+          <AuditPage />
         </AdminOnly>
       </Route>
       <Route path="/settings/plugins/:id">

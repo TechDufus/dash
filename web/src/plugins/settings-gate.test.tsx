@@ -1,4 +1,5 @@
 import { screen, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { me, settingsRoutes } from "@/settings/fixtures";
 import { Rail } from "@/shell/rail";
@@ -75,5 +76,20 @@ describe("TestViewerCannotOpenSettings", () => {
     await screen.findByRole("heading", { name: "Proxmox VE" }, wait);
     await screen.findByLabelText(/node/i, undefined, wait);
     expect(f.callsTo("GET /api/v1/settings/plugins/proxmox").length).toBeGreaterThan(0);
+  });
+
+  it("gates the audit page the same way", async () => {
+    const viewer = stubFetch(settingsRoutes({ "GET /api/v1/me": me("viewer") }));
+    renderAt("/settings/audit");
+    await screen.findByText(/Not authorised/, undefined, wait);
+    expect(viewer.calls.filter((c) => c.path.startsWith("/api/v1/settings"))).toEqual([]);
+  });
+
+  it("opens the audit page from the Settings page", async () => {
+    const f = stubFetch(settingsRoutes());
+    renderAt("/settings");
+    await userEvent.click(await screen.findByRole("link", { name: "Audit log" }, wait));
+    await screen.findByText(/since this start/, undefined, wait);
+    expect(f.callsTo("GET /api/v1/settings/audit").length).toBeGreaterThan(0);
   });
 });

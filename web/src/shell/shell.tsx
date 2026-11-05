@@ -5,7 +5,9 @@ import { AuthBanner } from "./auth-banner";
 import { Backdrop } from "./backdrop";
 import { CommandPalette } from "./command-palette";
 import { Rail } from "./rail";
+import { RestartBanner } from "./restart-banner";
 import { TopBar } from "./topbar";
+import { WarningBanners } from "./warning-banners";
 
 export function Shell({ children }: { children: ReactNode }) {
   return (
@@ -15,6 +17,8 @@ export function Shell({ children }: { children: ReactNode }) {
       <div className="relative z-10 flex min-h-dvh flex-col md:pl-[72px]">
         <TopBar />
         <AuthBanner />
+        <WarningBanners />
+        <RestartBanner />
         <main className="flex-1">{children}</main>
       </div>
       <CommandPalette />

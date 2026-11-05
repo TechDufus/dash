@@ -1,4 +1,5 @@
 import type { JSX } from "react";
+import { Link } from "wouter";
 import { errorMessage } from "@/api/client";
 import { Page } from "@/components/page";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -20,7 +21,15 @@ export function SettingsPage(): JSX.Element {
     <Page>
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h1 className="text-lg font-semibold text-fg">Settings</h1>
-        <ExportButton />
+        <div className="flex items-center gap-3">
+          <Link
+            href="/settings/audit"
+            className="text-sm text-accent underline-offset-4 hover:underline"
+          >
+            Audit log
+          </Link>
+          <ExportButton />
+        </div>
       </div>
       {view.isError ? (
         <Alert variant="destructive">
