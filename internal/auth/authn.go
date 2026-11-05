@@ -6,28 +6,37 @@ import (
 )
 
 // Failure is why a request could not be authenticated. Code and Reason are the wire error code
-// and its machine reason; WWWAuth, when set, is the WWW-Authenticate challenge to send.
+// and its machine reason; Message, when set, is the error text for a person (otherwise the code
+// in words); WWWAuth, when set, is the WWW-Authenticate challenge to send.
 type Failure struct {
 	Status  int
 	Code    string
 	Reason  string
+	Message string
 	Details any
 	WWWAuth string
 }
 
 // The wire codes a Failure carries. They are the model.ErrCode* strings (auth imports no model).
 const (
-	CodeUnauthenticated = "unauthenticated"
-	CodeInvalidToken    = "invalid_token"
+	CodeUnauthenticated      = "unauthenticated"
+	CodeInvalidToken         = "invalid_token"
+	CodeAmbiguousCredentials = "ambiguous_credentials"
 )
 
 // The machine reasons of a Failure. The API maps them to the obs auth reasons of the same name,
-// ReasonNoIdentity and ReasonBearerRefused to "unauthenticated".
+// ReasonNoIdentity to "unauthenticated".
 const (
 	ReasonNoIdentity        = "no_identity"        // no identity header, or one that cannot be a user name
 	ReasonUntrustedPeer     = "untrusted_peer"     // identity headers from a peer outside the trusted set
 	ReasonAmbiguousIdentity = "ambiguous_identity" // an identity header with more than one line
-	ReasonBearerRefused     = "bearer_refused"     // Authorization: Bearer, until bearer tokens exist (P7.1)
+	// ReasonInvalidToken is a bearer token that is unknown, expired, revoked or for another
+	// audience. An authenticator that is handed a bearer credential (the API resolves tokens
+	// ahead of it, so only a process without a token resolver gets here) refuses it with this
+	// too, never reading the other credentials.
+	ReasonInvalidToken = "invalid_token"
+	// ReasonAmbiguousCredentials is a bearer token together with dash's session cookie.
+	ReasonAmbiguousCredentials = "ambiguous_credentials"
 )
 
 // Authenticator resolves the principal of a request, or says why it cannot.

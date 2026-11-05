@@ -163,6 +163,13 @@
         "proxy": {
           "$ref": "#/$defs/AuthProxyConfig",
           "description": "The proxy mode: which headers name the user, which peers are believed, and who is an administrator."
+        },
+        "tokens": {
+          "description": "Static bearer tokens for GitOps installs, as [{name, role, audience, scopes, hash}]: role viewer or admin, audience api or mcp, scopes from read, logs and actions:<plugin> (admin only, never with audience mcp), hash the sha256:<hex> that dash token generate prints next to its dash_st_ token. The principal is token:<name>. Ignored, with a WARN at start, in auth.mode=none. From the file a reload applies a change at once, so removing an entry revokes it; from the environment it needs a restart. A JSON list in the environment.",
+          "items": {
+            "$ref": "#/$defs/StaticToken"
+          },
+          "type": "array"
         }
       },
       "type": "object"
@@ -1262,6 +1269,35 @@
       },
       "type": "object"
     },
+    "StaticToken": {
+      "additionalProperties": false,
+      "properties": {
+        "audience": {
+          "description": "api (/api/v1) or mcp (/mcp).",
+          "type": "string"
+        },
+        "hash": {
+          "description": "sha256:<64 hex digits> of the token, as dash token generate prints it.",
+          "type": "string"
+        },
+        "name": {
+          "description": "The token's name: letters, digits, '.', '_' and '-', at most 64. The principal is token:<name>.",
+          "type": "string"
+        },
+        "role": {
+          "description": "viewer or admin.",
+          "type": "string"
+        },
+        "scopes": {
+          "description": "read, logs and actions:<plugin> (admin only, never with audience mcp).",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "type": "object"
+    },
     "TLS": {
       "additionalProperties": false,
       "properties": {
@@ -1378,7 +1414,7 @@
     },
     "dataDir": {
       "default": "/data",
-      "description": "Where dash keeps its state (ui-settings.yaml, audit.jsonl) and looks for config.yaml. Demo mode uses none.",
+      "description": "Where dash keeps its state (ui-settings.yaml, audit.jsonl, and credentials.yaml with the local account, the sessions' epochs and the personal access tokens) and looks for config.yaml. Without a writable one, sessions and tokens do not survive a restart, so creating a token is refused outside dev and demo mode. Demo mode uses none.",
       "type": "string",
       "x-dash-restart": true
     },

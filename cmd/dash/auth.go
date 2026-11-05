@@ -9,6 +9,7 @@ import (
 
 	"github.com/TechDufus/dash/internal/auth"
 	"github.com/TechDufus/dash/internal/config"
+	"github.com/TechDufus/dash/internal/tokens"
 )
 
 // buildAuthenticator picks the authenticator of the process. Dev and demo mode outrank
@@ -153,6 +154,23 @@ func (f *framework) reloadAuth(p *auth.Proxy) {
 	f.reloader.Subscribe(func(c config.Change) {
 		if c.Section == "auth" {
 			applyAuthReload(p, f.reloader.Tree().Auth)
+		}
+	})
+}
+
+// reloadTokens makes auth.tokens live (contract D5): when the auth section changes, the next
+// request is resolved against the new static tokens, so removing an entry revokes it at once.
+// The environment is read at start only, so a token from DASH_AUTH_TOKENS needs a restart. t is
+// nil in auth.mode=none.
+func (f *framework) reloadTokens(t *tokens.Resolver) {
+	if t == nil {
+		return
+	}
+	f.reloader.Subscribe(func(c config.Change) {
+		if c.Section == "auth" {
+			static := f.reloader.Tree().Auth.Tokens
+			t.SetStatic(static)
+			slog.Info("auth: static tokens reloaded", "count", len(static))
 		}
 	})
 }

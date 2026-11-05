@@ -16,13 +16,16 @@ type Route struct {
 	Method  string // "" matches every method (the catch-alls)
 	Path    string // the ServeMux path, e.g. "/api/v1/topics/{topic}"
 	Summary string
-	Tag     string
-	Role    auth.Role // the lowest role that may call it; empty = public (the catch-alls and the SPA)
-	// Interactive marks a route for a person: a principal that is not interactive (a token, phase
-	// 7) is refused with 403 forbidden, whatever its role. Settings, token and consent routes set it.
+	// Description is the operation's detail in the document (statuses, limits); empty for none.
+	Description string
+	Tag         string
+	Role        auth.Role // the lowest role that may call it; empty = public (the catch-alls and the SPA)
+	// Interactive marks a route for a person: a principal that is not interactive (a token) is
+	// refused with 403 forbidden, whatever its role. Settings, token and consent routes set it.
 	Interactive bool
-	// Scope is the token scope the route needs: "read", "logs" or "actions:<plugin>". Documented
-	// now; enforced for bearer tokens from phase 7.
+	// Scope is the token scope the route needs: "read", "logs" or "actions:<plugin>". The guard
+	// refuses a token without it (403 insufficient_scope), and every token on a row without one;
+	// the plugin rows are checked per route and per action instead.
 	Scope      string
 	PathParams []plugin.Param
 	Query      []plugin.Param
@@ -123,6 +126,11 @@ func (s *Server) routeTable() []Route {
 		{Method: "GET", Path: "/auth/callback", Infra: true, Handler: s.oidcCallback},
 
 		{Path: "/api/", Infra: true, Handler: func(w http.ResponseWriter, _ *http.Request) {
+			writeErr(w, http.StatusNotFound, model.ErrCodeNotFound, "not found")
+		}},
+		// The 401 challenge points at /.well-known/oauth-protected-resource/<api|mcp>; until the
+		// OAuth server serves those documents, the path answers a JSON 404, never the SPA.
+		{Path: "/.well-known/", Infra: true, Handler: func(w http.ResponseWriter, _ *http.Request) {
 			writeErr(w, http.StatusNotFound, model.ErrCodeNotFound, "not found")
 		}},
 		{Path: "/", Infra: true, Handler: s.serveStatic},

@@ -19,9 +19,10 @@ import (
 // runAction is POST /api/v1/plugins/{id}/actions/{name}: the request chain every plugin action
 // goes through (design A.8). A refusal at any step ends the request before Act runs.
 //
-// The steps of the design that need a bearer token or an agent (the actions:<plugin> scope, a
-// token's actionNamespaces, the agent policy) have no principal to apply to yet; phase 7 adds
-// them here. CSRF and Origin are checked ahead of the mux for every non-GET request.
+// A token needs the actions:<plugin> scope (403 insufficient_scope), and its actionNamespaces
+// restrict the target's namespace beside the instance's DenyNamespaces. The agent policy arrives
+// with MCP. CSRF and Origin are checked ahead of the mux for every non-GET request that is not a
+// token's.
 func (s *Server) runAction(w http.ResponseWriter, r *http.Request) {
 	id, name := plugin.ID(r.PathValue("id")), r.PathValue("name")
 	var ref plugin.ActionRef
@@ -53,6 +54,10 @@ func (s *Server) runAction(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusForbidden, model.ErrCodeForbidden, "forbidden")
 		return
 	}
+	if scope := "actions:" + string(id); !p.HasScope(scope) {
+		s.denyScope(w, r, scope)
+		return
+	}
 
 	if ok, retry := s.actionLimit.allow(p.User, s.now()); !ok {
 		s.deny(r, obs.AuthRateLimit)
@@ -74,6 +79,11 @@ func (s *Server) runAction(w http.ResponseWriter, r *http.Request) {
 	if target.Namespace != "" && slices.Contains(ref.DenyNamespaces, target.Namespace) {
 		s.deny(r, obs.AuthNamespaceDenied)
 		writeErr(w, http.StatusForbidden, model.ErrCodeForbidden, "actions are not allowed in this namespace")
+		return
+	}
+	if !p.ActionNamespaceAllowed(target.Namespace) {
+		s.deny(r, obs.AuthNamespaceDenied)
+		writeErr(w, http.StatusForbidden, model.ErrCodeForbidden, "this token may not act in this namespace")
 		return
 	}
 

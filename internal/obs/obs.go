@@ -76,6 +76,13 @@ var (
 	// setup token); AuthLoginThrottled one refused by the login backoff without being tried.
 	AuthLoginFailed    = AuthReason{"login_failed"}
 	AuthLoginThrottled = AuthReason{"login_throttled"}
+
+	// AuthInvalidToken is a bearer token that is unknown, expired, revoked or for the other
+	// audience; AuthAmbiguousCredentials a bearer token sent with dash's session cookie;
+	// AuthInsufficientScope a token without the scope the route needs.
+	AuthInvalidToken         = AuthReason{"invalid_token"}
+	AuthAmbiguousCredentials = AuthReason{"ambiguous_credentials"}
+	AuthInsufficientScope    = AuthReason{"insufficient_scope"}
 )
 
 // Outcomes of an upstream call.
@@ -100,7 +107,7 @@ var (
 	// ActionOutcomes is every value of dash_actions_total's outcome label.
 	ActionOutcomes = []string{ActionOK, ActionError, ActionDenied, ActionInvalid, ActionRateLimited}
 	// AuthReasons is every value of dash_auth_failures_total's reason label.
-	AuthReasons = []AuthReason{AuthUnauthenticated, AuthCSRF, AuthForbidden, AuthRateLimit, AuthNamespaceDenied, AuthStreamLimit, AuthUntrustedPeer, AuthAmbiguousIdentity, AuthLoginFailed, AuthLoginThrottled}
+	AuthReasons = []AuthReason{AuthUnauthenticated, AuthCSRF, AuthForbidden, AuthRateLimit, AuthNamespaceDenied, AuthStreamLimit, AuthUntrustedPeer, AuthAmbiguousIdentity, AuthLoginFailed, AuthLoginThrottled, AuthInvalidToken, AuthAmbiguousCredentials, AuthInsufficientScope}
 	// StreamKinds is every value of dash_sse_streams' kind label.
 	StreamKinds = []string{StreamEvents, StreamTail}
 	// PluginStates is every value of dash_plugin_state's state label.

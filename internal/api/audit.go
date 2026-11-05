@@ -1,6 +1,7 @@
 package api
 
 import (
+	"cmp"
 	"net"
 	"net/http"
 
@@ -13,16 +14,17 @@ import (
 // maxAuditAction caps the request line recorded for a denial: it comes from the client.
 const maxAuditAction = 200
 
-// authMode names how a request was authenticated, for me and the audit log. A session mode's
+// authMode names how a request was authenticated, for me and the audit log: always the server's
+// mode, never "token" (a token principal is named by the actor's type). A session mode's
 // authenticator names its mode (auth.Moder: local, oidc), whatever the principal's kind (session,
-// anonymous) and also for a refusal without one. Otherwise it is the principal's kind (proxy,
-// dev, demo, none); a refusal that has no principal (CSRF on a path authn does not cover, the
-// host check) is named by the authenticator's fixed kind, else by the process mode.
+// anonymous, token) and also for a refusal without one. Otherwise it is a person's kind (proxy,
+// dev, demo, none); a token, or a refusal that has no principal (CSRF on a path authn does not
+// cover, the host check), is named by the authenticator's fixed kind, else by the process mode.
 func (s *Server) authMode(p auth.Principal) string {
 	if m, ok := s.d.Auth.(auth.Moder); ok && m.Mode() != "" {
 		return m.Mode()
 	}
-	if p.Kind != "" {
+	if p.Kind != "" && p.Kind != auth.KindToken {
 		return string(p.Kind)
 	}
 	if k, ok := s.d.Auth.(auth.Kinder); ok && k.Kind() != "" {
@@ -47,14 +49,28 @@ func peerOf(r *http.Request) string {
 }
 
 // auditRecord names the user authn stored; a refusal by authn itself, or by the host check,
-// has none.
+// has none. A token principal is recorded as type token on its audience's surface (api, later
+// mcp) with its TokenID (contract D11), and so is the surface of a refused bearer credential;
+// everyone else acted in the UI.
 func (s *Server) auditRecord(r *http.Request, action string, t audit.Target) audit.Record {
 	p := principalFrom(r.Context())
 	mode := s.authMode(p)
-	return audit.Record{
+	rec := audit.Record{
 		Action: action, Target: t, Peer: peerOf(r), AuthMode: mode, RequestID: requestIDFrom(r.Context()),
-		Actor: audit.Actor{Type: mode, User: p.User, Surface: "ui"},
+		Actor: actorOf(p, mode),
 	}
+	if _, bearer := auth.Bearer(r); p.Kind == "" && bearer && s.d.Tokens != nil {
+		rec.Actor.Surface = cmp.Or(audienceFor(r.URL.Path), "api")
+	}
+	return rec
+}
+
+// actorOf is the audit actor of p in auth mode mode.
+func actorOf(p auth.Principal, mode string) audit.Actor {
+	if p.Kind == auth.KindToken {
+		return audit.Actor{Type: string(auth.KindToken), User: p.User, TokenID: p.TokenID, GrantID: p.GrantID, ClientID: p.ClientID, Surface: p.Audience}
+	}
+	return audit.Actor{Type: mode, User: p.User, Surface: "ui"}
 }
 
 func (s *Server) beginRecord(w http.ResponseWriter, rec audit.Record) (audit.Pending, bool) {

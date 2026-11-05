@@ -79,8 +79,10 @@ func (a *Authenticator) Authenticate(r *http.Request) (auth.Principal, *auth.Fai
 // AuthenticateCookie implements auth.CookieAuthenticator: the cookie is the renewal of a valid
 // session in the second half of its idle window, or the clearing cookie of one that failed.
 func (a *Authenticator) AuthenticateCookie(r *http.Request) (auth.Principal, *http.Cookie, *auth.Failure) {
+	// The API resolves bearer tokens before it asks this authenticator; one that reaches it
+	// anyway is refused without reading the cookie.
 	if _, ok := auth.Bearer(r); ok {
-		return auth.Principal{}, nil, &auth.Failure{Status: http.StatusUnauthorized, Code: auth.CodeInvalidToken, Reason: auth.ReasonBearerRefused}
+		return auth.Principal{}, nil, &auth.Failure{Status: http.StatusUnauthorized, Code: auth.CodeInvalidToken, Reason: auth.ReasonInvalidToken}
 	}
 	var clear *http.Cookie
 	if a.sessions != nil {

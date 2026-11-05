@@ -97,7 +97,7 @@ func TestAuthnRefusesWithTheFailuresStatusAndCode(t *testing.T) {
 		wantReason string // the audit record's reason
 	}{
 		{"no identity", req{path: "/api/v1/me", header: map[string]string{"X-Forwarded-Preferred-Username": ""}}, model.ErrCodeUnauthenticated, obs.AuthUnauthenticated.String()},
-		{"bearer", req{path: "/api/v1/me", header: map[string]string{"Authorization": "Bearer abc"}}, model.ErrCodeInvalidToken, obs.AuthUnauthenticated.String()},
+		{"bearer", req{path: "/api/v1/me", header: map[string]string{"Authorization": "Bearer abc"}}, model.ErrCodeInvalidToken, obs.AuthInvalidToken.String()},
 		{"untrusted peer", req{path: "/api/v1/me", peer: "192.0.2.1:1234"}, model.ErrCodeUnauthenticated, obs.AuthUntrustedPeer.String()},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -110,8 +110,9 @@ func TestAuthnRefusesWithTheFailuresStatusAndCode(t *testing.T) {
 			if got := apiError(t, w).Code; got != tc.wantCode {
 				t.Errorf("code = %q, want %q", got, tc.wantCode)
 			}
-			if h := w.Header().Get("WWW-Authenticate"); h != "" {
-				t.Errorf("WWW-Authenticate = %q, want none until bearer tokens exist", h)
+			// Every 401 tells an OAuth client where the api surface describes itself (design M.1).
+			if h := w.Header().Get("WWW-Authenticate"); h != `Bearer resource_metadata="https://dash.example.com/.well-known/oauth-protected-resource/api"` {
+				t.Errorf("WWW-Authenticate = %q", h)
 			}
 			recs := auditRecords(t, dir)
 			if len(recs) != 1 || recs[0].Kind != audit.KindDenial || recs[0].Reason != tc.wantReason {
@@ -151,8 +152,12 @@ func TestAuthnCountsTheRefusalUnderUnauthenticated(t *testing.T) {
 
 	ss := scrapeMetrics(t, s)
 	v, ok := seriesValue(t, ss, "dash_auth_failures_total", map[string]string{"reason": obs.AuthUnauthenticated.String()})
-	if !ok || v != 2 {
-		t.Errorf("unauthenticated counted %v (present %v), want 2: no identity and a refused bearer", v, ok)
+	if !ok || v != 1 {
+		t.Errorf("unauthenticated counted %v (present %v), want 1: no identity", v, ok)
+	}
+	v, ok = seriesValue(t, ss, "dash_auth_failures_total", map[string]string{"reason": obs.AuthInvalidToken.String()})
+	if !ok || v != 1 {
+		t.Errorf("invalid_token counted %v (present %v), want 1: the refused bearer", v, ok)
 	}
 }
 
@@ -194,11 +199,12 @@ func TestAuthnSendsTheFailuresChallenge(t *testing.T) {
 
 func TestAuthDenialReasonMapsTheFailureReasons(t *testing.T) {
 	for reason, want := range map[string]obs.AuthReason{
-		auth.ReasonUntrustedPeer:     obs.AuthUntrustedPeer,
-		auth.ReasonAmbiguousIdentity: obs.AuthAmbiguousIdentity,
-		auth.ReasonNoIdentity:        obs.AuthUnauthenticated,
-		auth.ReasonBearerRefused:     obs.AuthUnauthenticated,
-		"something_later":            obs.AuthUnauthenticated,
+		auth.ReasonUntrustedPeer:        obs.AuthUntrustedPeer,
+		auth.ReasonAmbiguousIdentity:    obs.AuthAmbiguousIdentity,
+		auth.ReasonNoIdentity:           obs.AuthUnauthenticated,
+		auth.ReasonInvalidToken:         obs.AuthInvalidToken,
+		auth.ReasonAmbiguousCredentials: obs.AuthAmbiguousCredentials,
+		"something_later":               obs.AuthUnauthenticated,
 	} {
 		if got := authDenialReason(&auth.Failure{Reason: reason}); got != want {
 			t.Errorf("%s -> %v, want %v", reason, got, want)

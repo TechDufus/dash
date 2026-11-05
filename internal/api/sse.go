@@ -86,19 +86,29 @@ func (e *sseWriter) pings(ctx context.Context, interval time.Duration, alive fun
 	}
 }
 
-// sessionAlive reports whether the session a stream was opened with still signs its request in:
-// a logout ("Log out" bumps the user's epoch, "Log out everywhere" the global one) or an expiry
-// must end a stream that is already open, not only the next request. Only a stream of a session
-// principal is checked; proxy, none, dev, demo and the anonymous viewer have no session to lose.
-// The answer comes from the same authenticator as authn, with the request's own cookie, so the
-// stream ends at the first heartbeat after the revocation.
+// sessionAlive reports whether the session or the token a stream was opened with still signs its
+// request in: a logout ("Log out" bumps the user's epoch, "Log out everywhere" the global one),
+// an expiry or a token's revocation (contract D13) must end a stream that is already open, not
+// only the next request. Only streams of session and token principals are checked; proxy, none,
+// dev, demo and the anonymous viewer have no credential to lose. The answer comes from the same
+// authenticator or resolver as authn, with the request's own cookie or token (at the audience it
+// was opened with: a plugin's router has cut the path), so the stream ends at the first
+// heartbeat after the revocation.
 func (s *Server) sessionAlive(r *http.Request) bool {
 	opened := principalFrom(r.Context())
-	if opened.Kind != auth.KindSession {
-		return true
+	switch opened.Kind {
+	case auth.KindSession:
+		p, _, fail := s.authenticate(r)
+		return fail == nil && p.Kind == auth.KindSession && p.User == opened.User
+	case auth.KindToken:
+		token, ok := auth.Bearer(r)
+		if !ok || s.d.Tokens == nil {
+			return false
+		}
+		p, err := s.d.Tokens.Resolve(token, opened.Audience)
+		return err == nil && p.TokenID == opened.TokenID
 	}
-	p, _, fail := s.authenticate(r)
-	return fail == nil && p.Kind == auth.KindSession && p.User == opened.User
+	return true
 }
 
 func (s *Server) stream(w http.ResponseWriter, r *http.Request) {

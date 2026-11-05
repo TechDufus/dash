@@ -95,11 +95,12 @@ func (p *Proxy) TrustsPeer(r *http.Request) bool {
 }
 
 // Authenticate implements Authenticator. The order is the one of the design: a Bearer credential
-// is refused first and the identity headers play no part in it; then the TCP peer must be
-// trusted before any identity header is read; then the first user header names the user.
+// is refused first and the identity headers play no part in it (the API resolves bearer tokens
+// before it asks this authenticator); then the TCP peer must be trusted before any identity
+// header is read; then the first user header names the user.
 func (p *Proxy) Authenticate(r *http.Request) (Principal, *Failure) {
 	if _, ok := Bearer(r); ok {
-		return Principal{}, &Failure{Status: http.StatusUnauthorized, Code: CodeInvalidToken, Reason: ReasonBearerRefused}
+		return Principal{}, &Failure{Status: http.StatusUnauthorized, Code: CodeInvalidToken, Reason: ReasonInvalidToken}
 	}
 	peer, ok := PeerOf(r)
 	if !ok || !p.trust.Trusts(peer) {

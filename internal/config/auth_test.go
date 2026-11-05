@@ -107,6 +107,9 @@ func TestAuthSectionEnvNames(t *testing.T) {
 		"DASH_AUTH_OIDC_ADMIN_USERS":       {"auth.oidc.adminUsers", "list of strings (JSON)", "", false, `["alice"]`, []string{"alice"}},
 		"DASH_AUTH_OIDC_ADMIN_GROUPS":      {"auth.oidc.adminGroups", "list of strings (JSON)", "", false, `["ops"]`, []string{"ops"}},
 		"DASH_AUTH_NONE_ALLOW_REMOTE":      {"auth.none.allowRemote", "boolean", "", true, "true", true},
+		"DASH_AUTH_TOKENS": {"auth.tokens", "list of objects (JSON)", "", false,
+			`[{"name":"ci","role":"viewer","audience":"api","scopes":["read"],"hash":"sha256:` + strings.Repeat("ab", 32) + `"}]`,
+			[]StaticToken{{Name: "ci", Role: "viewer", Audience: "api", Scopes: []string{"read"}, Hash: "sha256:" + strings.Repeat("ab", 32)}}},
 	}
 	// Nothing else is generated under auth: a key added without its row fails here.
 	for name, v := range byEnv {

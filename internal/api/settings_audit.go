@@ -60,7 +60,7 @@ func (s *Server) getSettingsAudit(w http.ResponseWriter, r *http.Request) {
 		e := model.AuditEntry{
 			Time: rec.Time, Kind: model.AuditKind(rec.Kind), ID: rec.ID, Action: rec.Action, Fields: rec.Fields,
 			Result: rec.Result, Error: rec.Error, Plugin: rec.Plugin, Reason: rec.Reason, Peer: rec.Peer, RequestID: rec.RequestID,
-			Actor: model.AuditActor{Type: rec.Actor.Type, User: rec.Actor.User, Surface: rec.Actor.Surface},
+			Actor: model.AuditActor{Type: rec.Actor.Type, User: rec.Actor.User, Surface: rec.Actor.Surface, TokenID: rec.Actor.TokenID},
 		}
 		if rec.Target != (audit.Target{}) {
 			e.Target = &model.AuditTarget{Kind: rec.Target.Kind, Namespace: rec.Target.Namespace, Name: rec.Target.Name}

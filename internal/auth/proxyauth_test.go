@@ -163,8 +163,8 @@ func TestBearerIgnoresIdentityHeaders(t *testing.T) {
 			t.Errorf("%s: authenticated as %+v", tc.name, got)
 			continue
 		}
-		if f.Status != http.StatusUnauthorized || f.Code != CodeInvalidToken || f.Reason != ReasonBearerRefused {
-			t.Errorf("%s: failure = %+v, want 401 invalid_token/bearer_refused", tc.name, f)
+		if f.Status != http.StatusUnauthorized || f.Code != CodeInvalidToken || f.Reason != ReasonInvalidToken {
+			t.Errorf("%s: failure = %+v, want 401 invalid_token", tc.name, f)
 		}
 		if got.User != "" {
 			t.Errorf("%s: the refusal still names %q", tc.name, got.User)
@@ -186,8 +186,8 @@ func TestBearerIgnoresIdentityHeaders(t *testing.T) {
 		{"Authorization", "Bearer x", "Authorization", "Basic YWxpY2U6cHc=", "X-Forwarded-User", "alice"},
 	} {
 		got, f := p.Authenticate(request("127.0.0.1:1", kv...))
-		if f == nil || f.Status != http.StatusUnauthorized || f.Code != CodeInvalidToken || f.Reason != ReasonBearerRefused || got.User != "" {
-			t.Errorf("%q: %+v %+v, want 401 invalid_token/bearer_refused", kv, got, f)
+		if f == nil || f.Status != http.StatusUnauthorized || f.Code != CodeInvalidToken || f.Reason != ReasonInvalidToken || got.User != "" {
+			t.Errorf("%q: %+v %+v, want 401 invalid_token", kv, got, f)
 		}
 	}
 }

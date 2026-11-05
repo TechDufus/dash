@@ -2,6 +2,7 @@
 package api
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -112,11 +113,15 @@ type Deps struct {
 	Audit   *audit.Log // nil logs to slog only
 	// Auth resolves the principal of every /api request. It is required: New panics without one.
 	Auth auth.Authenticator
+	// Tokens resolves bearer credentials ahead of Auth (contract D2); nil in auth.mode=none,
+	// where a Bearer header is ignored like every other credential.
+	Tokens TokenResolver
 
 	// The session modes (auth.mode local and oidc); every field is nil in the other modes.
 	// Sessions issues and clears the session cookie (login, setup, the OIDC callback, logout).
 	Sessions *session.Manager
-	// Credentials holds the session epochs (logout bumps them) and the local account.
+	// Credentials holds the personal access tokens in every mode but none (contract D1), and in
+	// the session modes the session epochs (logout bumps them) and the local account.
 	Credentials *credentials.Store
 	// Local is the local mode's login machinery; nil unless auth.mode=local.
 	Local *localauth.Local
@@ -141,6 +146,7 @@ type Server struct {
 	sseWrite    time.Duration  // deadline of each SSE write
 	bodyTimeout time.Duration  // longest a request body may take to arrive
 	actionLimit *rateLimiter   // framework actions per principal
+	tokenLimit  *tokenBucket   // requests per api token (design M.5)
 	testLimit   *rateLimiter   // settings connection tests per principal
 	openTarget  *rateLimiter   // stream-open audit records per user and target
 	openUser    *rateLimiter   // stream-open audit records per user
@@ -167,6 +173,7 @@ func New(d Deps) *Server {
 		tails:   newStreamLimiter(l.TailsPerUser, l.Tails),
 		tailMax: l.TailMaxDuration, sseWrite: l.SSEWriteTimeout, bodyTimeout: l.BodyReadTimeout,
 		actionLimit: newRateLimiter(actionRateLimit, actionRateWindow, maxRateKeys),
+		tokenLimit:  newTokenBucket(tokenRate, tokenBurst, maxRateKeys),
 		testLimit:   newRateLimiter(settingsTestRateLimit, settingsTestRateWindow, maxRateKeys),
 		openTarget:  newRateLimiter(1, openRecordWindow, maxRateKeys),
 		openUser:    newRateLimiter(openRecordPerUser, openRecordWindow, maxRateKeys),
@@ -244,9 +251,12 @@ func firstOf(r *http.Request, keys ...string) string {
 	return ""
 }
 
-// me answers GET /api/v1/me (design L.4). Scopes are what the role allows: read and logs (not
-// logs for the anonymous viewer, which every log route refuses), and actions:<plugin> for each
-// instance with mounted actions. mcp, push and oauth are phase 7.
+// me answers GET /api/v1/me (design L.4). For a person, scopes are what they may put on a token
+// (Settings -> Tokens offers exactly these): read and logs (only read for the anonymous viewer,
+// which every log route refuses), and for an administrator actions:<plugin> for each instance
+// with mounted actions. For a token they are its own scopes. capabilities.actions says whether
+// the principal can run some action, capabilities.tokens whether it may create personal access
+// tokens. mcp, push and oauth are later releases.
 func (s *Server) me(w http.ResponseWriter, r *http.Request) {
 	p := principalFrom(r.Context())
 	scopes := []string{"read", "logs"}
@@ -254,11 +264,12 @@ func (s *Server) me(w http.ResponseWriter, r *http.Request) {
 		scopes = []string{"read"}
 	}
 	me := model.Me{
-		User: p.User, Role: string(p.Role), AuthMode: s.authMode(p), Audience: "api", Version: s.d.Version,
+		User: p.User, Role: string(p.Role), AuthMode: s.authMode(p), Audience: cmp.Or(p.Audience, "api"), Version: s.d.Version,
 		Scopes: scopes,
 		// Every principal reads /me: a URL's userinfo (credentials) is never in it.
-		UI:       model.MeUI{IconBaseURL: config.RedactURLs(s.d.Cfg.IconBaseURL).(string)},
-		Warnings: []string{},
+		UI:           model.MeUI{IconBaseURL: config.RedactURLs(s.d.Cfg.IconBaseURL).(string)},
+		Warnings:     []string{},
+		Capabilities: model.MeCapabilities{Tokens: p.Interactive() && s.tokensAvailable()},
 	}
 	// Standing warnings of the authenticator, for the SPA's banners. admin_wildcard and auth_none
 	// go to everyone, as they always did; anonymous_viewer and oidc_open are for administrators,
@@ -273,15 +284,30 @@ func (s *Server) me(w http.ResponseWriter, r *http.Request) {
 	}
 	if s.d.Plugins != nil {
 		for _, pi := range s.d.Plugins.Infos() {
-			// An action the principal's role cannot run grants neither its scope nor the capability:
-			// a viewer is not offered controls the server would refuse (design D5).
-			if slices.ContainsFunc(pi.Actions, func(a model.ActionInfo) bool { return p.Role.AtLeast(auth.Role(a.MinRole)) }) {
+			// An action the principal's role cannot run grants no capability: a viewer is not offered
+			// controls the server would refuse (design D5).
+			if !p.HasScope("actions:"+pi.ID) || !slices.ContainsFunc(pi.Actions, func(a model.ActionInfo) bool { return p.Role.AtLeast(auth.Role(a.MinRole)) }) {
+				continue
+			}
+			me.Capabilities.Actions = true
+			// The actions scope is an administrator's (design M.3).
+			if p.Role.AtLeast(auth.RoleAdmin) {
 				me.Scopes = append(me.Scopes, "actions:"+pi.ID)
-				me.Capabilities.Actions = true
 			}
 		}
 	}
+	if p.Kind == auth.KindToken {
+		me.Scopes = append([]string{}, p.Scopes...) // a token's own scopes, as it was created
+	}
 	writeJSON(w, http.StatusOK, me)
+}
+
+// tokensAvailable reports whether this dash keeps a personal access token it creates (contract
+// D1): a credential store that outlives the process, or the in-memory one of dev and demo,
+// whose tokens are documented as lost at restart. Without a store (auth.mode=none) or a
+// writable data dir in local, oidc and proxy mode, it does not.
+func (s *Server) tokensAvailable() bool {
+	return s.d.Tokens != nil && s.d.Credentials != nil && (s.d.Credentials.Persistent() || s.d.Cfg.Dev || s.d.Cfg.Demo)
 }
 
 // adminOnlyWarning reports whether Me carries the warning to administrators only.

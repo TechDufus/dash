@@ -47,10 +47,12 @@ func minRoleEnv(t *testing.T, mod func(*Deps)) *pluginEnv {
 func TestMeFiltersScopesAndCapabilitiesByActionMinRole(t *testing.T) {
 	e := minRoleEnv(t, nil)
 
-	t.Run("a viewer gets only what a viewer may run", func(t *testing.T) {
+	t.Run("a viewer may run a viewer's action but mints no actions scope", func(t *testing.T) {
 		me := meAs(t, e.Server, auth.RoleViewer)
-		if slices.Contains(me.Scopes, "actions:adm") || !slices.Contains(me.Scopes, "actions:vwr") {
-			t.Errorf("scopes = %v, want actions:vwr and not actions:adm", me.Scopes)
+		// Scopes are what the person may put on a token (Settings -> Tokens): actions:* is an
+		// administrator's.
+		if !slices.Equal(me.Scopes, []string{"read", "logs"}) {
+			t.Errorf("scopes = %v, want read and logs only", me.Scopes)
 		}
 		if !me.Capabilities.Actions {
 			t.Error("capabilities.actions is false although the viewer has an action")

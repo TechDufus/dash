@@ -134,6 +134,7 @@ func run(reg *secret.Registry, onBound func(api, health net.Addr)) error {
 	fw := newFramework(res, store, config.ReloadOptions{}, reg, refs, transport, route, cfg.Demo)
 	h, sup, reloader := fw.hub, fw.sup, fw.reloader
 	fw.reloadAuth(pa.proxy)
+	fw.reloadTokens(pa.tokens)
 	if pa.sess != nil {
 		fw.reloadOIDC(pa.sess.roles)
 	}

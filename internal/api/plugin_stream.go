@@ -1,6 +1,7 @@
 package api
 
 import (
+	"cmp"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -34,8 +35,9 @@ func (s *Server) routeGuard() plugin.RouteGuard {
 
 // serveRoute applies the read policy to one plugin route, in this order: the role, the
 // anonymous viewer's exclusion from every route of scope logs (the log reads and tails: a visitor
-// who never signed in reads the dashboard, never logs), the namespace the request targets against
-// the instance's ReadDenyNamespaces (403, audited), then for a plain route its handler, and for a
+// who never signed in reads the dashboard, never logs), a token's scope (the route's, read when
+// it names none; 403 insufficient_scope), the namespace the request targets against the
+// instance's ReadDenyNamespaces (403, audited), then for a plain route its handler, and for a
 // stream the stream pipeline. The namespace check comes before a stream takes a slot, so a denied
 // tail answers 403 even when every slot is taken.
 func (s *Server) serveRoute(w http.ResponseWriter, r *http.Request, mr plugin.MountedRoute, next http.HandlerFunc) {
@@ -43,6 +45,11 @@ func (s *Server) serveRoute(w http.ResponseWriter, r *http.Request, mr plugin.Mo
 	if !p.Role.AtLeast(auth.RoleViewer) || (p.Kind == auth.KindAnonymous && mr.Info.Spec.Scope == "logs") {
 		s.denyRoute(r, obs.AuthForbidden, mr.Instance)
 		writeErr(w, http.StatusForbidden, model.ErrCodeForbidden, "forbidden")
+		return
+	}
+	if scope := cmp.Or(mr.Info.Spec.Scope, "read"); !p.HasScope(scope) {
+		s.denyRoute(r, obs.AuthInsufficientScope, mr.Instance)
+		writeErr(w, http.StatusForbidden, model.ErrCodeInsufficientScope, "this token lacks the "+scope+" scope")
 		return
 	}
 	if f := mr.Info.Spec.Namespace; f != nil {
@@ -163,7 +170,8 @@ func (s *Server) servePluginStream(w http.ResponseWriter, r *http.Request, mr pl
 	if mr.Context != nil {
 		defer context.AfterFunc(mr.Context, cancel)()
 	}
-	// The heartbeat also ends the stream (cancel) when the session it was opened with is revoked.
+	// The heartbeat also ends the stream (cancel) when the session or the token it was opened
+	// with is revoked.
 	st := &pluginStream{s: s, w: w, ctx: ctx, end: cancel, alive: func() bool { return s.sessionAlive(r) }}
 	// The heartbeat writes to w, so it must be finished before the handler returns.
 	defer st.finish()

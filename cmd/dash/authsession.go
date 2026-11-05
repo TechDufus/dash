@@ -18,6 +18,7 @@ import (
 	"github.com/TechDufus/dash/internal/oidcauth"
 	"github.com/TechDufus/dash/internal/secret"
 	"github.com/TechDufus/dash/internal/session"
+	"github.com/TechDufus/dash/internal/tokens"
 )
 
 // errLocalNeedsState is the refusal of auth.mode=local when the account can neither be created
@@ -34,11 +35,18 @@ type processAuth struct {
 	// local, oidc and proxy mode, in memory in dev and demo or without a writable data dir; nil
 	// in auth.mode=none, which has no tokens.
 	store *credentials.Store
+	// tokens resolves bearer credentials (contract D2): the store's personal access tokens and
+	// auth.tokens; nil in auth.mode=none, like store.
+	tokens *tokens.Resolver
 }
 
-// deps hands the authenticator, the credential store and the session machinery to the API.
+// deps hands the authenticator, the token resolver, the credential store and the session
+// machinery to the API.
 func (p processAuth) deps(d *api.Deps) {
 	d.Auth, d.Credentials = p.authn, p.store
+	if p.tokens != nil { // a nil *Resolver in the interface would not be a nil TokenResolver
+		d.Tokens = p.tokens
+	}
 	if s := p.sess; s != nil {
 		d.Sessions, d.Local, d.OIDC = s.sessions, s.local, s.oidc
 	}
@@ -59,34 +67,48 @@ type sessionEnv struct {
 	secrets   *secret.Registry // cuts the IdP's error text (oidcauth.Config.Secrets); nil = shapes only
 }
 
-// startAuth builds the authenticator auth.mode selects and opens the credential store. Dev and
-// demo outrank the mode (buildAuthenticator) and keep their store in memory; the session modes
-// derive the session key from theirs; auth.mode=none opens none.
+// startAuth builds the authenticator auth.mode selects, opens the credential store and builds
+// the token resolver over it. Dev and demo outrank the mode (buildAuthenticator) and keep their
+// store in memory; the session modes derive the session key from theirs; auth.mode=none opens
+// none and resolves no token. A token owner's role is derived with the mode's live mapping.
 func startAuth(res *config.Resolved, env sessionEnv, log *slog.Logger) (processAuth, error) {
-	_, fixed := fixedPrincipal(res.Config)
+	fixedP, fixed := fixedPrincipal(res.Config)
+	var pa processAuth
+	var roles *auth.RoleHolder
 	if !fixed && config.SessionMode(res.Tree.Auth.Mode) {
 		s, err := buildSessionAuth(res, env, log)
 		if err != nil {
 			return processAuth{}, err
 		}
-		return processAuth{authn: s.authn, sess: s, store: s.store}, nil
+		pa, roles = processAuth{authn: s.authn, sess: s, store: s.store}, s.tokenRoles
+	} else {
+		if env.adminHash != "" {
+			log.Warn("DASH_ADMIN_PASSWORD_HASH is ignored: dash is not in auth.mode=local")
+		}
+		a, p, err := buildAuthenticator(res, log)
+		if err != nil {
+			return processAuth{}, err
+		}
+		pa = processAuth{authn: a, proxy: p}
+		switch {
+		case fixed:
+			pa.store, err = credentials.OpenMemory()
+			roles = auth.NewRoleHolder(auth.RoleMap{AdminUsers: []string{fixedP.User}})
+		case res.Tree.Auth.Mode == config.AuthModeProxy:
+			pa.store, err = credentials.Open(res.Config.DataDir)
+			roles = p.Roles()
+		}
+		if err != nil {
+			return processAuth{}, fmt.Errorf("credentials store: %w", err)
+		}
 	}
-	if env.adminHash != "" {
-		log.Warn("DASH_ADMIN_PASSWORD_HASH is ignored: dash is not in auth.mode=local")
-	}
-	a, p, err := buildAuthenticator(res, log)
-	if err != nil {
-		return processAuth{}, err
-	}
-	pa := processAuth{authn: a, proxy: p}
-	switch {
-	case fixed:
-		pa.store, err = credentials.OpenMemory()
-	case res.Tree.Auth.Mode == config.AuthModeProxy:
-		pa.store, err = credentials.Open(res.Config.DataDir)
-	}
-	if err != nil {
-		return processAuth{}, fmt.Errorf("credentials store: %w", err)
+	if pa.store != nil {
+		pa.tokens = tokens.New(pa.store, roles, res.Tree.Auth.Tokens, env.now)
+		if n := len(res.Tree.Auth.Tokens); n > 0 {
+			log.Info("auth: static tokens", "count", n)
+		}
+	} else if len(res.Tree.Auth.Tokens) > 0 {
+		log.Warn("auth.tokens is ignored: auth.mode=none resolves no bearer token")
 	}
 	return pa, nil
 }
@@ -101,6 +123,9 @@ type sessionAuth struct {
 	// roles is the live role map of the oidc mode, which a reload replaces (reloadOIDC); nil in
 	// the local mode, whose one account is the administrator.
 	roles *auth.RoleHolder
+	// tokenRoles is the mapping a personal access token owner's role is derived with: roles in
+	// the oidc mode, the one administrator in the local mode.
+	tokenRoles *auth.RoleHolder
 }
 
 // buildSessionAuth opens the credential store of the data dir (another dash holding it is
@@ -140,6 +165,7 @@ func buildSessionAuth(res *config.Resolved, env sessionEnv, log *slog.Logger) (_
 			return nil, err
 		}
 		roles := auth.NewRoleHolder(auth.RoleMap{AdminUsers: []string{a.Local.AdminUser}})
+		s.tokenRoles = roles
 		s.authn = session.NewAuthenticator(session.AuthOptions{Mode: auth.ModeLocal, Sessions: s.sessions, Roles: roles, Anonymous: a.Local.AnonymousViewer, SetupNeeded: s.local.SetupNeeded, OnlyUser: a.Local.AdminUser})
 		log.Info("auth: local mode", "persistent", store.Persistent(), "envManaged", s.local.Account.EnvManaged(),
 			"setupNeeded", s.local.SetupNeeded(), "anonymousViewer", a.Local.AnonymousViewer, "sessionsSurviveRestart", durable)
@@ -150,6 +176,7 @@ func buildSessionAuth(res *config.Resolved, env sessionEnv, log *slog.Logger) (_
 		if err := s.buildOIDC(res, env, log); err != nil {
 			return nil, err
 		}
+		s.tokenRoles = s.roles
 		log.Info("auth: oidc mode", "issuer", s.oidc.IssuerHost(), "allowedUsers", len(a.OIDC.AllowedUsers), "allowedGroups", len(a.OIDC.AllowedGroups),
 			"adminUsers", len(a.OIDC.AdminUsers), "adminGroups", len(a.OIDC.AdminGroups), "adminRoles", len(a.OIDC.AdminRoles), "sessionsSurviveRestart", durable)
 	default:

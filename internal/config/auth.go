@@ -22,14 +22,17 @@ const (
 )
 
 // AuthConfig is the auth section: how dash learns who is making a request and what that person
-// may do (design E.2, E.4). Every key is a restart setting except the admin lists, which a
-// reload applies to the next request.
+// may do (design E.2, E.4). Every key is a restart setting except the admin lists and the static
+// tokens, which a reload applies to the next request.
 type AuthConfig struct {
 	Mode  string          `json:"mode" dash:"restart,enum=proxy|none|local|oidc" doc:"How dash learns who is making a request. proxy: an identity proxy in front of dash (oauth2-proxy, Authelia, Authentik) forwards the user name in a header, and dash believes it only from the peers in auth.proxy.trustedProxies. local: one administrator account (auth.local.adminUser) signs in at /login with a password; the first start prints a one-time setup link, or DASH_ADMIN_PASSWORD_HASH supplies the password hash. oidc: users sign in at an OpenID Connect provider (auth.oidc), admitted only by auth.oidc.allowedUsers or allowedGroups. none: no authentication at all, every request is signed in as an administrator named anonymous; dash warns at every start and shows a banner on every page. It refuses to start unless server.listen is a loopback address such as 127.0.0.1:8080 (or auth.none.allowRemote is true), so keep the port reachable only from the machine itself. It is never the default."`
 	Proxy AuthProxyConfig `json:"proxy" doc:"The proxy mode: which headers name the user, which peers are believed, and who is an administrator."`
 	Local AuthLocalConfig `json:"local" doc:"The local mode: the one administrator account and the optional read-only access without signing in."`
 	OIDC  AuthOIDCConfig  `json:"oidc" doc:"The oidc mode: the OpenID Connect provider, who may sign in, and who is an administrator."`
 	None  AuthNoneConfig  `json:"none" doc:"The none mode: whether it may run on a listener other machines can reach."`
+	// Tokens are the static bearer tokens (design M.5). Not a secret: a sha256 of a 256-bit token
+	// reveals nothing.
+	Tokens []StaticToken `json:"tokens" doc:"Static bearer tokens for GitOps installs, as [{name, role, audience, scopes, hash}]: role viewer or admin, audience api or mcp, scopes from read, logs and actions:<plugin> (admin only, never with audience mcp), hash the sha256:<hex> that dash token generate prints next to its dash_st_ token. The principal is token:<name>. Ignored, with a WARN at start, in auth.mode=none. From the file a reload applies a change at once, so removing an entry revokes it; from the environment it needs a restart. A JSON list in the environment."`
 }
 
 // AuthNoneConfig is the none mode of AuthConfig.
@@ -177,6 +180,7 @@ func (a AuthConfig) Validate() error {
 		add("local.anonymousViewer", "is only available in auth.mode=local: the proxy and oidc modes never sign a visitor in without an identity")
 	}
 	a.OIDC.validate(a.Mode == AuthModeOIDC, add)
+	validateTokens(a.Tokens, add)
 	return errors.Join(errs...)
 }
 

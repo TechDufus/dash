@@ -29,8 +29,10 @@ func guardTable(ran *[]string) []Route {
 		}
 	}
 	return []Route{
-		{Method: "GET", Path: "/api/v1/viewer-row", Role: auth.RoleViewer, Handler: h("viewer")},
-		{Method: "GET", Path: "/api/v1/admin-row", Role: auth.RoleAdmin, Handler: h("admin")},
+		{Method: "GET", Path: "/api/v1/viewer-row", Role: auth.RoleViewer, Scope: "read", Handler: h("viewer")},
+		{Method: "GET", Path: "/api/v1/admin-row", Role: auth.RoleAdmin, Scope: "read", Handler: h("admin")},
+		{Method: "GET", Path: "/api/v1/logs-row", Role: auth.RoleViewer, Scope: "logs", Handler: h("logs")},
+		{Method: "GET", Path: "/api/v1/unscoped-row", Role: auth.RoleViewer, Handler: h("unscoped")},
 		{Method: "GET", Path: "/api/v1/person-row", Role: auth.RoleViewer, Interactive: true, Handler: h("person")},
 		{Path: "/public", Infra: true, Handler: h("public")},
 	}
@@ -39,7 +41,7 @@ func guardTable(ran *[]string) []Route {
 func TestGuardRefusesBelowTheRouteRole(t *testing.T) {
 	proxyAdmin := auth.Principal{Kind: auth.KindProxy, User: "ada", Role: auth.RoleAdmin}
 	proxyViewer := auth.Principal{Kind: auth.KindProxy, User: "vera", Role: auth.RoleViewer}
-	token := auth.Principal{Kind: auth.KindToken, User: "token:ci", Role: auth.RoleAdmin}
+	token := auth.Principal{Kind: auth.KindToken, User: "token:ci", Role: auth.RoleAdmin, Scopes: []string{"read"}}
 	unknown := auth.Principal{Kind: auth.KindProxy, User: "who", Role: "root"}
 
 	for _, tc := range []struct {
@@ -57,6 +59,9 @@ func TestGuardRefusesBelowTheRouteRole(t *testing.T) {
 		{"an unknown role on a viewer row", "/api/v1/viewer-row", &unknown, 403, ""},
 		{"a token on a row that is not interactive", "/api/v1/admin-row", &token, 204, "admin"},
 		{"a token on an interactive row", "/api/v1/person-row", &token, 403, ""},
+		{"a token without the row's scope", "/api/v1/logs-row", &token, 403, ""},
+		{"a token on a row without a scope", "/api/v1/unscoped-row", &token, 403, ""},
+		{"a person on a logs row", "/api/v1/logs-row", &proxyViewer, 204, "logs"},
 		{"a person on an interactive row", "/api/v1/person-row", &proxyViewer, 204, "person"},
 		{"a row without a role is public", "/public", nil, 204, "public"},
 	} {
@@ -74,7 +79,11 @@ func TestGuardRefusesBelowTheRouteRole(t *testing.T) {
 				t.Fatalf("status = %d %s, want %d", w.Code, w.Body, tc.want)
 			}
 			if tc.want == http.StatusForbidden {
-				wantError(t, w, http.StatusForbidden, model.ErrCodeForbidden)
+				code := model.ErrCodeForbidden
+				if tc.p != nil && tc.p.Kind == auth.KindToken && tc.path != "/api/v1/person-row" {
+					code = model.ErrCodeInsufficientScope
+				}
+				wantError(t, w, http.StatusForbidden, code)
 			}
 			if got := append([]string(nil), ran...); (tc.ran == "") != (len(got) == 0) || (tc.ran != "" && got[0] != tc.ran) {
 				t.Errorf("handlers that ran = %v, want %q", got, tc.ran)

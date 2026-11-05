@@ -164,6 +164,9 @@ func (b *specBuilder) operation(r Route) object {
 		"operationId": r.ID, "summary": r.Summary, "tags": []string{r.Tag},
 		"x-dash-min-role": string(r.Role),
 	}
+	if r.Description != "" {
+		op["description"] = r.Description
+	}
 	if r.Scope != "" {
 		op["x-dash-scope"] = r.Scope
 	}

@@ -123,7 +123,7 @@ func TestBearerIsRefusedBeforeTheCookie(t *testing.T) {
 	for _, r := range []*http.Request{withCookies(c), withCookies(), requestWith(http.MethodHead)} {
 		r.Header.Set("Authorization", "Bearer x")
 		p, cookie, fail := a.AuthenticateCookie(r)
-		wantFailure(t, fail, auth.CodeInvalidToken, auth.ReasonBearerRefused)
+		wantFailure(t, fail, auth.CodeInvalidToken, auth.ReasonInvalidToken)
 		if cookie != nil || p.User != "" {
 			t.Fatalf("bearer: principal %+v cookie %v", p, cookie)
 		}
