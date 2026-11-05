@@ -3,7 +3,7 @@
 // the build is CSP-ready (a strict `style-src`/`script-src`/`font-src` needs no 'unsafe-inline' and
 // no `data:`): no `url(data:` in built CSS, no inline <script> or <style> in index.html, and the
 // `csp-nonce` meta the server templates. And the PWA files: the manifest and apple-touch-icon links
-// in index.html and the files the manifest names.
+// in index.html, the files the manifest names, and dist/sw.js with its precache list.
 //
 // For each page the script needs (a) a file dist/assets/<page>-<hash>.js and (b) a string that
 // only that page renders, absent from the entry chunk. The strings are literals from the page's
@@ -97,6 +97,35 @@ for (const file of [
 ]) {
   if (!existsSync(join(dist, file))) {
     problems.push(`dist/${file} is missing`);
+  }
+}
+// The service worker (vite-plugins/service-worker.ts): dist/sw.js exists, and its precache list
+// holds only /assets/*, /offline.html and the PNG icons (never index.html, whose nonce is per
+// response, and never /api, /oauth or /mcp), every one a file in dist, with every asset in it.
+if (!existsSync(join(dist, "sw.js"))) {
+  problems.push("dist/sw.js is missing (vite-plugins/service-worker.ts emits it)");
+} else {
+  const sw = readFileSync(join(dist, "sw.js"), "utf8");
+  const list = /^const PRECACHE = (\[.*\]);$/m.exec(sw)?.[1];
+  const precache = list ? JSON.parse(list) : [];
+  if (!list) {
+    problems.push("dist/sw.js has no `const PRECACHE = [...]` line (an unfilled placeholder?)");
+  }
+  if (!/^const BUILD = "[0-9a-f]{16}";$/m.test(sw)) {
+    problems.push("dist/sw.js has no build hash");
+  }
+  if (!precache.includes("/offline.html")) {
+    problems.push("dist/sw.js does not precache /offline.html");
+  }
+  for (const url of precache) {
+    if (!/^\/(?:assets\/[^/]+|offline\.html|icons\/[^/]+\.png)$/.test(url)) {
+      problems.push(`dist/sw.js precaches ${url}: only /assets/*, /offline.html and icons may be`);
+    } else if (!existsSync(join(dist, url))) {
+      problems.push(`dist/sw.js precaches ${url}, which is not in dist`);
+    }
+  }
+  for (const f of assets.filter((a) => !precache.includes(`/assets/${a}`))) {
+    problems.push(`dist/assets/${f} is not in the precache list of dist/sw.js`);
   }
 }
 for (const [page, marker] of Object.entries(PAGES)) {

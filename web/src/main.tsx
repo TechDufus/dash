@@ -7,7 +7,7 @@ import { App } from "@/App";
 import { queryClient } from "@/api/queries";
 import { startStream } from "@/api/stream";
 import { PublicApp } from "@/auth/public-app";
-import { boot } from "@/boot";
+import { boot, registerServiceWorker } from "@/boot";
 import { installChunkReload } from "@/plugins/chunk-reload";
 import { pluginsQuery } from "@/plugins/state";
 import "@/styles/globals.css";
@@ -18,6 +18,10 @@ import "sonner/dist/styles.css";
 const shell = boot(window.location.pathname, {
   installChunkReload: () => {
     installChunkReload();
+  },
+  // Only a build has /sw.js; the dev server would answer it with the SPA.
+  registerServiceWorker: () => {
+    if (import.meta.env.PROD) registerServiceWorker();
   },
   startStream,
   prefetchPlugins: () => void queryClient.prefetchQuery(pluginsQuery),

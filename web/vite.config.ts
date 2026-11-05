@@ -2,10 +2,12 @@ import { fileURLToPath, URL } from "node:url";
 import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
 import { defineConfig } from "vite";
+import { serviceWorker } from "./vite-plugins/service-worker.ts";
 import { staticSonner } from "./vite-plugins/static-sonner.ts";
 
 export default defineConfig({
-  plugins: [staticSonner(), react(), tailwindcss()],
+  // serviceWorker emits dist/sw.js (web/sw/sw.js with the precache list and the build hash).
+  plugins: [staticSonner(), react(), tailwindcss(), serviceWorker()],
   resolve: {
     alias: { "@": fileURLToPath(new URL("./src", import.meta.url)) },
   },

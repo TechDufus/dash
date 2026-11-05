@@ -143,6 +143,7 @@ alice and bob): `make check` fails on a lab identifier through the denylist in `
 | `internal/demo` | demo mode: `internal/demo/world` is the fake homelab the plugins' demo twins publish from (the demo's user is the fixed principal `auth.Fixed` builds in `cmd/dash`) |
 | `web/` | React 19, Vite, Tailwind v4, shadcn/ui and Magic UI |
 | `web/src/plugins` | the SPA's plugin modules, registry, slots and generic panels; a module's directory name is its plugin ID |
+| `web/sw` | the service worker, hand-written; `web/vite-plugins/service-worker.ts` emits it as `dist/sw.js` with the precache list and the build hash |
 
 ## Screenshots
 
