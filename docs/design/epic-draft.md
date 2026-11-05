@@ -1955,6 +1955,36 @@ R2 of G6: P6.6 and P6.8. A patch: CI ready for a public repository, five HTTP/2 
 
 **Docs (two rounds):** the quick start ran verbatim with a write; `make screenshots` reproduced the committed images; all eleven images were inspected. The review found that the quick start's writes failed with `csrf_failed`, fixed by the new default.
 
+### G6 R3 deviations (v0.14.4)
+
+R3 (branch `feat/g6-docs`: the generated plugin pages, the security model with the link check, the README rewrite, a test fix, the version, then this docs commit) ships P6.3 and differs from it in these places.
+
+| Item | The plan said | Shipped | Why |
+|---|---|---|---|
+| README | A new README with an intro, features, quick start, screenshots and links to docs | A 150-line README (was 856) that links out; every fact of the old one moved first: the configuration prose to `internal/config/configuration.intro.md` (the top of the generated `docs/configuration.md`), plugin facts to `cmd/dash/plugindocs`, and `docs/operations.md`, `docs/upgrading.md`, `docs/api/README.md` and `docs/development.md` for the rest | The owner's taste (Omarchy): a short front page and a manual of linked pages. Code and tests that cited the README (the removed-variables error, the generated page, the enabled-doc tests, the `HL_OP` allowlist entry, templates and comments) point at the new pages |
+| Generated docs | `docs/configuration.md` and `docs/plugins/<id>.md` generated from the schemas | `dash docs plugins` writes each page from the plugin's manifest and settings, two hand-kept tables (the web panels and the RBAC rules) and the prose in `cmd/dash/plugindocs/<id>.md`; `make check` diffs them, and tests hold the panel table to the web registry and the RBAC table to the rendered chart | The schema alone cannot say what a page shows, what a plugin needs or what it may do. A misspelled section heading in the prose, a heading inside a code block and a failed input schema are errors, not silent output |
+| Link check | Lychee or equivalent, in CI | lychee 0.24.2, pinned by sha256 in `scripts/ci/tools.sh` and verified on every run: offline (relative links and anchors) in `make check`, the web links with retries in `make scan`. Both CI jobs download it into the job's temp dir | Offline keeps `make check` free of the network apart from the first download; the web links need retries and run where the other networked scans run |
+| `docs/security.md` | Listed beside the generated pages | Hand-written, with no generated part; it links the generated plugin pages for actions and RBAC rather than repeating them, and lists what is not built yet as `SECURITY.md` does | It states behaviour across packages (auth, sessions, requests, upstream clients, audit) that no schema holds; its claims were probed against the binary |
+| Chart version check | Not planned (P6.7 owns releases) | The release job's first step fails unless the tag equals `Chart.yaml`'s `version` and `appVersion`; the documented version pins, which had drifted between 0.14.0 and 0.14.1, all name 0.14.4 | The chart and the image share one version, and nothing enforced it |
+
+#### v0.14.4 release notes
+
+R3 of G6: P6.3. A patch: the docs moved, nothing was removed, and no behaviour changed. Image only; nothing to change in the deployment.
+
+- **Docs:** the README is a short front page. The manual is `docs/`: configuration (generated, with a hand-written intro), sign-in, the settings page, the security model, deploy guides, one generated page per plugin, operations, upgrading, the HTTP API and development. Every fact of the old README is in one of them.
+- **Messages:** the error for a removed variable name points at "Removed variable names" in `docs/upgrading.md` instead of the README.
+- **Link check:** `make check` checks the relative links and anchors of every tracked Markdown file; `make scan` checks the web links.
+- **Flake fix:** `TestK8sRefFillStartsTheConsumer` waits for the "plugin started" line, not only for the plugin to run; it had failed 8 of 200 `-race` runs.
+- **Rollback:** revert the image.
+
+**Evidence:** `make check` on every commit, each signed; `go test -race -count=200 -run '^TestK8sRefFillStartsTheConsumer$' ./cmd/dash` passed all 200 runs. The offline link check reports 0 errors.
+
+**Docs (`RevDocs143`):** the README quick starts ran verbatim: demo with a write through the documented URL; `docker run` with setup and sign-in; Compose with the monitoring profile; the Helm render. So did `docs/development.md`'s steps, including the busy-ports recipe. No fact of the old README was lost; four generated plugin pages were checked against the code and regenerate byte for byte; the link check is clean offline and online. It found four false sentences (action refusals all audited, the typed name for protected namespaces, the restart rule's administrator lists, a `k8s:` example binding a missing Role), all fixed.
+
+**Security requirement verification (`RevSec143`):** every claim in `docs/security.md` was probed against the built binary on loopback, the tests and a kind cluster. It found the upstream-access section false for the client-go plugins, plus twelve smaller overstatements, all corrected. The lychee download is verified on every run (tamper probe). An independent 110-term scan of the 59 new or changed files found no private identifiers. The advice to make the secret-key file world-readable now keeps it in a 0700 directory.
+
+**Correctness (`RevCode143`):** the generator is deterministic and drift-checked, with its hand-kept panel and RBAC tables tested against the web registry and the rendered chart. `make check`, `make scan` and the race suite pass. It found silent error paths in the generator, unprefixed error messages, `links.sh` without a bash-version guard, and a test race in the k8s reference test, all fixed.
+
 ### P6.1 test: replace real-lab identifiers in fixtures and add a denylist test
 
 **Body:** rewrite the fixtures in:
