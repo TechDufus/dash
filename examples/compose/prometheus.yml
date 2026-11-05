@@ -1,0 +1,14 @@
+# A minimal Prometheus for the compose example: it scrapes itself and sends alerts to the
+# Alertmanager service. Add your own scrape jobs below.
+global:
+  scrape_interval: 15s
+
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: ["alertmanager:9093"]
+
+scrape_configs:
+  - job_name: prometheus
+    static_configs:
+      - targets: ["localhost:9090"]

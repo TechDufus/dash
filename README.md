@@ -97,6 +97,24 @@ DASH_DEMO=true go run ./cmd/dash             # http://127.0.0.1:8080
 For UI work against the demo data, run `DASH_DEMO=true go run ./cmd/dash` and `make dev-web`,
 then open http://localhost:5173.
 
+## Run with Docker Compose
+
+[`examples/compose`](examples/compose) runs dash on `http://localhost:8080` with a data volume and
+the secret key as a Compose secret; the `monitoring` profile adds Prometheus and Alertmanager.
+The image `ghcr.io/techdufus/dash` is not published yet: build it first from this checkout.
+
+```sh
+docker build --build-arg VERSION=0.14.0 -t ghcr.io/techdufus/dash:0.14.0 .
+cd examples/compose
+mkdir -p -m 0700 secrets && openssl rand -base64 32 > secrets/dash_secret_key && chmod 0644 secrets/dash_secret_key   # dash (uid 65532) reads it through a bind mount; secrets/ is git-ignored
+docker compose --profile monitoring up -d
+docker compose logs dash 2>&1 | grep -m1 'setup token'   # open its url to set the password
+```
+
+Then set Settings → Prometheus → URL to `http://prometheus:9090`. `docker run`, upgrades and
+backups are in [docs/deploy/docker.md](docs/deploy/docker.md); CI runs this example with
+`scripts/ci/compose-smoke.sh`.
+
 ## Configuration
 
 dash reads a YAML config file and `DASH_*` environment variables, and refuses to start when a
