@@ -35,7 +35,11 @@ jobs:
           # No Actions cache: the workflow also runs for release tags, and a cache written by
           # another run could poison what a tag builds (zizmor cache-poisoning).
           cache: false
+      # The link check's lychee, like the scan job's binaries, comes from the job's temp dir:
+      # downloaded and verified afresh, never a copy a self-hosted runner kept.
       - run: make check
+        env:
+          SCAN_TOOLS_DIR: ${{ runner.temp }}/scan-tools
       # Proves the image cross-compiles for both platforms without emulation, whether or not the
       # runner has emulators registered: every RUN must execute on the build platform
       # (linux/amd64, or linux/amd64->arm64 for the cross-compiling stage), and the arm64 Go
@@ -58,9 +62,9 @@ jobs:
           grep -qE '^#[0-9]+ \[linux/amd64->arm64 go [0-9/]+\] RUN .*GOARCH=arm64' <<<"$runs" \
             || { echo "::error::no cross-compiling arm64 Go build in the log"; exit 1; }
   # make scan: gitleaks and trufflehog over the whole history (fetch-depth 0 brings every branch
-  # and tag), govulncheck, actionlint and zizmor. The scanner binaries are pinned by sha256 in
-  # scripts/ci/scan.sh; SCAN_TOOLS_DIR in the job's temp dir makes every run download and verify
-  # them afresh, never reuse a copy a self-hosted runner kept.
+  # and tag), govulncheck, actionlint, zizmor and the web links of the docs (lychee). The binaries
+  # are pinned by sha256 in scripts/ci/tools.sh; SCAN_TOOLS_DIR in the job's temp dir makes every
+  # run download and verify them afresh, never reuse a copy a self-hosted runner kept.
   scan:
     if: github.event_name != 'pull_request' || !github.event.repository.private
     runs-on: ${{ github.event.repository.private && fromJSON('["self-hosted","linux","x64","homelab","dash"]') || 'ubuntu-24.04' }}

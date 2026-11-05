@@ -1,0 +1,22 @@
+# lychee configuration for scripts/ci/links.sh. Every exclusion says why the link is not checked;
+# remove an entry when its reason no longer holds.
+
+# Loopback addresses are the dev and demo URLs the docs tell you to open (localhost:5173,
+# 127.0.0.1:8080): nothing listens there while the check runs.
+exclude_loopback = true
+
+exclude = [
+  # Made-up example hosts (RFC 2606): every URL of a sample config.
+  '^https?://([a-z0-9-]+\.)*example\.(com|org|net)([:/]|$)',
+  # The placeholder of the generated setting docs ("e.g. http://host:9090").
+  '^https?://host(:[0-9]+)?(/|$)',
+  # This repository is private until it goes public (P6.10): github.com answers 404 to anyone
+  # signed out, so its own URLs (security advisories, the source of the image) cannot be checked.
+  # Remove after the flip.
+  '^https://github.com/TechDufus/dash',
+  # Flaky: shields.io renders badges on demand and answers 429 or 5xx to bursts from CI runners.
+  '^https://img\.shields\.io/',
+  # The icon base the docs suggest for ui.iconBaseURL: dash appends "/<name>.png" to it, and the
+  # bare prefix is a directory jsDelivr answers 404 for.
+  '^https://cdn\.jsdelivr\.net/gh/homarr-labs/dashboard-icons/png/?$',
+]

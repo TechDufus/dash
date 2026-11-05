@@ -3,7 +3,7 @@ package pluginconf
 // Gatus is plugins.gatus: endpoint health.
 type Gatus struct {
 	PluginBase
-	URL            string   `json:"url" dash:"url" doc:"Base URL of the service, e.g. http://host:port. Empty turns the source off: dash makes no request and its panels show \"source not configured\"."`
+	URL            string   `json:"url" dash:"url" doc:"Base URL of the service, e.g. http://host:8080. Empty turns the source off: dash makes no request and its panels show \"source not configured\"."`
 	Auth           Auth     `json:"auth" doc:"How dash authenticates to Gatus. Neither basic nor bearerToken sends no credentials."`
 	TLS            TLS      `json:"tls" doc:"How dash verifies Gatus's certificate."`
 	CriticalGroups []string `json:"criticalGroups" doc:"Gatus groups whose failing checks are critical (compared without regard to case); a failing check in any other group is a warning. The Status page lists these groups first. Empty makes every failure a warning. A JSON list in the environment."`

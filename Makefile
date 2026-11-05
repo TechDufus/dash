@@ -39,20 +39,23 @@ web/node_modules/.package-lock.json: web/package-lock.json
 # out of the app's go.mod and image; they come from the module cache like tygo. helm comes from
 # mise.toml. Run from the repository root. The licence policy: no Go package under a forbidden,
 # restricted or unknown licence (go-licenses' classes), and npm runtime licences only from the
-# allowlist in web/scripts/licenses.mjs.
+# allowlist in web/scripts/licenses.mjs. The link check is lychee, pinned in scripts/ci/tools.sh
+# (its first run downloads it from github.com): offline, the relative links and their anchors.
 check: generate
 	git diff --exit-code -- web/src/api/types.ts ':(glob)web/src/plugins/**/model.gen.ts' docs/configuration.md docs/api/openapi.json docs/plugins charts/dash/files/config.schema.json charts/dash/files/secret-env.txt examples/kubernetes/dash.yaml THIRD_PARTY_NOTICES.md
 	test -z "$$(git ls-files --others --exclude-standard -- web/src docs charts examples THIRD_PARTY_NOTICES.md)" || { echo "untracked files: a generated file nobody committed fails, so add or remove them"; git ls-files --others --exclude-standard -- web/src docs charts examples THIRD_PARTY_NOTICES.md; exit 1; }
 	go tool -modfile=tools/go.mod vacuum lint -r docs/api/ruleset.yaml -n warn -q -b --no-update-check docs/api/openapi.json
+	scripts/ci/links.sh offline
 	$(GO_LICENSES) check ./cmd/dash --disallowed_types=forbidden,restricted,unknown $(GO_LICENSES_LOG)
 	go vet ./...
 	go test ./...
 	cd web && npm ci --ignore-scripts && node scripts/licenses.mjs check && npm run check && npm test && npm run build && node scripts/check-chunks.mjs
 
 # Secrets in every commit of every ref (gitleaks, trufflehog), known vulnerabilities reachable from
-# dash (govulncheck) and the workflows (actionlint, zizmor, no pull_request_target, workflow_run or
-# issue_comment trigger). The scanner binaries are pinned by sha256 in the script and cached in
-# SCAN_TOOLS_DIR; govulncheck needs vuln.go.dev, the first run needs github.com.
+# dash (govulncheck), the workflows (actionlint, zizmor, no pull_request_target, workflow_run or
+# issue_comment trigger) and the web links of the docs (lychee). The binaries are pinned by sha256
+# in scripts/ci/tools.sh and cached in SCAN_TOOLS_DIR; govulncheck needs vuln.go.dev, the first
+# run needs github.com, and the link check every host the docs link (scripts/ci/lychee.toml).
 scan:
 	scripts/ci/scan.sh
 

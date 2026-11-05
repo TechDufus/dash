@@ -749,13 +749,15 @@ both dev examples set it, and the service proxy needs `get` and `create` on `ser
 
 Open http://localhost:5173. `make check` runs what CI's `check` job runs: it regenerates the
 generated files and fails if they differ from what is committed (the table below), lints the
-OpenAPI document with vacuum, checks the Go and npm licences against the policy, then runs
-`go vet`, `go test`, `tsc`, Biome, the web tests and the production build.
+OpenAPI document with vacuum, checks the relative links of the docs and their anchors (lychee,
+offline), checks the Go and npm licences against the policy, then runs `go vet`, `go test`,
+`tsc`, Biome, the web tests and the production build.
 
 `make scan` runs CI's `scan` job: gitleaks and trufflehog over every commit of every ref,
-govulncheck, and actionlint and zizmor on the workflows. Its scanner binaries are pinned by
-sha256 in `scripts/ci/scan.sh`; made-up values (test fixtures, doc examples) are allowlisted in
-`.gitleaks.toml` and `scripts/ci/trufflehog-allow.txt`, each with a reason.
+govulncheck, actionlint and zizmor on the workflows, and the web links of the docs (lychee, with
+retries). Its binaries are pinned by sha256 in `scripts/ci/tools.sh`; made-up values (test
+fixtures, doc examples) are allowlisted in `.gitleaks.toml` and `scripts/ci/trufflehog-allow.txt`,
+and links never checked in `scripts/ci/lychee.toml`, each with a reason.
 
 Web tests run on Vitest with jsdom and Testing Library (`cd web && npm test`; `npx vitest` watches).
 Tests sit next to the code as `*.test.ts(x)`. `web/src/test/harness.tsx` has the shared helpers:

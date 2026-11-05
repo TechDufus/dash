@@ -33,7 +33,8 @@ latest minor release receives security fixes, as patch releases.
 ## Scope
 
 In scope is the code in this repository and what it ships: the `dash` binary and image, the web UI
-and the Helm chart in `charts/dash`. In particular:
+and the Helm chart in `charts/dash`. [docs/security.md](docs/security.md) describes the security
+model these protections make up. In particular:
 
 - **The API:** the REST routes under `/api/v1`, the server-sent event streams and log tails, the
   health listener (`/healthz`, `/readyz`, `/metrics`), request limits, the allowed hosts and Origin

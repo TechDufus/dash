@@ -96,7 +96,7 @@
           "type": "string"
         },
         "url": {
-          "description": "Base URL of the service, e.g. http://host:port. Empty turns the source off: dash makes no request and its panels show \"source not configured\".",
+          "description": "Base URL of the service, e.g. http://host:9093. Empty turns the source off: dash makes no request and its panels show \"source not configured\".",
           "format": "uri",
           "type": "string"
         }
@@ -491,7 +491,7 @@
           "type": "string"
         },
         "url": {
-          "description": "Base URL of the service, e.g. http://host:port. Empty turns the source off: dash makes no request and its panels show \"source not configured\".",
+          "description": "Base URL of the service, e.g. http://host:8080. Empty turns the source off: dash makes no request and its panels show \"source not configured\".",
           "format": "uri",
           "type": "string"
         }
@@ -1040,7 +1040,7 @@
           "type": "string"
         },
         "url": {
-          "description": "Base URL of the service, e.g. http://host:port. Empty turns the source off: dash makes no request and its panels show \"source not configured\".",
+          "description": "Base URL of the service, e.g. http://host:9090. Empty turns the source off: dash makes no request and its panels show \"source not configured\".",
           "format": "uri",
           "type": "string"
         }
@@ -1360,7 +1360,7 @@
           "type": "string"
         },
         "url": {
-          "description": "Base URL of the service, e.g. http://host:port. Empty turns the source off: dash makes no request and its panels show \"source not configured\".",
+          "description": "Base URL of the service, e.g. http://host:9428. Empty turns the source off: dash makes no request and its panels show \"source not configured\".",
           "format": "uri",
           "type": "string"
         }
