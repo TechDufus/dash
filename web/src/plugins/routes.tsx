@@ -30,6 +30,10 @@ const TokensPage = lazy(() =>
 const UserSettingsPage = lazy(() =>
   import("@/settings/settings-nav").then((m) => ({ default: m.UserSettingsPage })),
 );
+// /oauth/authorize sends the browser here (design M.6); only someone connecting an app loads it.
+const ConsentPage = lazy(() =>
+  import("@/oauth/consent-page").then((m) => ({ default: m.ConsentPage })),
+);
 
 export function PageLoading() {
   return (
@@ -223,6 +227,14 @@ export function PluginRoutes() {
           <AdminOnly key={params.id}>
             <PluginSettingsPage id={params.id ?? ""} />
           </AdminOnly>
+        )}
+      </Route>
+      <Route path="/consent/:id">
+        {(params) => (
+          // Keyed by request: a decision on one must not carry over to the next.
+          <RouteBoundary key={params.id}>
+            <ConsentPage id={params.id ?? ""} />
+          </RouteBoundary>
         )}
       </Route>
       {MODULES.flatMap((m) =>
