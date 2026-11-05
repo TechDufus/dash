@@ -772,6 +772,8 @@ docker logs dash 2>&1 | grep -m1 'setup token'   # one-time admin setup URL (E.3
 
 You then configure plugins in Settings. Values are stored in `/data/ui-settings.yaml`, with secrets encrypted under the key. Without the key, dash runs but UI-entered secrets are disabled; once secrets are stored, losing the key stops dash from starting (C.4). For an infrastructure-as-code setup, add `-v ./config.yaml:/data/config.yaml:ro`, or set `DASH_CONFIG`. To use the `kubernetes` plugin from Docker, mount a kubeconfig: `-v ~/.kube/config:/kube/config:ro -e DASH_PLUGINS_KUBERNETES_KUBECONFIG=/kube/config`.
 
+**As shipped (G5 R1, v0.13.1):** the image keeps a `/data` directory owned by 65532 (`dataDir`'s default) but declares no `VOLUME` and sets no `DASH_DATA_DIR`. A `VOLUME` would give `docker run --read-only` a writable anonymous volume and hide the data in it; an image `ENV DASH_DATA_DIR` would outrank a config file's `dataDir`. Always mount `-v dash-data:/data` (a named volume mounted there takes the directory's owner). The image exposes 8080 and 8081, and its `HEALTHCHECK` runs `dash healthcheck` (GET `/readyz` on `server.healthListen`, an unspecified host mapped to loopback, 2 s timeout) every 10 s, with a 75 s start period that covers `server.readyTimeout`.
+
 ### D.2 Docker Compose
 
 ```yaml

@@ -1646,7 +1646,7 @@ R6 of G4: P4.7 to P4.10, the settings API and pages. Image only; nothing to chan
 
 **Body:** ship one image that works with Docker, Compose, PaaS and Kubernetes (design D).
 
-- [ ] P5.1 build(docker): data volume, exposed ports, healthcheck command and OCI labels
+- [x] P5.1 build(docker): data volume, exposed ports, healthcheck command and OCI labels
 - [ ] P5.2 feat(config)!: listen on 0.0.0.0:8080 by default
 - [ ] P5.3 docs(deploy): docker run and compose examples with a CI smoke test
 - [ ] P5.4 feat(deploy): Helm chart with RBAC modes and optional guardrail policy
@@ -1746,6 +1746,35 @@ The chart lives in this repo (J.7). Publish it as OCI to GHCR from the release w
 - Running with `--read-only` and no volume starts, shows the read-only banner, and accepts env and file config.
 
 **Dependencies:** P1.6, P4.3.
+
+### G5 R1 deviations (v0.13.1)
+
+R1 (branch `feat/g5-image`: `dash healthcheck`, the image and CI commit, then this docs commit) ships P5.1 and differs from it in these places. Design D.1 carries the same facts as an `As shipped (G5 R1)` note.
+
+| Item | The plan said | Shipped | Why |
+|---|---|---|---|
+| `VOLUME /data` | The image declares it, and `docker inspect` shows the volume | No `VOLUME`. The image keeps a `/data` directory owned by 65532, made in the build stage and copied with `--chown`; the docs always mount `-v dash-data:/data` | A `VOLUME` gives `docker run --read-only` a writable anonymous volume, which defeats P5.6's acceptance (no volume, read-only banner) and hides the data in a volume nobody named. Kubernetes and the PaaS platforms ignore `VOLUME` anyway |
+| `ENV DASH_DATA_DIR=/data` | The image sets it | No `ENV` | The environment outranks the config file, so the image's variable silently replaced a file's `dataDir`: with `dataDir: /var/lib/dash` and a volume there, the data went to `/data` (found by the compatibility review). `/data` is already `dataDir`'s default |
+| `dash healthcheck` | A subcommand behind `HEALTHCHECK CMD ["/dash","healthcheck"]` | It reads `server.healthListen` from the defaults, the config file and the environment as startup does (the UI may not set `server.*`), maps an unspecified host (empty, `0.0.0.0`, `::`) to loopback of the same family, and GETs `/readyz` with a 2 s timeout, no proxy, no redirect and at most 4 KiB of body read. Exit 0 on 200, otherwise 1 with one line on stderr (a usage error too, since runtimes reserve 2). It reads no secret and needs neither the cluster, the data directory nor a secret key | `/readyz` is what an orchestrator gates traffic on; `/healthz` answers `ok` even before both listeners are bound |
+| `HEALTHCHECK` timing | Unspecified ("healthy within 30 s") | `--interval=10s --timeout=3s --start-period=75s --retries=3` | The start period covers `server.readyTimeout` (60 s), during which `/readyz` answers 503 while `server.readyRequires` plugins start, plus one interval; a success inside it marks the container healthy at once, so a normal start is healthy in about 5 s. The 15 s first planned made such a start unhealthy from 35 s to 65 s (found by the code review) |
+| Multi-arch | `docker buildx build --platform linux/amd64,linux/arm64 .` succeeds on an amd64 host without QEMU | Verified, not published. The build stages run on `$BUILDPLATFORM` and Go cross-compiles; the CI `check` job builds both platforms with a pinned docker-container builder, pushes nothing, and fails when a RUN step ran on the target platform or the cross-compiling arm64 Go build is missing from the log. The release still pushes linux/amd64 only | Publishing multi-arch images is G6 (P6.7). The log check holds whether or not the runner has emulators registered; the development host has them, so a local "no emulator" run was not possible there and the same check stands in for it |
+| OCI labels | "Add OCI labels" | `org.opencontainers.image.{title,description,source,licenses,version,revision,created}`; the release job sets `VERSION`, `REVISION` (the commit) and `CREATED` (RFC 3339 UTC) as build args | — |
+
+#### v0.13.1 release notes
+
+R1 of G5: P5.1, the image's metadata and `dash healthcheck`. A patch. Image only; one environment line is recommended now for v0.14.0.
+
+- **New command `dash healthcheck`:** GET `/readyz` on `server.healthListen` (an unspecified host becomes loopback) with a 2 s timeout; exit 0 on 200, 1 with one line on stderr otherwise. It reads the config file as it is at the time, so after an edit of `server.healthListen` restart dash.
+- **The image** exposes 8080 and 8081, ships `/data` owned by 65532, runs `dash healthcheck` as its `HEALTHCHECK` (10 s interval, 3 s timeout, 75 s start period, 3 retries) and carries OCI labels. It declares no `VOLUME` and sets no `DASH_DATA_DIR`: mount `-v dash-data:/data`.
+- **Kubernetes is unaffected:** `HEALTHCHECK` and `EXPOSE` have no effect there, and the probes are unchanged. With a read-only root filesystem and no volume, the audit line's reason reads "data dir is not writable" instead of "data dir is missing", because `/data` now exists in the image.
+- **Before v0.14.0:** v0.14.0 changes the `server.listen` default to `0.0.0.0:8080`. An install behind a sidecar proxy should set `DASH_SERVER_LISTEN=127.0.0.1:8080` now; on v0.13.x it changes nothing, and it keeps a later rollback image-only.
+- **Rollback:** revert the image.
+
+**Evidence:** `make check` on every commit. Each healthcheck test was shown to fail on its mutant. The built image, run locally: healthy in 5.3 s in demo mode with the 75 s start period; `docker inspect` shows the seven labels, `8080/tcp` and `8081/tcp`, no volume, no mount and no `DASH_DATA_DIR` in `Env`; `/data` is owned by 65532. With a config file setting `dataDir: /var/lib/dash` and a volume there, local mode is healthy in 5.3 s and writes `credentials.yaml` and `audit.jsonl` to `/var/lib/dash`, leaving `/data` empty. The CI multi-arch step, run locally, passes on the Dockerfile and fails on one with a RUN in the target stage; the exported arm64 `/dash` is an aarch64 ELF.
+
+**Evidence of the code review (`RevG4R5Code`):** `dash healthcheck` resolves `server.healthListen` exactly as the server does. All 8 behaviour-changing mutants (proxy from the environment, followed redirects, no timeout, the `::` mapping, any status below 400, exit 2, a multi-line error, an unbounded body read) fail the tests. The image ran healthy at 5.1 s in demo mode, in local mode with a named volume, and read-only in proxy mode. The CI multi-arch step was run verbatim; it fails on an emulated RUN and on a changed log format. It found the 15 s start period too short when `server.readyRequires` delays readiness (fixed: 75 s), and missing proxy, redirect and timeout tests (added).
+
+**Neutrality evidence (`RevG4R4Compat`), built and run as the production pod runs it (read-only root, no volume, user 65532, the manifest's environment plus `DASH_SERVER_LISTEN=127.0.0.1:8080`):** v0.13.1 answers the 190 captured requests as v0.13.0 does, apart from the known kubernetes event-order tie. The startup log is the same, 66 INFO and 3 WARN; only the audit line's reason now reads "data dir is not writable", because `/data` exists in the image. The settings store stays read-only (reason `config`), and `config validate` and `config env` are unchanged. `dash healthcheck` exits 0 while ready, and 1 when `/readyz` answers 503, times out (2 s) or is unreachable. The image is 9.4 KB larger. It found that the image's `DASH_DATA_DIR` overrode a config file's `dataDir` (fixed: the `ENV` is gone). In Kubernetes, the image's `HEALTHCHECK` and `EXPOSE` have no effect.
 
 ---
 
