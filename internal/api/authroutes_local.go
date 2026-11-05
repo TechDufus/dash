@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"crypto/subtle"
 	"errors"
 	"log/slog"
@@ -199,6 +200,9 @@ func (s *Server) startSession(w http.ResponseWriter, r *http.Request, user, acti
 // logout answers POST /auth/logout {scope} (contract §4.4 Sessions): every scope clears the
 // cookie; "this" (the default) and "user" bump the caller's epoch, so a copy of the cookie dies
 // too; "all" is for an administrator and bumps the global epoch, which ends every session.
+// "user" also revokes the caller's OAuth grants and "all" every grant (contract D23); that
+// revocation is audited before it happens, so with grants to revoke an audit outage is 503
+// audit_unavailable and nothing changes. Personal access tokens are never revoked here.
 // Without a session it only clears the cookie.
 func (s *Server) logout(w http.ResponseWriter, r *http.Request) {
 	if s.d.Sessions == nil || s.d.Credentials == nil {
@@ -227,6 +231,17 @@ func (s *Server) logout(w http.ResponseWriter, r *http.Request) {
 		s.deny(r, obs.AuthForbidden)
 		writeErr(w, http.StatusForbidden, model.ErrCodeForbidden, "forbidden")
 		return
+	}
+	if signedIn && scope != logoutThis {
+		// The audit record names the caller, whom authn did not store on this path.
+		r = r.WithContext(context.WithValue(r.Context(), principalKey{}, p))
+		grantsOf := p.User
+		if scope == logoutAll {
+			grantsOf = "" // every user's
+		}
+		if s.revokeUserGrants(w, r, grantsOf) != nil {
+			return
+		}
 	}
 	http.SetCookie(w, s.d.Sessions.Clear())
 	if !signedIn {
