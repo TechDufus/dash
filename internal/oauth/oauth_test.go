@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -13,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/TechDufus/dash/internal/auth"
 	"github.com/TechDufus/dash/internal/config"
 	"github.com/TechDufus/dash/internal/credentials"
 	"github.com/TechDufus/dash/internal/netguard"
@@ -118,11 +120,11 @@ func TestDirectURL(t *testing.T) {
 		t.Errorf("resource metadata URL = %s", u)
 	}
 	// The resource of the public URL is not dash's any more.
-	res, err := s.Authorize(context.Background(), authReq(nil), nil)
+	res, err := s.Authorize(context.Background(), authReq(nil), nil, aliceCaller)
 	if q := redirectError(t, res, err, "http://127.0.0.1:4711/callback"); q.Get("error") != "invalid_target" || q.Get("iss") != direct {
 		t.Errorf("public resource with directURL: %v", q)
 	}
-	res, err = s.Authorize(context.Background(), authReq(func(q url.Values) { q.Set("resource", direct+"/mcp") }), nil)
+	res, err = s.Authorize(context.Background(), authReq(func(q url.Values) { q.Set("resource", direct+"/mcp") }), nil, aliceCaller)
 	if err != nil || !strings.HasPrefix(res.ConsentURL, public+"/consent/") {
 		t.Errorf("direct resource: %+v, %v", res, err)
 	}
@@ -132,7 +134,7 @@ func TestDirectURL(t *testing.T) {
 // verified goes back to the client with state and iss (RFC 9207).
 func TestAuthorizeValidation(t *testing.T) {
 	s, _, _ := testServer(t, nil)
-	res, err := s.Authorize(context.Background(), authReq(nil), nil)
+	res, err := s.Authorize(context.Background(), authReq(nil), nil, aliceCaller)
 	if err != nil || !strings.HasPrefix(res.ConsentURL, public+"/consent/") || res.ErrorRedirect != "" {
 		t.Fatalf("valid request: %+v, %v", res, err)
 	}
@@ -157,7 +159,7 @@ func TestAuthorizeValidation(t *testing.T) {
 		{"actions of a plugin without actions", func(q url.Values) { q.Set("scope", "actions:flux") }, "invalid_scope"},
 		{"a repeated resource", func(q url.Values) { q.Add("resource", public+"/mcp") }, "invalid_request"},
 	} {
-		res, err := s.Authorize(context.Background(), authReq(tc.mod), nil)
+		res, err := s.Authorize(context.Background(), authReq(tc.mod), nil, aliceCaller)
 		q := redirectError(t, res, err, cb)
 		if q.Get("error") != tc.code || q.Get("iss") != public {
 			t.Errorf("%s: %v, want %s with iss", tc.name, q, tc.code)
@@ -188,7 +190,7 @@ func TestAuthorizeRedirectMatch(t *testing.T) {
 		"http://127.0.0.1:4711/callback#f":    false,
 		"":                                    false,
 	} {
-		res, err := s.Authorize(context.Background(), authReq(func(q url.Values) { q.Set("redirect_uri", uri) }), nil)
+		res, err := s.Authorize(context.Background(), authReq(func(q url.Values) { q.Set("redirect_uri", uri) }), nil, aliceCaller)
 		var oe *Error
 		switch {
 		case ok && (err != nil || res.ConsentURL == ""):
@@ -197,7 +199,7 @@ func TestAuthorizeRedirectMatch(t *testing.T) {
 			t.Errorf("%q: %+v, %v; want a 400 without a redirect", uri, res, err)
 		}
 	}
-	if _, err := s.Authorize(context.Background(), authReq(func(q url.Values) { q.Set("client_id", "nobody") }), nil); err == nil {
+	if _, err := s.Authorize(context.Background(), authReq(func(q url.Values) { q.Set("client_id", "nobody") }), nil, aliceCaller); err == nil {
 		t.Error("an unknown client was accepted")
 	}
 }
@@ -211,10 +213,10 @@ func TestAuthorizeAndroid(t *testing.T) {
 		q.Set("resource", public+"/api")
 		q.Set("scope", "read approvals push")
 	}
-	if res, err := s.Authorize(context.Background(), authReq(android), nil); err != nil || res.ConsentURL == "" {
+	if res, err := s.Authorize(context.Background(), authReq(android), nil, aliceCaller); err != nil || res.ConsentURL == "" {
 		t.Fatalf("android: %+v, %v", res, err)
 	}
-	res, err := s.Authorize(context.Background(), authReq(func(q url.Values) { android(q); q.Set("resource", public+"/mcp") }), nil)
+	res, err := s.Authorize(context.Background(), authReq(func(q url.Values) { android(q); q.Set("resource", public+"/mcp") }), nil, aliceCaller)
 	if q := redirectError(t, res, err, AndroidRedirect); q.Get("error") != "invalid_target" {
 		t.Errorf("android at mcp: %v", q)
 	}
@@ -223,17 +225,68 @@ func TestAuthorizeAndroid(t *testing.T) {
 // Pending requests are bounded: past maxPending, new ones wait; expired ones free their place.
 func TestAuthorizeBoundsPending(t *testing.T) {
 	s, _, now := testServer(t, nil)
-	for range maxPending {
-		if _, err := s.Authorize(context.Background(), authReq(nil), nil); err != nil {
+	for i := range maxPending {
+		if _, err := s.Authorize(context.Background(), authReq(nil), nil, Caller{User: fmt.Sprintf("u%d", i)}); err != nil {
 			t.Fatal(err)
 		}
 	}
-	if _, err := s.Authorize(context.Background(), authReq(nil), nil); !errors.Is(err, ErrBusy) {
+	if _, err := s.Authorize(context.Background(), authReq(nil), nil, aliceCaller); !errors.Is(err, ErrBusy) {
 		t.Fatalf("past the bound: %v", err)
 	}
 	*now = now.Add(PendingTTL)
-	if _, err := s.Authorize(context.Background(), authReq(nil), nil); err != nil {
+	if _, err := s.Authorize(context.Background(), authReq(nil), nil, aliceCaller); err != nil {
 		t.Errorf("after expiry: %v", err)
+	}
+}
+
+// One person holds at most maxPendingPerUser pending requests: the next one forgets their
+// oldest, never anyone else's.
+func TestAuthorizeBoundsPendingPerUser(t *testing.T) {
+	s, _, now := testServer(t, nil)
+	vera := consentIDOf(t, s, auth.Principal{User: "vera"}, nil)
+	var ids []string
+	for range maxPendingPerUser + 1 {
+		ids = append(ids, consentID(t, s, nil))
+		*now = now.Add(time.Second)
+	}
+	if _, err := s.Consent(ids[0], alice); !errors.Is(err, ErrConsentNotFound) {
+		t.Errorf("the oldest past the per-user bound: %v, want gone", err)
+	}
+	for _, id := range ids[1:] {
+		if _, err := s.Consent(id, alice); err != nil {
+			t.Errorf("a newer one: %v", err)
+		}
+	}
+	if _, err := s.Consent(vera, auth.Principal{User: "vera", Role: auth.RoleViewer}); err != nil {
+		t.Errorf("another person's: %v", err)
+	}
+}
+
+// An anonymous caller's request is validated, then sent to sign in; dash keeps nothing for it.
+// An invalid one is refused as for anyone.
+func TestAuthorizeKeepsNothingForAnAnonymousCaller(t *testing.T) {
+	s, _, _ := testServer(t, nil)
+	for range maxPending + 76 {
+		res, err := s.Authorize(context.Background(), authReq(nil), nil, Caller{})
+		if err != nil || !res.SignIn || res.ConsentURL != "" {
+			t.Fatalf("anonymous: %+v, %v", res, err)
+		}
+	}
+	s.mu.Lock()
+	n := len(s.pending)
+	s.mu.Unlock()
+	if n != 0 {
+		t.Errorf("%d pending requests after anonymous ones, want 0", n)
+	}
+	res, err := s.Authorize(context.Background(), authReq(func(q url.Values) { q.Del("state") }), nil, Caller{})
+	if q := redirectError(t, res, err, "http://127.0.0.1:4711/callback"); q.Get("error") != "invalid_request" {
+		t.Errorf("anonymous without state: %v", q)
+	}
+	if _, err := s.Authorize(context.Background(), authReq(func(q url.Values) { q.Set("client_id", "nobody") }), nil, Caller{}); err == nil {
+		t.Error("an anonymous caller's unknown client was accepted")
+	}
+	if _, err := s.Authorize(context.Background(), authReq(nil), nil, aliceCaller); err != nil {
+		t.Errorf("a signed-in request after them: %v", err)
 	}
 }
 
@@ -279,28 +332,36 @@ func TestClientIDMetadataDocument(t *testing.T) {
 		return func(w http.ResponseWriter, r *http.Request) { hits++; goodDocument(id)(w, r) }
 	})
 	s, _, _ := testServer(t, guarded(srv, false))
-	_, err := s.Authorize(context.Background(), cimdReq(id, nil), nil)
+	_, err := s.Authorize(context.Background(), cimdReq(id, nil), nil, aliceCaller)
 	var oe *Error
 	if !errors.As(err, &oe) || oe.Code != "invalid_client" || !strings.Contains(oe.Description, "address") || hits != 0 {
 		t.Fatalf("private address: %v (hits %d), want invalid_client and no request", err, hits)
 	}
 
+	s, _, _ = testServer(t, guarded(srv, true))
+	if res, err := s.Authorize(context.Background(), cimdReq(id, nil), nil, Caller{}); err != nil || !res.SignIn || hits != 0 {
+		t.Fatalf("anonymous: %+v, %v (hits %d), want sign-in and no fetch", res, err, hits)
+	}
+	if res, err := s.Authorize(context.Background(), cimdReq(id, nil), nil, Caller{Fetch: true}); err != nil || !res.SignIn || hits != 1 {
+		t.Fatalf("anonymous behind the proxy: %+v, %v (hits %d), want sign-in after a fetch", res, err, hits)
+	}
+	hits = 0
 	s, _, now := testServer(t, guarded(srv, true))
-	if res, err := s.Authorize(context.Background(), cimdReq(id, nil), nil); err != nil || res.ConsentURL == "" {
+	if res, err := s.Authorize(context.Background(), cimdReq(id, nil), nil, aliceCaller); err != nil || res.ConsentURL == "" {
 		t.Fatalf("cimdAllowPrivate: %+v, %v", res, err)
 	}
-	if res, err := s.Authorize(context.Background(), cimdReq(id, func(q url.Values) { q.Set("resource", public+"/api") }), nil); err != nil || res.ConsentURL == "" {
+	if res, err := s.Authorize(context.Background(), cimdReq(id, func(q url.Values) { q.Set("resource", public+"/api") }), nil, aliceCaller); err != nil || res.ConsentURL == "" {
 		t.Fatalf("api audience: %+v, %v", res, err)
 	}
 	if hits != 1 {
 		t.Errorf("fetched %d times, want once (cached)", hits)
 	}
-	res, err := s.Authorize(context.Background(), cimdReq(id, func(q url.Values) { q.Set("resource", public+"/api"); q.Set("scope", "read approvals") }), nil)
+	res, err := s.Authorize(context.Background(), cimdReq(id, func(q url.Values) { q.Set("resource", public+"/api"); q.Set("scope", "read approvals") }), nil, aliceCaller)
 	if q := redirectError(t, res, err, "http://127.0.0.1:5000/cb"); q.Get("error") != "invalid_scope" {
 		t.Errorf("approvals: %v", q)
 	}
 	*now = now.Add(24 * time.Hour)
-	if _, err := s.Authorize(context.Background(), cimdReq(id, nil), nil); err != nil || hits != 2 {
+	if _, err := s.Authorize(context.Background(), cimdReq(id, nil), nil, aliceCaller); err != nil || hits != 2 {
 		t.Errorf("after 24 h: %v, hits %d; want a new fetch", err, hits)
 	}
 
@@ -338,14 +399,14 @@ func TestClientIDMetadataDocument(t *testing.T) {
 	} {
 		srv, id := cimdServer(t, tc.h)
 		s, _, _ := testServer(t, guarded(srv, true))
-		_, err := s.Authorize(context.Background(), cimdReq(id, nil), nil)
+		_, err := s.Authorize(context.Background(), cimdReq(id, nil), nil, aliceCaller)
 		if !errors.As(err, &oe) || oe.Code != "invalid_client" || !strings.Contains(oe.Description, tc.want) {
 			t.Errorf("%s: %v, want invalid_client about %q", tc.name, err, tc.want)
 		}
 	}
 	for _, bad := range []string{"https://app.example.com", "https://app.example.com/", "https://app.example.com/a/../b", "https://u@app.example.com/c", "http://app.example.com/c"} {
 		s, _, _ := testServer(t, nil)
-		if _, err := s.Authorize(context.Background(), cimdReq(bad, nil), nil); !errors.As(err, &oe) || oe.Code != "invalid_client" {
+		if _, err := s.Authorize(context.Background(), cimdReq(bad, nil), nil, aliceCaller); !errors.As(err, &oe) || oe.Code != "invalid_client" {
 			t.Errorf("client ID %q: %v, want invalid_client", bad, err)
 		}
 	}

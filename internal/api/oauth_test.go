@@ -171,3 +171,50 @@ func TestOAuthDirectURLChallenge(t *testing.T) {
 		t.Errorf("metadata on the direct host = %d %s", w.Code, w.Body)
 	}
 }
+
+// With server.directURL, /oauth/authorize and the consent page are the JSON 404 on the direct
+// host, which bypasses the identity proxy; on the public host they work.
+func TestOAuthPersonPagesAreNotOnTheDirectHost(t *testing.T) {
+	s := oauthServer(t, func(d *Deps) { d.Cfg.DirectURL = "https://dash-direct.example.com" })
+	for _, host := range []string{"dash-direct.example.com", "DASH-DIRECT.example.com.:443"} {
+		for _, path := range []string{authorizeURL("mcp", nil), "/consent/abc", "/consent"} {
+			w := req{path: path, host: host}.do(s.Handler())
+			if w.Code != http.StatusNotFound || !strings.Contains(w.Body.String(), `"code":"not_found"`) {
+				t.Errorf("%s on %s = %d %s", path, host, w.Code, w.Body)
+			}
+		}
+	}
+	direct := authorizeURL("mcp", func(q url.Values) { q.Set("resource", "https://dash-direct.example.com/mcp") })
+	if w := (req{path: direct}).do(s.Handler()); w.Code != http.StatusFound || !strings.HasPrefix(w.Header().Get("Location"), testOrigin+"/consent/") {
+		t.Errorf("authorize on the public host = %d %v", w.Code, w.Header())
+	}
+	if w := (req{path: "/consent/abc"}).do(s.Handler()); strings.Contains(w.Body.String(), `"code":"not_found"`) {
+		t.Errorf("the consent page on the public host = %d %s", w.Code, w.Body)
+	}
+}
+
+// An anonymous caller's valid request goes to sign in with next set to the same request, and dash
+// keeps nothing for it: 1100 of them (past the 1024 pending requests dash holds) leave a person's
+// request working. An invalid one is answered as before; one too long for next is 400.
+func TestOAuthAuthorizeKeepsNothingForAnonymousCallers(t *testing.T) {
+	s := oauthServer(t, nil)
+	anon := map[string]string{"X-Forwarded-Preferred-Username": ""}
+	path := authorizeURL("mcp", nil)
+	for i := range 1100 {
+		w := req{path: path, header: anon}.do(s.Handler())
+		if w.Code != http.StatusFound || w.Header().Get("Location") != "/login?next="+url.QueryEscape(path) {
+			t.Fatalf("anonymous %d = %d %v", i+1, w.Code, w.Header())
+		}
+	}
+	if w := (req{path: path}).do(s.Handler()); w.Code != http.StatusFound || !strings.HasPrefix(w.Header().Get("Location"), testOrigin+"/consent/") {
+		t.Errorf("alice after them = %d %v", w.Code, w.Header())
+	}
+	w := req{path: authorizeURL("mcp", func(q url.Values) { q.Set("code_challenge_method", "plain") }), header: anon}.do(s.Handler())
+	if loc, _ := url.Parse(w.Header().Get("Location")); w.Code != http.StatusFound || loc == nil || loc.Query().Get("error") != "invalid_request" {
+		t.Errorf("anonymous invalid = %d %v", w.Code, w.Header())
+	}
+	w = req{path: authorizeURL("mcp", func(q url.Values) { q.Set("state", strings.Repeat("s", 1000)) }), header: anon}.do(s.Handler())
+	if w.Code != http.StatusBadRequest || !strings.Contains(w.Body.String(), "too long to carry through sign-in") {
+		t.Errorf("too long for next = %d %s", w.Code, w.Body)
+	}
+}

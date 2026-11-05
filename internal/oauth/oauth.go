@@ -34,9 +34,12 @@ const (
 	CodeTTL    = 60 * time.Second // an authorization code
 	AccessTTL  = 15 * time.Minute // an access token
 
-	// maxPending and maxCodes bound what unauthenticated requests can make dash hold.
-	maxPending = 1024
-	maxCodes   = 1024
+	// maxPending and maxCodes bound what dash holds for requests: only signed-in people create
+	// pending requests (at most maxPendingPerUser each, the oldest goes), and codes come from
+	// their consents.
+	maxPending        = 1024
+	maxPendingPerUser = 20
+	maxCodes          = 1024
 )
 
 // AccessPurpose is the HKDF purpose of the access-token key, derived with the credential

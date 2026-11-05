@@ -10,6 +10,7 @@ import (
 
 	"github.com/TechDufus/dash/internal/auth"
 	"github.com/TechDufus/dash/internal/config"
+	"github.com/TechDufus/dash/internal/oauth"
 	"github.com/TechDufus/dash/internal/secret"
 )
 
@@ -29,11 +30,11 @@ func mintAccess(t *testing.T, pa processAuth, res *config.Resolved) string {
 		"state": {"s"}, "code_challenge": {base64.RawURLEncoding.EncodeToString(sum[:])}, "code_challenge_method": {"S256"},
 		"resource": {res.Config.PublicURL + "/api"},
 	}
-	ar, err := pa.oauth.Authorize(context.Background(), q, nil)
+	admin := auth.Principal{Kind: auth.KindSession, User: res.Tree.Auth.Local.AdminUser, Role: auth.RoleAdmin}
+	ar, err := pa.oauth.Authorize(context.Background(), q, nil, oauth.Caller{User: admin.User})
 	if err != nil || ar.ConsentURL == "" {
 		t.Fatalf("authorize: %+v, %v", ar, err)
 	}
-	admin := auth.Principal{Kind: auth.KindSession, User: res.Tree.Auth.Local.AdminUser, Role: auth.RoleAdmin}
 	redirect, err := pa.oauth.Approve(ar.ConsentURL[strings.LastIndex(ar.ConsentURL, "/")+1:], admin, []string{"read"}, nil)
 	if err != nil {
 		t.Fatal(err)

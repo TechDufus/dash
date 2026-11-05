@@ -8,6 +8,7 @@ import (
 	"math"
 	"mime"
 	"net/http"
+	"net/url"
 	"slices"
 	"strconv"
 	"strings"
@@ -19,6 +20,7 @@ import (
 	"github.com/TechDufus/dash/internal/model"
 	"github.com/TechDufus/dash/internal/oauth"
 	"github.com/TechDufus/dash/internal/obs"
+	"github.com/TechDufus/dash/internal/session"
 )
 
 // The audit actions of the OAuth grants.
@@ -49,6 +51,8 @@ func (s *Server) oauthRoutes() []Route {
 		{Method: "POST", Path: "/oauth/token", Infra: true, Handler: s.oauthToken},
 		{Method: "POST", Path: "/oauth/revoke", Infra: true, Handler: s.oauthRevoke},
 		{Path: "/oauth/", Infra: true, Handler: notFound},
+		{Method: "GET", Path: "/consent", Infra: true, Handler: s.consentPage},
+		{Method: "GET", Path: "/consent/", Infra: true, Handler: s.consentPage},
 	}
 }
 
@@ -100,15 +104,19 @@ func (s *Server) oauthResourceMetadata(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, s.d.OAuth.ResourceMetadata(aud, s.actionPlugins()))
 }
 
-// oauthAuthorize answers /oauth/authorize: a valid request goes on to the SPA's consent page,
-// which signs the user in first if needed; an invalid one goes back to the client with the
-// error, or, when the client or its redirect URI cannot be verified, is answered here (400).
+// oauthAuthorize answers /oauth/authorize (contract G7-R3 fix A2). With server.directURL set it
+// is the JSON 404 except on the public URL's host, behind the identity proxy. The request is
+// validated first: when the client or its redirect URI cannot be verified it is answered here
+// (400); any other error goes back to the client. A valid request of a signed-in person goes on
+// to their consent page; an anonymous caller goes to sign in, with next set to this same
+// request, and dash keeps nothing for them (400 when the request is too long to be a next).
 func (s *Server) oauthAuthorize(w http.ResponseWriter, r *http.Request) {
-	if s.d.OAuth == nil {
+	if s.d.OAuth == nil || !s.oauthPersonHost(r) {
 		notFound(w, r)
 		return
 	}
-	res, err := s.d.OAuth.Authorize(r.Context(), r.URL.Query(), s.actionPlugins())
+	caller := s.oauthCaller(w, r)
+	res, err := s.d.OAuth.Authorize(r.Context(), r.URL.Query(), s.actionPlugins(), caller)
 	var oe *oauth.Error
 	switch {
 	case errors.As(err, &oe):
@@ -121,9 +129,56 @@ func (s *Server) oauthAuthorize(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusInternalServerError, &oauth.Error{Code: "server_error"})
 	case res.ErrorRedirect != "":
 		http.Redirect(w, r, res.ErrorRedirect, http.StatusFound)
+	case res.SignIn:
+		next := r.URL.RequestURI()
+		if !session.ValidNext(next) {
+			writeJSON(w, http.StatusBadRequest, &oauth.Error{Code: "invalid_request",
+				Description: "the authorization request is too long to carry through sign-in: its path and query must be at most 1024 bytes"})
+			return
+		}
+		signIn := "/login?next="
+		if s.d.OIDC != nil {
+			signIn = "/auth/oidc/start?next="
+		}
+		http.Redirect(w, r, signIn+url.QueryEscape(next), http.StatusFound)
 	default:
 		http.Redirect(w, r, res.ConsentURL, http.StatusFound)
 	}
+}
+
+// oauthPersonHost reports whether r may reach the pages a person signs in for: /oauth/authorize
+// and /consent. With server.directURL set, only on the public URL's host: the direct host
+// bypasses the identity proxy, which must sign the person in.
+func (s *Server) oauthPersonHost(r *http.Request) bool {
+	return s.d.Cfg.DirectURL == "" || s.d.Cfg.PublicHost(r.Host)
+}
+
+// consentPage serves the SPA's consent page, except on the direct host (oauthPersonHost).
+func (s *Server) consentPage(w http.ResponseWriter, r *http.Request) {
+	if !s.oauthPersonHost(r) {
+		notFound(w, r)
+		return
+	}
+	s.serveStatic(w, r)
+}
+
+// oauthCaller is who sends an authorization request: the signed-in person (a session, the
+// identity proxy's header; never a bearer token), or an anonymous caller. Only a signed-in
+// person makes dash fetch a client ID metadata document, or, behind the identity proxy, any
+// caller on the public URL's host. A renewed or cleared session cookie is set.
+func (s *Server) oauthCaller(w http.ResponseWriter, r *http.Request) oauth.Caller {
+	var c oauth.Caller
+	if _, ok := auth.Bearer(r); !ok {
+		p, cookie, fail := s.authenticate(r)
+		if cookie != nil {
+			http.SetCookie(w, cookie)
+		}
+		if fail == nil && p.Kind != auth.KindToken {
+			c.User = p.User
+		}
+	}
+	c.Fetch = c.User != "" || (s.authMode(auth.Principal{}) == string(auth.KindProxy) && s.d.Cfg.PublicHost(r.Host))
+	return c
 }
 
 // oauthForm reads the form body of /oauth/token or /oauth/revoke (RFC 6749 3.2: POST,

@@ -424,10 +424,12 @@ consent page never offers them to it.
    (default `read`). The redirect URI must be one the client registered, exactly; an http
    loopback one matches on any port. A request whose client or redirect URI cannot be verified is
    answered there (400); any other error goes back to the client with `state` and `iss`.
-2. dash keeps the request for 10 minutes and sends the browser to `/consent/<id>`, which signs
-   the person in first if needed. The first person to open it claims it. The page ticks only
-   `read`; `logs` and `actions:<plugin>` carry warnings, and only an administrator is offered
-   `actions:<plugin>`.
+2. A person who is not signed in goes to sign in first and comes back to the same
+   `/oauth/authorize` URL (which must fit in 1024 bytes, else 400); dash keeps nothing for them
+   meanwhile, and fetches a client's metadata document only for a signed-in person. For a signed-in
+   person dash keeps the request for 10 minutes (at most 20 per person; the oldest goes) and sends
+   the browser to `/consent/<id>`, which only that person sees. The page ticks only `read`; `logs`
+   and `actions:<plugin>` carry warnings, and only an administrator is offered `actions:<plugin>`.
 3. Approving sends the browser back to the client with `code`, `state` and `iss` (RFC 9207);
    denying with `error=access_denied`.
 4. The client exchanges the code (60 seconds, once) with its `code_verifier` at `/oauth/token`
@@ -468,7 +470,8 @@ which knows the person; the client reaches everything else on the direct host. W
 `server.directURL` set (see [API tokens in the proxy mode](#api-tokens-in-the-proxy-mode)), the
 issuer, the resources (`<directURL>/api`, `<directURL>/mcp`), the token and revoke endpoints and
 the discovery documents are on the direct URL, while the metadata's `authorization_endpoint`
-stays `<publicURL>/oauth/authorize`:
+stays `<publicURL>/oauth/authorize`. On the direct host `/oauth/authorize` and `/consent` answer
+404, since that host bypasses the proxy:
 
 1. the client calls `https://dash-direct.example.com/api/v1/...` without a token and reads the
    `resource_metadata` of the 401, then `/.well-known/oauth-authorization-server` there;

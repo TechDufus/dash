@@ -21,7 +21,7 @@ type pending struct {
 	challenge   string // the S256 code_challenge
 	audience    string
 	scopes      []string // what the client asked for, validated for the client and the audience
-	user        string   // the person who first opened the consent, "" until then
+	user        string   // the signed-in person who sent the request; only they see the consent
 	busy        bool     // an approval is being written
 	expires     time.Time
 }
@@ -47,20 +47,34 @@ var codeChallengeRE = regexp.MustCompile(`^[A-Za-z0-9._~-]{43,128}$`)
 const maxState = 1024
 
 // AuthorizeResult is what /oauth/authorize answers. Exactly one field is set: ConsentURL, the
-// SPA's consent page for a valid request; ErrorRedirect, the client's redirect URI with the
-// error, once client and redirect URI are verified (RFC 6749 4.1.2.1).
+// SPA's consent page for a valid request of a signed-in caller; ErrorRedirect, the client's
+// redirect URI with the error, once client and redirect URI are verified (RFC 6749 4.1.2.1);
+// SignIn, an anonymous caller's request that is valid as far as dash checks it without a
+// fetch: the caller signs in and sends it again, and dash keeps nothing meanwhile.
 type AuthorizeResult struct {
 	ConsentURL    string
 	ErrorRedirect string
+	SignIn        bool
 }
 
 // ErrBusy refuses an authorization request while maxPending requests wait for consent.
 var ErrBusy = errors.New("oauth: too many authorization requests waiting for consent; try again later")
 
-// Authorize validates an authorization request (the query of /oauth/authorize) and stores it
-// for the consent. An *Error comes back when the client or its redirect URI cannot be verified:
-// it is shown in the browser, never sent anywhere. actions are the plugins with actions enabled.
-func (s *Server) Authorize(ctx context.Context, q url.Values, actions []string) (AuthorizeResult, error) {
+// Caller is who sends an authorization request (contract G7-R3 fix A2): User is the signed-in
+// person, "" for an anonymous caller; Fetch allows an anonymous caller's request to fetch a
+// client ID metadata document (behind the identity proxy, on the public URL). A signed-in
+// caller may always fetch.
+type Caller struct {
+	User  string
+	Fetch bool
+}
+
+// Authorize validates an authorization request (the query of /oauth/authorize) and, for a
+// signed-in caller, stores it for that person's consent: at most maxPendingPerUser per person
+// (the oldest goes) and maxPending in all. An anonymous caller's request is never stored.
+// An *Error comes back when the client or its redirect URI cannot be verified: it is shown in
+// the browser, never sent anywhere. actions are the plugins with actions enabled.
+func (s *Server) Authorize(ctx context.Context, q url.Values, actions []string, caller Caller) (AuthorizeResult, error) {
 	if k := duplicated(q, "client_id", "redirect_uri"); k != "" {
 		return AuthorizeResult{}, oauthErr("invalid_request", k+" is given more than once")
 	}
@@ -68,7 +82,10 @@ func (s *Server) Authorize(ctx context.Context, q url.Values, actions []string) 
 	if clientID == "" {
 		return AuthorizeResult{}, oauthErr("invalid_request", "client_id is required")
 	}
-	c, err := s.client(ctx, clientID)
+	c, err := s.client(ctx, clientID, caller.Fetch || caller.User != "")
+	if errors.Is(err, errNotFetched) {
+		return AuthorizeResult{SignIn: true}, nil
+	}
 	if err != nil {
 		return AuthorizeResult{}, oauthErr("invalid_client", err.Error())
 	}
@@ -122,6 +139,9 @@ func (s *Server) Authorize(ctx context.Context, q url.Values, actions []string) 
 	if desc != "" {
 		return fail("invalid_scope", desc)
 	}
+	if caller.User == "" {
+		return AuthorizeResult{SignIn: true}, nil
+	}
 
 	id, err := randomID()
 	if err != nil {
@@ -131,14 +151,34 @@ func (s *Server) Authorize(ctx context.Context, q url.Values, actions []string) 
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.sweepLocked(now)
+	s.evictOwnLocked(caller.User)
 	if len(s.pending) >= maxPending {
 		return AuthorizeResult{}, ErrBusy
 	}
 	s.pending[id] = &pending{
 		id: id, client: *c, redirectURI: redirect, state: state, challenge: challenge,
-		audience: audience, scopes: scopes, expires: now.Add(PendingTTL),
+		audience: audience, scopes: scopes, user: caller.User, expires: now.Add(PendingTTL),
 	}
 	return AuthorizeResult{ConsentURL: s.publicURL + "/consent/" + id}, nil
+}
+
+// evictOwnLocked makes room for one more pending request of user: past maxPendingPerUser - 1
+// it forgets user's oldest one that no approval is writing. s.mu is held.
+func (s *Server) evictOwnLocked(user string) {
+	n := 0
+	var oldest *pending
+	for _, p := range s.pending {
+		if p.user != user {
+			continue
+		}
+		n++
+		if !p.busy && (oldest == nil || p.expires.Before(oldest.expires)) {
+			oldest = p
+		}
+	}
+	if n >= maxPendingPerUser && oldest != nil {
+		delete(s.pending, oldest.id)
+	}
 }
 
 // requestedScopes parses the scope parameter: absent means read; each scope must be one the

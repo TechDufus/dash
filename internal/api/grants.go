@@ -29,8 +29,8 @@ func (s *Server) grantRoutes() []Route {
 		row(Route{
 			ID: "getOAuthConsent", Method: "GET", Path: "/api/v1/oauth/consents/{id}",
 			Summary: "An authorization request waiting for consent",
-			Description: "The first person to open it claims it. 404 for a request that does not exist, expired (10 minutes) or " +
-				"another person opened; 403 when the caller may grant none of the scopes the application asks for.",
+			Description: "Only the person who sent the request sees it. 404 for a request that does not exist, expired (10 minutes) or " +
+				"is another person's; 403 when the caller may grant none of the scopes the application asks for.",
 			PathParams: idParam, Response: model.OAuthConsent{}, Handler: s.getConsent,
 		}),
 		row(Route{

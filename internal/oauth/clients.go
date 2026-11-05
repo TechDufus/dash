@@ -51,9 +51,13 @@ var android = Client{
 // browser, never sent to a redirect URI that was not verified.
 var errUnknownClient = errors.New("unknown client")
 
+// errNotFetched is a client ID metadata document dash would have to fetch for a caller who may
+// not make it fetch (an anonymous one): the request cannot be checked before sign-in.
+var errNotFetched = errors.New("the client's metadata document is not fetched for an anonymous caller")
+
 // client resolves a client_id: dash-android, an auth.oauth.clients entry, or the https URL of a
-// client ID metadata document.
-func (s *Server) client(ctx context.Context, id string) (*Client, error) {
+// client ID metadata document, fetched only when fetch is set (errNotFetched otherwise).
+func (s *Server) client(ctx context.Context, id string, fetch bool) (*Client, error) {
 	if id == model.OAuthClientAndroid {
 		c := android
 		return &c, nil
@@ -63,7 +67,7 @@ func (s *Server) client(ctx context.Context, id string) (*Client, error) {
 			RedirectURIs: slices.Clone(c.RedirectURIs), Audiences: slices.Clone(c.Audiences)}, nil
 	}
 	if strings.HasPrefix(id, "https://") {
-		return s.cimd.get(ctx, id)
+		return s.cimd.get(ctx, id, fetch)
 	}
 	return nil, errUnknownClient
 }
@@ -138,7 +142,9 @@ func (c *cimdCache) cached(id string) bool {
 	return ok && c.now().Sub(e.fetched) < cimdTTL
 }
 
-func (c *cimdCache) get(ctx context.Context, id string) (*Client, error) {
+// get returns the client of metadata document id from the cache, else fetches it when fetch is
+// set, else errNotFetched.
+func (c *cimdCache) get(ctx context.Context, id string, fetch bool) (*Client, error) {
 	if problem := metadataURLProblem(id); problem != "" {
 		return nil, fmt.Errorf("%w: the client ID %s", errUnknownClient, problem)
 	}
@@ -149,6 +155,9 @@ func (c *cimdCache) get(ctx context.Context, id string) (*Client, error) {
 	if ok && now.Sub(e.fetched) < cimdTTL {
 		cl := e.client
 		return &cl, nil
+	}
+	if !fetch {
+		return nil, errNotFetched
 	}
 	select {
 	case c.slots <- struct{}{}:

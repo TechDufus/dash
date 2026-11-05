@@ -16,12 +16,20 @@ import (
 var (
 	alice = auth.Principal{Kind: auth.KindProxy, User: "alice", Role: auth.RoleAdmin, Groups: []string{"ops"}}
 	vera  = auth.Principal{Kind: auth.KindProxy, User: "vera", Role: auth.RoleViewer}
+
+	aliceCaller = Caller{User: "alice"}
 )
 
-// consentID starts an authorization request and returns its consent ID.
+// consentID starts an authorization request of alice and returns its consent ID.
 func consentID(t *testing.T, s *Server, mod func(url.Values), actions ...string) string {
 	t.Helper()
-	res, err := s.Authorize(context.Background(), authReq(mod), actions)
+	return consentIDOf(t, s, alice, mod, actions...)
+}
+
+// consentIDOf starts an authorization request of p and returns its consent ID.
+func consentIDOf(t *testing.T, s *Server, p auth.Principal, mod func(url.Values), actions ...string) string {
+	t.Helper()
+	res, err := s.Authorize(context.Background(), authReq(mod), actions, Caller{User: p.User})
 	if err != nil || res.ConsentURL == "" {
 		t.Fatalf("authorize: %+v, %v", res, err)
 	}
@@ -59,10 +67,10 @@ func refresh(s *Server, rt string, mod func(url.Values)) (*TokenResponse, *Token
 }
 
 // The consent shows what the client asked for that the person may grant, ticks only read, and
-// belongs to the first person who opens it.
+// belongs to the person who sent the request.
 func TestConsent(t *testing.T) {
 	s, _, _ := testServer(t, nil)
-	id := consentID(t, s, func(q url.Values) { q.Set("scope", "read logs actions:kubernetes") }, "kubernetes")
+	id := consentIDOf(t, s, vera, func(q url.Values) { q.Set("scope", "read logs actions:kubernetes") }, "kubernetes")
 	if _, err := s.Consent(id, vera); err != nil {
 		t.Fatal(err)
 	}
@@ -84,11 +92,11 @@ func TestConsent(t *testing.T) {
 	if c, _ := s.Consent(id, alice); !slices.Equal(c.Scopes, []string{"read", "logs", "actions:kubernetes"}) || !slices.Equal(c.DefaultScopes, []string{"read"}) {
 		t.Errorf("admin's consent = %+v", c)
 	}
-	id = consentID(t, s, func(q url.Values) { q.Set("scope", "actions:kubernetes") }, "kubernetes")
+	id = consentIDOf(t, s, vera, func(q url.Values) { q.Set("scope", "actions:kubernetes") }, "kubernetes")
 	if _, err := s.Consent(id, vera); !errors.Is(err, ErrNothingToGrant) {
 		t.Errorf("only actions for a viewer: %v", err)
 	}
-	id = consentID(t, s, nil)
+	id = consentIDOf(t, s, vera, nil)
 	redirect, err := s.Deny(id, vera)
 	if u, _ := url.Parse(redirect); err != nil || u.Query().Get("error") != "access_denied" || u.Query().Get("state") != "xyz" || u.Query().Get("iss") != public {
 		t.Errorf("deny = %q, %v", redirect, err)

@@ -169,6 +169,18 @@ func (c Config) HostMatcher() func(host string) bool {
 	}
 }
 
+// PublicHost reports whether host (a Host header value, with or without a port) is PublicURL's
+// host, compared as HostMatcher compares. Behind the identity proxy, the pages a person signs in
+// for (/oauth/authorize, /consent) are only on this host, never on server.directURL's.
+func (c Config) PublicHost(host string) bool {
+	u, err := url.Parse(c.PublicURL)
+	if err != nil {
+		return false
+	}
+	public := normalizeHost(u.Hostname())
+	return public != "" && normalizeHost(host) == public
+}
+
 // normalizeHost strips a port and IPv6 brackets, lowercases and drops a trailing dot.
 func normalizeHost(host string) string {
 	if h, _, err := net.SplitHostPort(host); err == nil {

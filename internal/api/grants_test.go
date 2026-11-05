@@ -19,10 +19,18 @@ import (
 	"github.com/TechDufus/dash/internal/tokens"
 )
 
-// consentFor starts an authorization request (audience, scopes) and returns its consent ID.
+// consentFor starts an authorization request of alice (audience, scopes) and returns its
+// consent ID.
 func (e *oauthEnv) consentFor(t *testing.T, audience string, scopes ...string) string {
 	t.Helper()
-	w := req{path: authorizeURL(audience, func(q url.Values) { q.Set("scope", strings.Join(scopes, " ")) })}.do(e.s.Handler())
+	return e.consentAs(t, "alice", audience, scopes...)
+}
+
+// consentAs starts an authorization request of user (audience, scopes) and returns its consent
+// ID, which only user sees.
+func (e *oauthEnv) consentAs(t *testing.T, user, audience string, scopes ...string) string {
+	t.Helper()
+	w := e.do(as(user, req{path: authorizeURL(audience, func(q url.Values) { q.Set("scope", strings.Join(scopes, " ")) })}))
 	loc := w.Header().Get("Location")
 	if w.Code != http.StatusFound || !strings.Contains(loc, "/consent/") {
 		t.Fatalf("authorize = %d %s", w.Code, loc)
@@ -166,8 +174,8 @@ func TestGrantLimit(t *testing.T) {
 func TestGrantListAndRevoke(t *testing.T) {
 	e := newOAuthEnv(t)
 	e.approveAs("alice", e.consentFor(t, "mcp", "read"), "read")
-	e.approveAs("bob", e.consentFor(t, "mcp", "read"), "read")
-	e.approveAs("bob", e.consentFor(t, "api", "read"), "read")
+	e.approveAs("bob", e.consentAs(t, "bob", "mcp", "read"), "read")
+	e.approveAs("bob", e.consentAs(t, "bob", "api", "read"), "read")
 	list := func(user, q string) (int, []model.OAuthGrantInfo) {
 		w := e.do(as(user, req{path: "/api/v1/oauth/grants" + q}))
 		var l model.OAuthGrantList
@@ -238,7 +246,7 @@ func TestProxyGroupChangeReachesTheGrants(t *testing.T) {
 		r.header = map[string]string{"X-Forwarded-Preferred-Username": "bob", "X-Forwarded-Groups": groups}
 		return e.do(r)
 	}
-	id := e.consentFor(t, "api", "read")
+	id := e.consentAs(t, "bob", "api", "read")
 	if w := asBob("ops", req{method: http.MethodPost, path: "/api/v1/oauth/consents/" + id, body: model.OAuthConsentDecision{Approve: true, Scopes: []string{"read"}}}); w.Code != http.StatusOK {
 		t.Fatalf("approve = %d %s", w.Code, w.Body)
 	}

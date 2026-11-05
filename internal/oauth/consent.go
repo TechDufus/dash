@@ -34,15 +34,14 @@ func offered(req []string, p auth.Principal) []string {
 	return out
 }
 
-// claimLocked returns the pending request id for p: the first person to open it claims it,
-// and it is unknown to everyone else. s.mu is held.
+// claimLocked returns the pending request id for p: only the person who sent it sees it, and it
+// is unknown to everyone else. s.mu is held.
 func (s *Server) claimLocked(id string, p auth.Principal, now time.Time) (*pending, error) {
 	s.sweepLocked(now)
 	pr, ok := s.pending[id]
-	if !ok || pr.busy || p.User == "" || (pr.user != "" && pr.user != p.User) {
+	if !ok || pr.busy || p.User == "" || pr.user != p.User {
 		return nil, ErrConsentNotFound
 	}
-	pr.user = p.User
 	return pr, nil
 }
 
