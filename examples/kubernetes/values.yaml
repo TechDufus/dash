@@ -1,0 +1,30 @@
+# The values examples/kubernetes/dash.yaml is rendered from (`make generate` runs
+# `helm template dash charts/dash --namespace dash -f examples/kubernetes/values.yaml`).
+# Everything else is the chart's default; docs/deploy/kubernetes.md describes the options.
+
+# A Secret named dash-secret-key in the namespace, with dash's secret key under secretKey:
+#   openssl rand -base64 32 | kubectl -n dash create secret generic dash-secret-key --from-file=secretKey=/dev/stdin
+secretKey:
+  existingSecret: dash-secret-key
+  key: secretKey
+
+config:
+  server:
+    # The URL people open. An overlay sets yours with DASH_SERVER_PUBLIC_URL on the Deployment
+    # (docs/deploy/kubernetes.md), which outranks this file.
+    publicURL: https://dash.example.com
+
+# The rest restates the chart's defaults the base depends on, so a reader sees them here:
+# settings editable in the UI and kept on a 256Mi ReadWriteOnce volume, the read-only ClusterRole
+# and no write action (no patch verb, no guardrail policy).
+settings:
+  ui: editable
+persistence:
+  enabled: true
+  size: 256Mi
+  accessModes: [ReadWriteOnce]
+rbac:
+  read: true
+  actions:
+    restart: false
+    fluxReconcile: false

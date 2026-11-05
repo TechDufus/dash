@@ -1,0 +1,9 @@
+# A kustomize base for people who do not use Helm: dash.yaml is the chart rendered with
+# values.yaml (`make generate` writes it; `make check` fails when it drifts from the chart).
+# Create the namespace and the dash-secret-key Secret first; docs/deploy/kubernetes.md shows how,
+# and how to set your public URL in an overlay.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: dash
+resources:
+  - dash.yaml

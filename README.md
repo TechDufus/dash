@@ -115,6 +115,22 @@ Then set Settings → Prometheus → URL to `http://prometheus:9090`. `docker ru
 backups are in [docs/deploy/docker.md](docs/deploy/docker.md); CI runs this example with
 `scripts/ci/compose-smoke.sh`.
 
+## Run on Kubernetes
+
+The Helm chart in [`charts/dash`](charts/dash), or the kustomize base rendered from it in
+[`examples/kubernetes`](examples/kubernetes). Both need a Secret with dash's secret key:
+
+```sh
+kubectl create namespace dash
+openssl rand -base64 32 | kubectl -n dash create secret generic dash-secret-key --from-file=secretKey=/dev/stdin
+helm install dash charts/dash --namespace dash \
+  --set secretKey.existingSecret=dash-secret-key --set config.server.publicURL=https://dash.example.com
+```
+
+[docs/deploy/kubernetes.md](docs/deploy/kubernetes.md) covers the kustomize path, Secrets, the
+RBAC modes, the guardrail policy for the write actions and the oauth2-proxy sidecar; CI installs
+both paths on kind with `scripts/ci/kind-smoke.sh`.
+
 ## Configuration
 
 dash reads a YAML config file and `DASH_*` environment variables, and refuses to start when a

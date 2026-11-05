@@ -54,9 +54,49 @@ jobs:
         run: scripts/ci/compose-smoke.sh
       - name: Read-only run without a volume
         run: scripts/ci/readonly-smoke.sh
+  # The Helm chart and examples/kubernetes (docs/deploy/kubernetes.md). make check already lints
+  # and renders the chart's four value sets and fails when examples/kubernetes drifts from it;
+  # this job validates the rendered objects against the Kubernetes schemas, then installs both
+  # paths on a throwaway kind cluster with the image built from this checkout. The script
+  # deletes its cluster, network and image on exit; a cancelled job never reaches that trap, so
+  # the last step removes them by name whatever happened.
+  kind:
+    needs: check
+    runs-on: [self-hosted, linux, x64, homelab, dash]
+    timeout-minutes: 20
+    env:
+      DASH_KIND_NAME: dash-kind-${{ github.run_id }}-${{ github.run_attempt }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: jdx/mise-action@6be3c7ed4c21d4f76b208d351d95aac273ebb76d # v5.2.4
+      - name: kubeconform the rendered chart and examples/kubernetes
+        run: |
+          set -euo pipefail
+          # Both schema sets pinned to a commit. The CRD catalog validates the sidecar set's
+          # HTTPRoute.
+          k8s='https://raw.githubusercontent.com/yannh/kubernetes-json-schema/86d045595d3f93b703bbf439cf9eb4bd6830d58f/{{.NormalizedKubernetesVersion}}-standalone{{.StrictSuffix}}/{{.ResourceKind}}{{.KindSuffix}}.json'
+          crds='https://raw.githubusercontent.com/datreeio/CRDs-catalog/c86448cbf1a840ca62d119259864863897c8748a/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json'
+          for set in default readonly actions sidecar; do
+            echo "$set:"
+            helm template dash charts/dash --namespace dash -f "charts/dash/ci/$set-values.yaml" |
+              kubeconform -strict -summary -kubernetes-version 1.37.0 -schema-location "$k8s" -schema-location "$crds" -
+          done
+          echo "examples/kubernetes:"
+          kubectl kustomize examples/kubernetes |
+            kubeconform -strict -summary -kubernetes-version 1.37.0 -schema-location "$k8s" -
+      - name: Install on kind (helm and kubectl apply -k)
+        env:
+          KIND_NODE_IMAGE: kindest/node:v1.37.0@sha256:a1ed56cfb0e7b93589bdf97c8cd566405a265939e3620fc4f5de89adff580ae5
+        run: scripts/ci/kind-smoke.sh
+      - name: Remove the kind cluster, its network and the image
+        if: always()
+        run: |
+          kind delete cluster --name "$DASH_KIND_NAME" --kubeconfig "$RUNNER_TEMP/kind-cleanup.kubeconfig" || true
+          docker network rm "$DASH_KIND_NAME" || true
+          docker image rm "dash:kind-$DASH_KIND_NAME" || true
   release:
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: [check, smoke]
+    needs: [check, smoke, kind]
     runs-on: [self-hosted, linux, x64, homelab, dash]
     timeout-minutes: 30
     steps:
