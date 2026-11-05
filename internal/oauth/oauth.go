@@ -113,8 +113,10 @@ func New(o Options) (*Server, error) {
 	if o.DirectURL != "" {
 		s.base = strings.TrimRight(o.DirectURL, "/")
 	}
+	s.cimd.reserve(android.ID, android.Name)
 	for _, c := range o.Clients {
 		s.clients[c.ClientID] = c
+		s.cimd.reserve(c.ClientID, c.Name)
 	}
 	return s, nil
 }

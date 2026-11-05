@@ -122,17 +122,32 @@ type cimdEntry struct {
 // cimdCache fetches client ID metadata documents through the guarded client and keeps the
 // valid ones for cimdTTL.
 type cimdCache struct {
-	http  *http.Client
-	now   func() time.Time
-	slots chan struct{}
+	http     *http.Client
+	now      func() time.Time
+	slots    chan struct{}
+	reserved map[string]bool // first-party names and IDs, folded (nameKey); set before use
 
 	mu      sync.Mutex
 	entries map[string]cimdEntry
 }
 
 func newCIMDCache(hc *http.Client, now func() time.Time) *cimdCache {
-	return &cimdCache{http: hc, now: now, slots: make(chan struct{}, cimdFetches), entries: map[string]cimdEntry{}}
+	return &cimdCache{http: hc, now: now, slots: make(chan struct{}, cimdFetches), reserved: map[string]bool{}, entries: map[string]cimdEntry{}}
 }
+
+// reserve keeps names (a built-in or config client's ID and name) from metadata documents: a
+// document whose client_name is one of them is refused, so it cannot pass for a first-party app
+// on the consent screen (contract G7-R3 fix A4).
+func (c *cimdCache) reserve(names ...string) {
+	for _, n := range names {
+		if k := nameKey(n); k != "" {
+			c.reserved[k] = true
+		}
+	}
+}
+
+// nameKey is how client names are compared: trimmed and case-folded.
+func nameKey(name string) string { return strings.ToLower(strings.TrimSpace(name)) }
 
 // cached reports whether a valid document of id is in the cache.
 func (c *cimdCache) cached(id string) bool {
@@ -228,6 +243,8 @@ func (c *cimdCache) fetch(ctx context.Context, id string) (*Client, error) {
 		return nil, fmt.Errorf("%w: its metadata document has no usable client_name", errUnknownClient)
 	case len(doc.RedirectURIs) == 0:
 		return nil, fmt.Errorf("%w: its metadata document has no redirect_uris", errUnknownClient)
+	case c.reserved[nameKey(name)]:
+		return nil, fmt.Errorf("%w: its metadata document's client_name is the name of an app this dash knows", errUnknownClient)
 	case doc.TokenEndpointAuthMethod != "" && doc.TokenEndpointAuthMethod != "none":
 		return nil, fmt.Errorf("%w: dash serves only public clients (token_endpoint_auth_method none)", errUnknownClient)
 	}

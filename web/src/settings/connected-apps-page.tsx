@@ -35,6 +35,7 @@ import {
   revokeGrant,
   useGrants,
 } from "@/oauth/api";
+import { ClientKindBadge } from "@/oauth/client-kind";
 import { type Owner, OwnerFilter } from "./owner-filter";
 
 const TH = "h-9 px-3 text-xs font-medium text-muted";
@@ -131,6 +132,7 @@ export function ConnectedAppsPage(): JSX.Element {
                   <TableCell className={`${TD} whitespace-normal`}>
                     <span className="block font-medium text-fg">{g.client.name}</span>
                     <span className="num block break-all text-xs text-muted">{g.client.id}</span>
+                    <ClientKindBadge client={g.client} />
                   </TableCell>
                   {showUser ? <TableCell className={TD}>{g.user}</TableCell> : null}
                   <TableCell className={`${TD} text-muted`}>{audienceWords(g.audience)}</TableCell>

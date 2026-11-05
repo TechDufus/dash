@@ -52,13 +52,16 @@ afterEach(() => {
 });
 
 describe("ConsentPage", () => {
-  it("names the app and its audience, and ticks only read", async () => {
-    stubFetch(routes());
+  it("names the app, the host of its metadata, its kind and audience, and ticks only read", async () => {
+    stubFetch(routes({ [GET]: consent({ audience: "api" }) }));
     renderApp(<ConsentPage id="abc" />);
-    expect(await screen.findByRole("heading", { name: "Connect Agent?" })).toBeInTheDocument();
+    expect(
+      await screen.findByRole("heading", { name: "Connect Agent from agent.test?" }),
+    ).toBeInTheDocument();
+    expect(screen.getByText("Unverified · metadata from agent.test")).toBeInTheDocument();
     expect(screen.getByText("URL")).toBeInTheDocument();
     expect(screen.getByText("https://agent.test/client.json")).toBeInTheDocument();
-    expect(screen.getByText("agents through MCP")).toBeInTheDocument();
+    expect(screen.getAllByText("the dash API").length).toBeGreaterThan(0);
     expect(screen.getByRole("checkbox", { name: "read" })).toBeChecked();
     expect(screen.getByRole("checkbox", { name: "logs" })).not.toBeChecked();
     expect(screen.getByRole("checkbox", { name: "actions:flux" })).not.toBeChecked();
@@ -79,10 +82,27 @@ describe("ConsentPage", () => {
     );
     renderApp(<ConsentPage id="abc" />);
     expect(await screen.findByText("Client ID")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Connect dash for Android?" })).toBeInTheDocument();
+    expect(screen.getByText("Built in")).toBeInTheDocument();
+    expect(screen.queryByText(/Unverified/)).toBeNull();
     expect(screen.getByText("dash-android")).toBeInTheDocument();
-    expect(screen.getByText("the dash API")).toBeInTheDocument();
+    expect(screen.getAllByText("the dash API").length).toBeGreaterThan(0);
     expect(screen.getByRole("checkbox", { name: "approvals" })).not.toBeChecked();
     expect(screen.getByRole("checkbox", { name: "push" })).not.toBeChecked();
+  });
+
+  it("badges a client the admin configured", async () => {
+    stubFetch(
+      routes({
+        [GET]: consent({
+          client: { id: "inspector", name: "Inspector", kind: "config" },
+          audience: "api",
+        }),
+      }),
+    );
+    renderApp(<ConsentPage id="abc" />);
+    expect(await screen.findByRole("heading", { name: "Connect Inspector?" })).toBeInTheDocument();
+    expect(screen.getByText("Configured by your admin")).toBeInTheDocument();
   });
 
   it.each([
@@ -230,7 +250,11 @@ describe("ConsentPage", () => {
     stubFetch(routes());
     renderApp(<PluginRoutes />, { path: "/consent/abc" });
     expect(
-      await screen.findByRole("heading", { name: "Connect Agent?" }, { timeout: 3000 }),
+      await screen.findByRole(
+        "heading",
+        { name: "Connect Agent from agent.test?" },
+        { timeout: 3000 },
+      ),
     ).toBeInTheDocument();
   });
 });

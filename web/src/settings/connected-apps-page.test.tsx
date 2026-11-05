@@ -64,6 +64,8 @@ describe("ConnectedAppsPage", () => {
     const [agent, phone] = rows as [HTMLElement, HTMLElement];
     expect(within(agent).getByText("Agent")).toBeInTheDocument();
     expect(within(agent).getByText("https://agent.test/client.json")).toBeInTheDocument();
+    expect(within(agent).getByText("Unverified · metadata from agent.test")).toBeInTheDocument();
+    expect(within(phone).getByText("Built in")).toBeInTheDocument();
     expect(within(agent).getByText("agents through MCP")).toBeInTheDocument();
     expect(within(agent).getByText("read, logs")).toBeInTheDocument();
     expect(within(agent).getByText("never")).toBeInTheDocument();

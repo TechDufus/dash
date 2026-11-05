@@ -23,6 +23,7 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { audienceWords, consentGone, consentRoute, decideConsent, useConsent } from "./api";
+import { ClientKindBadge, clientHost } from "./client-kind";
 
 /** What the screen says when the request is gone (expired, decided, or never there). */
 const EXPIRED = "This request expired; start again from the app.";
@@ -173,7 +174,12 @@ function ConsentForm({ consent, me }: { consent: OAuthConsent; me: Me }): JSX.El
         <PanelHeader title="Connect an app" icon={<PlugZap />} />
         <div className="space-y-4 p-4">
           <div className="space-y-1">
-            <h1 className="text-lg font-semibold text-fg">Connect {client.name}?</h1>
+            <h1 className="text-lg font-semibold text-fg">
+              {client.kind === OAuthClientKindMetadata
+                ? `Connect ${client.name} from ${clientHost(client)}?`
+                : `Connect ${client.name}?`}
+            </h1>
+            <ClientKindBadge client={client} />
             <p className="text-sm text-muted">
               It asks for access to {audienceWords(consent.audience)} as{" "}
               <span className="text-fg">{me.user}</span>.

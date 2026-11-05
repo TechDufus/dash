@@ -412,12 +412,17 @@ path. There is no dynamic client registration.
   https, http on a loopback host, or a private-use scheme containing a dot
   (`com.example.app:/callback`). dash fetches only from global addresses, unless
   `auth.oauth.cimdAllowPrivate` is true, which adds private (RFC 1918, CGNAT, ULA) and loopback
-  addresses; link-local addresses, where cloud metadata services live, stay refused;
+  addresses; link-local addresses, where cloud metadata services live, stay refused. A document
+  whose `client_name` is, ignoring case and surrounding spaces, the name or ID of `dash-android`
+  or of an `auth.oauth.clients` entry is refused, so it cannot pass for one of them;
 - `auth.oauth.clients` from the config (`DASH_AUTH_OAUTH_CLIENTS` as JSON):
   `[{clientID, name, redirectURIs, audiences}]`, with the same redirect rules.
 
 Any client but `dash-android` that asks for `approvals` or `push` gets `invalid_scope`, and the
-consent page never offers them to it.
+consent page never offers them to it. The consent page and Settings → Connected apps badge each
+client by kind: "Built in", "Configured by your admin", or "Unverified · metadata from
+`<host>`"; for a metadata-document client the consent headline names the host too ("Connect
+Agent from agent.example.com?").
 
 **The flow** is the authorization code flow with PKCE:
 

@@ -311,6 +311,15 @@ func cimdServer(t *testing.T, h func(id string) http.HandlerFunc) (*httptest.Ser
 	return srv, id
 }
 
+// namedDocument serves a valid metadata document of its own URL with client_name name.
+func namedDocument(name string) func(id string) http.HandlerFunc {
+	return func(id string) http.HandlerFunc {
+		return func(w http.ResponseWriter, _ *http.Request) {
+			_, _ = w.Write([]byte(`{"client_id":"` + id + `","client_name":"` + name + `","redirect_uris":["http://127.0.0.1/cb"]}`))
+		}
+	}
+}
+
 func goodDocument(id string) http.HandlerFunc {
 	return func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -407,6 +416,10 @@ func TestClientIDMetadataDocument(t *testing.T) {
 			}
 		}},
 		{"an error status", "answered 404", func(string) http.HandlerFunc { return http.NotFound }},
+		{"the built-in app's name", "name of an app this dash knows", namedDocument("  DASH for android ")},
+		{"the built-in app's ID", "name of an app this dash knows", namedDocument("dash-android")},
+		{"a config client's name", "name of an app this dash knows", namedDocument("inspector ")},
+		{"a config client's ID", "name of an app this dash knows", namedDocument("MCP-ONLY")},
 	} {
 		srv, id := cimdServer(t, tc.h)
 		s, _, _ := testServer(t, guarded(srv, true))
