@@ -7,6 +7,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/TechDufus/dash/internal/audit"
 	"github.com/TechDufus/dash/internal/model"
@@ -31,6 +32,30 @@ func noHalf(t *testing.T, what, got, span string) {
 	t.Helper()
 	if strings.Contains(got, span[:8]) {
 		t.Errorf("%s keeps the start of a cut secret: %q", what, got)
+	}
+}
+
+// clip never returns invalid UTF-8, whether or not it cuts, and still cuts to its bound
+// without splitting a character: a stream target comes from the client's URL and is written
+// into the audit record as is.
+func TestClipReturnsValidUTF8(t *testing.T) {
+	s := newServer(func(d *Deps) { d.Secrets = cutRegistry() })
+	for name, tc := range map[string]struct {
+		in   string
+		n    int
+		want string
+	}{
+		"plain, short":            {"media", 8, "media"},
+		"invalid byte, not cut":   {"me\xffdia", 16, "me\uFFFDdia"},
+		"invalid byte, then cut":  {"\xffabcdefghijkl", 8, "\uFFFDabcde"},
+		"cut inside a character":  {"aéééé", 4, "aé"},
+		"truncated rune at end":   {"abc\xc3", 16, "abc\uFFFD"},
+		"invalid byte at the cut": {"abcdefg\xffhij", 8, "abcdefg"},
+	} {
+		got := s.clip(tc.in, tc.n)
+		if !utf8.ValidString(got) || got != tc.want {
+			t.Errorf("%s: clip(%q, %d) = %q, want %q", name, tc.in, tc.n, got, tc.want)
+		}
 	}
 }
 

@@ -99,8 +99,10 @@ const maxAuditTarget = maxAuditAction
 
 // clip cuts text to at most n bytes, or up to one redaction marker past it, without splitting a
 // character and without leaving part of a secret that straddles the cut (secret.Registry.Cut).
+// Bytes that are not UTF-8 become U+FFFD first, cut or not, so the audit record holds the text
+// it shows (clipName does the same); a character the cut splits is dropped.
 func (s *Server) clip(text string, n int) string {
-	out, cut := s.d.Secrets.Cut(text, n)
+	out, cut := s.d.Secrets.Cut(strings.ToValidUTF8(text, "\uFFFD"), n)
 	if !cut {
 		return out
 	}
