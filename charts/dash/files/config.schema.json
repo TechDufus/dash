@@ -1210,7 +1210,7 @@
           "x-dash-restart": true
         },
         "publicURL": {
-          "description": "The URL people open, with scheme and host (https://dash.example.com). Required; the only Origin accepted on writes. In dev and demo mode it defaults to http://localhost:5173.",
+          "description": "The URL people open, with scheme and host (https://dash.example.com). Required; the only Origin accepted on writes. In dev mode it defaults to http://localhost:5173 (the Vite dev server); in demo mode without dev mode to http:// and the listen address, with 127.0.0.1 for a listener on every address (http://127.0.0.1:8080 by default).",
           "format": "uri",
           "type": "string",
           "x-dash-restart": true

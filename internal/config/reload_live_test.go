@@ -86,7 +86,8 @@ func TestRestartTaggedLeafAlwaysNeedsRestart(t *testing.T) {
 		return true // every section claims to be live
 	})
 	g.edit(t, "server:\n  listen: 127.0.0.1:9002\n"+headlamp("https://hl-b.example.com"))
-	if got := g.rl.RestartRequired(); !slices.Equal(got, []string{"server.listen"}) {
+	// The rig runs in demo mode, whose default public URL follows server.listen: it moves too.
+	if got := g.rl.RestartRequired(); !slices.Equal(got, []string{"server.listen", "server.publicURL"}) {
 		t.Fatalf("restart required = %v: a restart-tagged setting needs one, a live plugin section does not", got)
 	}
 	if slices.Contains(asked, "server") {

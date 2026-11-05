@@ -1,6 +1,7 @@
 package config
 
 import (
+	"net/url"
 	"reflect"
 	"slices"
 	"strings"
@@ -92,8 +93,61 @@ func TestDemoDoesNotImplyDev(t *testing.T) {
 	if !c.Demo || c.Dev {
 		t.Errorf("Demo = %v, Dev = %v; want demo without dev", c.Demo, c.Dev)
 	}
-	if c.PublicURL != "http://localhost:5173" || c.HealthListen != "127.0.0.1:8081" {
+	if c.PublicURL != "http://127.0.0.1:8080" || c.HealthListen != "127.0.0.1:8081" {
 		t.Errorf("demo defaults: PublicURL = %q, HealthListen = %q", c.PublicURL, c.HealthListen)
+	}
+}
+
+// Demo alone serves the embedded UI on its API listener, so its default public URL (the only
+// Origin accepted on writes) is that listener; dev keeps the Vite dev server's, and a public URL
+// that is set always wins.
+func TestDemoPublicURLDefault(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		env  map[string]string
+		want string
+	}{
+		{"demo", map[string]string{"DASH_DEMO": "true"}, "http://127.0.0.1:8080"},
+		{"demo on another port", map[string]string{"DASH_DEMO": "true", "DASH_SERVER_LISTEN": "127.0.0.1:9090"}, "http://127.0.0.1:9090"},
+		{"demo on every address", map[string]string{"DASH_DEMO": "true", "DASH_SERVER_LISTEN": "0.0.0.0:9090"}, "http://127.0.0.1:9090"},
+		{"demo on every address, no host", map[string]string{"DASH_DEMO": "true", "DASH_SERVER_LISTEN": ":9090"}, "http://127.0.0.1:9090"},
+		{"demo on every ipv6 address", map[string]string{"DASH_DEMO": "true", "DASH_SERVER_LISTEN": "[::]:9090"}, "http://127.0.0.1:9090"},
+		{"demo on ipv6 loopback", map[string]string{"DASH_DEMO": "true", "DASH_SERVER_LISTEN": "[::1]:9090"}, "http://[::1]:9090"},
+		{"demo on localhost", map[string]string{"DASH_DEMO": "true", "DASH_SERVER_LISTEN": "localhost:9090"}, "http://localhost:9090"},
+		{"demo on a zoned ipv6 address", map[string]string{"DASH_DEMO": "true", "DASH_SERVER_LISTEN": "[fe80::1%eth0]:9090"}, "http://[fe80::1%25eth0]:9090"},
+		{"demo on a named port", map[string]string{"DASH_DEMO": "true", "DASH_SERVER_LISTEN": ":http"}, "http://localhost:5173"},
+		{"demo on port 0", map[string]string{"DASH_DEMO": "true", "DASH_SERVER_LISTEN": "127.0.0.1:0"}, "http://localhost:5173"},
+		{"demo on a port out of range", map[string]string{"DASH_DEMO": "true", "DASH_SERVER_LISTEN": "127.0.0.1:65536"}, "http://localhost:5173"},
+		{"demo with a public url", map[string]string{"DASH_DEMO": "true", "DASH_SERVER_PUBLIC_URL": "https://dash.example.com"}, "https://dash.example.com"},
+		{"dev", map[string]string{"DASH_DEV": "true"}, "http://localhost:5173"},
+		{"dev and demo", map[string]string{"DASH_DEV": "true", "DASH_DEMO": "true"}, "http://localhost:5173"},
+		{"dev and demo on another port", map[string]string{"DASH_DEV": "true", "DASH_DEMO": "true", "DASH_SERVER_LISTEN": "127.0.0.1:9090"}, "http://localhost:5173"},
+	} {
+		c := mustLoad(t, tc.env)
+		if c.PublicURL != tc.want {
+			t.Errorf("%s: PublicURL = %q, want %q", tc.name, c.PublicURL, tc.want)
+		}
+		if u, err := url.Parse(c.PublicURL); err != nil || !c.HostAllowed(u.Host) {
+			t.Errorf("%s: the public URL's own host is refused (%v)", tc.name, err)
+		}
+	}
+	file := &File{Path: "c.yaml", Data: []byte("server:\n  listen: 127.0.0.1:9100\n")}
+	res, err := Resolve(Sources{Environ: []string{"DASH_DEMO=true"}, File: file})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := res.Config.PublicURL; got != "http://127.0.0.1:9100" {
+		t.Errorf("listen from the file: PublicURL = %q, want http://127.0.0.1:9100", got)
+	}
+	if p := res.Provenance["server.publicURL"]; p.Source != SourceDefault {
+		t.Errorf("derived public URL provenance = %+v, want the default", p)
+	}
+	file = &File{Path: "c.yaml", Data: []byte("server:\n  publicURL: https://dash.example.com\n")}
+	if res, err = Resolve(Sources{Environ: []string{"DASH_DEMO=true"}, File: file}); err != nil {
+		t.Fatal(err)
+	}
+	if got := res.Config.PublicURL; got != "https://dash.example.com" {
+		t.Errorf("public URL from the file: PublicURL = %q", got)
 	}
 }
 

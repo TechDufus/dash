@@ -344,7 +344,8 @@ func TestReloadFlagsChangedSettingsAsRestartRequired(t *testing.T) {
 	g := newReloadRig(t, headlampConfig("https://hl-a.example.com"))
 	writeFile(t, g.cfgPath, "plugins:\n  headlamp:\n    url: https://hl-b.example.com\n  grafana:\n    url: https://grafana.example.com\nserver:\n  listen: 127.0.0.1:9090\n")
 	g.rl.poll()
-	want := []string{"plugins.grafana.url", "plugins.headlamp.url", "server.listen"}
+	// The rig runs in demo mode, whose default public URL follows server.listen: it moves too.
+	want := []string{"plugins.grafana.url", "plugins.headlamp.url", "server.listen", "server.publicURL"}
 	if got := g.rl.RestartRequired(); !slices.Equal(got, want) {
 		t.Fatalf("restart required = %v, want %v", got, want)
 	}

@@ -230,6 +230,11 @@ func layer(src Sources) (r *resolver, dev, demo bool, err error) {
 		return nil, false, false, err
 	}
 	r.tree.normalize()
+	// Demo without dev serves the UI on its own listener, so a listen address moved by the file
+	// or the environment moves the default public URL with it. The UI layer cannot set either.
+	if demo && !dev && r.prov["server.publicURL"].Source == SourceDefault {
+		r.tree.Server.PublicURL = demoPublicURL(r.tree.Server.Listen)
+	}
 	return r, dev, demo, nil
 }
 

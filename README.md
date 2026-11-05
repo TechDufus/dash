@@ -92,8 +92,8 @@ cd web && npm ci --ignore-scripts && npm run build && cd ..   # the SPA is embed
 DASH_DEMO=true go run ./cmd/dash                              # http://127.0.0.1:8080
 ```
 
-For UI work against the demo data, run `DASH_DEMO=true go run ./cmd/dash` and `make dev-web`,
-then open http://localhost:5173.
+For UI work against the demo data, run `DASH_DEMO=true make dev-api` (dev mode, whose public URL
+is the Vite address) and `make dev-web`, then open http://localhost:5173.
 
 ## Run with Docker Compose
 
@@ -207,7 +207,7 @@ file that still parses cannot be told apart from an edit and would run until the
 
 | Setting (file path) | Default | What |
 |---|---|---|
-| `server.publicURL` | required (dev and demo: `http://localhost:5173`) | the URL people open, with scheme and host (`https://dash.example.com`); the only `Origin` accepted on writes |
+| `server.publicURL` | required (dev: `http://localhost:5173`; demo without dev: `http://` and the `server.listen` address, `http://127.0.0.1:8080` by default) | the URL people open, with scheme and host (`https://dash.example.com`); the only `Origin` accepted on writes |
 | `server.listen` | `0.0.0.0:8080` (dev and demo: `127.0.0.1:8080`) | API and SPA. Every address can reach the default, so keep authentication on; behind a sidecar identity proxy (oauth2-proxy) set `DASH_SERVER_LISTEN=127.0.0.1:8080` (the default before v0.14.0) |
 | `server.allowedHosts` | empty | extra Host names the API answers besides the `server.publicURL` host (a JSON list in the environment; `["*"]` accepts any) |
 | `server.healthListen` | `0.0.0.0:8081` | `/healthz` and `/readyz` |

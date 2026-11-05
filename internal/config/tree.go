@@ -1,7 +1,9 @@
 package config
 
 import (
+	"net"
 	"reflect"
+	"strconv"
 	"strings"
 	"time"
 
@@ -29,7 +31,7 @@ type Tree struct {
 
 // ServerConfig is how dash listens and what it calls itself.
 type ServerConfig struct {
-	PublicURL     string              `json:"publicURL" dash:"url,restart" doc:"The URL people open, with scheme and host (https://dash.example.com). Required; the only Origin accepted on writes. In dev and demo mode it defaults to http://localhost:5173."`
+	PublicURL     string              `json:"publicURL" dash:"url,restart" doc:"The URL people open, with scheme and host (https://dash.example.com). Required; the only Origin accepted on writes. In dev mode it defaults to http://localhost:5173 (the Vite dev server); in demo mode without dev mode to http:// and the listen address, with 127.0.0.1 for a listener on every address (http://127.0.0.1:8080 by default)."`
 	Listen        string              `json:"listen" dash:"restart" doc:"Address of the API and the web UI. The default 0.0.0.0:8080 accepts connections from any address, so keep authentication on (auth.mode local, proxy or oidc); behind a sidecar identity proxy set 127.0.0.1:8080. In dev and demo mode it defaults to 127.0.0.1:8080, and dev mode only accepts a loopback address."`
 	HealthListen  string              `json:"healthListen" dash:"restart" doc:"Address of /healthz and /readyz. In dev and demo mode it defaults to 127.0.0.1:8081."`
 	AllowedHosts  []string            `json:"allowedHosts" dash:"restart" doc:"Host names the API answers besides the host of publicURL: names or IP addresses without scheme or port. [\"*\"] accepts any. A JSON list in the environment."`
@@ -90,8 +92,9 @@ type PluginsConfig struct {
 
 // defaults is the built-in layer. Nothing site-specific is in it: an empty upstream URL or
 // convention turns that source or feature off. The API listens on every address so a container
-// port mapping reaches it. Dev and demo (DASH_DEV, DASH_DEMO) listen for the Vite dev server: a
-// public URL pointing at it, and the API and health listeners on loopback.
+// port mapping reaches it. Dev and demo (DASH_DEV, DASH_DEMO) put the API and health listeners on
+// loopback. Dev serves the UI from the Vite dev server, so its public URL points there; demo alone
+// serves the embedded UI itself, so its public URL is the API listener (see demoPublicURL).
 func defaults(dev, demo bool) Tree {
 	t := Tree{
 		Server: ServerConfig{
@@ -126,9 +129,37 @@ func defaults(dev, demo bool) Tree {
 		},
 	}
 	if dev || demo {
-		t.Server.Listen, t.Server.HealthListen, t.Server.PublicURL = "127.0.0.1:8080", "127.0.0.1:8081", "http://localhost:5173"
+		t.Server.Listen, t.Server.HealthListen = "127.0.0.1:8080", "127.0.0.1:8081"
+	}
+	switch {
+	case dev:
+		t.Server.PublicURL = "http://localhost:5173"
+	case demo:
+		t.Server.PublicURL = demoPublicURL(t.Server.Listen)
 	}
 	return t
+}
+
+// demoPublicURL is the default public URL of demo mode without dev mode: the embedded UI is
+// served on the API listener, so the browser's Origin is that address and writes are refused
+// as csrf_failed unless the public URL names it. A listener on every address is opened as
+// 127.0.0.1, and an IPv6 zone is escaped as %25. An address it cannot name as a URL (one that
+// does not parse, a named port, port 0) keeps the default before demo mode had its own,
+// http://localhost:5173, so a default never adds a startup error: the listener reports a bad
+// address itself.
+func demoPublicURL(listen string) string {
+	const fallback = "http://localhost:5173"
+	host, port, err := net.SplitHostPort(listen)
+	if err != nil {
+		return fallback
+	}
+	if n, err := strconv.Atoi(port); err != nil || n < 1 || n > 65535 || strconv.Itoa(n) != port {
+		return fallback
+	}
+	if ip := net.ParseIP(host); host == "" || ip != nil && ip.IsUnspecified() {
+		host = "127.0.0.1"
+	}
+	return "http://" + net.JoinHostPort(strings.ReplaceAll(host, "%", "%25"), port)
 }
 
 // normalize trims what operators paste: surrounding spaces everywhere, the trailing slash of
