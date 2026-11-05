@@ -164,6 +164,14 @@ the configuration it has. Any other changed setting is logged as a WARN that it 
 restart. Environment variables only change with a restart. Rotate a Proxmox secret without a
 restart with `DASH_PLUGINS_PROXMOX_TOKEN_SECRET_FILE`.
 
+Replace the config file atomically: write a new file next to it and rename it over the old one
+(a ConfigMap update does this). A check that finds the file missing or empty where it had
+content waits for the next one, so a writer that truncates the file in place or deletes and
+recreates it does not put "no settings" into effect for an instant; a file left empty or
+removed applies 10 seconds later. A settings save that finds the file missing, empty or not
+YAML keeps the file settings last applied; the next checks decide about the file. A half-written
+file that still parses cannot be told apart from an edit and would run until the next check.
+
 | Setting (file path) | Default | What |
 |---|---|---|
 | `server.publicURL` | required (dev and demo: `http://localhost:5173`) | the URL people open, with scheme and host (`https://dash.example.com`); the only `Origin` accepted on writes |

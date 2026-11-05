@@ -12,6 +12,8 @@ import (
 	"sync"
 	"time"
 
+	"sigs.k8s.io/yaml"
+
 	"github.com/TechDufus/dash/internal/secret"
 	"github.com/TechDufus/dash/internal/settings"
 )
@@ -80,6 +82,11 @@ type Reloader struct {
 	lastErr  string // the invalid state already logged; "" when the last resolution was valid
 	restart  []string
 	subs     []func(Change)
+	// file is the config file the last valid resolution applied (nil: none). held is a read of
+	// the config file that was missing or empty while file had content, seen on one tick and
+	// not put into effect yet (nil: none).
+	file *File
+	held *fileState
 }
 
 // NewReloader watches what res was resolved from. store is the settings store its UI layer
@@ -89,6 +96,7 @@ func NewReloader(res *Resolved, store *settings.Store, opts ReloadOptions) *Relo
 		base: res.src, store: store, reg: res.src.Registry, startup: res,
 		interval: opts.Interval, logger: opts.Log, live: opts.Live, cur: res,
 		lock: make(chan struct{}, 1), watch: map[string]fileState{},
+		file: res.src.File,
 	}
 	r.base.File, r.base.UI, r.base.Registry = nil, nil, nil
 	r.base.Log = slog.New(slog.DiscardHandler) // startup already said what it had to say
@@ -160,14 +168,17 @@ func (r *Reloader) WithLock(fn func() error) error {
 
 // Reload runs a check now instead of at the next tick: it reads the files and the store again,
 // puts a valid resolution into effect and calls the subscribers before it returns. It fails
-// only when the resolution does (an invalid file or environment, or a setting that does not
-// validate); the running configuration then stays in force, as on a tick. It serialises with
-// a tick's reload and notification. It does not take the WithLock lock, so it can run inside
-// WithLock; R6 calls it there. A subscriber must not call it: that deadlocks.
+// only when the resolution does (an invalid environment, or a setting that does not validate);
+// the running configuration then stays in force, as on a tick. A config file that reads
+// missing, empty or not parsable while the applied one had content is not Reload's to put into
+// effect: the reload keeps the applied file layer, so a settings write that lands while a
+// writer has the file truncated still applies, and the ticks decide about the file (see poll).
+// It serialises with a tick's reload and notification. It does not take the WithLock lock, so
+// it can run inside WithLock; R6 calls it there. A subscriber must not call it: that deadlocks.
 func (r *Reloader) Reload() error {
 	r.notifyMu.Lock()
 	defer r.notifyMu.Unlock()
-	changes, subs, err := r.check()
+	changes, subs, err := r.check(false)
 	notify(changes, subs)
 	return err
 }
@@ -210,13 +221,19 @@ func (r *Reloader) Run(ctx context.Context) {
 
 // poll is one tick: look at the files and the store, reload if one changed or the last reload
 // was invalid (the cause of an invalid state, such as a secret file that does not exist yet,
-// may be outside the watched files). It waits while WithLock runs.
+// may be outside the watched files). It waits while WithLock runs. A config file that has
+// vanished or become empty since a reload applied it with content is put into effect only when
+// the next tick reads it the same way: a writer that truncates the file in place (os.WriteFile,
+// an editor that saves in place) or deletes and recreates it leaves that state for an instant.
+// A truncated file that a writer has half filled again still parses or not as it happens: a
+// valid prefix is applied like an edit, an invalid one is logged and keeps the running
+// configuration.
 func (r *Reloader) poll() {
 	r.lock <- struct{}{}
 	defer func() { <-r.lock }()
 	r.notifyMu.Lock()
 	defer r.notifyMu.Unlock()
-	changes, subs, _ := r.check() // check logged the error
+	changes, subs, _ := r.check(true) // check logged the error
 	notify(changes, subs)
 }
 
@@ -229,14 +246,35 @@ func notify(changes []Change, subs []func(Change)) {
 }
 
 // check reloads if something changed, logging a failed resolution once per distinct error, and
-// returns the changes for the subscribers or the resolution error.
-func (r *Reloader) check() ([]Change, []func(Change), error) {
+// returns the changes for the subscribers or the resolution error. It reads the config file
+// once: the torn decision, the change detection and the resolution all see the same bytes. On
+// a tick (tick) a torn read waits for the next one (see poll); Reload resolves a torn or
+// unparsable read with the file layer last applied instead (see Reload).
+func (r *Reloader) check(tick bool) ([]Change, []func(Change), error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
+	cfg, _ := configFilePath(r.base.Environ)
+	f, ferr := readConfigFile(r.base.Environ)
+	read := stateOf(f)
+	if tick && hasContent(r.file) && torn(read) {
+		if r.held == nil || *r.held != read {
+			r.held = &read
+			return nil, nil, nil
+		}
+	}
+	if !tick && hasContent(r.file) && (ferr != nil || torn(read) || !parses(f)) {
+		f, ferr, read = r.file, nil, stateOf(r.file) // keep the applied layer; held stays as it is
+	} else {
+		r.held = nil
+	}
+
 	changed := false
 	for p, old := range r.watch {
-		now := fingerprint(p)
+		now := read
+		if p != cfg {
+			now = fingerprint(p)
+		}
 		changed = changed || now.ok != old.ok || now.sum != old.sum
 		r.watch[p] = now
 	}
@@ -251,7 +289,10 @@ func (r *Reloader) check() ([]Change, []func(Change), error) {
 	if r.store != nil {
 		rev = r.store.Revision()
 	}
-	next, err := r.resolve()
+	next, err := (*Resolved)(nil), ferr // a config file that cannot be read fails like an invalid one
+	if err == nil {
+		next, err = r.resolve(f)
+	}
 	if err != nil {
 		if msg := err.Error(); msg != r.lastErr {
 			r.log().Error("configuration reload failed; the running configuration stays in force", "error", msg)
@@ -259,7 +300,7 @@ func (r *Reloader) check() ([]Change, []func(Change), error) {
 		}
 		return nil, nil, err
 	}
-	r.lastErr, r.revision = "", rev
+	r.lastErr, r.revision, r.file = "", rev, f
 
 	changes := r.apply(next)
 	want := r.watchedPaths(&next.Tree)
@@ -272,14 +313,11 @@ func (r *Reloader) check() ([]Change, []func(Change), error) {
 	return changes, slices.Clone(r.subs), nil
 }
 
-// resolve layers the sources again: the environment and keys as at startup, the file and the
-// settings store as they are now. Warnings of the layering are not repeated.
-func (r *Reloader) resolve() (*Resolved, error) {
+// resolve layers the sources again: the environment and keys as at startup, the config file f
+// (read once by check) and the settings store as it is now. Warnings of the layering are not
+// repeated.
+func (r *Reloader) resolve(f *File) (*Resolved, error) {
 	src := r.base
-	f, err := readConfigFile(src.Environ)
-	if err != nil {
-		return nil, err
-	}
 	src.File = f
 	if r.store != nil {
 		src.UI, src.UIRef = r.store.Values(), r.store.Path()
@@ -411,4 +449,31 @@ func fingerprint(path string) fileState {
 		return fileState{}
 	}
 	return fileState{sum: sha256.Sum256(data), ok: true}
+}
+
+// emptySum is the fingerprint of an empty file.
+var emptySum = sha256.Sum256(nil)
+
+// torn reports whether s is a config file that is missing or empty.
+func torn(s fileState) bool { return !s.ok || s.sum == emptySum }
+
+// stateOf is the fingerprint of a config file as readConfigFile returned it (nil: missing).
+func stateOf(f *File) fileState {
+	if f == nil {
+		return fileState{}
+	}
+	return fileState{sum: sha256.Sum256(f.Data), ok: true}
+}
+
+// hasContent reports whether f is a config file that is there and not empty.
+func hasContent(f *File) bool { return f != nil && len(f.Data) > 0 }
+
+// parses reports whether f is YAML at all, valid settings or not: a file a writer has only
+// partly written again usually ends mid-token and does not.
+func parses(f *File) bool {
+	if f == nil {
+		return true
+	}
+	var doc map[string]any
+	return yaml.UnmarshalStrict(f.Data, &doc) == nil
 }

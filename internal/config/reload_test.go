@@ -11,6 +11,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -455,5 +456,165 @@ func TestSectionOf(t *testing.T) {
 		if got := sectionOf(path); got != want {
 			t.Errorf("sectionOf(%q) = %q, want %q", path, got, want)
 		}
+	}
+}
+
+// A tick that reads the config file between a writer's truncate and its write (os.WriteFile, an
+// editor that saves in place) sees an empty file: that read waits for the next tick, which
+// reads the whole file and finds nothing changed. An empty file that stays empty is applied.
+func TestATornConfigFileWaitsForTheNextTick(t *testing.T) {
+	full := headlampConfig("https://hl-a.example.com") + "  grafana:\n    url: https://gf.example.com\n"
+	g := newStoreRig(t, full, nil)
+	g.rl.poll()
+	g.changes = nil
+
+	writeFile(t, g.cfgPath, "") // the instant between O_TRUNC and the write
+	g.rl.poll()
+	if tr := g.rl.Tree(); tr.Plugins.Grafana.URL == "" || len(g.changes) != 0 {
+		t.Fatalf("an empty read was put into effect: grafana %q, changes %+v", tr.Plugins.Grafana.URL, g.changes)
+	}
+	writeFile(t, g.cfgPath, full) // the write completes
+	g.rl.poll()
+	if tr := g.rl.Tree(); tr.Plugins.Grafana.URL == "" || len(g.changes) != 0 {
+		t.Fatalf("the whole file is what ran before: grafana %q, changes %+v", tr.Plugins.Grafana.URL, g.changes)
+	}
+
+	writeFile(t, g.cfgPath, "") // emptied on purpose: still empty a tick later
+	g.rl.poll()
+	g.rl.poll()
+	if tr := g.rl.Tree(); tr.Plugins.Grafana.URL != "" || tr.Plugins.Headlamp.URL != "" || len(g.changes) != 2 {
+		t.Errorf("an empty file two ticks running is the configuration: grafana %q, changes %+v", tr.Plugins.Grafana.URL, g.changes)
+	}
+	// Now that the file is empty, content arrives at the next tick, and emptying it again waits.
+	writeFile(t, g.cfgPath, full)
+	g.rl.poll()
+	if g.rl.Tree().Plugins.Grafana.URL == "" {
+		t.Error("content after an empty file applies at once")
+	}
+}
+
+// The default config file (config.yaml in the data dir) that a writer deletes and creates again
+// is missing for an instant: a tick that sees that waits, so "no file" never runs.
+func TestAConfigFileMissingForOneTickKeepsTheRunningConfig(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+	full := headlampConfig("https://hl-a.example.com")
+	writeFile(t, path, full)
+	env := []string{"DASH_DEMO=true", "DASH_DATA_DIR=" + dir}
+	f, err := readConfigFile(env)
+	if err != nil || f == nil {
+		t.Fatalf("file %v, err %v", f, err)
+	}
+	log, _ := logBuf()
+	res, err := Resolve(Sources{Environ: env, File: f, Log: log})
+	if err != nil {
+		t.Fatal(err)
+	}
+	rl := NewReloader(res, nil, ReloadOptions{Log: log})
+	rl.poll()
+	if err := os.Remove(path); err != nil {
+		t.Fatal(err)
+	}
+	rl.poll()
+	if got := rl.Tree().Plugins.Headlamp.URL; got != "https://hl-a.example.com" {
+		t.Fatalf("a file missing for one tick was applied: headlamp %q", got)
+	}
+	writeFile(t, path, full)
+	rl.poll()
+	if got := rl.Tree().Plugins.Headlamp.URL; got != "https://hl-a.example.com" {
+		t.Errorf("headlamp %q after the file came back", got)
+	}
+	if err := os.Remove(path); err != nil {
+		t.Fatal(err)
+	}
+	rl.poll()
+	rl.poll()
+	if got := rl.Tree().Plugins.Headlamp.URL; got != "" {
+		t.Errorf("a file removed for good is no file: headlamp %q", got)
+	}
+}
+
+// A settings write calls Reload. When it reads the config file in the instant a writer has
+// truncated it, the save still succeeds and applies the store change, but the file layer stays
+// what was last applied: Reload makes no decision about the file. The ticks do, with their
+// two-tick rule: a file still empty two ticks later is the configuration.
+func TestReloadDuringATruncationKeepsTheAppliedFileLayer(t *testing.T) {
+	full := headlampConfig("https://hl-a.example.com")
+	g := newStoreRig(t, full, nil)
+	g.rl.poll()
+	if _, err := g.store.Apply(map[string]any{"plugins.grafana.url": "https://gf.example.com"}, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, g.cfgPath, "") // the instant between O_TRUNC and the write
+	if err := g.rl.Reload(); err != nil {
+		t.Fatalf("a save during a truncation failed: %v", err)
+	}
+	tr := g.rl.Tree()
+	if tr.Plugins.Grafana.URL != "https://gf.example.com" {
+		t.Errorf("the store change was not applied: grafana %q", tr.Plugins.Grafana.URL)
+	}
+	if tr.Plugins.Headlamp.URL != "https://hl-a.example.com" {
+		t.Errorf("Reload applied the truncated file: headlamp %q", tr.Plugins.Headlamp.URL)
+	}
+
+	for _, partial := range []string{"plugins:\n  headlamp: {url: \"https://hl-", ""} {
+		writeFile(t, g.cfgPath, partial) // a prefix that does not parse, then empty again
+		if err := g.rl.Reload(); err != nil {
+			t.Fatalf("Reload with a torn file (%q) failed: %v", partial, err)
+		}
+		if got := g.rl.Tree().Plugins.Headlamp.URL; got != "https://hl-a.example.com" {
+			t.Errorf("Reload applied a torn file (%q): headlamp %q", partial, got)
+		}
+	}
+
+	g.rl.poll() // the file is still empty: the first tick waits
+	if got := g.rl.Tree().Plugins.Headlamp.URL; got != "https://hl-a.example.com" {
+		t.Fatalf("one tick applied the empty file: headlamp %q", got)
+	}
+	g.rl.poll()
+	if tr := g.rl.Tree(); tr.Plugins.Headlamp.URL != "" || tr.Plugins.Grafana.URL != "https://gf.example.com" {
+		t.Errorf("an empty file two ticks running is the configuration: headlamp %q, grafana %q", tr.Plugins.Headlamp.URL, tr.Plugins.Grafana.URL)
+	}
+	// With the empty file applied, Reload reads the file as it is again.
+	writeFile(t, g.cfgPath, full)
+	if err := g.rl.Reload(); err != nil {
+		t.Fatal(err)
+	}
+	if got := g.rl.Tree().Plugins.Headlamp.URL; got != "https://hl-a.example.com" {
+		t.Errorf("Reload did not apply the file after an empty one: headlamp %q", got)
+	}
+}
+
+// A writer that keeps rewriting the file in place (truncate, then write the same content) while
+// the ticks run: the hold and the resolution see the same read, so a tick that read the file
+// whole never applies an empty file layer. Only two consecutive torn reads apply one.
+func TestATickNeverAppliesATornReadItDidNotHold(t *testing.T) {
+	full := headlampConfig("https://hl-a.example.com") + "  grafana:\n    url: https://gf.example.com\n"
+	g := newStoreRig(t, full, nil)
+	g.rl.poll()
+	var stop atomic.Bool
+	var wg sync.WaitGroup
+	wg.Go(func() {
+		for !stop.Load() {
+			_ = os.WriteFile(g.cfgPath, []byte(full), 0o600)
+		}
+	})
+	defer func() {
+		stop.Store(true)
+		wg.Wait()
+	}()
+	unheld := 0
+	for deadline := time.Now().Add(2 * time.Second); time.Now().Before(deadline) && unheld == 0; {
+		g.rl.mu.Lock()
+		// A tick that held a torn read, or follows an applied empty file, may apply one.
+		mayEmpty := g.rl.held != nil || !hasContent(g.rl.file)
+		g.rl.mu.Unlock()
+		g.rl.poll()
+		if g.rl.Tree().Plugins.Grafana.URL == "" && !mayEmpty {
+			unheld++
+		}
+	}
+	if unheld > 0 {
+		t.Error("a tick applied an empty file layer without holding a torn read first")
 	}
 }
