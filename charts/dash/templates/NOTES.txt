@@ -7,7 +7,12 @@ Reach it:
 
 WARNING: config.server.publicURL is not set; dash refuses to start without it.
 {{- end }}
-{{- if include "dash.sidecar" . }}
+{{- if include "dash.direct" . }}
+
+dash listens on 0.0.0.0:8080 behind oauth2-proxy ({{ $mode }} mode); the Service's http port leads to
+the proxy, and its direct port to dash for https://{{ .Values.routes.direct.host }} (routes.direct),
+where no identity header is believed.
+{{- else if include "dash.sidecar" . }}
 
 dash listens on the pod's loopback (127.0.0.1:8080) behind oauth2-proxy ({{ $mode }} mode); the
 Service leads to the proxy.

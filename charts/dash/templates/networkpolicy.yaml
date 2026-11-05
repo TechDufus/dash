@@ -19,6 +19,16 @@ spec:
       from:
         {{- toYaml . | nindent 8 }}
       {{- end }}
+    {{- if include "dash.direct" . }}
+    # routes.direct: dash's own port, from the same sources as the served port.
+    - ports:
+        - port: direct
+          protocol: TCP
+      {{- with .Values.networkPolicy.from }}
+      from:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+    {{- end }}
     # /healthz and /readyz for the kubelet's probes and monitoring.
     - ports:
         - port: health

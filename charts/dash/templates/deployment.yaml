@@ -51,6 +51,11 @@ spec:
               value: /etc/dash/config.yaml
             - name: DASH_SERVER_LISTEN
               value: {{ include "dash.listen" . | quote }}
+            {{- if include "dash.direct" . }}
+            # The routes.direct host: the OAuth issuer and the origin bearer clients use.
+            - name: DASH_SERVER_DIRECT_URL
+              value: {{ printf "https://%s" .Values.routes.direct.host | quote }}
+            {{- end }}
             # The probes below need the health listener on the pod's address.
             - name: DASH_SERVER_HEALTH_LISTEN
               value: "0.0.0.0:8081"
@@ -70,6 +75,12 @@ spec:
           ports:
             {{- if not $sidecar.enabled }}
             - name: http
+              containerPort: 8080
+              protocol: TCP
+            {{- end }}
+            {{- if include "dash.direct" . }}
+            # routes.direct: past the sidecar, so dash believes no identity header here.
+            - name: direct
               containerPort: 8080
               protocol: TCP
             {{- end }}

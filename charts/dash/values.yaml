@@ -160,8 +160,24 @@ httpRoute:
   hostnames: []
   #  - dash.example.com
 
+routes:
+  # A second host that reaches dash without the oauth2-proxy sidecar, for bearer clients (tokens,
+  # the OAuth token and discovery endpoints, MCP), which have no proxy session. Needs
+  # auth.oauth2ProxySidecar.enabled and one replica (credentials.yaml is per pod). dash then
+  # listens on 0.0.0.0:8080, server.directURL is https://<host>, the Service gets a port named
+  # direct (8082), and the Ingress or HTTPRoute sends the host to it. dash keeps trusting identity
+  # headers from the loopback only, so nothing that arrives on this host is signed in by a header:
+  # rendering refuses config.auth.proxy.trustedProxies and allowAnyPeer (and their variables)
+  # with it. The host needs its own DNS record and TLS certificate (ingress.tls, or the Gateway's
+  # listener).
+  direct:
+    enabled: false
+    host: ""
+    #  host: dash-direct.example.com
+
 networkPolicy:
-  # Admit traffic only to the served port (dash, or the proxy), and the probes' port 8081.
+  # Admit traffic only to the served port (dash, or the proxy), dash's direct port with
+  # routes.direct (from the same peers), and the probes' port 8081.
   # Egress stays open: dash calls the APIs it shows.
   enabled: false
   # NetworkPolicyPeers allowed to reach the served port; empty allows any source.

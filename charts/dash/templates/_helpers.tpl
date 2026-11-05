@@ -61,9 +61,20 @@ sidecar and dash's default (local) without it.
 {{- if .Values.auth.oauth2ProxySidecar.enabled }}true{{ end }}
 {{- end }}
 
-{{/* server.listen, always explicit: the pod's loopback behind the sidecar, every address without it. */}}
+{{/* "true" when routes.direct sends a second host straight to dash (only with the sidecar). */}}
+{{- define "dash.direct" -}}
+{{- if and (include "dash.sidecar" .) .Values.routes.direct.enabled }}true{{ end }}
+{{- end }}
+
+{{/* The Service port of routes.direct; an HTTPRoute backend needs a number. */}}
+{{- define "dash.directServicePort" -}}8082{{- end }}
+
+{{/*
+server.listen, always explicit: the pod's loopback behind the sidecar, every address without it
+or with routes.direct (identity headers are still believed from the loopback only).
+*/}}
 {{- define "dash.listen" -}}
-{{- if include "dash.sidecar" . }}127.0.0.1:8080{{ else }}0.0.0.0:8080{{ end }}
+{{- if and (include "dash.sidecar" .) (not (include "dash.direct" .)) }}127.0.0.1:8080{{ else }}0.0.0.0:8080{{ end }}
 {{- end }}
 
 {{- define "dash.anyAction" -}}

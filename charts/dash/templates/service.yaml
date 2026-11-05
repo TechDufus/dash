@@ -18,3 +18,10 @@ spec:
       port: {{ .Values.service.port }}
       targetPort: http
       protocol: TCP
+    {{- if include "dash.direct" . }}
+    # routes.direct: dash itself, past the sidecar.
+    - name: direct
+      port: {{ include "dash.directServicePort" . }}
+      targetPort: direct
+      protocol: TCP
+    {{- end }}

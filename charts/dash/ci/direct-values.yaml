@@ -1,0 +1,43 @@
+# oauth2-proxy in the pod plus routes.direct: dash on the pod IP for a second host that skips the
+# proxy, with its Service port, Ingress rule, HTTPRoute and NetworkPolicy rule.
+secretKey:
+  existingSecret: dash-secret-key
+config:
+  server:
+    publicURL: https://dash.example.com
+  auth:
+    proxy:
+      adminUsers: [alice]
+auth:
+  oauth2ProxySidecar:
+    enabled: true
+    args:
+      - --provider=github
+      - --github-user=alice
+      - --email-domain=*
+      - --redirect-url=https://dash.example.com/oauth2/callback
+      - --cookie-secure=true
+    envFrom:
+      - secretRef: {name: oauth2-proxy}
+routes:
+  direct:
+    enabled: true
+    host: dash-direct.example.com
+ingress:
+  enabled: true
+  hosts:
+    - host: dash.example.com
+      paths:
+        - {path: /, pathType: Prefix}
+  tls:
+    - {secretName: dash-tls, hosts: [dash.example.com, dash-direct.example.com]}
+httpRoute:
+  enabled: true
+  parentRefs:
+    - {name: gateway, namespace: gateway, sectionName: https}
+  hostnames: [dash.example.com]
+networkPolicy:
+  enabled: true
+  from:
+    - namespaceSelector:
+        matchLabels: {kubernetes.io/metadata.name: gateway}

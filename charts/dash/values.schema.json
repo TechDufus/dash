@@ -195,6 +195,20 @@
         "hostnames": {"type": "array", "items": {"type": "string"}}
       }
     },
+    "routes": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "direct": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {"type": "boolean"},
+            "host": {"type": "string", "pattern": "^([a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?(\\.[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?)*)?$"}
+          }
+        }
+      }
+    },
     "networkPolicy": {
       "type": "object",
       "additionalProperties": false,

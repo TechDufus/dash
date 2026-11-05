@@ -40,7 +40,7 @@ nothing. A message names the value at fault, never a secret.
 {{- /* What the chart sets itself, through the environment or the volume: one source each. */}}
 {{- $server := $v.config.server | default dict }}
 {{- if and (kindIs "map" $server) (hasKey $server "listen") }}
-{{- fail "config.server.listen is set by the chart (0.0.0.0:8080, or 127.0.0.1:8080 with auth.oauth2ProxySidecar.enabled): remove it from config" }}
+{{- fail "config.server.listen is set by the chart (0.0.0.0:8080, or 127.0.0.1:8080 with auth.oauth2ProxySidecar.enabled and without routes.direct): remove it from config" }}
 {{- end }}
 {{- if and (kindIs "map" $server) (hasKey $server "healthListen") }}
 {{- fail "config.server.healthListen is set by the chart (0.0.0.0:8081, where the probes look): remove it from config" }}
@@ -54,8 +54,8 @@ nothing. A message names the value at fault, never a secret.
 {{- end }}
 {{- $owned := dict
   "DASH_CONFIG" "use config"
-  "DASH_SERVER_LISTEN" "it follows auth.oauth2ProxySidecar.enabled"
-  "DASH_SERVER_LISTEN_FILE" "it follows auth.oauth2ProxySidecar.enabled"
+  "DASH_SERVER_LISTEN" "it follows auth.oauth2ProxySidecar.enabled and routes.direct"
+  "DASH_SERVER_LISTEN_FILE" "it follows auth.oauth2ProxySidecar.enabled and routes.direct"
   "DASH_SERVER_HEALTH_LISTEN" "the probes need 0.0.0.0:8081"
   "DASH_SERVER_HEALTH_LISTEN_FILE" "the probes need 0.0.0.0:8081"
   "DASH_SETTINGS_UI" "use settings.ui"
@@ -68,6 +68,46 @@ nothing. A message names the value at fault, never a secret.
 {{- range index $v $list }}
 {{- if hasKey $owned .name }}
 {{- fail (printf "%s sets %s, which the chart sets: %s" $list .name (index $owned .name)) }}
+{{- end }}
+{{- end }}
+{{- end }}
+
+{{- /*
+routes.direct: a second host straight to dash's port beside the sidecar. dash then listens on the
+pod IP and must believe identity headers from the loopback (the sidecar) only.
+*/}}
+{{- $direct := $v.routes.direct }}
+{{- if $direct.enabled }}
+{{- if not (include "dash.sidecar" .) }}
+{{- fail "routes.direct.enabled needs auth.oauth2ProxySidecar.enabled: without the sidecar the Service already leads straight to dash" }}
+{{- end }}
+{{- if not $direct.host }}
+{{- fail "routes.direct.enabled needs routes.direct.host: the host bearer clients reach dash on, past the identity proxy (it becomes server.directURL)" }}
+{{- end }}
+{{- if gt (int $v.replicaCount) 1 }}
+{{- fail "routes.direct.enabled needs replicaCount 1: tokens and OAuth grants live in each pod's credentials.yaml, so one created through a replica is unknown to the others" }}
+{{- end }}
+{{- if eq $mode "none" }}
+{{- fail "routes.direct.enabled with auth.mode none: dash would listen on the pod IP, and every client of the direct host would be an administrator" }}
+{{- end }}
+{{- if eq (int $v.service.port) (int (include "dash.directServicePort" .)) }}
+{{- fail (printf "service.port %s is the Service port of routes.direct: choose another" (include "dash.directServicePort" .)) }}
+{{- end }}
+{{- if and (kindIs "map" $server) (hasKey $server "directURL") }}
+{{- fail "config.server.directURL is set by the chart with routes.direct (https://<routes.direct.host>): remove it from config" }}
+{{- end }}
+{{- $proxy := dig "auth" "proxy" (dict) $v.config }}
+{{- range $key := list "trustedProxies" "allowAnyPeer" }}
+{{- if and (kindIs "map" $proxy) (hasKey $proxy $key) }}
+{{- fail (printf "config.auth.proxy.%s is set by the chart with routes.direct (identity headers are believed from the loopback only, never from the direct host): remove it from config" $key) }}
+{{- end }}
+{{- end }}
+{{- $directOwned := list "DASH_SERVER_DIRECT_URL" "DASH_SERVER_DIRECT_URL_FILE" "DASH_AUTH_PROXY_TRUSTED_PROXIES" "DASH_AUTH_PROXY_TRUSTED_PROXIES_FILE" "DASH_AUTH_PROXY_ALLOW_ANY_PEER" "DASH_AUTH_PROXY_ALLOW_ANY_PEER_FILE" }}
+{{- range $list := list "env" "secretEnv" }}
+{{- range index $v $list }}
+{{- if has .name $directOwned }}
+{{- fail (printf "%s sets %s, which the chart sets with routes.direct (the direct URL, and identity headers believed from the loopback only)" $list .name) }}
+{{- end }}
 {{- end }}
 {{- end }}
 {{- end }}

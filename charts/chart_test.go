@@ -27,7 +27,7 @@ const chartDir = "dash"
 
 // valueSets are the value files under charts/dash/ci, which CI also lints, renders and checks
 // with kubeconform.
-var valueSets = []string{"default", "readonly", "actions", "sidecar"}
+var valueSets = []string{"default", "readonly", "actions", "sidecar", "direct"}
 
 type obj = map[string]any
 
@@ -270,8 +270,11 @@ func TestListenIsExplicit(t *testing.T) {
 			objs := mustRender(t, set)
 			dash := container(t, objs, "dash")
 			want, port := "0.0.0.0:8080", any(float64(8080))
-			if set == "sidecar" {
+			switch set {
+			case "sidecar":
 				want, port = "127.0.0.1:8080", nil // nothing outside the pod reaches dash directly
+			case "direct":
+				port = nil // dash's port is named direct; http is the proxy's
 			}
 			if got := env(dash)["DASH_SERVER_LISTEN"]; got != want {
 				t.Errorf("DASH_SERVER_LISTEN = %v, want %s", got, want)
@@ -486,6 +489,22 @@ func TestRefusals(t *testing.T) {
 		{"auth.mode none with the sidecar", "sidecar", []string{"--set", "config.auth.mode=none"}, ""},
 		{"guardrails not auto, true or false", "default", []string{"--set", "guardrails.enabled=maybe"}, "guardrails/enabled"},
 		{"ReadOnlyMany volume", "default", []string{"--set-json", `persistence.accessModes=["ReadOnlyMany"]`}, "persistence/accessModes"},
+		{"routes.direct without the sidecar", "default", []string{"--set", "routes.direct.enabled=true", "--set", "routes.direct.host=dash-direct.example.com"}, "routes.direct.enabled needs auth.oauth2ProxySidecar.enabled"},
+		{"routes.direct without a host", "direct", []string{"--set", "routes.direct.host="}, "routes.direct.enabled needs routes.direct.host"},
+		{"routes.direct with a URL for a host", "direct", []string{"--set", "routes.direct.host=https://dash-direct.example.com"}, "routes/direct/host"},
+		{"routes.direct with two replicas", "direct", []string{"--set", "replicaCount=2", "--set", "settings.ui=readonly", "--set", "persistence.enabled=false"}, "routes.direct.enabled needs replicaCount 1"},
+		{"routes.direct with auth.mode none", "direct", []string{"--set", "config.auth.mode=none"}, "routes.direct.enabled with auth.mode none"},
+		{"routes.direct with auth.mode local", "direct", []string{"--set", "config.auth.mode=local"}, ""},
+		{"routes.direct with service.port 8082", "direct", []string{"--set", "service.port=8082"}, "service.port 8082 is the Service port of routes.direct"},
+		{"routes.direct with config.server.directURL", "direct", []string{"--set", "config.server.directURL=https://other.example.com"}, "config.server.directURL is set by the chart with routes.direct"},
+		{"routes.direct with trustedProxies", "direct", []string{"--set-json", `config.auth.proxy.trustedProxies=["10.0.0.0/8"]`}, "config.auth.proxy.trustedProxies is set by the chart with routes.direct"},
+		{"routes.direct with allowAnyPeer", "direct", []string{"--set", "config.auth.proxy.allowAnyPeer=true"}, "config.auth.proxy.allowAnyPeer is set by the chart with routes.direct"},
+		{"routes.direct with env DASH_SERVER_DIRECT_URL", "direct", []string{"--set-json", `env=[{"name":"DASH_SERVER_DIRECT_URL","value":"https://other.example.com"}]`}, "env sets DASH_SERVER_DIRECT_URL, which the chart sets with routes.direct"},
+		{"routes.direct with secretEnv DASH_AUTH_PROXY_TRUSTED_PROXIES", "direct", []string{"--set-json", `secretEnv=[{"name":"DASH_AUTH_PROXY_TRUSTED_PROXIES","secretKeyRef":{"name":"p","key":"p"}}]`}, "secretEnv sets DASH_AUTH_PROXY_TRUSTED_PROXIES, which the chart sets with routes.direct"},
+		{"routes.direct with env DASH_AUTH_PROXY_ALLOW_ANY_PEER_FILE", "direct", []string{"--set-json", `env=[{"name":"DASH_AUTH_PROXY_ALLOW_ANY_PEER_FILE","value":"/x"}]`}, "env sets DASH_AUTH_PROXY_ALLOW_ANY_PEER_FILE, which the chart sets with routes.direct"},
+		{"routes.direct with config.server.listen", "direct", []string{"--set", "config.server.listen=0.0.0.0:8080"}, "config.server.listen is set by the chart"},
+		{"routes.direct with env DASH_SERVER_LISTEN", "direct", []string{"--set-json", `env=[{"name":"DASH_SERVER_LISTEN","value":"0.0.0.0:8080"}]`}, "env sets DASH_SERVER_LISTEN, which the chart sets"},
+		{"directURL and trustedProxies without routes.direct", "sidecar", []string{"--set", "config.server.directURL=https://dash-direct.example.com", "--set-json", `config.auth.proxy.trustedProxies=["127.0.0.1/32"]`}, ""},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
@@ -989,5 +1008,97 @@ func TestIngress(t *testing.T) {
 	}
 	if len(ofKind(mustRender(t, "default"), "Ingress")) != 0 {
 		t.Error("an Ingress without ingress.enabled")
+	}
+}
+
+func TestDirect(t *testing.T) {
+	objs := mustRender(t, "direct")
+	dash := container(t, objs, "dash")
+	if got := env(dash)["DASH_SERVER_DIRECT_URL"]; got != "https://dash-direct.example.com" {
+		t.Errorf("DASH_SERVER_DIRECT_URL = %v", got)
+	}
+	if got := containerPort(dash, "direct"); got != float64(8080) {
+		t.Errorf("dash's direct port = %v, want 8080", got)
+	}
+	if got := containerPort(container(t, objs, "oauth2-proxy"), "http"); got != float64(4180) {
+		t.Errorf("proxy http port = %v, want 4180", got)
+	}
+	cfg := dashConfig(t, objs)
+	if dig(cfg, "auth", "mode") != "proxy" || !slices.Equal(strs(dig(cfg, "auth", "proxy", "trustedProxies")), []string{"127.0.0.1/32", "::1/128"}) {
+		t.Errorf("auth = %v, want proxy mode trusting the loopback only", cfg["auth"])
+	}
+
+	svc := one(t, objs, "Service")
+	ports := map[string]obj{}
+	for _, p := range list(dig(svc, "spec", "ports")) {
+		ports[fmt.Sprint(dig(p, "name"))] = p.(obj)
+	}
+	if len(ports) != 2 || ports["http"]["targetPort"] != "http" || ports["direct"]["targetPort"] != "direct" || ports["direct"]["port"] != float64(8082) {
+		t.Errorf("Service ports = %v, want http to the proxy and direct (8082) to dash", ports)
+	}
+
+	ing := one(t, objs, "Ingress")
+	var hosts []string
+	for _, r := range list(dig(ing, "spec", "rules")) {
+		hosts = append(hosts, fmt.Sprint(dig(r, "host"), "/", dig(r, "http", "paths", 0, "path"), "->",
+			dig(r, "http", "paths", 0, "backend", "service", "name"), ":", dig(r, "http", "paths", 0, "backend", "service", "port", "name")))
+	}
+	if !slices.Equal(hosts, []string{"dash.example.com//->dash:http", "dash-direct.example.com//->dash:direct"}) {
+		t.Errorf("Ingress rules = %v", hosts)
+	}
+
+	routes := ofKind(objs, "HTTPRoute")
+	if len(routes) != 2 {
+		t.Fatalf("%d HTTPRoutes, want the public one and the direct one", len(routes))
+	}
+	for _, r := range routes {
+		name := dig(r, "metadata", "name")
+		want := []any{"dash.example.com", float64(8080)}
+		if name == "dash-direct" {
+			want = []any{"dash-direct.example.com", float64(8082)}
+		} else if name != "dash" {
+			t.Errorf("HTTPRoute %v", name)
+		}
+		if !slices.Equal(strs(dig(r, "spec", "hostnames")), []string{fmt.Sprint(want[0])}) ||
+			dig(r, "spec", "rules", 0, "backendRefs", 0, "name") != "dash" ||
+			dig(r, "spec", "rules", 0, "backendRefs", 0, "port") != want[1] ||
+			dig(r, "spec", "parentRefs", 0, "name") != "gateway" {
+			t.Errorf("HTTPRoute %v = %v", name, r["spec"])
+		}
+	}
+
+	np := one(t, objs, "NetworkPolicy")
+	from := map[string]any{}
+	var npPorts []string
+	for _, r := range list(dig(np, "spec", "ingress")) {
+		p := fmt.Sprint(dig(r, "ports", 0, "port"))
+		npPorts = append(npPorts, p)
+		from[p] = dig(r, "from")
+	}
+	if !slices.Equal(npPorts, []string{"http", "direct", "health"}) {
+		t.Errorf("NetworkPolicy ports = %v", npPorts)
+	}
+	if from["direct"] == nil || fmt.Sprint(from["direct"]) != fmt.Sprint(from["http"]) {
+		t.Errorf("NetworkPolicy direct from = %v, want http's %v", from["direct"], from["http"])
+	}
+
+	// Off, or with routes.direct.enabled false, nothing of it renders.
+	for _, off := range [][]string{nil, {"--set", "routes.direct.enabled=false"}} {
+		objs := mustRender(t, "sidecar", append([]string{"--set", "ingress.enabled=true", "--set-json",
+			`ingress.hosts=[{"host":"dash.example.com","paths":[{"path":"/","pathType":"Prefix"}]}]`,
+			"--set", "routes.direct.host=dash-direct.example.com"}, off...)...)
+		dash := container(t, objs, "dash")
+		if _, ok := env(dash)["DASH_SERVER_DIRECT_URL"]; ok || containerPort(dash, "direct") != nil {
+			t.Errorf("routes.direct off: env %v, ports %v", env(dash), dash["ports"])
+		}
+		if n := len(list(dig(one(t, objs, "Service"), "spec", "ports"))); n != 1 {
+			t.Errorf("routes.direct off: %d Service ports", n)
+		}
+		if n := len(list(dig(one(t, objs, "Ingress"), "spec", "rules"))); n != 1 {
+			t.Errorf("routes.direct off: %d Ingress rules", n)
+		}
+		if n := len(ofKind(objs, "HTTPRoute")); n != 1 {
+			t.Errorf("routes.direct off: %d HTTPRoutes", n)
+		}
 	}
 }

@@ -235,19 +235,64 @@ one source.
         - secretRef: {name: oauth2-proxy}   # OAUTH2_PROXY_CLIENT_ID, _CLIENT_SECRET, _COOKIE_SECRET
   ```
 
-  [docs/auth.md](../auth.md) describes the proxy mode.
+  [docs/auth.md](../auth.md) describes the proxy mode. `routes.direct` (below) adds a second host
+  for bearer clients; dash then listens on `0.0.0.0:8080`.
+
+## A direct host for bearer clients (`routes.direct`)
+
+With the sidecar every request goes through oauth2-proxy, and a client holding a dash token
+(a personal access token, a static token, an OAuth access token), an MCP client or the OAuth
+token and discovery endpoints has no proxy session: the proxy turns it away. Its `/api/v1` paths
+are the browser's too, so no path rule can let it past. `routes.direct` gives those clients a
+second host that skips the proxy:
+
+```yaml
+routes:
+  direct:
+    enabled: true
+    host: dash-direct.example.com
+```
+
+- **What renders:** dash listens on `0.0.0.0:8080` with a container port named `direct`, and
+  `DASH_SERVER_DIRECT_URL` is `https://<host>` (`server.directURL`: the OAuth issuer and the
+  origin of the token, revoke and discovery endpoints and of `/mcp`). The Service gets a port
+  `direct` (8082) to that container port beside `http` (the proxy). With `ingress.enabled` the
+  Ingress gets a rule sending the whole host to `direct`; with `httpRoute.enabled` a second
+  HTTPRoute, `<release>-direct`, does the same on the same `parentRefs`. With
+  `networkPolicy.enabled` the policy admits `direct` from the same `networkPolicy.from` as
+  `http`.
+- **DNS and TLS:** the host needs its own DNS record pointing at your ingress controller or
+  Gateway, and a certificate: list it in `ingress.tls` (the same Secret can hold both names), or
+  on a listener of the Gateway that `httpRoute.parentRefs` names. Bearer clients and the OAuth
+  flow use `https://<host>`; browsers keep `config.server.publicURL`, and the consent page stays
+  behind the proxy there.
+- **Why it is safe:** dash still believes identity headers from the loopback only
+  (`config.auth.proxy.trustedProxies` stays `[127.0.0.1/32, ::1/128]`), where only the sidecar
+  connects from. A request on the direct host arrives from the ingress controller's pod IP, so
+  any `X-Forwarded-User` it carries is refused with 401: that host authenticates bearer tokens
+  and nothing else, and the browser pages there sign nobody in. Rendering refuses
+  `config.auth.proxy.trustedProxies` and `allowAnyPeer`, `config.server.directURL`, and their
+  variables (`DASH_AUTH_PROXY_TRUSTED_PROXIES`, `DASH_AUTH_PROXY_ALLOW_ANY_PEER`,
+  `DASH_SERVER_DIRECT_URL`, and their `_FILE` forms) with `routes.direct`, and `auth.mode: none`
+  (every client of the host would be an administrator).
+- **One replica:** tokens and OAuth grants live in each pod's `credentials.yaml`, so a token
+  created through one replica would be unknown to the others. Rendering refuses `routes.direct`
+  with `replicaCount` above 1.
+- It needs `auth.oauth2ProxySidecar.enabled` (without the sidecar the Service already leads
+  straight to dash) and `routes.direct.host`, a DNS name, and `service.port` other than 8082.
+  OAuth itself is off until `config.auth.oauth.enabled` is true.
 
 ## Ingress, HTTPRoute and NetworkPolicy
 
 - `ingress.enabled` with `ingress.hosts` (and `className`, `tls`, `annotations`) renders an
-  Ingress to the Service.
+  Ingress to the Service, plus the `routes.direct` host's rule.
 - `httpRoute.enabled` with `httpRoute.parentRefs` (and `hostnames`) renders a Gateway API
-  HTTPRoute to the Service.
+  HTTPRoute to the Service, plus `<release>-direct` with `routes.direct`.
 - `networkPolicy.enabled` admits traffic only to the served port (dash's, or the proxy's with
-  the sidecar), from `networkPolicy.from` (any source when empty), and to the health port 8081
-  from any source, for the kubelet's probes. `/metrics`, when `config.server.metrics` turns it on,
-  is on that port too, so any pod that can reach the pod can read it. Egress stays open: dash
-  calls the APIs it shows.
+  the sidecar) and to `direct` with `routes.direct`, from `networkPolicy.from` (any source when
+  empty), and to the health port 8081 from any source, for the kubelet's probes. `/metrics`, when
+  `config.server.metrics` turns it on, is on that port too, so any pod that can reach the pod can
+  read it. Egress stays open: dash calls the APIs it shows.
 
 ## What rendering refuses
 
@@ -272,6 +317,10 @@ one source.
   checks above could not read the mode;
 - `config` sets `server.listen`, `server.healthListen`, `settings.ui` or `dataDir`, or `env` or
   `secretEnv` sets a variable the chart sets;
+- `routes.direct.enabled` is true without the sidecar or `routes.direct.host`, with
+  `replicaCount` above 1, `auth.mode: none` or `service.port` 8082, or with
+  `config.server.directURL`, `config.auth.proxy.trustedProxies` or `allowAnyPeer` set (in
+  `config`, `env` or `secretEnv`);
 - `serviceAccount.create` is false without `serviceAccount.name`;
 - an `rbac.secretRefs` entry has no namespace, no names or a name that is not a non-blank string,
   or a namespace is listed twice;
@@ -279,8 +328,9 @@ one source.
 
 ## CI
 
-`make check` lints and renders the chart with four value sets (`charts/dash/ci`: the defaults,
-read-only with two replicas behind an identity proxy, both actions, the sidecar) and checks the result
+`make check` lints and renders the chart with five value sets (`charts/dash/ci`: the defaults,
+read-only with two replicas behind an identity proxy, both actions, the sidecar, the sidecar with
+`routes.direct`) and checks the result
 (`charts/chart_test.go`), and fails when `examples/kubernetes` drifts from the chart. The `kind`
 job validates the rendered objects with kubeconform, then runs `scripts/ci/kind-smoke.sh`: a
 throwaway kind cluster with the image built from the checkout, `helm install` of the chart with

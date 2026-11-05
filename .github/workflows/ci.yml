@@ -106,7 +106,7 @@ jobs:
         run: scripts/ci/readonly-smoke.sh
   # The Helm chart and examples/kubernetes (docs/deploy/kubernetes.md) on the last three
   # Kubernetes minors kind supports (design J.18), each node image pinned by digest from the kind
-  # release notes. make check already lints and renders the chart's four value sets and fails
+  # release notes. make check already lints and renders the chart's five value sets and fails
   # when examples/kubernetes drifts from it; each leg validates the rendered objects against its
   # minor's schemas, then installs both paths on a throwaway kind cluster with the Gateway API and
   # Flux CRDs and the image built from this checkout. The script deletes its cluster, network and
@@ -143,11 +143,11 @@ jobs:
       - name: kubeconform the rendered chart and examples/kubernetes
         run: |
           set -euo pipefail
-          # Both schema sets pinned to a commit. The CRD catalog validates the sidecar set's
-          # HTTPRoute.
+          # Both schema sets pinned to a commit. The CRD catalog validates the sidecar and direct
+          # sets' HTTPRoutes.
           k8s='https://raw.githubusercontent.com/yannh/kubernetes-json-schema/86d045595d3f93b703bbf439cf9eb4bd6830d58f/{{.NormalizedKubernetesVersion}}-standalone{{.StrictSuffix}}/{{.ResourceKind}}{{.KindSuffix}}.json'
           crds='https://raw.githubusercontent.com/datreeio/CRDs-catalog/c86448cbf1a840ca62d119259864863897c8748a/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json'
-          for set in default readonly actions sidecar; do
+          for set in default readonly actions sidecar direct; do
             echo "$set:"
             helm template dash charts/dash --namespace dash -f "charts/dash/ci/$set-values.yaml" |
               kubeconform -strict -summary -kubernetes-version "$KUBERNETES_VERSION" -schema-location "$k8s" -schema-location "$crds" -
