@@ -213,6 +213,25 @@ func pushOn(res *config.Resolved, fixed bool, store *credentials.Store, log *slo
 	return true
 }
 
+// pushMayNotify is the attention notifier's check, at send time, that a subscription's user may
+// still see the overview (contract D43): in local mode only the administrator account exists;
+// in oidc mode the user must still pass auth.oidc.allowedUsers (a user admitted by
+// allowedGroups cannot be checked without a login, so the groups admit them); behind an
+// identity proxy everyone it vouches for is a viewer.
+func pushMayNotify(a config.AuthConfig) func(user string) bool {
+	switch a.Mode {
+	case config.AuthModeLocal:
+		admin := a.Local.AdminUser
+		return func(user string) bool { return user == admin }
+	case config.AuthModeOIDC:
+		users, groups := slices.Clone(a.OIDC.AllowedUsers), len(a.OIDC.AllowedGroups) > 0
+		return func(user string) bool {
+			return groups || slices.Contains(users, "*") || slices.Contains(users, user)
+		}
+	}
+	return func(user string) bool { return user != "" }
+}
+
 // sessionAuth is the authenticator of a session mode and the machinery of its routes.
 type sessionAuth struct {
 	authn    *session.Authenticator

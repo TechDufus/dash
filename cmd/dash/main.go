@@ -184,6 +184,8 @@ func run(reg *secret.Registry, onBound func(api, health net.Addr)) error {
 		})
 		defer svc.Close()
 		go svc.RunSweep(ctx)
+		notifier := push.NewNotifier(push.NotifierOptions{Service: svc, Store: pa.store, MayNotify: pushMayNotify(res.Tree.Auth)})
+		go notifier.Run(ctx, h)
 		deps.Push = svc
 	}
 	srv := api.New(deps)
