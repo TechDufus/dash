@@ -1,7 +1,4 @@
-HL_OP ?= ../homelab/scripts/hl-op
-KUBECONFIG ?= ../homelab/.kube/config
-
-.PHONY: generate check dev-api dev-web image hooks hooks-uninstall
+.PHONY: generate check dev-api dev-api-op dev-web image hooks hooks-uninstall
 
 generate:
 	go tool tygo generate
@@ -28,15 +25,25 @@ check: generate
 	go test ./...
 	cd web && npm ci && npm run check && npm test && npm run build && node scripts/check-chunks.mjs
 
-# dev/site.env (see dev/site.env.example) holds this lab's URLs; it is optional. dev/secrets.env
-# references the Proxmox token as one <user>!<token>=<secret> value, split here into the two
-# variables dash reads.
+# Dev mode needs nothing outside this checkout: `DASH_DEMO=true make dev-api` serves fake data.
+# Against a real cluster, KUBECONFIG comes from your environment, dev/config.yaml (see
+# dev/config.example.yaml) is the config file unless DASH_CONFIG names another, and dev/site.env
+# (see dev/site.env.example) adds variables. Each is optional; both files are git-ignored.
 dev-api:
 	set -a; [ ! -f dev/site.env ] || . ./dev/site.env; set +a; \
-	$(HL_OP) run --env-file dev/secrets.env -- sh -c 'DASH_PLUGINS_PROXMOX_TOKEN_ID="$${DEV_PROXMOX_TOKEN%%=*}"; DASH_PLUGINS_PROXMOX_TOKEN_SECRET="$${DEV_PROXMOX_TOKEN#*=}"; export DASH_PLUGINS_PROXMOX_TOKEN_ID DASH_PLUGINS_PROXMOX_TOKEN_SECRET; unset DEV_PROXMOX_TOKEN; exec env DASH_DEV=true KUBECONFIG=$(KUBECONFIG) go run ./cmd/dash'
+	if [ -z "$${DASH_CONFIG:-}" ] && [ -f dev/config.yaml ]; then DASH_CONFIG=dev/config.yaml; export DASH_CONFIG; fi; \
+	exec env DASH_DEV=true go run ./cmd/dash
+
+# dev-api through a secret broker with the interface of 1Password's `op run` (HL_OP=op works): it
+# resolves the secret references in dev/secrets.env (see dev/secrets.env.example) into the
+# environment of dev-api. HL_OP has no default.
+dev-api-op:
+	@[ -n "$(HL_OP)" ] || { echo 'dev-api-op: set HL_OP to a secret broker with the interface of `op run`, e.g. HL_OP=op make dev-api-op' >&2; exit 2; }
+	@[ -f dev/secrets.env ] || { echo 'dev-api-op: dev/secrets.env is missing: copy dev/secrets.env.example and fill it in' >&2; exit 2; }
+	"$(HL_OP)" run --env-file dev/secrets.env -- $(MAKE) dev-api
 
 dev-web:
-	cd web && npm run dev
+	cd web && { [ -d node_modules ] || npm ci; } && npm run dev
 
 image:
 	docker buildx build --load -t dash:dev .

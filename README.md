@@ -697,14 +697,42 @@ name wins), with no `_FILE` form because it is another tool's variable.
 
 ## Develop
 
-Tools are pinned in `mise.toml` (`mise install`). The homelab checkout must sit next to this one:
-dev mode uses its kubeconfig and its 1Password broker (`../homelab/scripts/hl-op`). Copy
-`dev/site.env.example` to `dev/site.env` and fill in your lab's URLs; `make dev-api` loads it.
+Tools are pinned in `mise.toml` (`mise install`). Dev mode needs nothing outside this checkout.
+
+**Demo data (the default for contributors).** No cluster, no credentials:
 
 ```sh
-make dev-api   # Go API on 127.0.0.1:8080 (DASH_DEV=true)
-make dev-web   # Vite on http://localhost:5173, proxying /api to the Go API
+DASH_DEMO=true make dev-api   # Go API on 127.0.0.1:8080, the demo twins' fake data
+make dev-web                  # Vite on http://localhost:5173, proxying /api to the Go API
 ```
+
+`make dev-web` runs `npm ci` first when `web/node_modules` is missing. Health answers on
+http://127.0.0.1:8081/healthz.
+
+When those ports are taken, move the API and point Vite at it. Start `make dev-web` first, with
+the API's new address; Vite picks the next free port on its own and prints it. Then start
+`dev-api` with `DASH_SERVER_PUBLIC_URL` on that port, since dash only accepts writes from its
+public URL:
+
+```sh
+DASH_API=http://127.0.0.1:18080 make dev-web   # prints the port it picked
+DASH_SERVER_LISTEN=127.0.0.1:18080 DASH_SERVER_HEALTH_LISTEN=127.0.0.1:18081 \
+  DASH_SERVER_PUBLIC_URL=http://localhost:<that port> DASH_DEMO=true make dev-api
+```
+
+**A real cluster (optional).** `make dev-api` without `DASH_DEMO` reads what you point it at,
+and every piece is optional:
+
+- the cluster: `KUBECONFIG` from your environment (pick a context with
+  `plugins.kubernetes.context`);
+- the config file: copy `dev/config.example.yaml` to `dev/config.yaml` (git-ignored), which
+  `make dev-api` passes as `DASH_CONFIG` unless you set `DASH_CONFIG` yourself;
+- variables: `dev/site.env` (git-ignored, see `dev/site.env.example`), loaded by `make dev-api`
+  and winning over the file;
+- secrets: `env:`/`file:` references or plain variables, or `make dev-api-op`, which runs
+  `make dev-api` through a secret broker with the interface of 1Password's `op run`. Set `HL_OP`
+  to the broker (`HL_OP=op make dev-api-op`; there is no default) and copy
+  `dev/secrets.env.example` to `dev/secrets.env` (git-ignored) with your secret references.
 
 `DASH_DEV=true` signs every request in as `dev` without authentication, so dash refuses to
 start unless `server.listen` (`DASH_SERVER_LISTEN`) is a loopback address (`127.0.0.1:8080`,
@@ -712,12 +740,12 @@ start unless `server.listen` (`DASH_SERVER_LISTEN`) is a loopback address (`127.
 through the API server. To reach in-cluster services such as
 `http://prometheus.monitoring.svc:9090` from a laptop, set
 `DASH_PLUGINS_KUBERNETES_UPSTREAM_VIA_API_SERVER=true` (`plugins.kubernetes.upstreamViaAPIServer`;
-`dev/site.env.example` sets it, and the service proxy needs `get` and `create` on `services/proxy`).
+both dev examples set it, and the service proxy needs `get` and `create` on `services/proxy`).
 
 Open http://localhost:5173. `make check` runs everything CI runs: it regenerates the generated
-files and fails if they differ from what is committed (`web/src/api/types.ts`,
-`docs/configuration.md` and `docs/api/openapi.json`), lints the OpenAPI document with vacuum,
-then runs `go vet`, `go test`, `tsc`, Biome, the web tests and the production build.
+files and fails if they differ from what is committed (the table below), lints the OpenAPI
+document with vacuum, then runs `go vet`, `go test`, `tsc`, Biome, the web tests and the
+production build.
 
 Web tests run on Vitest with jsdom and Testing Library (`cd web && npm test`; `npx vitest` watches).
 Tests sit next to the code as `*.test.ts(x)`. `web/src/test/harness.tsx` has the shared helpers:
@@ -727,7 +755,7 @@ Tests sit next to the code as `*.test.ts(x)`. `web/src/test/harness.tsx` has the
 `pluginInfo()` / `pluginsEnvelope()` builders. `setup.ts` stubs what jsdom lacks and removes the
 fakes after each test, so a test never reaches the network.
 
-Three files are generated; never edit them by hand. `make generate` rewrites all three and you
+These files are generated; never edit them by hand. `make generate` rewrites all of them and you
 commit them with the change:
 
 | File | Generated from | Rewrite after changing |
@@ -735,6 +763,9 @@ commit them with the change:
 | `web/src/api/types.ts` | `internal/model` (tygo) | a struct in `internal/model` |
 | `docs/configuration.md` | the config schema (`dash config env --markdown`) | a setting, its `doc` tag or its default |
 | `docs/api/openapi.json` | the route table and the types it names (`dash api openapi`) | an `/api/v1` route, a topic envelope, a plugin manifest or an error code |
+| `charts/dash/files/config.schema.json` | the config schema (`dash config schema`) | a setting, its `doc` tag or its default |
+| `charts/dash/files/secret-env.txt` | the secret settings (`dash config env`) | a secret setting |
+| `examples/kubernetes/dash.yaml` | `helm template` of `charts/dash` with `examples/kubernetes/values.yaml` | the chart or those values |
 
 A changed config schema also needs `go test ./internal/config -run TestConfigSchemaGolden -update`
 for `internal/config/testdata/config.schema.json`.

@@ -1,0 +1,43 @@
+# Copy to dev/config.yaml (git-ignored): `make dev-api` reads it as DASH_CONFIG when it exists.
+# Every key is in docs/configuration.md (`dash config schema` has the JSON Schema), and
+# `DASH_DEV=true go run ./cmd/dash config validate dev/config.yaml` checks the file. A setting left
+# out keeps its default; an empty URL turns that source off. Variables (your environment,
+# dev/site.env) win over this file.
+#
+# Keep secrets out of this file: give a secret as env:NAME or file:/path, or set its variable
+# (for the Proxmox token, see dev/secrets.env.example and `make dev-api-op`).
+
+plugins:
+  kubernetes:
+    # The kubeconfig comes from KUBECONFIG. Send the other plugins' requests to the in-cluster
+    # URLs below through the API server's service proxy (needs get and create on services/proxy).
+    upstreamViaAPIServer: true
+  prometheus:
+    url: http://prometheus.monitoring.svc:9090
+  alertmanager:
+    url: http://alertmanager.monitoring.svc:9093
+  victorialogs:
+    url: http://victorialogs.monitoring.svc:9428
+  gatus:
+    url: http://gatus.gatus.svc:8080
+  proxmox:
+    # Proxmox runs once tokenID and tokenSecret are set too.
+    url: https://pve.example.com:8006
+    node: pve
+  hardware:
+    hosts:
+      - model: Example 2U server
+        bays: 16
+        fanMaxRPM: 18000
+  headlamp:
+    url: https://headlamp.example.com
+  grafana:
+    url: https://grafana.example.com
+  launcher:
+    links:
+      - name: Router
+        href: https://router.example.com
+        icon: unifi
+
+ui:
+  iconBaseURL: https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/png

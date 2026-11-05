@@ -3,3 +3,5 @@ web/dist/*
 !web/dist/.gitkeep
 dev/site.env
 dev/launcher.yaml
+dev/config.yaml
+dev/secrets.env
