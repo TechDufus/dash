@@ -76,8 +76,8 @@ type KubernetesOptional struct {
 
 // KubernetesConventions are the namespace labels dash reads.
 type KubernetesConventions struct {
-	// ProtectedLabel marks a namespace whose restarts must be confirmed by typing the name.
-	ProtectedLabel string `json:"protectedLabel" doc:"Namespace label (value \"true\") that makes a restart ask you to type the namespace name. Empty protects no namespace."`
+	// ProtectedLabel marks a namespace whose restarts must be confirmed by typing the workload's name.
+	ProtectedLabel string `json:"protectedLabel" doc:"Namespace label (value \"true\") that makes a restart ask you to type the workload's name. Empty protects no namespace."`
 	// TenantLabel puts a namespace in the Tenants group; its value is the tenant.
 	TenantLabel string `json:"tenantLabel" doc:"Namespace label that puts the namespace under Tenants; its value is the tenant. Empty turns the grouping off."`
 	// AppsFluxPrefix puts namespaces applied by a Flux Kustomization with this name prefix in Apps.

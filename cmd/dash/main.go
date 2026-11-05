@@ -62,6 +62,9 @@ func command(args []string, out io.Writer) error {
 	if len(args) >= 1 && args[0] == "healthcheck" {
 		return healthcheckCommand(args[1:])
 	}
+	if len(args) >= 1 && args[0] == "docs" { // not in the usage: it writes this repository's docs
+		return docsCommand(args[1:])
+	}
 	return fmt.Errorf("unknown command %q; usage: %s | %s | %s | %s | %s", strings.Join(args, " "), configUsage, auditUsage, apiUsage, hashPasswordUsage, healthcheckUsage)
 }
 

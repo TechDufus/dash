@@ -6,6 +6,8 @@ generate: web/node_modules/.package-lock.json
 	mv docs/configuration.md.tmp docs/configuration.md
 	go run ./cmd/dash api openapi > docs/api/openapi.json.tmp
 	mv docs/api/openapi.json.tmp docs/api/openapi.json
+	rm -rf docs/plugins.tmp && go run ./cmd/dash docs plugins docs/plugins.tmp
+	rm -rf docs/plugins && mv docs/plugins.tmp docs/plugins
 	go run ./cmd/dash config schema > charts/dash/files/config.schema.json.tmp
 	mv charts/dash/files/config.schema.json.tmp charts/dash/files/config.schema.json
 	go run ./cmd/dash config env | awk '$$2 ~ /^DASH_/ && $$(NF-1) == "yes" { print $$2 }' > charts/dash/files/secret-env.txt.tmp
@@ -39,7 +41,7 @@ web/node_modules/.package-lock.json: web/package-lock.json
 # restricted or unknown licence (go-licenses' classes), and npm runtime licences only from the
 # allowlist in web/scripts/licenses.mjs.
 check: generate
-	git diff --exit-code -- web/src/api/types.ts ':(glob)web/src/plugins/**/model.gen.ts' docs/configuration.md docs/api/openapi.json charts/dash/files/config.schema.json charts/dash/files/secret-env.txt examples/kubernetes/dash.yaml THIRD_PARTY_NOTICES.md
+	git diff --exit-code -- web/src/api/types.ts ':(glob)web/src/plugins/**/model.gen.ts' docs/configuration.md docs/api/openapi.json docs/plugins charts/dash/files/config.schema.json charts/dash/files/secret-env.txt examples/kubernetes/dash.yaml THIRD_PARTY_NOTICES.md
 	test -z "$$(git ls-files --others --exclude-standard -- web/src docs charts examples THIRD_PARTY_NOTICES.md)" || { echo "untracked files: a generated file nobody committed fails, so add or remove them"; git ls-files --others --exclude-standard -- web/src docs charts examples THIRD_PARTY_NOTICES.md; exit 1; }
 	go tool -modfile=tools/go.mod vacuum lint -r docs/api/ruleset.yaml -n warn -q -b --no-update-check docs/api/openapi.json
 	$(GO_LICENSES) check ./cmd/dash --disallowed_types=forbidden,restricted,unknown $(GO_LICENSES_LOG)

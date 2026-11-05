@@ -773,6 +773,7 @@ commit them with the change:
 | `web/src/api/types.ts` | `internal/model` (tygo) | a struct in `internal/model` |
 | `docs/configuration.md` | the config schema (`dash config env --markdown`) | a setting, its `doc` tag or its default |
 | `docs/api/openapi.json` | the route table and the types it names (`dash api openapi`) | an `/api/v1` route, a topic envelope, a plugin manifest or an error code |
+| `docs/plugins/*.md` | each plugin's manifest and settings, the panel and RBAC tables in `cmd/dash/docs.go` and the prose in `cmd/dash/plugindocs/<id>.md` (`dash docs plugins`) | a plugin's manifest, settings, panels, RBAC or prose |
 | `charts/dash/files/config.schema.json` | the config schema (`dash config schema`) | a setting, its `doc` tag or its default |
 | `charts/dash/files/secret-env.txt` | the secret settings (`dash config env`) | a secret setting |
 | `examples/kubernetes/dash.yaml` | `helm template` of `charts/dash` with `examples/kubernetes/values.yaml` | the chart or those values |

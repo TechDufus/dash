@@ -14,6 +14,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 	"testing"
@@ -759,6 +760,83 @@ func TestRBAC(t *testing.T) {
 			}
 		}
 	})
+}
+
+// The Kubernetes RBAC sections of the generated plugin docs (docs/plugins, from cmd/dash/docs.go)
+// state, group by group, what the chart grants: with every RBAC value on, the chart's rules and
+// the documented ones the chart grants are the same verbs on the same resources.
+func TestRBACMatchesPluginDocs(t *testing.T) {
+	objs := mustRender(t, "actions", "--set", "config.plugins.kubernetes.apps.ingress=true",
+		"--set-json", `rbac.secretRefs=[{"namespace":"monitoring","names":["alertmanager"]}]`)
+	chart := map[string]bool{}
+	for _, r := range rules(objs) {
+		for _, g := range strs(r["apiGroups"]) {
+			for _, res := range strs(r["resources"]) {
+				for _, v := range strs(r["verbs"]) {
+					chart[g+"/"+res+":"+v] = true
+				}
+			}
+		}
+	}
+	docs := documentedGrants(t)
+	for k := range chart {
+		if !docs[k] {
+			t.Errorf("the chart grants %s and no plugin page says so", k)
+		}
+	}
+	for k := range docs {
+		if !chart[k] {
+			t.Errorf("a plugin page says the chart grants %s, and it does not", k)
+		}
+	}
+}
+
+// chartBlock is a rule group the chart grants: its lead line names the chart value, then the
+// rules follow as YAML.
+var chartBlock = regexp.MustCompile("(?s)\\(chart: `[^`]+`\\)[^\n]*\n\n```yaml\n(.*?)```")
+
+// documentedGrants are the group/resource:verb triples of the rule groups the plugin pages say
+// the chart grants.
+func documentedGrants(t *testing.T) map[string]bool {
+	t.Helper()
+	files, err := filepath.Glob(filepath.Join("..", "docs", "plugins", "*.md"))
+	if err != nil || len(files) == 0 {
+		t.Fatalf("no plugin pages: %v", err)
+	}
+	out := map[string]bool{}
+	for _, f := range files {
+		b, err := os.ReadFile(f)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, section, ok := strings.Cut(string(b), "\n## Kubernetes RBAC\n")
+		if !ok {
+			continue
+		}
+		section, _, _ = strings.Cut(section, "\n## ")
+		for _, m := range chartBlock.FindAllStringSubmatch(section, -1) {
+			var doc struct {
+				Rules []struct {
+					APIGroups []string `json:"apiGroups"`
+					Resources []string `json:"resources"`
+					Verbs     []string `json:"verbs"`
+				} `json:"rules"`
+			}
+			if err := sigsyaml.Unmarshal([]byte(m[1]), &doc); err != nil {
+				t.Fatalf("%s: %v", f, err)
+			}
+			for _, r := range doc.Rules {
+				for _, g := range r.APIGroups {
+					for _, res := range r.Resources {
+						for _, v := range r.Verbs {
+							out[g+"/"+res+":"+v] = true
+						}
+					}
+				}
+			}
+		}
+	}
+	return out
 }
 
 func TestGuardrail(t *testing.T) {

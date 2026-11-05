@@ -142,6 +142,10 @@ func TestEnabledDocStatesTheRustFSException(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	index, err := os.ReadFile("../../docs/plugins/README.md")
+	if err != nil {
+		t.Fatal(err)
+	}
 	for _, doc := range []struct{ name, text string }{
 		{"the enabled doc tag", field.Tag.Get("doc")},
 		{"dash config env", table.String()},
@@ -149,6 +153,7 @@ func TestEnabledDocStatesTheRustFSException(t *testing.T) {
 		{"the README row", string(readme)},
 		{"docs/configuration.md", string(generated)},
 		{"the schema golden", string(schema)},
+		{"docs/plugins/README.md", string(index)},
 	} {
 		if !strings.Contains(squash(doc.text), want) {
 			t.Errorf("%s lacks %q", doc.name, want)

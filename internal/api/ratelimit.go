@@ -13,6 +13,10 @@ const (
 	maxRateKeys      = 4096
 )
 
+// ActionRateLimit is the action rate limit: how many plugin actions one user may start in any
+// window, across every plugin. The generated plugin docs state it.
+func ActionRateLimit() (n int, window time.Duration) { return actionRateLimit, actionRateWindow }
+
 // The stream-open audit records (design F.5): a tail is audited at every open, but a client chooses
 // what it opens, so the log keeps at most one record per user and target a minute, and a user's
 // opens as a whole are capped too. A refused record never refuses the stream.

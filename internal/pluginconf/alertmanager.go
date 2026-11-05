@@ -10,7 +10,7 @@ var silenceDurations = []string{"1h", "4h", "24h", "7d"}
 // Alertmanager is plugins.alertmanager: alerts and silences.
 type Alertmanager struct {
 	PluginBase
-	URL              string            `json:"url" dash:"url" doc:"Base URL of the service, e.g. http://host:9090. Empty turns the source off: dash makes no request and its panels show \"source not configured\"."`
+	URL              string            `json:"url" dash:"url" doc:"Base URL of the service, e.g. http://host:port. Empty turns the source off: dash makes no request and its panels show \"source not configured\"."`
 	Auth             Auth              `json:"auth" doc:"How dash authenticates to Alertmanager. Neither basic nor bearerToken sends no credentials."`
 	TLS              TLS               `json:"tls" doc:"How dash verifies Alertmanager's certificate."`
 	IgnoreAlerts     []string          `json:"ignoreAlerts" doc:"Alert names dash drops everywhere: the alert list, the attention items and the firing count. A JSON list in the environment."`

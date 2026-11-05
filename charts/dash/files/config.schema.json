@@ -96,7 +96,7 @@
           "type": "string"
         },
         "url": {
-          "description": "Base URL of the service, e.g. http://host:9090. Empty turns the source off: dash makes no request and its panels show \"source not configured\".",
+          "description": "Base URL of the service, e.g. http://host:port. Empty turns the source off: dash makes no request and its panels show \"source not configured\".",
           "format": "uri",
           "type": "string"
         }
@@ -491,7 +491,7 @@
           "type": "string"
         },
         "url": {
-          "description": "Base URL of the service, e.g. http://host:9090. Empty turns the source off: dash makes no request and its panels show \"source not configured\".",
+          "description": "Base URL of the service, e.g. http://host:port. Empty turns the source off: dash makes no request and its panels show \"source not configured\".",
           "format": "uri",
           "type": "string"
         }
@@ -769,7 +769,7 @@
           "type": "string"
         },
         "protectedLabel": {
-          "description": "Namespace label (value \"true\") that makes a restart ask you to type the namespace name. Empty protects no namespace.",
+          "description": "Namespace label (value \"true\") that makes a restart ask you to type the workload's name. Empty protects no namespace.",
           "type": "string"
         },
         "tenantLabel": {
@@ -1040,7 +1040,7 @@
           "type": "string"
         },
         "url": {
-          "description": "Base URL of the service, e.g. http://host:9090. Empty turns the source off: dash makes no request and its panels show \"source not configured\".",
+          "description": "Base URL of the service, e.g. http://host:port. Empty turns the source off: dash makes no request and its panels show \"source not configured\".",
           "format": "uri",
           "type": "string"
         }
@@ -1360,7 +1360,7 @@
           "type": "string"
         },
         "url": {
-          "description": "Base URL of the service, e.g. http://host:9090. Empty turns the source off: dash makes no request and its panels show \"source not configured\".",
+          "description": "Base URL of the service, e.g. http://host:port. Empty turns the source off: dash makes no request and its panels show \"source not configured\".",
           "format": "uri",
           "type": "string"
         }

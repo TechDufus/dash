@@ -11,7 +11,7 @@ import (
 // KPIs and host metrics.
 type Prometheus struct {
 	PluginBase
-	URL     string            `json:"url" dash:"url" doc:"Base URL of the service, e.g. http://host:9090. Empty turns the source off: dash makes no request and its panels show \"source not configured\"."`
+	URL     string            `json:"url" dash:"url" doc:"Base URL of the service, e.g. http://host:port. Empty turns the source off: dash makes no request and its panels show \"source not configured\"."`
 	Timeout Duration          `json:"timeout" doc:"How long one query may take before dash gives up on it."`
 	Auth    Auth              `json:"auth" doc:"How dash authenticates to the service. Neither basic nor bearerToken sends no credentials."`
 	Headers map[string]string `json:"headers" doc:"Extra headers sent with every request, as {name: value}. Plain configuration, not secrets: put credentials in auth. Authorization, Proxy-Authorization, Cookie and Host cannot be set. A JSON object in the environment."`
