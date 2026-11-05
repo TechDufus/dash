@@ -169,6 +169,21 @@ apple-touch-icon) are rendered the same way from the favicon glyph in `web/index
 home-screen icon and the tab icon stay one design: `make icons` (`web/scripts/icons.mjs`) rewrites
 them. Run it after changing the favicon, and commit the PNGs with it.
 
+## PWA smoke
+
+`make pwa-smoke` checks the installable app ([docs/app.md](app.md)) in a real browser: it builds
+the SPA and dash, starts dash with `DASH_DEMO=true` on free loopback ports behind a loopback
+proxy that counts the requests reaching dash, and drives Playwright's full Chromium
+(`channel: "chromium"`, a temporary profile: the headless shell and an incognito context cannot
+install) through `web/scripts/pwa-smoke.mjs`. It fails unless CDP `Page.getInstallabilityErrors`
+is empty, the worker controls the page, an `/auth/callback?code=…` navigation reaches dash exactly
+once and not through the worker, Cache Storage holds exactly the worker's precache list and no
+`/api`, `/oauth` or `/mcp` URL after a session (the overview with its stream, a plugin page, the
+alerts), an offline reload shows the offline page from the worker with its CSS applied, and no
+document or worker reports a CSP violation. A run ends after 120 s at most. It needs the same
+one-time setup as the screenshots and is not part of `make check`: run it after a change to
+`web/sw`, `web/public`, the worker's plugin or the headers of `internal/api/static.go`.
+
 ## Pre-push hook (opt-in)
 
 CI runs on pushes to `main` and tags, and on pull requests once the repository is public; until

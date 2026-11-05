@@ -80,3 +80,9 @@ The API moved under `/api/v1` and the plugins' own routes; every old path answer
 - **The Hardware plugin reads the host's node from the running Proxmox plugin.** v0.7.0 used
   `plugins.proxmox.node` as the host's node even without a Proxmox token; set
   `plugins.hardware.hosts[0].nodename` to run Hardware without one.
+- **The web UI registers a service worker** (since v0.14.5, which makes dash an installable app).
+  Rolling back past it leaves the worker in each browser: an old worker keeps serving its
+  precached files until it updates, which an older dash cannot offer. Pages and data still come
+  from the server. To remove it: developer tools → *Application* → *Service workers* →
+  *Unregister*, then *Storage* → *Clear site data*, which also signs you out
+  ([details](app.md#rolling-back)).

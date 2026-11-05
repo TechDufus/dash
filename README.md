@@ -38,7 +38,8 @@ them is made up.
 The Overview rolls alerts, GitOps, nodes, VMs, power and CPU temperature into a KPI row, draws the
 topology from the Proxmox host through its VMs to every namespace, and lists what needs attention,
 worst first. A command palette (`Ctrl K`) jumps to any page, VM, node, workload or pod. The data is
-live: only what changed goes out over a single server-sent event stream.
+live: only what changed goes out over a single server-sent event stream. Over HTTPS a browser can
+[install dash as an app](docs/app.md), on a phone's home screen too.
 
 - [Proxmox VE](docs/plugins/proxmox.md): VMs with their Kubernetes node, config, snapshots and
   charts, a link to each console, and the Proxmox storage.
@@ -124,6 +125,7 @@ The deploy guides cover each path in full: [Docker and Compose](docs/deploy/dock
 - [Configuration](docs/configuration.md): the config file, the variables and every setting.
 - [Sign-in](docs/auth.md): the `local`, `oidc`, `proxy` and `none` modes.
 - [Settings page](docs/settings.md): what an administrator can change from the UI.
+- [Installing dash as an app](docs/app.md): the PWA, iOS and rolling back.
 - [Security model](docs/security.md), and how to report a vulnerability: [SECURITY.md](SECURITY.md).
 - Deploy: [Docker](docs/deploy/docker.md), [Kubernetes](docs/deploy/kubernetes.md),
   [other platforms](docs/deploy/paas.md).

@@ -1,4 +1,4 @@
-.PHONY: generate check scan dev-api dev-api-op dev-web image screenshots icons hooks hooks-uninstall
+.PHONY: generate check scan dev-api dev-api-op dev-web image screenshots icons pwa-smoke hooks hooks-uninstall
 
 generate: web/node_modules/.package-lock.json
 	go tool tygo generate
@@ -98,6 +98,17 @@ screenshots: web/node_modules/.package-lock.json
 # screenshots does.
 icons: web/node_modules/.package-lock.json
 	cd web && npm run --silent icons
+
+# The PWA browser smoke (P7.6): it builds the SPA and dash, and web/scripts/pwa-smoke.mjs runs
+# dash with DASH_DEMO=true on free loopback ports and checks with Playwright's full Chromium that
+# the app is installable, that a sign-in callback navigation reaches dash once and not through
+# the worker, that an offline reload shows the offline page, that Cache Storage holds no /api,
+# /oauth or /mcp URL after a session, and that no CSP violation occurs. Not part of check: it
+# needs Playwright's pinned Chromium (once, as screenshots does), which the CI runner lacks.
+pwa-smoke: web/node_modules/.package-lock.json
+	cd web && npm run build
+	tmp=$$(mktemp -d) && trap 'rm -rf "$$tmp"' EXIT && go build -o "$$tmp/dash" ./cmd/dash && \
+	  cd web && npm run --silent pwa-smoke -- "$$tmp/dash"
 
 hooks:
 	git config core.hooksPath .githooks

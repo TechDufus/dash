@@ -13,7 +13,6 @@
 // dropped.
 //
 // Needs Playwright's Chromium once: `npx playwright install chromium`.
-import { spawn } from "node:child_process";
 import {
   copyFileSync,
   mkdtempSync,
@@ -25,11 +24,11 @@ import {
   unlinkSync,
   writeFileSync,
 } from "node:fs";
-import { createServer } from "node:net";
-import { constants, tmpdir } from "node:os";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { chromium } from "playwright";
+import { exit, freePorts, onSignals, startDash, stopAll } from "./lib/demo.mjs";
 
 const web = join(fileURLToPath(new URL(".", import.meta.url)), "..");
 const [bin, outDir] = process.argv.slice(2);
@@ -66,32 +65,6 @@ const BANNER = { width: 1280, height: 640 };
 const SETTLE_MS = 2500;
 
 /**
- * n distinct free loopback ports: every listener on port 0 stays open until all n are bound, so
- * the kernel cannot hand the same port out twice, and only then are they all closed.
- */
-async function freePorts(n) {
-  const servers = [];
-  try {
-    for (let i = 0; i < n; i++) {
-      const srv = createServer();
-      srv.unref();
-      servers.push(srv);
-      await new Promise((resolve, reject) => {
-        srv.once("error", reject);
-        srv.listen(0, "127.0.0.1", resolve);
-      });
-    }
-    return servers.map((srv) => srv.address().port);
-  } finally {
-    await Promise.all(
-      servers
-        .filter((srv) => srv.listening)
-        .map((srv) => new Promise((resolve) => srv.close(resolve))),
-    );
-  }
-}
-
-/**
  * Moves every file of from into to: a rename, or a copy and an unlink when from and to are on
  * different filesystems (EXDEV), as tmpdir often is.
  */
@@ -109,57 +82,6 @@ function moveAll(from, to) {
       unlinkSync(src);
     }
   }
-}
-
-/** Starts dash in demo mode and resolves once /readyz answers 200; rejects if it exits. */
-async function startDash(apiPort, healthPort) {
-  const env = {
-    PATH: process.env.PATH ?? "",
-    HOME: process.env.HOME ?? "",
-    DASH_DEMO: "true",
-    DASH_DEMO_CLOCK: clock,
-    DASH_SERVER_LISTEN: `127.0.0.1:${apiPort}`,
-    DASH_SERVER_HEALTH_LISTEN: `127.0.0.1:${healthPort}`,
-    DASH_SERVER_PUBLIC_URL: `http://127.0.0.1:${apiPort}`,
-  };
-  const child = spawn(bin, [], { env, stdio: ["ignore", "pipe", "pipe"] });
-  let log = "";
-  child.stdout.on("data", (b) => {
-    log += b;
-  });
-  child.stderr.on("data", (b) => {
-    log += b;
-  });
-  const exited = new Promise((resolve) => child.once("exit", (code, sig) => resolve(sig ?? code)));
-  const deadline = Date.now() + 30_000;
-  for (;;) {
-    const status = await Promise.race([
-      fetch(`http://127.0.0.1:${healthPort}/readyz`).then(
-        (r) => r.status,
-        () => 0,
-      ),
-      exited.then((how) => `exit ${how}`),
-    ]);
-    if (status === 200) {
-      return { child, exited, log: () => log };
-    }
-    if (typeof status === "string" || Date.now() > deadline) {
-      child.kill("SIGKILL");
-      throw new Error(`dash did not become ready (${status}):\n${log}`);
-    }
-    await new Promise((r) => setTimeout(r, 100));
-  }
-}
-
-/** Stops dash: SIGTERM, then SIGKILL after 10 s. */
-async function stopDash(dash) {
-  if (dash.child.exitCode !== null || dash.child.signalCode !== null) {
-    return;
-  }
-  dash.child.kill("SIGTERM");
-  const timer = setTimeout(() => dash.child.kill("SIGKILL"), 10_000);
-  await dash.exited;
-  clearTimeout(timer);
 }
 
 /** The pod sheet of the pod with the most restarts. */
@@ -289,25 +211,21 @@ async function main() {
   // The PNGs land in a temp dir first and move to outDir only once every capture succeeded, so a
   // failed or interrupted run leaves outDir as it was.
   const tmp = mkdtempSync(join(tmpdir(), "dash-screenshots-"));
-  let dash;
   let browser;
   const stop = async () => {
     try {
-      await browser?.close();
-      if (dash) {
-        await stopDash(dash);
+      try {
+        await browser?.close();
+      } finally {
+        await stopAll();
       }
     } finally {
       rmSync(tmp, { recursive: true, force: true });
     }
   };
-  for (const sig of ["SIGINT", "SIGTERM", "SIGHUP"]) {
-    process.once(sig, () => {
-      stop().finally(() => process.exit(128 + constants.signals[sig]));
-    });
-  }
+  onSignals(stop);
   try {
-    dash = await startDash(apiPort, healthPort);
+    await startDash(bin, apiPort, healthPort, { DASH_DEMO_CLOCK: clock });
     browser = await chromium.launch({
       args: ["--force-color-profile=srgb", "--font-render-hinting=none", "--disable-lcd-text"],
     });
@@ -328,5 +246,5 @@ async function main() {
 
 main().catch((err) => {
   console.error(`screenshots: ${err.stack ?? err}`);
-  process.exit(1);
+  exit(1);
 });
