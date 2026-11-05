@@ -1,0 +1,79 @@
+name: Bug report
+description: Something in dash does not work as documented.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the report. **Security vulnerabilities do not belong here:** report them privately, as SECURITY.md describes.
+        Remove host names, addresses, tokens and other details of your own setup from everything you paste; use example.com and 192.0.2.x instead.
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: The image tag or release, or `version` in the answer of `/api/v1/me`.
+      placeholder: "0.14.2"
+    validations:
+      required: true
+  - type: dropdown
+    id: deployment
+    attributes:
+      label: How dash runs
+      options:
+        - Helm chart
+        - Kubernetes manifests (examples/kubernetes)
+        - Docker or Docker Compose
+        - PaaS
+        - Binary built from source
+        - Demo or dev mode
+        - Other
+    validations:
+      required: true
+  - type: dropdown
+    id: auth-mode
+    attributes:
+      label: auth.mode
+      options:
+        - local
+        - oidc
+        - proxy
+        - "none (no sign-in)"
+        - Not sure or not relevant
+    validations:
+      required: true
+  - type: input
+    id: plugins
+    attributes:
+      label: Plugins involved
+      description: The plugin IDs the bug touches, if any.
+      placeholder: kubernetes, flux
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What you did and what dash did, with the error message or a screenshot.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+      description: The smallest steps that show the bug. A reproduction in demo mode (`DASH_DEMO=true`) helps most.
+      placeholder: |
+        1. Run `DASH_DEMO=true make dev-api`
+        2. Open ...
+        3. See ...
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs and configuration
+      description: The relevant log lines and settings, with secrets removed. `dash config validate` reports each invalid setting with the layer that set it.
+      render: text

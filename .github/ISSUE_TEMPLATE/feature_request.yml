@@ -1,0 +1,40 @@
+name: Feature request
+description: Suggest a feature, a new plugin or a change to an existing one.
+labels: [enhancement]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the idea. Check the open issues first, in case someone asked already.
+        Remove host names, addresses and other details of your own setup; use example.com and 192.0.2.x instead.
+  - type: textarea
+    id: problem
+    attributes:
+      label: The problem
+      description: What you are trying to do and what stops you today.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: The proposal
+      description: What dash should do. For a new plugin, name the service it reads and what it would show.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives
+      description: Other ways you considered, including a workaround you use now.
+  - type: input
+    id: plugins
+    attributes:
+      label: Plugins involved
+      description: The plugin IDs this touches, if any.
+      placeholder: kubernetes, flux
+  - type: checkboxes
+    id: contribute
+    attributes:
+      label: Contribution
+      options:
+        - label: I would like to implement this myself (the README's Develop section describes the setup).

@@ -772,6 +772,10 @@ for `internal/config/testdata/config.schema.json`.
 
 A plugin that owns payload types has its own `model` package (`internal/plugins/<id>/model`: proxmox and hardware have one), its own entry in `tygo.yaml` and a generated `web/src/plugins/modules/<id>/model.gen.ts`, which `make check` also diffs. Such a package is an import leaf: it imports only the standard library (`TestPluginModelPackagesAreImportLeaves`), so a payload that needs a core type such as `Link` or `Health` stays in `internal/model`; `tygo.yaml` has the recipe for the other case.
 
+A new plugin starts from the contract in `internal/plugin/plugin.go`; `internal/plugins/grafana`
+is the small example. Fixtures, docs and commits use neutral names (`example.com`, `192.0.2.0/24`,
+alice and bob): `make check` fails on a lab identifier through the denylist in `internal/hygiene`.
+
 ### Pre-push hook (opt-in)
 
 CI runs only on `main` and tags, so `.githooks/pre-push` is the pre-merge gate. It diffs the
