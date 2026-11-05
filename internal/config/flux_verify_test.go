@@ -56,11 +56,11 @@ func TestFluxVerifySourcesValidation(t *testing.T) {
 	}
 
 	for _, tc := range []struct{ name, list, want string }{
-		{"a kind that cannot be verified", `[{"kind":"HelmRepository","namespace":"a","name":"b"}]`, "not GitRepository or OCIRepository"},
-		{"an empty kind", `[{"namespace":"a","name":"b"}]`, "not GitRepository or OCIRepository"},
+		{"a kind that cannot be verified", `[{"kind":"HelmRepository","namespace":"a","name":"b"}]`, "entry 1: kind must be one of: GitRepository, OCIRepository"},
+		{"an empty kind", `[{"namespace":"a","name":"b"}]`, "entry 1: kind must be one of: GitRepository, OCIRepository"},
 		{"an empty namespace", `[{"kind":"GitRepository","name":"b"}]`, "needs both namespace and name"},
 		{"an empty name", `[{"kind":"GitRepository","namespace":"a"}]`, "needs both namespace and name"},
-		{"a duplicate", "[" + good + "," + good + "]", "repeats GitRepository gitops/cluster"},
+		{"a duplicate", "[" + good + "," + good + "]", "entry 2 repeats entry 1"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			_, err := Resolve(Sources{Environ: []string{"DASH_DEV=true", "DASH_PLUGINS_FLUX_VERIFY_SOURCES=" + tc.list}})

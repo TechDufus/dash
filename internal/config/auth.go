@@ -90,27 +90,31 @@ func DefaultAuth() AuthConfig {
 var authModes = []string{AuthModeProxy, AuthModeNone, AuthModeLocal, AuthModeOIDC}
 
 // Validate reports unusable auth settings, each at its path relative to "auth" (the problem
-// format of pluginconf.Problems). A message names the path and the problem and never echoes a
-// value beyond the header name or trusted-proxy entry it is about, so no secret can leak into it.
+// format of pluginconf.Problems). A message names the path, the entry's position in a list and
+// the problem, and never echoes a value, so no secret pasted into a field can leak into it.
 func (a AuthConfig) Validate() error {
 	var errs []error
 	add := func(path, format string, args ...any) {
 		errs = append(errs, pluginconf.FieldError{Path: path, Msg: fmt.Sprintf(format, args...)})
 	}
 	if !slices.Contains(authModes, a.Mode) {
-		add("mode", "%q is not an auth mode (one of: %s)", a.Mode, strings.Join(authModes, ", "))
+		add("mode", "must be one of: %s", strings.Join(authModes, ", "))
 	}
 
 	p := a.Proxy
 	users := trimmed(p.UserHeaders)
 	groups := strings.TrimSpace(p.GroupsHeader)
-	if err := (auth.ProxyIdentity{UserHeaders: users}).Validate(); err != nil {
-		add("proxy.userHeaders", "%v", err)
+	if len(users) == 0 {
+		add("proxy.userHeaders", "must list at least one user header")
+	}
+	for i, h := range users {
+		if problem := proxyHeaderProblem(h); problem != "" {
+			add("proxy.userHeaders", "entry %d %s", i+1, problem)
+		}
 	}
 	if groups != "" {
-		// The stand-in user header is valid, so an error here is about the groups header alone.
-		if err := (auth.ProxyIdentity{UserHeaders: []string{"X-Forwarded-User"}, GroupsHeader: groups}).Validate(); err != nil {
-			add("proxy.groupsHeader", "%v", err)
+		if problem := proxyHeaderProblem(groups); problem != "" {
+			add("proxy.groupsHeader", "%s", problem)
 		}
 	}
 
@@ -118,9 +122,13 @@ func (a AuthConfig) Validate() error {
 		add("proxy.trustedProxies", "must list at least one peer: with none, no request could be signed in (the default is [\"127.0.0.1/32\",\"::1/128\"])")
 	}
 	var parsed []string
-	for _, e := range p.TrustedProxies {
+	for i, e := range p.TrustedProxies {
 		if _, err := auth.ParseTrust([]string{e}); err != nil {
-			add("proxy.trustedProxies", "%v", err)
+			if strings.TrimSpace(e) == "" {
+				add("proxy.trustedProxies", "entry %d is empty", i+1)
+			} else {
+				add("proxy.trustedProxies", "entry %d is not a CIDR or IP address without a zone, such as 10.0.0.0/8 or 192.0.2.1", i+1)
+			}
 			continue
 		}
 		parsed = append(parsed, e)
@@ -164,6 +172,23 @@ func (a AuthConfig) Validate() error {
 	}
 	a.OIDC.validate(a.Mode == AuthModeOIDC, add)
 	return errors.Join(errs...)
+}
+
+// proxyHeaderProblem is why name cannot carry the proxy's identity, or "" when it can: the rule
+// of auth.ProxyIdentity.Validate, whose message would repeat the name.
+func proxyHeaderProblem(name string) string {
+	if (auth.ProxyIdentity{UserHeaders: []string{name}}).Validate() == nil {
+		return ""
+	}
+	for _, f := range []string{"Authorization", "Cookie", "Host", "X-Dash-Csrf"} {
+		if strings.EqualFold(name, f) {
+			return "is one of the headers dash refuses there: Authorization, Cookie, Host, X-Dash-Csrf"
+		}
+	}
+	if name == "" {
+		return "is empty"
+	}
+	return "is not a valid HTTP header name (letters, digits and !#$%&'*+-.^_`|~ only)"
 }
 
 // validate reports unusable oidc settings through add. The lists are checked in every mode: an

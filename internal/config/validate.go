@@ -88,7 +88,7 @@ func validate(t Tree, dev, demo bool, prov map[string]Provenance) error {
 		}
 	}
 	if dev && !LoopbackAddr(s.Listen) {
-		v.fail("server.listen", "DASH_DEV=true signs requests in as %q without authentication, so the listen address must be a loopback address such as 127.0.0.1:8080, not %q", "dev", s.Listen)
+		v.fail("server.listen", "DASH_DEV=true signs requests in as %q without authentication, so the listen address must be a loopback address such as 127.0.0.1:8080", "dev")
 	}
 	// The message names the entry by its position, never its text: a URL pasted here can carry a
 	// password (user:password@host). The position counts the list as normalize left it: every
@@ -102,25 +102,25 @@ func validate(t Tree, dev, demo bool, prov map[string]Provenance) error {
 		v.fail("server.readyTimeout", "must be greater than zero")
 	}
 	if !slices.Contains([]string{CSPEnforce, CSPReportOnly, CSPOff}, s.CSP) {
-		v.fail("server.csp", "%q is not a content security policy mode (one of: %s, %s, %s)", s.CSP, CSPEnforce, CSPReportOnly, CSPOff)
+		v.fail("server.csp", "must be one of: %s, %s, %s", CSPEnforce, CSPReportOnly, CSPOff)
 	}
 	known := map[string]bool{}
 	for _, sec := range t.PluginSections() {
 		known[sec.Name] = true
 	}
-	for _, id := range s.ReadyRequires {
+	for i, id := range s.ReadyRequires {
 		if !known[id] {
-			v.fail("server.readyRequires", "entry %q is not a plugin (one of: %s)", id, strings.Join(slices.Sorted(maps.Keys(known)), ", "))
+			v.fail("server.readyRequires", "entry %d is not a plugin (one of: %s)", i+1, strings.Join(slices.Sorted(maps.Keys(known)), ", "))
 		}
 	}
 	validateLimits(v, s.Limits)
 	if t.Settings.UI != SettingsEditable && t.Settings.UI != SettingsReadOnly {
-		v.fail("settings.ui", "%q must be %q or %q", t.Settings.UI, SettingsEditable, SettingsReadOnly)
+		v.fail("settings.ui", "must be one of: %s, %s", SettingsEditable, SettingsReadOnly)
 	}
 	validateSettings(v, t.Settings)
 	for _, sec := range t.PluginSections() {
 		if sec.Type != sec.Name {
-			v.fail("plugins."+sec.Name+".type", "%q must be empty or %q: dash runs one instance per plugin type, and the instance name is the type (design J.16)", sec.Type, sec.Name)
+			v.fail("plugins."+sec.Name+".type", "must be empty or %q: dash runs one instance per plugin type, and the instance name is the type (design J.16)", sec.Name)
 		}
 	}
 
@@ -174,10 +174,10 @@ func validateLimits(v *validator, l LimitsConfig) {
 		}
 	}
 	if l.StreamsPerUser > l.Streams {
-		v.fail("server.limits.streamsPerUser", "%d is more than server.limits.streams (%d)", l.StreamsPerUser, l.Streams)
+		v.fail("server.limits.streamsPerUser", "must not be more than server.limits.streams")
 	}
 	if l.TailsPerUser > l.Tails {
-		v.fail("server.limits.tailsPerUser", "%d is more than server.limits.tails (%d)", l.TailsPerUser, l.Tails)
+		v.fail("server.limits.tailsPerUser", "must not be more than server.limits.tails")
 	}
 }
 

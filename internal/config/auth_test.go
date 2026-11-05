@@ -166,7 +166,7 @@ func TestAuthModeEnumRejectsUnknown(t *testing.T) {
 			}
 		}
 	}
-	if ps := authProblems(func(a *AuthConfig) { a.Mode = "" }); !hasProblem(ps, "mode", "not an auth mode") {
+	if ps := authProblems(func(a *AuthConfig) { a.Mode = "" }); !hasProblem(ps, "mode", "must be one of: proxy, none, local, oidc") {
 		t.Errorf("an empty mode is accepted: %+v", ps)
 	}
 	file := &File{Path: "c.yaml", Data: []byte("auth: {mode: ldap}\n")}
@@ -232,7 +232,8 @@ func TestAnyPeerPrefixNeedsTheOptIn(t *testing.T) {
 	}
 }
 
-// Every bad entry is reported, each naming itself, so one edit fixes the list.
+// Every bad entry is reported, each by its position and never by its text, so one edit fixes
+// the list and nothing pasted there reaches a message.
 func TestTrustedProxiesParseErrorsNameTheEntry(t *testing.T) {
 	bad := []string{"10.0.0.0/33", "not-an-ip", "fe80::1%eth0", "10.0.0.1/", "300.1.1.1", ""}
 	ps := authProblems(func(a *AuthConfig) { a.Proxy.TrustedProxies = append([]string{"127.0.0.1/32"}, bad...) })
@@ -240,14 +241,11 @@ func TestTrustedProxiesParseErrorsNameTheEntry(t *testing.T) {
 		t.Fatalf("%d problems for %d bad entries: %+v", len(ps), len(bad), ps)
 	}
 	for i, e := range bad {
-		if !hasProblem(ps[i:i+1], "proxy.trustedProxies", `"`+e+`"`) {
-			t.Errorf("entry %q: problem %+v does not name it at proxy.trustedProxies", e, ps[i])
+		if !hasProblem(ps[i:i+1], "proxy.trustedProxies", fmt.Sprintf("entry %d ", i+2)) {
+			t.Errorf("entry %q: problem %+v does not name its position at proxy.trustedProxies", e, ps[i])
 		}
-	}
-	// The good entry beside them is not blamed, and nothing but the entry is echoed.
-	for _, p := range ps {
-		if strings.Contains(p.Msg, "127.0.0.1") {
-			t.Errorf("problem %+v blames the valid entry", p)
+		if e != "" && strings.Contains(ps[i].Msg, e) {
+			t.Errorf("problem %+v repeats the entry", ps[i])
 		}
 	}
 
@@ -255,7 +253,7 @@ func TestTrustedProxiesParseErrorsNameTheEntry(t *testing.T) {
 	if err == nil {
 		t.Fatal("a host name was accepted as a trusted proxy")
 	}
-	for _, w := range []string{"auth.proxy.trustedProxies", "(env DASH_AUTH_PROXY_TRUSTED_PROXIES)", `"proxy.example.com"`} {
+	for _, w := range []string{"auth.proxy.trustedProxies", "(env DASH_AUTH_PROXY_TRUSTED_PROXIES)", "entry 2 is not a CIDR or IP address"} {
 		if !strings.Contains(err.Error(), w) {
 			t.Errorf("error %q does not contain %q", err, w)
 		}
@@ -299,7 +297,7 @@ func TestUserHeadersRefuseReservedNames(t *testing.T) {
 	if err == nil {
 		t.Fatal("Authorization was accepted as a user header")
 	}
-	for _, w := range []string{"auth.proxy.userHeaders", "(env DASH_AUTH_PROXY_USER_HEADERS)", `"Authorization"`} {
+	for _, w := range []string{"auth.proxy.userHeaders", "(env DASH_AUTH_PROXY_USER_HEADERS)", "entry 1 is one of the headers dash refuses"} {
 		if !strings.Contains(err.Error(), w) {
 			t.Errorf("error %q does not contain %q", err, w)
 		}

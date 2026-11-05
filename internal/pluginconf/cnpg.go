@@ -29,7 +29,7 @@ func (c CNPG) BackupMetricName() string {
 func (c CNPG) Validate() error {
 	var p problems
 	if m := c.BackupMetric; m != "" && !metricNameRE.MatchString(m) {
-		p.add("backupMetric", "%q is not a metric name", m)
+		p.add("backupMetric", notMetricName)
 	}
 	return p.err()
 }

@@ -36,9 +36,9 @@ func TestReadyRequiresUnknownPluginIsAConfigError(t *testing.T) {
 		env        []string
 		want       []string
 	}{
-		{"file", "server: {readyRequires: [kubernets]}", nil, []string{"server.readyRequires", "(file c.yaml)", `"kubernets"`, "kubernetes"}},
-		{"env", "", []string{`DASH_SERVER_READY_REQUIRES=["nope"]`}, []string{"DASH_SERVER_READY_REQUIRES", "server.readyRequires", `"nope"`}},
-		{"one of several", "server: {readyRequires: [kubernetes, nope]}", nil, []string{`"nope"`}},
+		{"file", "server: {readyRequires: [kubernets]}", nil, []string{"server.readyRequires", "(file c.yaml)", "entry 1 is not a plugin", "kubernetes"}},
+		{"env", "", []string{`DASH_SERVER_READY_REQUIRES=["nope"]`}, []string{"DASH_SERVER_READY_REQUIRES", "server.readyRequires", "entry 1 is not a plugin"}},
+		{"one of several", "server: {readyRequires: [kubernetes, nope]}", nil, []string{"entry 2 is not a plugin"}},
 		{"zero timeout", "server: {readyTimeout: 0s}", nil, []string{"server.readyTimeout", "greater than zero"}},
 		{"negative timeout", "", []string{"DASH_SERVER_READY_TIMEOUT=-5s"}, []string{"DASH_SERVER_READY_TIMEOUT", "greater than zero"}},
 		{"timeout needs a unit", "server: {readyTimeout: 60}", nil, []string{"server.readyTimeout", "duration"}},

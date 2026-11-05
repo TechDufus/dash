@@ -41,7 +41,7 @@ func (v VictoriaLogs) Validate() error {
 		{"fields.namespace", v.Fields.Namespace}, {"fields.pod", v.Fields.Pod}, {"fields.container", v.Fields.Container},
 	} {
 		if !fieldNameRE.MatchString(f.name) {
-			p.add(f.path, "%q is not a field name (letters, digits, _ and ., not starting with a digit or .)", f.name)
+			p.add(f.path, "is not a field name (letters, digits, _ and ., not starting with a digit or .)")
 		}
 	}
 	if v.Limit <= 0 {

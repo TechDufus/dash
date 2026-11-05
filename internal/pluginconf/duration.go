@@ -3,7 +3,6 @@ package pluginconf
 import (
 	"encoding/json"
 	"errors"
-	"fmt"
 	"strings"
 	"time"
 )
@@ -19,7 +18,7 @@ func (d *Duration) UnmarshalJSON(b []byte) error {
 	}
 	v, err := time.ParseDuration(strings.TrimSpace(s))
 	if err != nil {
-		return fmt.Errorf("%q is not a duration such as 30s or 5m", s)
+		return errors.New("is not a duration such as 30s, 5m or 1h30m")
 	}
 	*d = Duration(v)
 	return nil

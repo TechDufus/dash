@@ -56,12 +56,12 @@ func TestInvalidLimitsNameTheirPath(t *testing.T) {
 		{"zero count", "server: {limits: {streams: 0}}", nil, []string{"server.limits.streams", "(file c.yaml)", "greater than zero"}},
 		{"negative size", "server: {limits: {maxHeaderBytes: -1}}", nil, []string{"server.limits.maxHeaderBytes", "greater than zero"}},
 		{"zero duration", "server: {limits: {bodyReadTimeout: 0s}}", nil, []string{"server.limits.bodyReadTimeout", "greater than zero"}},
-		{"per user above total", "server: {limits: {tailsPerUser: 33}}", nil, []string{"server.limits.tailsPerUser", "server.limits.tails (32)"}},
-		{"per user above lowered total", "", []string{"DASH_SERVER_LIMITS_STREAMS=8"}, []string{"server.limits.streamsPerUser", "server.limits.streams (8)"}},
+		{"per user above total", "server: {limits: {tailsPerUser: 33}}", nil, []string{"server.limits.tailsPerUser", "must not be more than server.limits.tails"}},
+		{"per user above lowered total", "", []string{"DASH_SERVER_LIMITS_STREAMS=8"}, []string{"server.limits.streamsPerUser", "must not be more than server.limits.streams"}},
 		{"duration needs a unit", "server: {limits: {tailMaxDuration: 30}}", nil, []string{"server.limits.tailMaxDuration", "duration"}},
-		{"duration is not a number in yaml", "server: {limits: {sseWriteTimeout: 5s5}}", nil, []string{"server.limits.sseWriteTimeout", "5s5"}},
+		{"duration is not a number in yaml", "server: {limits: {sseWriteTimeout: 5s5}}", nil, []string{"server.limits.sseWriteTimeout", "is not a duration such as 30s"}},
 		{"count is not text", "server: {limits: {tails: many}}", nil, []string{"server.limits.tails", "whole number"}},
-		{"env duration", "", []string{"DASH_SERVER_LIMITS_TAIL_MAX_DURATION=soon"}, []string{"DASH_SERVER_LIMITS_TAIL_MAX_DURATION", "server.limits.tailMaxDuration", `"soon"`}},
+		{"env duration", "", []string{"DASH_SERVER_LIMITS_TAIL_MAX_DURATION=soon"}, []string{"DASH_SERVER_LIMITS_TAIL_MAX_DURATION", "server.limits.tailMaxDuration", "is not a duration such as 30s"}},
 		{"env count", "", []string{"DASH_SERVER_LIMITS_TAILS=1.5"}, []string{"DASH_SERVER_LIMITS_TAILS", "server.limits.tails"}},
 	}
 	for _, tc := range tests {

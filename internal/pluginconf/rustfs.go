@@ -59,7 +59,7 @@ func (r RustFS) Validate() error {
 		{"metrics.capacityUsable", r.Metrics.CapacityUsable},
 	} {
 		if f.name != "" && !metricNameRE.MatchString(f.name) {
-			p.add(f.path, "%q is not a metric name", f.name)
+			p.add(f.path, notMetricName)
 		}
 	}
 	return p.err()

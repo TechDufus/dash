@@ -7,6 +7,10 @@ import (
 
 var metricNameRE = regexp.MustCompile(`^[a-zA-Z_:][a-zA-Z0-9_:]*$`)
 
+// notMetricName is the problem of a value metricNameRE refuses; like every message here it
+// never repeats the value.
+const notMetricName = "is not a metric name (letters, digits, _ and :, not starting with a digit)"
+
 // Limits of the hardware section's numbers; Validate enforces them.
 const (
 	maxBays      = 128
@@ -115,10 +119,10 @@ func (h Hardware) Validate() error {
 	}
 	for i, x := range h.Hosts {
 		if x.Bays < 0 || x.Bays > maxBays {
-			p.add("hosts", "entry %d: bays is %d, want 0 to %d", i, x.Bays, maxBays)
+			p.add("hosts", "entry %d: bays must be 0 to %d", i, maxBays)
 		}
 		if x.FanMaxRPM < 0 || x.FanMaxRPM > maxFanMaxRPM {
-			p.add("hosts", "entry %d: fanMaxRPM is %d, want 0 to %d", i, x.FanMaxRPM, maxFanMaxRPM)
+			p.add("hosts", "entry %d: fanMaxRPM must be 0 to %d", i, maxFanMaxRPM)
 		}
 	}
 	seen := map[string]bool{}
@@ -128,14 +132,14 @@ func (h Hardware) Validate() error {
 		case name == "":
 			p.add("machines", "entry %d: name is required", i)
 		case len(name) > MaxMachineName:
-			p.add("machines", "entry %d: name is %d bytes, at most %d", i, len(name), MaxMachineName)
+			p.add("machines", "entry %d: name is longer than %d bytes", i, MaxMachineName)
 		case seen[strings.ToLower(name)]:
-			p.add("machines", "entry %d: name %q repeats an earlier machine (names are compared ignoring case)", i, name)
+			p.add("machines", "entry %d: name repeats an earlier machine (names are compared ignoring case)", i)
 		}
 		seen[strings.ToLower(name)] = true
 		ne, ge := strings.TrimSpace(m.NodeExporterNodename) != "", strings.TrimSpace(m.GatusEndpoint) != ""
 		if ne == ge {
-			p.add("machines", "entry %d (%q): set exactly one of nodeExporterNodename and gatusEndpoint", i, name)
+			p.add("machines", "entry %d: set exactly one of nodeExporterNodename and gatusEndpoint", i)
 		}
 	}
 	if strings.TrimSpace(h.Selectors.NodeExporterJob) == "" {
@@ -144,13 +148,13 @@ func (h Hardware) Validate() error {
 	if chip := h.Selectors.HwmonChip; strings.TrimSpace(chip) == "" {
 		p.add("selectors.hwmonChip", "is required")
 	} else if _, err := regexp.Compile(chip); err != nil {
-		p.add("selectors.hwmonChip", "%q is not a valid regular expression", chip)
+		p.add("selectors.hwmonChip", "is not a valid regular expression (Go RE2 syntax)")
 	}
 	if t := h.TempThresholds; t.Warn <= 0 || t.Crit <= t.Warn {
-		p.add("tempThresholds", "needs 0 < warn < crit, got warn %d and crit %d", t.Warn, t.Crit)
+		p.add("tempThresholds", "needs 0 < warn < crit")
 	}
 	if pre := h.ZFSScrubMetricPrefix; pre != "" && !metricNameRE.MatchString(pre) { // empty hides the scrub panel
-		p.add("zfsScrubMetricPrefix", "%q is not a metric name", pre)
+		p.add("zfsScrubMetricPrefix", notMetricName)
 	}
 	return p.err()
 }

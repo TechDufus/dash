@@ -36,22 +36,23 @@ func DefaultFlux() Flux {
 // of a kind that can be verified, completely, once.
 func (f Flux) Validate() error {
 	var p problems
-	seen := map[VerifySource]bool{}
+	seen := map[VerifySource]int{} // the entry number of each source
 	for i, s := range f.Verify.Sources {
 		switch model.FluxKind(s.Kind) {
 		case model.FluxKindGitRepository, model.FluxKindOCIRepository:
 		default:
-			p.add("verify.sources", "entry %d has kind %q, which is not GitRepository or OCIRepository", i+1, s.Kind)
+			p.add("verify.sources", "entry %d: kind must be one of: GitRepository, OCIRepository", i+1)
 			continue
 		}
 		if s.Namespace == "" || s.Name == "" {
 			p.add("verify.sources", "entry %d needs both namespace and name", i+1)
 			continue
 		}
-		if seen[s] {
-			p.add("verify.sources", "entry %d repeats %s %s/%s", i+1, s.Kind, s.Namespace, s.Name)
+		if first, ok := seen[s]; ok {
+			p.add("verify.sources", "entry %d repeats entry %d", i+1, first)
+			continue
 		}
-		seen[s] = true
+		seen[s] = i + 1
 	}
 	return p.err()
 }

@@ -98,9 +98,9 @@ func TestPrometheusHeaders(t *testing.T) {
 			}
 		})
 	}
-	err := Prometheus{Headers: map[string]string{"Authorization": "x"}}.Validate()
-	if err == nil || !strings.Contains(err.Error(), `"Authorization"`) {
-		t.Errorf("the message must name the header: %v", err)
+	err := Prometheus{Headers: map[string]string{"X-Canary-Name Bad": "x"}}.Validate()
+	if err == nil || !strings.Contains(err.Error(), "not a valid HTTP header name") || strings.Contains(err.Error(), "X-Canary-Name") {
+		t.Errorf("the message must say what is wrong without repeating the header: %v", err)
 	}
 }
 
@@ -132,8 +132,8 @@ func TestAlertmanagerSeverityMap(t *testing.T) {
 		if got := paths(err); !slices.Equal(got, []string{"severityMap"}) {
 			t.Errorf("value %q: problems at %v", bad, got)
 		}
-		if err != nil && !strings.Contains(err.Error(), `"x"`) {
-			t.Errorf("the message must name the label: %v", err)
+		if err != nil && (!strings.Contains(err.Error(), "maps 1 label(s) to a severity other than crit or warn") || strings.Contains(err.Error(), `"x"`)) {
+			t.Errorf("the message must count the labels without naming them: %v", err)
 		}
 	}
 }

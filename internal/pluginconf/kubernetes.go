@@ -155,7 +155,7 @@ func (k Kubernetes) Validate() error {
 	switch k.Mode {
 	case "", KubernetesModeAuto, KubernetesModeInCluster, KubernetesModeKubeconfig:
 	default:
-		p.add("mode", "%q is not %s, %s or %s", k.Mode, KubernetesModeAuto, KubernetesModeInCluster, KubernetesModeKubeconfig)
+		p.add("mode", "must be one of: %s, %s, %s", KubernetesModeAuto, KubernetesModeInCluster, KubernetesModeKubeconfig)
 	}
 	if k.QPS < 0 {
 		p.add("qps", "must not be negative (0 means the default, %d)", KubernetesQPSDefault)
@@ -164,15 +164,15 @@ func (k Kubernetes) Validate() error {
 		p.add("burst", "must not be negative (0 means the default, %d)", KubernetesBurstDefault)
 	}
 	if k.QPS >= 0 && k.Burst >= 0 && k.EffectiveBurst() < k.EffectiveQPS() {
-		p.add("burst", "is %d, below qps (%d)", k.EffectiveBurst(), k.EffectiveQPS())
+		p.add("burst", "must be at least qps (0 means the defaults, qps %d and burst %d)", KubernetesQPSDefault, KubernetesBurstDefault)
 	}
 	if k.Etcd.Job != "" && !jobLabelRE.MatchString(k.Etcd.Job) {
-		p.add("etcd.job", "%q is not a job label (letters, digits and _ . : / - only)", k.Etcd.Job)
+		p.add("etcd.job", "is not a job label (at most 128 letters, digits and _ . : / -)")
 	}
 	if len(k.BackupJobs) > MaxBackupJobs {
 		p.add("backupJobs", "has %d entries; at most %d are supported", len(k.BackupJobs), MaxBackupJobs)
 	}
-	rows := map[[2]string]bool{}
+	rows := map[[2]string]int{} // the entry number of each row
 	for i, j := range k.BackupJobs {
 		if j.Namespace == "" || j.CronJob == "" {
 			p.add("backupJobs", "entry %d needs both namespace and cronjob", i+1)
@@ -180,10 +180,11 @@ func (k Kubernetes) Validate() error {
 		}
 		if name := j.RowName(); name != "" {
 			key := [2]string{j.Namespace, name}
-			if rows[key] {
-				p.add("backupJobs", "entry %d repeats the row %s/%s", i+1, j.Namespace, name)
+			if first, ok := rows[key]; ok {
+				p.add("backupJobs", "entry %d repeats the row of entry %d", i+1, first)
+				continue
 			}
-			rows[key] = true
+			rows[key] = i + 1
 		}
 	}
 	p.addAll("apps", k.Apps.validate())
@@ -205,12 +206,12 @@ func (a KubernetesApps) validate() error {
 	}
 	for i, ns := range a.ExcludeNamespaces {
 		if !k8sNameRE.MatchString(ns) {
-			p.add("excludeNamespaces", "entry %d, %q, is not a namespace name", i+1, ns)
+			p.add("excludeNamespaces", "entry %d is not a namespace name (lowercase letters, digits, - and .)", i+1)
 		}
 	}
 	if a.AnnotationPrefix != "" {
 		if pre := a.Prefix(); len(pre) > 253 || !annotationPrefixRE.MatchString(pre) {
-			p.add("annotationPrefix", "%q is not an annotation prefix such as gethomepage.dev", a.AnnotationPrefix)
+			p.add("annotationPrefix", "is not an annotation prefix such as gethomepage.dev")
 		}
 	}
 	return p.err()

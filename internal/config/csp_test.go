@@ -57,11 +57,11 @@ func TestCSPModeEnumRejectsUnknown(t *testing.T) {
 		want []string
 	}{
 		{"env", Sources{Environ: []string{"DASH_DEMO=true", "DASH_SERVER_CSP=disabled"}},
-			[]string{"server.csp", "(env DASH_SERVER_CSP)", `"disabled"`, "enforce, report-only, off"}},
+			[]string{"server.csp", "(env DASH_SERVER_CSP)", "must be one of: enforce, report-only, off"}},
 		{"case matters", Sources{Environ: []string{"DASH_DEMO=true", "DASH_SERVER_CSP=Off"}},
-			[]string{"server.csp", `"Off"`}},
+			[]string{"server.csp", "must be one of"}},
 		{"file", Sources{Environ: []string{"DASH_DEMO=true"}, File: &File{Path: "c.yaml", Data: []byte("server: {csp: nope}\n")}},
-			[]string{"server.csp", "(file c.yaml)", `"nope"`}},
+			[]string{"server.csp", "(file c.yaml)", "must be one of"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			_, _, err := resolveWith(t, tc.src)

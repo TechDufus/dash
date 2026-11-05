@@ -1,6 +1,7 @@
 package pluginconf
 
 import (
+	"errors"
 	"fmt"
 	"regexp"
 	"strings"
@@ -83,11 +84,11 @@ const vmidMark = "{vmid}"
 
 // ValidVMSelector reports why s is not one label matcher with a single {vmid}. The selector is
 // put into PromQL, so it must not be able to carry more than that matcher: the value may not
-// hold a quote, a backslash or a brace besides the one {vmid}.
+// hold a quote, a backslash or a brace besides the one {vmid}. The reason never repeats s.
 func ValidVMSelector(s string) error {
 	m := selectorRE.FindStringSubmatch(s)
 	if m == nil {
-		return fmt.Errorf("%q is not one label matcher: write <label>=\"<value>\" or <label>=~\"<value>\"", s)
+		return errors.New(`is not one label matcher: write <label>="<value>" or <label>=~"<value>"`)
 	}
 	value := m[3]
 	if strings.Count(value, vmidMark) != 1 {
@@ -112,11 +113,11 @@ func (p Proxmox) Validate() error {
 	switch p.Storage.Source {
 	case "", ProxmoxStorageAPI, ProxmoxStoragePrometheus:
 	default:
-		pr.add("storage.source", "%q is not %s or %s", p.Storage.Source, ProxmoxStorageAPI, ProxmoxStoragePrometheus)
+		pr.add("storage.source", "must be one of: %s, %s", ProxmoxStorageAPI, ProxmoxStoragePrometheus)
 	}
 	for i, id := range p.CriticalVMs.IDs {
 		if id < 1 || id > maxVMID {
-			pr.add("criticalVMs.ids", "entry %d, %d, is not a VM id (1 to %d)", i, id, maxVMID)
+			pr.add("criticalVMs.ids", "entry %d is not a VM id (1 to %d)", i, maxVMID)
 		}
 	}
 	for i, t := range p.CriticalVMs.Tags {

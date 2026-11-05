@@ -30,12 +30,14 @@ var forbiddenHeaders = []string{"authorization", "proxy-authorization", "cookie"
 func (p Prometheus) Validate() error {
 	var pr problems
 	pr.addAll("auth", p.Auth.validate())
+	// A header is named by neither its name nor its value: the map is in the operator's words,
+	// and a credential pasted into a name would otherwise reach the form and the audit.
 	for _, name := range slices.Sorted(maps.Keys(p.Headers)) {
 		switch {
 		case !isToken(name):
-			pr.add("headers", "%q is not a valid header name", name)
+			pr.add("headers", "has a name that is not a valid HTTP header name (letters, digits and !#$%%&'*+-.^_`|~ only)")
 		case slices.Contains(forbiddenHeaders, strings.ToLower(name)):
-			pr.add("headers", "%q cannot be set here: dash sets it itself (use auth for credentials)", name)
+			pr.add("headers", "sets Authorization, Proxy-Authorization, Cookie or Host, which dash sets itself (use auth for credentials)")
 		}
 	}
 	return pr.err()

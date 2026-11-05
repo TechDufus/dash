@@ -72,8 +72,8 @@ func TestHardwareHostRanges(t *testing.T) {
 			t.Errorf("%s: %v", name, err)
 		}
 	}
-	if err := host(HardwareHost{Bays: 129}).Validate(); err == nil || !strings.Contains(err.Error(), "bays is 129, want 0 to 128") {
-		t.Errorf("the message must name the field and the range: %v", err)
+	if err := host(HardwareHost{Bays: 129}).Validate(); err == nil || !strings.Contains(err.Error(), "bays must be 0 to 128") || strings.Contains(err.Error(), "129") {
+		t.Errorf("the message must name the field and the range, never the value: %v", err)
 	}
 }
 
@@ -91,7 +91,7 @@ func TestHardwareMachineRules(t *testing.T) {
 	}{
 		"no name":      {[]HardwareMachine{{NodeExporterNodename: "a"}}, "name is required"},
 		"blank name":   {[]HardwareMachine{{Name: "  ", GatusEndpoint: "a"}}, "name is required"},
-		"long name":    {[]HardwareMachine{{Name: strings.Repeat("x", 65), GatusEndpoint: "a"}}, "at most 64"},
+		"long name":    {[]HardwareMachine{{Name: strings.Repeat("x", 65), GatusEndpoint: "a"}}, "longer than 64 bytes"},
 		"repeat":       {[]HardwareMachine{{Name: "nas", GatusEndpoint: "a"}, {Name: "NAS", GatusEndpoint: "b"}}, "repeats an earlier machine"},
 		"neither":      {[]HardwareMachine{{Name: "nas"}}, "exactly one of nodeExporterNodename and gatusEndpoint"},
 		"both":         {[]HardwareMachine{{Name: "nas", NodeExporterNodename: "a", GatusEndpoint: "b"}}, "exactly one of nodeExporterNodename and gatusEndpoint"},

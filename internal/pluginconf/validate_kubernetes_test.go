@@ -31,7 +31,7 @@ func TestKubernetesBackupJobRules(t *testing.T) {
 		{"two incomplete jobs report each rule", Kubernetes{BackupJobs: []BackupJob{{}, {}}}, []string{"backupJobs", "backupJobs"}, ""},
 		{"a row name repeated in one namespace", Kubernetes{BackupJobs: []BackupJob{
 			{Namespace: "backup", CronJob: "a", Label: "nas"}, {Namespace: "backup", CronJob: "b", Label: "nas"},
-		}}, []string{"backupJobs"}, "entry 2 repeats the row backup/nas"},
+		}}, []string{"backupJobs"}, "entry 2 repeats the row of entry 1"},
 		{"the same row name in two namespaces", Kubernetes{BackupJobs: []BackupJob{
 			{Namespace: "a", CronJob: "x", Label: "nas"}, {Namespace: "b", CronJob: "x", Label: "nas"},
 		}}, nil, ""},
@@ -93,7 +93,7 @@ func TestKubernetesSettingRules(t *testing.T) {
 // TestBurstBelowQPSIsInvalid names the rule of the settings table: burst is at least qps.
 func TestBurstBelowQPSIsInvalid(t *testing.T) {
 	err := Kubernetes{QPS: 40, Burst: 20}.Validate()
-	if err == nil || !strings.Contains(err.Error(), "burst: is 20, below qps (40)") {
+	if err == nil || !strings.Contains(err.Error(), "burst: must be at least qps") {
 		t.Fatalf("err = %v", err)
 	}
 }

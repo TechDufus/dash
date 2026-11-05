@@ -1,9 +1,6 @@
 package pluginconf
 
-import (
-	"maps"
-	"slices"
-)
+import "slices"
 
 // silenceDurations are the lengths a silence can have: the keys of the duration table of the
 // silence.create action (internal/plugins/alertmanager). A plugin offers a subset of them in its
@@ -39,15 +36,19 @@ func DefaultAlertmanager() Alertmanager {
 func (a Alertmanager) Validate() error {
 	var p problems
 	p.addAll("auth", a.Auth.validate())
-	for _, d := range a.SilenceDurations {
+	for i, d := range a.SilenceDurations {
 		if !slices.Contains(silenceDurations, d) {
-			p.add("silenceDurations", "entry %q is not one of 1h, 4h, 24h, 7d", d)
+			p.add("silenceDurations", "entry %d must be one of: 1h, 4h, 24h, 7d", i+1)
 		}
 	}
-	for _, label := range slices.Sorted(maps.Keys(a.SeverityMap)) {
-		if sev := a.SeverityMap[label]; sev != "crit" && sev != "warn" {
-			p.add("severityMap", "%q maps to %q, which is not crit or warn", label, sev)
+	bad := 0
+	for _, sev := range a.SeverityMap {
+		if sev != "crit" && sev != "warn" {
+			bad++
 		}
+	}
+	if bad > 0 {
+		p.add("severityMap", "maps %d label(s) to a severity other than crit or warn: every value must be crit or warn", bad)
 	}
 	return p.err()
 }
