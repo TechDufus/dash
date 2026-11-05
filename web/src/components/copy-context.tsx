@@ -1,10 +1,19 @@
 import { ClipboardCopy } from "lucide-react";
-import { type JSX, useState } from "react";
+import { type JSX, useRef, useState } from "react";
 import { toast } from "sonner";
 import { api, errorMessage } from "@/api/client";
 import { useMe } from "@/api/queries";
 import { Button } from "@/components/ui/button";
-import { copyText } from "@/lib/clipboard";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Textarea } from "@/components/ui/textarea";
+import { ClipboardUnavailableError, copyFromTextarea, copyText } from "@/lib/clipboard";
 
 /** The bundle parts every copy asks for; `logs` is added for a principal with the logs scope. */
 const PARTS = "events,related,attention,series";
@@ -42,6 +51,8 @@ interface CopyContextButtonProps {
 /**
  * "Copy context for AI" (design Q.1): the object's context bundle as Markdown on the clipboard.
  * The click makes one request, GET /api/v1/context; the logs scope comes from the cached /me.
+ * Where the async clipboard is missing or refused, a dialog shows the Markdown for a copy in a
+ * click of its own.
  */
 export function CopyContextButton({
   contextRef,
@@ -51,6 +62,7 @@ export function CopyContextButton({
 }: CopyContextButtonProps): JSX.Element {
   const me = useMe();
   const [pending, setPending] = useState(false);
+  const [manual, setManual] = useState<string | null>(null);
   const logs = me.data?.scopes?.includes("logs") === true;
 
   const copy = () => {
@@ -64,22 +76,94 @@ export function CopyContextButton({
     copyText(markdown)
       .then(
         (text) => toast.success(copiedMessage(name, text)),
-        (err: unknown) => toast.error(`Copying context failed: ${errorMessage(err)}`),
+        (err: unknown) =>
+          err instanceof ClipboardUnavailableError
+            ? setManual(err.text)
+            : toast.error(`Copying context failed: ${errorMessage(err)}`),
       )
       .finally(() => setPending(false));
   };
 
   return (
-    <Button
-      type="button"
-      variant="outline"
-      size={size}
-      className={className}
-      disabled={pending}
-      onClick={copy}
-    >
-      <ClipboardCopy aria-hidden="true" />
-      Copy context for AI
-    </Button>
+    <>
+      <Button
+        type="button"
+        variant="outline"
+        size={size}
+        className={className}
+        disabled={pending}
+        onClick={copy}
+      >
+        <ClipboardCopy aria-hidden="true" />
+        Copy context for AI
+      </Button>
+      <ManualCopyDialog name={name} text={manual} onClose={() => setManual(null)} />
+    </>
+  );
+}
+
+/**
+ * The bundle's Markdown in a read-only, preselected textarea, for a browser whose async clipboard
+ * is missing or refused the write after the fetch. "Copy" runs execCommand inside its own click,
+ * the user gesture the browser asks for; ctrl+c works on the selection too.
+ */
+function ManualCopyDialog({
+  name,
+  text,
+  onClose,
+}: {
+  name: string;
+  text: string | null;
+  onClose: () => void;
+}): JSX.Element {
+  const area = useRef<HTMLTextAreaElement>(null);
+
+  const copy = () => {
+    if (!area.current || text === null) return;
+    if (copyFromTextarea(area.current)) {
+      toast.success(copiedMessage(name, text));
+      onClose();
+    } else {
+      toast.error("Copying failed: the text is selected, press Ctrl+C or ⌘C");
+    }
+  };
+
+  return (
+    <Dialog open={text !== null} onOpenChange={(open) => !open && onClose()}>
+      <DialogContent
+        className="sm:max-w-2xl"
+        onOpenAutoFocus={(e) => {
+          e.preventDefault();
+          area.current?.focus();
+          area.current?.select();
+        }}
+      >
+        <DialogHeader>
+          <DialogTitle>Copy context for {name}</DialogTitle>
+          <DialogDescription>
+            The browser didn't let dash write to the clipboard on this page (a page served over
+            plain http, for one). The Markdown is selected below: copy it with the button.
+          </DialogDescription>
+        </DialogHeader>
+        <Textarea
+          ref={area}
+          readOnly
+          aria-label={`Context for ${name}`}
+          value={text ?? ""}
+          className="field-sizing-fixed max-h-[50vh] min-h-40 font-mono text-xs"
+          rows={12}
+          onFocus={(e) => e.currentTarget.select()}
+        />
+        <DialogFooter>
+          <Button type="button" variant="outline" onClick={onClose}>
+            Close
+          </Button>
+          <Button type="button" onClick={copy}>
+            <ClipboardCopy aria-hidden="true" />
+            Copy
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }

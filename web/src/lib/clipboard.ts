@@ -1,12 +1,23 @@
 /**
+ * The async clipboard is missing or refused the text: a page served over http on a LAN address is
+ * not a secure context, and a browser may refuse a write that comes after an await. The caller
+ * shows `text` for a copy inside a click of its own (copyFromTextarea).
+ */
+export class ClipboardUnavailableError extends Error {
+  constructor(readonly text: string) {
+    super("the clipboard is not available on this page");
+    this.name = "ClipboardUnavailableError";
+  }
+}
+
+/**
  * Copies the text that `text` resolves to, and resolves to it once it is on the clipboard.
  *
  * Call it synchronously in the click handler, with the fetch still pending: the clipboard write
  * starts before anything is awaited, with a ClipboardItem holding the pending text, so Safari
  * keeps the user gesture across the fetch. Where the browser has no ClipboardItem, or refuses it,
- * the text goes through `writeText`; where the async clipboard API is missing too (a page served
- * over http on a LAN address is not a secure context), through a hidden textarea and
- * `document.execCommand("copy")`. A rejected `text` rejects with its own error.
+ * the text goes through `writeText`. Where that is missing or refused too, it rejects with a
+ * ClipboardUnavailableError holding the text. A rejected `text` rejects with its own error.
  */
 export async function copyText(text: Promise<string>): Promise<string> {
   const clipboard = globalThis.navigator?.clipboard;
@@ -26,30 +37,22 @@ export async function copyText(text: Promise<string>): Promise<string> {
       await clipboard.writeText(t);
       return t;
     } catch {
-      // Fall through to the textarea.
+      // Refused: the caller offers the text for a copy in a click of its own.
     }
   }
-  if (!copyWithTextarea(t)) throw new Error("the browser refused to copy");
-  return t;
+  throw new ClipboardUnavailableError(t);
 }
 
-/** Copies text through a hidden textarea and execCommand; false when the browser refused. */
-function copyWithTextarea(text: string): boolean {
-  const before = document.activeElement;
-  const area = document.createElement("textarea");
-  area.value = text;
-  area.readOnly = true;
-  area.setAttribute("aria-hidden", "true");
-  area.className = "fixed top-0 left-0 size-px opacity-0";
-  // Inside an open dialog: its focus trap would pull focus, and the selection, back otherwise.
-  (before?.closest("[role=dialog]") ?? document.body).append(area);
+/**
+ * Selects all of area and copies it with `document.execCommand("copy")`; false when the browser
+ * refused. Call it synchronously in a click handler: execCommand copies only in a user gesture.
+ */
+export function copyFromTextarea(area: HTMLTextAreaElement): boolean {
+  area.focus();
   area.select();
   try {
     return document.execCommand("copy");
   } catch {
     return false;
-  } finally {
-    area.remove();
-    if (before instanceof HTMLElement) before.focus();
   }
 }

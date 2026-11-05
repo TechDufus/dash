@@ -1,4 +1,4 @@
-import { fireEvent, screen, waitFor } from "@testing-library/react";
+import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { toast } from "sonner";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { me } from "@/settings/fixtures";
@@ -132,41 +132,76 @@ describe("CopyContextButton", () => {
     expect(writeText).toHaveBeenCalledWith(markdown(3));
   });
 
-  it("falls back to a hidden textarea and execCommand without the clipboard API", async () => {
-    installClipboard(undefined);
-    let copied: string | undefined;
+  /** document.execCommand, recording the selected text of the focused textarea at each copy. */
+  function stubExecCommand(result: boolean) {
+    const copied: string[] = [];
     const exec = vi.fn((command: string) => {
-      copied = command === "copy" ? document.querySelector("textarea")?.value : undefined;
-      return true;
+      const area = document.activeElement;
+      if (command === "copy" && area instanceof HTMLTextAreaElement) {
+        copied.push(area.value.slice(area.selectionStart, area.selectionEnd));
+      }
+      return result;
     });
     Object.defineProperty(document, "execCommand", { value: exec, configurable: true });
-    try {
-      await renderButton(["read", "logs"]);
-      click();
+    return { exec, copied };
+  }
 
-      await waitFor(() => expect(toast.success).toHaveBeenCalled());
-      expect(exec).toHaveBeenCalledWith("copy");
-      expect(copied).toBe(markdown(3));
-      expect(document.querySelector("textarea")).toBeNull();
-    } finally {
-      Reflect.deleteProperty(document, "execCommand");
-    }
+  afterEach(() => {
+    Reflect.deleteProperty(document, "execCommand");
   });
 
-  it("reports a refused copy when execCommand fails", async () => {
+  it("shows the Markdown preselected in a dialog without the clipboard API", async () => {
     installClipboard(undefined);
-    Object.defineProperty(document, "execCommand", { value: () => false, configurable: true });
-    try {
-      await renderButton(["read", "logs"]);
-      click();
+    const { exec, copied } = stubExecCommand(true);
+    await renderButton(["read", "logs"]);
+    click();
 
-      await waitFor(() => expect(toast.error).toHaveBeenCalled());
-      expect(toast.error).toHaveBeenCalledWith(
-        "Copying context failed: the browser refused to copy",
-      );
-    } finally {
-      Reflect.deleteProperty(document, "execCommand");
-    }
+    const dialog = await screen.findByRole("dialog", { name: "Copy context for app-0" });
+    const area = within(dialog).getByRole<HTMLTextAreaElement>("textbox");
+    expect(area.value).toBe(markdown(3));
+    expect(area.readOnly).toBe(true);
+    await waitFor(() => expect(document.activeElement).toBe(area));
+    expect([area.selectionStart, area.selectionEnd]).toEqual([0, markdown(3).length]);
+    // Nothing was copied, or reported, before the dialog's own click.
+    expect(exec).not.toHaveBeenCalled();
+    expect(toast.success).not.toHaveBeenCalled();
+    expect(toast.error).not.toHaveBeenCalled();
+
+    fireEvent.click(within(dialog).getByRole("button", { name: "Copy" }));
+    // execCommand ran inside the click, synchronously, on the whole Markdown.
+    expect(exec).toHaveBeenCalledWith("copy");
+    expect(copied).toEqual([markdown(3)]);
+    expect(toast.success).toHaveBeenCalledWith("Copied context for app-0 (3 lines of logs)");
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+  });
+
+  it("shows the dialog when writeText refuses after the fetch", async () => {
+    const writeText = vi.fn(async (_: string) => {
+      throw new DOMException("Document is not focused.", "NotAllowedError");
+    });
+    installClipboard({ writeText } as unknown as Clipboard);
+    await renderButton(["read", "logs"]);
+    click();
+
+    const dialog = await screen.findByRole("dialog", { name: "Copy context for app-0" });
+    expect(writeText).toHaveBeenCalledWith(markdown(3));
+    expect(within(dialog).getByRole<HTMLTextAreaElement>("textbox").value).toBe(markdown(3));
+    expect(toast.error).not.toHaveBeenCalled();
+  });
+
+  it("keeps the dialog open and says so when execCommand refuses", async () => {
+    installClipboard(undefined);
+    stubExecCommand(false);
+    await renderButton(["read", "logs"]);
+    click();
+
+    const dialog = await screen.findByRole("dialog", { name: "Copy context for app-0" });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Copy" }));
+    expect(toast.error).toHaveBeenCalledWith(
+      "Copying failed: the text is selected, press Ctrl+C or ⌘C",
+    );
+    expect(toast.success).not.toHaveBeenCalled();
+    expect(screen.getByRole("dialog", { name: "Copy context for app-0" })).toBeTruthy();
   });
 
   it("reports a failed request in a toast and copies nothing", async () => {

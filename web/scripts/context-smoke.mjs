@@ -12,6 +12,10 @@
 // 2. the click made one request, GET /api/v1/context, and nothing else (no /api/v1/me);
 // 3. the toast says what was copied.
 //
+// Then, on a second page whose navigator.clipboard and ClipboardItem are removed (as on a page
+// served over http on a LAN address), the same click opens a dialog holding the bundle in a
+// preselected textarea, and its "Copy" button puts the bundle on the clipboard.
+//
 // It prints one line per check and exits 1 listing every check that failed, or after 60 s. dash
 // and Chromium are stopped on every exit path; a signal exits with 128 plus its number. Needs
 // Playwright's pinned Chromium once:
@@ -72,11 +76,13 @@ function untrustedBlock(md) {
   return { fence, body, closed: end >= 0 && longest < fence.length };
 }
 
-async function smoke(ctx, origin) {
-  const page = await ctx.newPage();
+/**
+ * Opens the first pod's sheet from the Pods tab on page and waits until the page is quiet: the
+ * pod's ref and name, its "Copy context for AI" button, and every request page made so far.
+ */
+async function openPodSheet(page, origin) {
   const requests = [];
   page.on("request", (r) => requests.push(`${r.method()} ${new URL(r.url()).pathname}`));
-
   await page.goto(`${origin}/cluster?tab=pods`);
   await page.getByText("LIVE", { exact: true }).waitFor({ timeout: 15_000 });
   const pod = page.locator('a[href^="/cluster/pods/"]').first();
@@ -84,10 +90,15 @@ async function smoke(ctx, origin) {
   await pod.click();
   const [, ns, name] = /^\/cluster\/pods\/([^/]+)\/([^/?]+)/.exec(href ?? "") ?? [];
   const ref = `kubernetes:Pod/${decodeURIComponent(ns)}/${decodeURIComponent(name)}`;
-  const sheet = page.getByRole("dialog");
-  const button = sheet.getByRole("button", { name: "Copy context for AI" });
+  const button = page.getByRole("dialog").getByRole("button", { name: "Copy context for AI" });
   await button.waitFor({ timeout: 10_000 });
   await quiet(requests);
+  return { ref, name: decodeURIComponent(name), button, requests };
+}
+
+async function smoke(ctx, origin) {
+  const page = await ctx.newPage();
+  const { ref, name, button, requests } = await openPodSheet(page, origin);
 
   const before = requests.length;
   const answered = page.waitForResponse((r) => new URL(r.url()).pathname === "/api/v1/context");
@@ -122,7 +133,61 @@ async function smoke(ctx, origin) {
     clicked.join(", "),
   );
   const said = (await toast.textContent()) ?? "";
-  check(said.startsWith(`Copied context for ${decodeURIComponent(name)} (`), "the toast", said);
+  check(said.startsWith(`Copied context for ${name} (`), "the toast", said);
+  await page.close();
+}
+
+/** The click on a page without the async clipboard API: the manual-copy dialog. */
+async function insecureSmoke(ctx, origin) {
+  const page = await ctx.newPage();
+  await page.addInitScript(() => {
+    delete Navigator.prototype.clipboard;
+    delete globalThis.ClipboardItem;
+  });
+  const { ref, name, button } = await openPodSheet(page, origin);
+  const gone = await page.evaluate(
+    () => !("clipboard" in navigator) && !("ClipboardItem" in window),
+  );
+  check(gone, "the second page has no navigator.clipboard and no ClipboardItem");
+
+  await button.click();
+  const dialog = page.getByRole("dialog", { name: `Copy context for ${name}` });
+  await dialog.waitFor({ timeout: 10_000 });
+  const area = dialog.getByRole("textbox");
+  const shown = await area.evaluate((el) => ({
+    value: el.value,
+    readOnly: el.readOnly,
+    selected:
+      document.activeElement === el &&
+      el.selectionStart === 0 &&
+      el.selectionEnd === el.value.length,
+  }));
+  check(
+    untrustedBlock(shown.value)?.body.startsWith(`ref: ${ref}\n`) === true &&
+      shown.readOnly &&
+      shown.selected,
+    "without the clipboard API the click opens a dialog holding the bundle, read-only and selected",
+    `${shown.value.split("\n").length} lines, readOnly ${shown.readOnly}, selected ${shown.selected}`,
+  );
+
+  await dialog.getByRole("button", { name: "Copy", exact: true }).click();
+  await dialog.waitFor({ state: "hidden", timeout: 10_000 });
+  const toast = page.locator("[data-sonner-toast]").filter({ hasText: "context" }).first();
+  await toast.waitFor({ timeout: 10_000 });
+  // This page has no clipboard API to read with: a page that has one reads what the click copied.
+  const reader = await ctx.newPage();
+  await reader.goto(`${origin}/`);
+  await reader.bringToFront();
+  const md = await reader.evaluate(() => navigator.clipboard.readText());
+  check(
+    md === shown.value,
+    "the dialog's Copy button puts the bundle on the clipboard",
+    `${md.length} chars`,
+  );
+  check(
+    ((await toast.textContent()) ?? "").startsWith(`Copied context for ${name}`),
+    "the dialog's toast",
+  );
 }
 
 async function main() {
@@ -153,6 +218,7 @@ async function main() {
     await ctx.grantPermissions(["clipboard-read", "clipboard-write"], { origin });
     console.log(`context-smoke: dash demo at ${origin}, chromium ${browser.version()}`);
     await smoke(ctx, origin);
+    await insecureSmoke(ctx, origin);
   } finally {
     await stop();
   }

@@ -201,6 +201,9 @@ with the clipboard permissions granted through `web/scripts/context-smoke.mjs`. 
 pod's sheet, waits until the page is quiet and clicks the button. It fails unless the clipboard
 holds the pod's context bundle as Markdown, its lab data in a closed fence after the untrusted-data
 sentence, `GET /api/v1/context` is the only request the click made, and the toast names the pod.
+Then, on a page with `navigator.clipboard` and `ClipboardItem` removed, as on a page served over
+plain http, it fails unless the click opens a dialog holding the bundle, read-only and selected,
+and the dialog's Copy button puts it on the clipboard.
 A run ends after 60 s at most. It needs the same one-time setup as the screenshots and is not part
 of `make check`: run it after a change to the button, `web/src/lib/clipboard.ts` or the context
 route.

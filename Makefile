@@ -120,7 +120,8 @@ pwa-smoke: web/node_modules/.package-lock.json
 # web/scripts/context-smoke.mjs runs dash with DASH_DEMO=true on free loopback ports, opens a pod
 # sheet in Playwright's headless Chromium with the clipboard permissions granted, clicks the
 # button and checks the clipboard holds the bundle's Markdown with its untrusted-data framing, and
-# that GET /api/v1/context was the click's only request. Not part of check, as pwa-smoke.
+# that GET /api/v1/context was the click's only request; then, with the clipboard API removed, that
+# the click opens the manual-copy dialog and its Copy button copies. Not part of check, as pwa-smoke.
 context-smoke: web/node_modules/.package-lock.json
 	cd web && npm run build
 	tmp=$$(mktemp -d) && trap 'rm -rf "$$tmp"' EXIT && go build -o "$$tmp/dash" ./cmd/dash && \
