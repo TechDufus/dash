@@ -1,6 +1,6 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { KeyRound, Loader2, Plus, Trash2 } from "lucide-react";
-import { type FormEvent, type JSX, useState } from "react";
+import { type JSX, useState } from "react";
 import { toast } from "sonner";
 import { Link } from "wouter";
 import { errorMessage } from "@/api/client";
@@ -21,7 +21,6 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import {
   Table,
   TableBody,
@@ -32,19 +31,12 @@ import {
 } from "@/components/ui/table";
 import { formatDateTime } from "@/lib/format";
 import { cn } from "@/lib/utils";
+import { type Owner, OwnerFilter } from "./owner-filter";
 import { TokenCreateDialog } from "./token-create-dialog";
-import { invalidateTokens, revokeToken, type TokenOwner, useTokens } from "./tokens-api";
+import { invalidateTokens, revokeToken, useTokens } from "./tokens-api";
 
 const TH = "h-9 px-3 text-xs font-medium text-muted";
 const TD = "px-3 py-2 align-top";
-
-type OwnerKind = TokenOwner["kind"];
-
-const OWNERS: { value: OwnerKind; label: string }[] = [
-  { value: "own", label: "Mine" },
-  { value: "user", label: "One user" },
-  { value: "all", label: "All users" },
-];
 
 /**
  * /settings/tokens: the caller's personal access tokens, a create dialog and revocation. An
@@ -58,11 +50,11 @@ export function TokensPage(): JSX.Element {
   const admin = me.data?.role === "admin";
   const allowed = canManageTokens(me.data);
   const available = tokensAvailable(me.data);
-  const [owner, setOwner] = useState<TokenOwner>({ kind: "own" });
+  const [owner, setOwner] = useState<Owner>({ kind: "own" });
   const [creating, setCreating] = useState(false);
   const [revoking, setRevoking] = useState<TokenInfo | null>(null);
   // A viewer only ever lists their own tokens, whatever the state says.
-  const effective: TokenOwner = admin ? owner : { kind: "own" };
+  const effective: Owner = admin ? owner : { kind: "own" };
   // "One user" before a name was typed lists nobody's tokens.
   const awaitingName = effective.kind === "user" && effective.name === "";
   const tokens = useTokens(effective, available && !awaitingName);
@@ -114,7 +106,7 @@ export function TokensPage(): JSX.Element {
       ) : null}
       <Panel>
         <PanelHeader title="Personal access tokens" icon={<KeyRound />}>
-          {admin ? <OwnerFilter owner={owner} onChange={setOwner} /> : null}
+          {admin ? <OwnerFilter label="Whose tokens" owner={owner} onChange={setOwner} /> : null}
         </PanelHeader>
         {awaitingName ? (
           <Empty>Type a user name, then Show.</Empty>
@@ -218,62 +210,6 @@ function Unavailable({ me }: { me: Me | undefined }): JSX.Element {
         Back to Overview
       </Link>
     </>
-  );
-}
-
-/** The administrator's owner filter: their own tokens, one named user's, or everyone's. */
-function OwnerFilter({
-  owner,
-  onChange,
-}: {
-  owner: TokenOwner;
-  onChange: (o: TokenOwner) => void;
-}): JSX.Element {
-  const [kind, setKind] = useState<OwnerKind>(owner.kind);
-  const [name, setName] = useState(owner.kind === "user" ? owner.name : "");
-
-  function pick(k: OwnerKind) {
-    setKind(k);
-    if (k === "own" || k === "all") onChange({ kind: k });
-    else onChange({ kind: "user", name: name.trim() });
-  }
-
-  function submit(e: FormEvent) {
-    e.preventDefault();
-    if (name.trim() !== "") onChange({ kind: "user", name: name.trim() });
-  }
-
-  return (
-    <div className="ml-auto flex flex-wrap items-center gap-2">
-      {/* biome-ignore lint/a11y/useSemanticElements: a group of toggle buttons, not a form fieldset */}
-      <div role="group" aria-label="Whose tokens" className="flex flex-wrap gap-1">
-        {OWNERS.map((o) => (
-          <Button
-            key={o.value}
-            size="sm"
-            variant={o.value === kind ? "secondary" : "ghost"}
-            aria-pressed={o.value === kind}
-            onClick={() => pick(o.value)}
-          >
-            {o.label}
-          </Button>
-        ))}
-      </div>
-      {kind === "user" ? (
-        <form onSubmit={submit} className="flex gap-1">
-          <Input
-            aria-label="User name"
-            autoComplete="off"
-            className="h-8 w-40"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-          />
-          <Button type="submit" size="sm" variant="outline">
-            Show
-          </Button>
-        </form>
-      ) : null}
-    </div>
   );
 }
 

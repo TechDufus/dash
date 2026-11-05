@@ -1,11 +1,25 @@
-import { useQuery } from "@tanstack/react-query";
+import { type QueryClient, useQuery } from "@tanstack/react-query";
 import { ApiError, api } from "@/api/client";
-import type { OAuthConsent, OAuthConsentDecision, OAuthConsentResult } from "@/api/types";
+import {
+  type OAuthConsent,
+  type OAuthConsentDecision,
+  type OAuthConsentResult,
+  type OAuthGrantList,
+  TokenAudienceMCP,
+} from "@/api/types";
+import { type Owner, ownerParam } from "@/settings/owner-filter";
 
 /** The paths of the OAuth routes of /api/v1 (P7.2). */
 export const oauthPaths = {
   consent: (id: string) => `/api/v1/oauth/consents/${encodeURIComponent(id)}`,
+  grants: "/api/v1/oauth/grants",
+  grant: (id: string) => `/api/v1/oauth/grants/${encodeURIComponent(id)}`,
 };
+
+/** An OAuth audience in words. */
+export function audienceWords(audience: string): string {
+  return audience === TokenAudienceMCP ? "agents through MCP" : "the dash API";
+}
 
 /** The SPA route /oauth/authorize sends the browser to: also the short `next` of its sign-in. */
 export function consentRoute(id: string): string {
@@ -42,4 +56,38 @@ export function decideConsent(
  */
 export function consentGone(err: unknown): boolean {
   return err instanceof ApiError && (err.status === 404 || err.status === 410);
+}
+
+/** Query keys: invalidating `grantsKeys.all` refetches every grant list. */
+export const grantsKeys = {
+  all: ["oauth", "grants"] as const,
+  list: (user: string | undefined) => ["oauth", "grants", user ?? ""] as const,
+};
+
+/** GET /api/v1/oauth/grants, for `owner`; never requested while `enabled` is false. */
+export function useGrants(owner: Owner, enabled: boolean) {
+  const user = ownerParam(owner);
+  return useQuery({
+    queryKey: grantsKeys.list(user),
+    queryFn: () => api.get<OAuthGrantList>(oauthPaths.grants, { user }),
+    enabled,
+  });
+}
+
+/** DELETE /api/v1/oauth/grants/{id}: 204; the client's tokens stop working at once. */
+export function revokeGrant(id: string): Promise<void> {
+  return api.del<void>(oauthPaths.grant(id));
+}
+
+/**
+ * DELETE /api/v1/oauth/grants?user=me: every grant of the caller. The proxy mode's way to
+ * disconnect every app, where no "Log out everywhere" exists (the proxy owns the session).
+ */
+export function revokeAllMyGrants(): Promise<void> {
+  return api.del<void>(`${oauthPaths.grants}?user=me`);
+}
+
+/** After a revoke: every grant list is stale. */
+export function invalidateGrants(qc: QueryClient): Promise<void> {
+  return qc.invalidateQueries({ queryKey: grantsKeys.all });
 }

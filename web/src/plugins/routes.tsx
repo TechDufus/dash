@@ -1,6 +1,6 @@
 import { Component, type ErrorInfo, lazy, type ReactNode, Suspense } from "react";
 import { Link, Route, Switch } from "wouter";
-import { settingsAvailable, tokensAvailable, useMe } from "@/api/queries";
+import { settingsAvailable, useMe, userSettingsAvailable } from "@/api/queries";
 import type { PluginInfo } from "@/api/types";
 import { Page } from "@/components/page";
 import { Empty, Panel, PanelSkeleton } from "@/components/panel";
@@ -14,7 +14,7 @@ import { isVisible, usePluginsState } from "./state";
 import type { ModuleRoute as ModuleRouteDecl, PluginModule } from "./types";
 
 // The settings pages are their own chunks: an administrator loads them, anyone else at most their
-// own settings landing and the tokens page.
+// own settings landing, the tokens page and the connected apps page.
 const SettingsPage = lazy(() =>
   import("@/settings/settings-page").then((m) => ({ default: m.SettingsPage })),
 );
@@ -26,6 +26,9 @@ const AuditPage = lazy(() =>
 );
 const TokensPage = lazy(() =>
   import("@/settings/tokens-page").then((m) => ({ default: m.TokensPage })),
+);
+const ConnectedAppsPage = lazy(() =>
+  import("@/settings/connected-apps-page").then((m) => ({ default: m.ConnectedAppsPage })),
 );
 const UserSettingsPage = lazy(() =>
   import("@/settings/settings-nav").then((m) => ({ default: m.UserSettingsPage })),
@@ -159,9 +162,10 @@ function ModuleRoute({
 
 /**
  * The gate of an administrator's /settings page: an administrator gets the page; a user with a
- * settings page of their own (Tokens, D8) gets `user` when the route has one; anyone else (the
- * anonymous viewer, every user in the none mode) "Not authorised", and the page, which reads the
- * settings API, never mounts. The API refuses them anyway; this keeps the request from being made.
+ * settings page of their own (Tokens, D8; Connected apps) gets `user` when the route has one;
+ * anyone else (the anonymous viewer, every user in the none mode) "Not authorised", and the page,
+ * which reads the settings API, never mounts. The API refuses them anyway; this keeps the request
+ * from being made.
  * Demo mode has no settings API at all (every settings route is 404): its administrator gets
  * `user` too, or a notice that says so.
  */
@@ -169,7 +173,7 @@ export function AdminOnly({ children, user }: { children: ReactNode; user?: Reac
   const me = useMe();
   if (me.isPending) return <PageLoading />;
   if (!settingsAvailable(me.data)) {
-    if (user && tokensAvailable(me.data)) return <RouteBoundary>{user}</RouteBoundary>;
+    if (user && userSettingsAvailable(me.data)) return <RouteBoundary>{user}</RouteBoundary>;
     const demo = me.data?.authMode === "demo";
     return (
       <Page>
@@ -219,6 +223,12 @@ export function PluginRoutes() {
         {/* Every interactive user's page (D8): it explains itself where tokens do not exist. */}
         <RouteBoundary>
           <TokensPage />
+        </RouteBoundary>
+      </Route>
+      <Route path="/settings/connected-apps">
+        {/* Every interactive user's page: it explains itself where OAuth is off. */}
+        <RouteBoundary>
+          <ConnectedAppsPage />
         </RouteBoundary>
       </Route>
       <Route path="/settings/plugins/:id">

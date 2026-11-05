@@ -27,6 +27,7 @@ const PAGES = {
   "tokens-page": "Type a user name, then Show.",
   "settings-nav": "Personal access tokens for scripts and agents.",
   "consent-page": "This request expired; start again from the app.",
+  "connected-apps-page": "Apps with access to dash",
 };
 
 const html = readFileSync(join(dist, "index.html"), "utf8");

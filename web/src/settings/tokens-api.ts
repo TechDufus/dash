@@ -7,25 +7,13 @@ import {
   type TokenList,
   TokenScopeActionsPrefix,
 } from "@/api/types";
+import { type Owner, ownerParam } from "./owner-filter";
 
 /** The paths of /api/v1/tokens (P7.1). */
 export const tokensPaths = {
   list: "/api/v1/tokens",
   token: (id: string) => `/api/v1/tokens/${encodeURIComponent(id)}`,
 };
-
-/**
- * Whose tokens the list shows: the caller's own (no ?user=), one named user's, or everyone's
- * (?user=*). Only an administrator may ask for anything but their own.
- */
-export type TokenOwner = { kind: "own" } | { kind: "user"; name: string } | { kind: "all" };
-
-/** The ?user= value of an owner filter; undefined for the caller's own tokens. */
-export function ownerParam(owner: TokenOwner): string | undefined {
-  if (owner.kind === "all") return "*";
-  if (owner.kind === "user") return owner.name;
-  return undefined;
-}
 
 /** Query keys: invalidating `tokensKeys.all` refetches every token list. */
 export const tokensKeys = {
@@ -34,7 +22,7 @@ export const tokensKeys = {
 };
 
 /** GET /api/v1/tokens, for `owner`; never requested while `enabled` is false. */
-export function useTokens(owner: TokenOwner, enabled: boolean) {
+export function useTokens(owner: Owner, enabled: boolean) {
   const user = ownerParam(owner);
   return useQuery({
     queryKey: tokensKeys.list(user),

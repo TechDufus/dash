@@ -1,5 +1,5 @@
 import { Database, LayoutDashboard, LayoutGrid, type LucideIcon, Settings } from "lucide-react";
-import { tokensAvailable } from "@/api/queries";
+import { userSettingsAvailable } from "@/api/queries";
 import type { Me } from "@/api/types";
 import alertmanager from "./modules/alertmanager";
 import cnpg from "./modules/cnpg";
@@ -83,6 +83,6 @@ export const CORE_PAGES: readonly CorePage[] = [
     title: "Settings",
     icon: Settings,
     order: 900,
-    visibleTo: (me) => me?.role === "admin" || tokensAvailable(me),
+    visibleTo: (me) => me?.role === "admin" || userSettingsAvailable(me),
   },
 ];

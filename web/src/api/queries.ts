@@ -78,6 +78,20 @@ export function tokensAvailable(me: Me | undefined): boolean {
 }
 
 /**
+ * Whether the principal has connected apps here: someone grants can belong to (canManageTokens)
+ * on a dash whose OAuth server is on (capabilities.oauth). Without it nothing requests
+ * /api/v1/oauth/grants and Settings → Connected apps is not offered.
+ */
+export function connectedAppsAvailable(me: Me | undefined): boolean {
+  return canManageTokens(me) && me?.capabilities?.oauth === true;
+}
+
+/** Whether a user who is not an administrator has a settings page of their own (D8). */
+export function userSettingsAvailable(me: Me | undefined): boolean {
+  return tokensAvailable(me) || connectedAppsAvailable(me);
+}
+
+/**
  * Whether this dash serves the administrator's settings API (/api/v1/settings/**) to the
  * principal: an administrator, in every mode but demo, which has no settings store and answers
  * every settings route 404. Nothing reads that API unless this is true.

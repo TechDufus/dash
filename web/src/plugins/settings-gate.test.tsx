@@ -107,6 +107,45 @@ describe("TestViewerCannotOpenSettings", () => {
     expect(settingsLinks()).toEqual(["/settings/audit"]);
   });
 
+  // Connected apps exists only where the OAuth server is on (capabilities.oauth); every test
+  // above runs without it and gets no such entry.
+  it.each(["admin", "viewer"] as const)(
+    "lists Connected apps for the %s once OAuth is on",
+    async (role) => {
+      const base = keeping(role);
+      stubFetch(
+        settingsRoutes({
+          "GET /api/v1/me": { ...base, capabilities: { ...base.capabilities, oauth: true } },
+          "GET /api/v1/oauth/grants": { grants: [] },
+        }),
+      );
+      renderAt("/settings");
+      await screen.findByRole("link", { name: "Connected apps" }, wait);
+      expect(settingsLinks()).toEqual(
+        role === "admin"
+          ? ["/settings/audit", "/settings/tokens", "/settings/connected-apps"]
+          : ["/settings/tokens", "/settings/connected-apps"],
+      );
+      await userEvent.click(screen.getByRole("link", { name: "Connected apps" }));
+      expect(await screen.findByText("No connected apps", undefined, wait)).toBeInTheDocument();
+    },
+  );
+
+  it("gives a viewer a Settings entry for Connected apps alone", async () => {
+    const base = me("viewer");
+    const f = stubFetch(
+      settingsRoutes({
+        "GET /api/v1/me": { ...base, capabilities: { ...base.capabilities, oauth: true } },
+        "GET /api/v1/oauth/grants": { grants: [] },
+      }),
+    );
+    renderAt("/settings");
+    await screen.findByRole("heading", { name: "Settings" }, wait);
+    expect(railLabels()).toContain("Settings");
+    expect(settingsLinks()).toEqual(["/settings/connected-apps"]);
+    expect(f.calls.filter((c) => c.path.startsWith("/api/v1/tokens"))).toEqual([]);
+  });
+
   // Without a store that keeps tokens a viewer has no settings page of their own: no Settings
   // entry, and nothing asks for tokens.
   it("gives a viewer no Settings entry where tokens are not kept", async () => {

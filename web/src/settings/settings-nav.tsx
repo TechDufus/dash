@@ -1,37 +1,58 @@
 import { KeyRound } from "lucide-react";
 import type { JSX } from "react";
 import { Link } from "wouter";
-import { canManageTokens, settingsAvailable, tokensAvailable, useMe } from "@/api/queries";
+import {
+  canManageTokens,
+  connectedAppsAvailable,
+  settingsAvailable,
+  tokensAvailable,
+  useMe,
+} from "@/api/queries";
+import type { Me } from "@/api/types";
 import { Page } from "@/components/page";
 import { Panel, PanelHeader } from "@/components/panel";
 
+/** Who may open a settings page: the settings API's administrator, a token user, an OAuth user. */
+type Gate = "admin" | "tokens" | "oauth";
+
 /** The settings pages besides /settings itself, and who may open each. */
-const PAGES = [
+const PAGES: { href: string; label: string; note: string; gate: Gate }[] = [
   {
     href: "/settings/audit",
     label: "Audit log",
     note: "Settings changes, actions and refused requests.",
-    admin: true,
+    gate: "admin",
   },
   {
     href: "/settings/tokens",
     label: "Tokens",
     note: "Personal access tokens for scripts and agents.",
-    admin: false,
+    gate: "tokens",
+  },
+  {
+    href: "/settings/connected-apps",
+    label: "Connected apps",
+    note: "Apps you let in with the consent screen.",
+    gate: "oauth",
   },
 ];
 
+function opens(me: Me | undefined, gate: Gate): boolean {
+  if (gate === "admin") return settingsAvailable(me);
+  // An administrator still finds Tokens where they are not kept: the page says why.
+  if (gate === "tokens") return me?.role === "admin" ? canManageTokens(me) : tokensAvailable(me);
+  return connectedAppsAvailable(me);
+}
+
 /**
  * The settings pages /me may open: an administrator every one (none in demo mode, which has no
- * settings API, so the audit log is not offered there), anyone else only Tokens, and that only
- * where tokens are kept. An administrator still finds Tokens where they are not: the page says
- * why.
+ * settings API, so the audit log is not offered there), anyone else only their own pages, Tokens
+ * where tokens are kept. Connected apps is offered to everyone only where the OAuth server is on
+ * (capabilities.oauth).
  */
 function usePages() {
   const me = useMe().data;
-  const settings = settingsAvailable(me);
-  const tokens = me?.role === "admin" ? canManageTokens(me) : tokensAvailable(me);
-  return PAGES.filter((p) => (p.admin ? settings : tokens));
+  return PAGES.filter((p) => opens(me, p.gate));
 }
 
 /** The links of the /settings header. */

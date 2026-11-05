@@ -22,15 +22,10 @@ import { Empty, Panel, PanelHeader, PanelSkeleton } from "@/components/panel";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
-import { consentGone, consentRoute, decideConsent, useConsent } from "./api";
+import { audienceWords, consentGone, consentRoute, decideConsent, useConsent } from "./api";
 
 /** What the screen says when the request is gone (expired, decided, or never there). */
 const EXPIRED = "This request expired; start again from the app.";
-
-/** The audience in words. */
-export function audienceWords(audience: string): string {
-  return audience === TokenAudienceMCP ? "agents through MCP" : "the dash API";
-}
 
 /** What a scope lets the app do. */
 function scopeNote(scope: string): string {
@@ -240,7 +235,14 @@ function ConsentForm({ consent, me }: { consent: OAuthConsent; me: Me }): JSX.El
           </fieldset>
 
           <p className="text-xs text-faint">
-            You can disconnect the app at any time in Settings → Connected apps.
+            You can disconnect the app at any time in{" "}
+            <Link
+              href="/settings/connected-apps"
+              className="text-accent underline-offset-4 hover:underline"
+            >
+              Settings → Connected apps
+            </Link>
+            .
           </p>
 
           <div className="flex justify-end gap-2">
