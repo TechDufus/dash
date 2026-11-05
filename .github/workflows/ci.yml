@@ -1,12 +1,13 @@
 name: ci
-# Runners. While the repository is private, pushes to main and v* tags run on the self-hosted
-# runner and pull requests run nothing, Dependabot's included (their checks show as skipped): only
-# collaborators can open a pull request, and no pull request's code runs on the self-hosted runner
-# (design G.8), nor are GitHub-hosted minutes spent before the repository is public. That guarantee
-# holds only while the repository is private: a fork's pull request runs the workflow file of its
-# own branch, which could ask for the self-hosted labels. So before the flip, P6.7 moves release
-# off the self-hosted runner and P6.9 deregisters that runner. Once public, every job runs on
-# ubuntu-24.04, for pushes and pull requests alike, with no edit here beyond P6.7's to release.
+# Runners. While the repository is private, pushes to main and v* tags run check, scan, smoke
+# and kind on the self-hosted runner and pull requests run nothing, Dependabot's included (their
+# checks show as skipped): only collaborators can open a pull request, and no pull request's code
+# runs on the self-hosted runner (design G.8), nor are GitHub-hosted minutes spent on them before
+# the repository is public. The release job always runs on ubuntu-24.04 (design H.2). That
+# guarantee holds only while the repository is private: a fork's pull request runs the workflow
+# file of its own branch, which could ask for the self-hosted labels. So before the flip, P6.9
+# deregisters that runner. Once public, every job runs on ubuntu-24.04, for pushes and pull
+# requests alike, with no edit here.
 on:
   push:
     branches: [main]
@@ -165,45 +166,137 @@ jobs:
           kind delete cluster --name "$DASH_KIND_NAME" --kubeconfig "$RUNNER_TEMP/kind-cleanup.kubeconfig" || true
           docker network rm "$DASH_KIND_NAME" || true
           docker image rm "dash:kind-$DASH_KIND_NAME" || true
-  # Self-hosted and tag-only until P6.7 moves the release to GitHub-hosted runners and GHCR; a
-  # pull request never reaches it. It needs no token permission: the push goes to a registry
-  # outside GitHub.
+  # Tag-only and GitHub-hosted (design H.2): the multi-arch image and the chart go to GHCR, with
+  # GitHub attestations (build provenance and an SPDX SBOM) and a keyless cosign signature of the
+  # image digest. The release environment's required reviewer approves each run before it gets
+  # its token; a pull request never reaches this job.
   release:
     if: startsWith(github.ref, 'refs/tags/v')
     needs: [check, scan, smoke, kind]
-    runs-on: [self-hosted, linux, x64, homelab, dash]
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
+    environment: release
     permissions:
       contents: read
+      packages: write
+      id-token: write
+      attestations: write
+    env:
+      IMAGE: ghcr.io/techdufus/dash
+      CHARTS: oci://ghcr.io/techdufus/charts
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
       # The chart and the image share one version (charts/dash/Chart.yaml): a tag that does not
       # name it would ship an image the chart does not run.
-      - name: The tag matches the chart's version and appVersion
+      - name: The tag is vX.Y.Z and matches the chart's version and appVersion
         run: |
           set -euo pipefail
           version=${GITHUB_REF_NAME#v}
+          [[ $version =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "::error::tag must be vX.Y.Z"; exit 1; }
           chart=$(awk '$1 == "version:" { print $2 }' charts/dash/Chart.yaml)
           app=$(awk '$1 == "appVersion:" { gsub(/"/, "", $2); print $2 }' charts/dash/Chart.yaml)
           if [[ $chart != "$version" || $app != "$version" ]]; then
             echo "::error::tag $GITHUB_REF_NAME, but charts/dash/Chart.yaml has version $chart and appVersion $app"
             exit 1
           fi
-      - name: Build and push the image
+          { echo "VERSION=$version"; echo "CREATED=$(date -u +%Y-%m-%dT%H:%M:%SZ)"; } >> "$GITHUB_ENV"
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+        with:
+          driver-opts: image=moby/buildkit:v0.26.3@sha256:5601811fde88bb9e8a577bfe804af82bccb712e1cd07ff94663bded5e628cf75
+          cache-binary: false
+      - uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4.7.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: jdx/mise-action@6be3c7ed4c21d4f76b208d351d95aac273ebb76d # v5.2.4
+        with:
+          install_args: helm
+          cache: false
+      - name: Log Helm in to GHCR
+        env:
+          TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: helm registry login ghcr.io --username "$GITHUB_ACTOR" --password-stdin <<<"$TOKEN"
+      # X.Y.Z is create-only for the image and the chart: a version is never pushed twice. X.Y and
+      # latest move by design.
+      - name: Refuse a version already published
         run: |
           set -euo pipefail
-          version=${GITHUB_REF_NAME#v}
-          [[ $version =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "::error::tag must be vX.Y.Z"; exit 1; }
-          image=registry.home.techdufus.com/dash/dash:$version
-          if docker buildx imagetools inspect "$image" >/dev/null 2>&1; then
-            echo "::error::$image already exists (dash-ci is create-only); tag a new version"; exit 1
+          if docker buildx imagetools inspect "$IMAGE:$VERSION" >/dev/null 2>&1; then
+            echo "::error::$IMAGE:$VERSION already exists; tag a new version"; exit 1
           fi
-          docker buildx build --build-arg VERSION="$version" \
-            --build-arg REVISION="$GITHUB_SHA" \
-            --build-arg CREATED="$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-            --tag "$image" --push --metadata-file "$RUNNER_TEMP/meta.json" .
-          digest=$(jq -r '."containerimage.digest"' "$RUNNER_TEMP/meta.json")
-          echo "image: $image@$digest"
-          echo "image: \`$image@$digest\`" >> "$GITHUB_STEP_SUMMARY"
+          if helm show chart "$CHARTS/dash" --version "$VERSION" >/dev/null 2>&1; then
+            echo "::error::$CHARTS/dash:$VERSION already exists; tag a new version"; exit 1
+          fi
+      # X.Y.Z, X.Y and latest; no X tag while dash is 0.x (decision J.19). The annotations sit on
+      # the index too, so GHCR shows the multi-arch package's source and description.
+      - id: meta
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
+        env:
+          DOCKER_METADATA_ANNOTATIONS_LEVELS: manifest,index
+        with:
+          images: ${{ env.IMAGE }}
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=semver,pattern={{major}},enable=${{ !startsWith(github.ref, 'refs/tags/v0.') }}
+          flavor: latest=auto
+      # The Dockerfile cross-compiles from the build platform, so neither platform is emulated
+      # (the check job proves it on every push).
+      - id: build
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          annotations: ${{ steps.meta.outputs.annotations }}
+          build-args: |
+            VERSION=${{ env.VERSION }}
+            REVISION=${{ github.sha }}
+            CREATED=${{ env.CREATED }}
+          provenance: mode=max
+          sbom: true
+      - name: Attest build provenance
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-name: ${{ env.IMAGE }}
+          subject-digest: ${{ steps.build.outputs.digest }}
+          push-to-registry: true
+      - name: Generate the SPDX SBOM
+        uses: anchore/sbom-action@66cbf4bc1f1c0d2edc94016e65bc221b6bb0ad6c # v0.24.3
+        with:
+          image: ${{ env.IMAGE }}@${{ steps.build.outputs.digest }}
+          format: spdx-json
+          output-file: ${{ runner.temp }}/sbom.spdx.json
+          upload-artifact: false
+          upload-release-assets: false
+      - name: Attest the SBOM
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-name: ${{ env.IMAGE }}
+          subject-digest: ${{ steps.build.outputs.digest }}
+          sbom-path: ${{ runner.temp }}/sbom.spdx.json
+          push-to-registry: true
+      - uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+      - name: Sign the image digest (keyless)
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: cosign sign --yes "$IMAGE@$DIGEST"
+      - name: Push the chart
+        run: |
+          set -euo pipefail
+          helm package charts/dash --destination "$RUNNER_TEMP/chart"
+          helm push "$RUNNER_TEMP/chart/dash-$VERSION.tgz" "$CHARTS"
+      - name: Summary
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          echo "image: $IMAGE:$VERSION@$DIGEST"
+          {
+            echo "image: \`$IMAGE:$VERSION@$DIGEST\`"
+            echo
+            echo "chart: \`$CHARTS/dash --version $VERSION\`"
+          } >> "$GITHUB_STEP_SUMMARY"

@@ -253,7 +253,11 @@ DASH_SKIP_HOOKS=1 git push
    `examples/kubernetes` with `make generate`; prose that names a past version stays. Commit the
    result and merge it: the `release` job refuses a tag whose version differs from `Chart.yaml`.
 2. On `main` with CI green: `git tag vX.Y.Z && git push origin vX.Y.Z`.
-3. CI (`release` job) pushes the image `dash:X.Y.Z` to the release registry and prints
-   `image: <registry>/dash/dash:X.Y.Z@sha256:<digest>` in the log and the job summary. Tags are
-   create-only: a version can never be pushed twice.
+3. CI (`release` job, on a GitHub-hosted runner) waits for approval on the `release` environment,
+   then publishes `ghcr.io/techdufus/dash:X.Y.Z` for linux/amd64 and linux/arm64 (also `X.Y` and
+   `latest`; no `X` tag while dash is 0.x), with build-provenance and SPDX SBOM attestations and
+   a keyless cosign signature, and pushes the chart to `oci://ghcr.io/techdufus/charts/dash` at
+   the same version. It prints `image: ghcr.io/techdufus/dash:X.Y.Z@sha256:<digest>` in the log
+   and the job summary. `X.Y.Z` is create-only for the image and the chart: a version can never
+   be pushed twice.
 4. Deploy that tag and digest wherever dash runs.

@@ -93,10 +93,7 @@ type allow struct {
 	reason string
 }
 
-var (
-	owner   = j("Tech", "Dufus")
-	zotPush = regexp.QuoteMeta(j("registry", ".home.", "tech", "dufus", ".com/dash/dash"))
-)
+var owner = j("Tech", "Dufus")
 
 var allowlist = []allow{
 	// After the repository name: a path, a .git suffix, a closing quote, bracket or backtick, a
@@ -106,6 +103,8 @@ var allowlist = []allow{
 		"D4: the module path and the project's repository URLs"},
 	{"*", j("tech", "dufus"), regexp.MustCompile(`(?i)ghcr\.io/` + owner + `/`),
 		"D4: the published image and chart on GHCR"},
+	{"*", j("tech", "dufus"), regexp.MustCompile(`(?i)--owner ` + owner + `\b`),
+		"D4: the account that signs the published image's attestations"},
 	{"*", j("tech", "dufus"), regexp.MustCompile(`(?i)io\.github\.` + owner + `\.dash\b`),
 		"D4: the Android application ID"},
 	{"LICENSE", j("tech", "dufus"), regexp.MustCompile(regexp.QuoteMeta(j("Matthew De", "Garmo (", owner, ")"))),
@@ -114,10 +113,6 @@ var allowlist = []allow{
 		"D4: the copyright holder (J.1)"},
 	{".github/CODEOWNERS", j("tech", "dufus"), regexp.MustCompile(`@` + owner + `\b`),
 		"D4: the code owner"},
-	{".github/workflows/ci.yml", j("tech", "dufus"), regexp.MustCompile(zotPush),
-		"D3: the private Zot release push, removed by P6.7"},
-	{".github/workflows/ci.yml", j("registry", ".home"), regexp.MustCompile(zotPush),
-		"D3: the private Zot release push, removed by P6.7"},
 	{"internal/secret/resolve.go", j("op", "://"), regexp.MustCompile(regexp.QuoteMeta(j(`strings.HasPrefix(raw, "op`, `://")`))),
 		"dash refuses 1Password references by their scheme"},
 	{"internal/secret/resolve.go", j("op", "://"), regexp.MustCompile(regexp.QuoteMeta(j("%s: op", ":// references are not built in"))),
@@ -459,7 +454,7 @@ func TestDenylistScanCatchesEveryTermAndHonoursTheAllowlist(t *testing.T) {
 	tr.write("app.txt", j("io.github.", owner, ".dash\n"))
 	tr.write("LICENSE", j("Copyright (c) 2026 Matthew De", "Garmo (", owner, ")\n"))
 	tr.write(".github/CODEOWNERS", j("* @", owner, "\n"))
-	tr.write(".github/workflows/ci.yml", j("image=registry", ".home.", "tech", "dufus", ".com/dash/dash:v1\n"))
+	tr.write("docs/verify.md", j("gh attestation verify oci://ghcr.io/", owner, "/dash:1.0.0 --owner ", owner, "\n"))
 	// resolve.go: the two pinned strings, then another reference on line 5, which still hits.
 	tr.write("internal/secret/resolve.go", j("package secret\n\nfunc f(raw string) bool { return strings.HasPrefix(raw, \"op", "://\") }\n",
 		"var e = fmt.Errorf(\"%s: op", ":// references are not built in\", p)\n",
