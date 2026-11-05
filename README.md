@@ -83,13 +83,13 @@ which in demo mode defaults to the listen address. To browse at `localhost`, sta
 **Docker.** The image `ghcr.io/techdufus/dash` is not published yet; build it from this checkout:
 
 ```sh
-docker build --build-arg VERSION=0.14.7 -t ghcr.io/techdufus/dash:0.14.7 .
+docker build --build-arg VERSION=0.14.8 -t ghcr.io/techdufus/dash:0.14.8 .
 mkdir -p -m 0700 secrets && openssl rand -base64 32 > secrets/dash_secret_key && chmod 0644 secrets/dash_secret_key
 docker run -d --name dash -p 127.0.0.1:8080:8080 -v dash-data:/data \
   -v "$PWD/secrets/dash_secret_key:/run/secrets/dash_secret_key:ro" \
   -e DASH_SECRET_KEY_FILE=/run/secrets/dash_secret_key \
   -e DASH_SERVER_PUBLIC_URL=http://localhost:8080 \
-  ghcr.io/techdufus/dash:0.14.7
+  ghcr.io/techdufus/dash:0.14.8
 docker logs dash 2>&1 | grep -m1 'setup token'   # open its url to set the password
 ```
 

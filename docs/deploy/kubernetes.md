@@ -72,11 +72,11 @@ URL, and the image while it is not published, in an overlay:
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 resources:
-  - https://github.com/TechDufus/dash//examples/kubernetes?ref=v0.14.7
+  - https://github.com/TechDufus/dash//examples/kubernetes?ref=v0.14.8
 images:
   - name: ghcr.io/techdufus/dash
     newName: registry.example.com/dash
-    newTag: "0.14.7"
+    newTag: "0.14.8"
 patches:
   - target: {kind: Deployment, name: dash}
     patch: |
