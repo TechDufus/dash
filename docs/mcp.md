@@ -87,7 +87,8 @@ Every topic the token may read is a resource, `dash://topics/<topic>` (for examp
 `dash://topics/kubernetes.cluster`), whose content is the topic's JSON envelope. Lists are cached
 privately for 60 s and reads for 5 s. With protocol `2026-07-28`, `subscriptions/listen` delivers
 `notifications/resources/updated` for a global topic at most once per topic every 5 s; a
-user-scoped topic cannot be subscribed to.
+user-scoped topic cannot be subscribed to. Every 15 s an open stream checks its token again: a
+revoked or expired token, a lost `read` scope or MCP switched off ends it.
 
 Four prompts guide an agent: `dash_triage`, `dash_investigate {ref}`, `dash_daily_digest {since}`
 (`6h`, `24h` or `7d`) and `dash_explain_alert {ref}`.
@@ -129,8 +130,8 @@ encoded.
 
 Per token: 120 calls a minute (`tools/call`, `resources/read`, `prompts/get`,
 `subscriptions/listen`), 30 `dash_logs` calls a minute, 8 calls in flight and 2 listen streams.
-In all, 64 calls in flight. A call over its rate gets a `rate_limited` error; a request over a
-concurrency limit gets 429 with `Retry-After`.
+In all, 64 calls in flight and 16 listen streams. A call over its rate gets a `rate_limited`
+error; a request over a concurrency limit gets 429 with `Retry-After`.
 
 A result over 64 KiB is cut to 64 KiB, keeps the untrusted framing around what is left, and is
 flagged `truncated: true`.

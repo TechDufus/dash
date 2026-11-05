@@ -26,7 +26,11 @@ const (
 	logsPerMinute      = 30  // per token: dash_logs
 	concurrentPerToken = 8
 	listensPerToken    = 2
+	listensGlobal      = 16
 	concurrentGlobal   = 64
+	// recheckEvery is how often an open listen stream asks whether its token may still listen
+	// (the heartbeat of /api/v1/stream).
+	recheckEvery = 15 * time.Second
 	// MaxResultBytes caps the text of one result (design N.6).
 	MaxResultBytes = 64 << 10
 	maxLimiterKeys = 4096
@@ -92,38 +96,34 @@ func (w *window) allow(key string) bool {
 	return true
 }
 
-// slots counts the requests in flight per token and in all.
+// slots counts the requests in flight per token and in all, calls and listen streams apart.
 type slots struct {
-	mu      sync.Mutex
-	calls   map[string]int
-	listens map[string]int
-	total   int
+	mu                 sync.Mutex
+	calls              map[string]int
+	listens            map[string]int
+	total, listenTotal int
 }
 
 // acquire takes a slot for key, a listen stream or a call; release gives it back.
 func (s *slots) acquire(key string, listen bool) (release func(), ok bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	m, max := s.calls, concurrentPerToken
+	m, max, total, maxTotal := s.calls, concurrentPerToken, &s.total, concurrentGlobal
 	if listen {
-		m, max = s.listens, listensPerToken
+		m, max, total, maxTotal = s.listens, listensPerToken, &s.listenTotal, listensGlobal
 	}
-	if m[key] >= max || (!listen && s.total >= concurrentGlobal) {
+	if m[key] >= max || *total >= maxTotal {
 		return nil, false
 	}
 	m[key]++
-	if !listen {
-		s.total++
-	}
+	*total++
 	return func() {
 		s.mu.Lock()
 		defer s.mu.Unlock()
 		if m[key]--; m[key] <= 0 {
 			delete(m, key)
 		}
-		if !listen {
-			s.total--
-		}
+		*total--
 	}, true
 }
 
@@ -136,8 +136,9 @@ func tokenKey(p auth.Principal) string {
 	return "token:" + p.TokenID + ":" + p.User
 }
 
-// admit takes the request's concurrency slot: a listen stream (2 per token) or a call (8 per
-// token, 64 in all). A refusal is a plain 429 with Retry-After, before the SDK reads anything.
+// admit takes the request's concurrency slot: a listen stream (2 per token, 16 in all) or a call
+// (8 per token, 64 in all). A refusal is a plain 429 with Retry-After, before the SDK reads
+// anything.
 func (s *Server) admit(w http.ResponseWriter, r *http.Request, p auth.Principal) (func(), bool) {
 	listen := r.Header.Get("Mcp-Method") == "subscriptions/listen"
 	release, ok := s.slots.acquire(tokenKey(p), listen)
@@ -189,6 +190,11 @@ func (s *Server) limitAndAudit(next sdk.MethodHandler) sdk.MethodHandler {
 			}
 			return nil, &jsonrpc.Error{Code: codeRateLimited, Message: "rate_limited: too many calls for this token; try again in a minute"}
 		}
+		if method == "subscriptions/listen" {
+			var end context.CancelFunc
+			ctx, end = s.whileAlive(ctx, c)
+			defer end()
+		}
 		res, err := s.guard(ctx, method, req, next)
 		call.Duration, call.Result = time.Since(start), "ok"
 		switch {
@@ -200,6 +206,32 @@ func (s *Server) limitAndAudit(next sdk.MethodHandler) sdk.MethodHandler {
 		s.audit(c.r, call)
 		return res, err
 	}
+}
+
+// whileAlive is the context of c's listen stream: it ends with the request, or at the first
+// re-check (every Recheck) after which Alive says c may no longer listen: a revoked or expired
+// token, a lost scope, MCP switched off.
+func (s *Server) whileAlive(ctx context.Context, c caller) (context.Context, context.CancelFunc) {
+	ctx, end := context.WithCancel(ctx)
+	if s.o.Alive == nil {
+		return ctx, end
+	}
+	go func() {
+		t := time.NewTicker(s.o.Recheck)
+		defer t.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-t.C:
+				if !s.o.Alive(c.r, c.p) {
+					end()
+					return
+				}
+			}
+		}
+	}()
+	return ctx, end
 }
 
 // guard runs next and answers a panic as an internal error, logged with its stack. The SDK runs

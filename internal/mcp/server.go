@@ -92,6 +92,12 @@ type Options struct {
 	Cut func(text string, n int) (string, bool)
 	// Now is the clock of the rate limits; nil is time.Now.
 	Now func() time.Time
+	// Alive tells whether p, whose request r opened a listen stream, may still listen: its token
+	// still resolves to the same credential with the read scope, and MCP is on. It is asked
+	// every Recheck; false ends the stream. nil never ends one.
+	Alive func(r *http.Request, p auth.Principal) bool
+	// Recheck is how often Alive is asked; 0 is 15 s (the heartbeat of /api/v1/stream).
+	Recheck time.Duration
 }
 
 // Server is the MCP server.
@@ -122,6 +128,9 @@ func New(o Options) *Server {
 	}
 	if o.Now == nil {
 		o.Now = time.Now
+	}
+	if o.Recheck <= 0 {
+		o.Recheck = recheckEvery
 	}
 	s := &Server{o: o, slots: slots{calls: map[string]int{}, listens: map[string]int{}},
 		calls: newWindow(callsPerMinute, o.Now), logCalls: newWindow(logsPerMinute, o.Now)}

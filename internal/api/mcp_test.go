@@ -19,6 +19,7 @@ const mcpInit = `{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protoc
 
 type mcpEnv struct {
 	s       *Server
+	f       *tokenFixture
 	on      bool
 	mcpTok  string
 	apiTok  string
@@ -29,6 +30,7 @@ func newMCPEnv(t *testing.T, mod ...func(*Deps)) *mcpEnv {
 	t.Helper()
 	e := &mcpEnv{on: true}
 	f := newTokenFixture(t)
+	e.f = f
 	e.mcpTok, _ = f.pat(t, "bob", "mcp", []string{"read", "logs"})
 	e.readTok, _ = f.pat(t, "bob", "mcp", []string{"read"})
 	e.apiTok, _ = f.pat(t, "bob", "api", []string{"read", "logs"})

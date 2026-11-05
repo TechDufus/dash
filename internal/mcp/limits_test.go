@@ -67,6 +67,22 @@ func TestSlotsBoundCallsAndListens(t *testing.T) {
 	if _, ok := s.acquire("fresh", false); ok {
 		t.Error("the 65th concurrent call passed")
 	}
+	// At most 16 listen streams in all, apart from the calls: t1 holds 2.
+	var last func()
+	for i := range 14 {
+		r, ok := s.acquire("listener"+string(rune('a'+i)), true)
+		if !ok {
+			t.Fatalf("listen stream %d refused", i+3)
+		}
+		last = r
+	}
+	if _, ok := s.acquire("listener-fresh", true); ok {
+		t.Error("the 17th listen stream passed")
+	}
+	last()
+	if _, ok := s.acquire("listener-fresh", true); !ok {
+		t.Error("a released listen slot was not given back")
+	}
 }
 
 // bigBackend answers dash_get with whatever value it holds.

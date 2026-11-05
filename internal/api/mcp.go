@@ -56,10 +56,26 @@ func (s *Server) serveMCP(w http.ResponseWriter, r *http.Request) {
 	s.mcpOnce.Do(func() {
 		s.mcp = dashmcp.New(dashmcp.Options{
 			Backend: mcpBackend{s}, Version: s.d.Version, Scrub: s.d.Secrets.ScrubLogLine,
-			Cut: s.d.Secrets.Cut, Audit: s.auditMCP, Now: s.now,
+			Cut: s.d.Secrets.Cut, Audit: s.auditMCP, Now: s.now, Alive: s.mcpAlive, Recheck: s.heartbeat,
 		})
 	})
 	s.mcp.Handler(w, r, p)
+}
+
+// mcpAlive reports whether an open listen stream may go on (design N.6): MCP is still on, and
+// the request's token still resolves at the mcp audience to the same token or grant, with the
+// read scope. A revocation, an expiry, a narrowed grant or the off switch ends the stream at
+// the next re-check, as a revoked session ends an event stream (sessionAlive).
+func (s *Server) mcpAlive(r *http.Request, opened auth.Principal) bool {
+	if !s.mcpEnabled() {
+		return false
+	}
+	token, ok := auth.Bearer(r)
+	if !ok {
+		return false
+	}
+	p, err := s.d.Tokens.Resolve(token, "mcp")
+	return err == nil && rateKey(p) == rateKey(opened) && p.HasScope("read")
 }
 
 // mcpTargetKinds name what an audited MCP method acts on.
