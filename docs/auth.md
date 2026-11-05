@@ -274,8 +274,8 @@ admits `apps-web`, never `my-apps-x`). An empty list adds no restriction. A non-
 refuses an action whose target has no namespace, a silence for example (403), unless it holds
 `*`.
 
-**Audiences.** Each token is bound to `api` (`/api/v1`) or `mcp` (`/mcp`, for the MCP server of a
-later release; the Tokens page offers it once dash serves MCP). Presented at the other surface it
+**Audiences.** Each token is bound to `api` (`/api/v1`) or `mcp` (`/mcp`, the read-only
+[MCP server](mcp.md), which is off until `mcp.enabled` is set). Presented at the other surface it
 is 401 `invalid_token`, so a token handed to an agent for MCP cannot be replayed against the REST
 API.
 

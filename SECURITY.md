@@ -50,6 +50,11 @@ model these protections make up. In particular:
   redirect URI match, the consent page and Settings → Connected apps, the access and refresh
   tokens and the grants behind them, the fetch of client ID metadata documents and its address
   guard (`auth.oauth.cimdAllowPrivate`), and `server.directURL`.
+- **The MCP server:** `/mcp` and `mcp.enabled`, the `mcp` audience, the tools, resources,
+  subscriptions and prompts and what each scope shows, the untrusted-data framing of lab text,
+  redaction of results, the 64 KiB cap, the rate and concurrency limits, and
+  `GET /api/v1/context` (see [docs/mcp.md](docs/mcp.md)). An agent reading what its token's
+  scopes, the namespace deny lists or `mcp.enabled` should keep from it is a vulnerability.
 - **Settings and secrets:** the settings store and the settings page, the encryption of secrets
   saved from the UI (`DASH_SECRET_KEY` and its rotation), the `env:`, `file:` and `k8s:` secret
   references, redaction of secrets in logs, API answers and the audit log, and the audit log
@@ -73,7 +78,6 @@ today. Each enters the scope above in the release that ships it:
 
 | Feature | Status |
 |---|---|
-| An MCP server for AI agents | planned, not built |
 | Human approval of agent actions | planned, not built |
 | Push notifications (Web Push and UnifiedPush) | planned, not built |
 

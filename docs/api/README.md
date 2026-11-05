@@ -55,6 +55,12 @@ unknown, expired or someone else's request; 409 `grant_limit` past 20 grants),
 `GET /api/v1/oauth/grants` (`?user=` for administrators), `DELETE /api/v1/oauth/grants/{id}` and
 `DELETE /api/v1/oauth/grants?user=me`.
 
+## MCP and context bundles
+
+`POST /mcp` is the read-only MCP server for AI agents, with tokens of the `mcp` audience, and
+`GET /api/v1/context` serves an object's context bundle as JSON or Markdown; both are described in
+[mcp.md](../mcp.md). `/mcp` is not in the OpenAPI document: it speaks MCP (JSON-RPC), not REST.
+
 ## Plugin routes and actions
 
 `GET /api/v1/plugins` lists every plugin instance with its state, topics, mounted actions and

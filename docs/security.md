@@ -192,9 +192,21 @@ project's own repository URLs). Fixtures, docs and examples use neutral names
 (gitleaks, trufflehog), checks the Go code for known vulnerabilities (govulncheck) and the
 workflows for unsafe patterns (actionlint, zizmor).
 
+## MCP server
+
+The read-only [MCP server](mcp.md) is off until `mcp.enabled` is set, answers 404 while it is off,
+and never runs in `auth.mode: none`. It accepts only a bearer token of the `mcp` audience, which in
+turn is refused at `/api/v1`; a present `Origin` must be the public URL's or a listed CORS origin.
+`tools/list` shows only what the token's scopes allow, `dash_logs` and log lines in bundles need
+`logs` and keep `plugins.victorialogs.denyNamespaces`, and no tool returns a Secret or ConfigMap.
+Lab-sourced text sits in a fenced block, longer than any backtick run inside it, after the
+untrusted-data sentence; every string is scrubbed before it is encoded; results are capped at
+64 KiB. Each token has its rate and concurrency limits, and every call is audited with surface
+`mcp` and the SHA-256 of its arguments, never the arguments.
+
 ## Not built yet
 
-These features are designed and planned, and **none of them exists in any release**: an MCP
-server for AI agents, human approval of agent actions, and push notifications. Each will be
+These features are designed and planned, and **none of them exists in any release**: human
+approval of agent actions (agents can only read today) and push notifications. Each will be
 documented here when it ships. [SECURITY.md](../SECURITY.md#planned-not-yet-built) lists them in
 the reporting scope.

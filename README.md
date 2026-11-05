@@ -126,6 +126,8 @@ The deploy guides cover each path in full: [Docker and Compose](docs/deploy/dock
 - [Sign-in](docs/auth.md): the `local`, `oidc`, `proxy` and `none` modes.
 - [Settings page](docs/settings.md): what an administrator can change from the UI.
 - [Installing dash as an app](docs/app.md): the PWA, iOS and rolling back.
+- [MCP server and context bundles](docs/mcp.md): read-only access for AI agents, and
+  "Copy context for AI".
 - [Security model](docs/security.md), and how to report a vulnerability: [SECURITY.md](SECURITY.md).
 - Deploy: [Docker](docs/deploy/docker.md), [Kubernetes](docs/deploy/kubernetes.md),
   [other platforms](docs/deploy/paas.md).

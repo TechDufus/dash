@@ -107,3 +107,10 @@ The API moved under `/api/v1` and the plugins' own routes; every old path answer
   and delete `credentials.yaml`, which ends every session and revokes every token and
   grant. With the chart, remove `routes` and `config.auth.oauth` and `config.server.directURL`
   from your values (a `helm rollback` to the previous revision does this).
+- **The MCP server and context bundles (v0.14.8).** The new `mcp.enabled` (default `false`)
+  serves the read-only [MCP server](mcp.md) at `/mcp`; nothing changes until you switch it on.
+  `GET /api/v1/context` and "Copy context for AI" need no setting. The audit log gains three
+  fields on MCP records (`argsSha256`, `client`, `durationMs`), which older releases read and
+  ignore. To roll back to v0.14.7, remove `mcp.enabled` from the config file first: an older
+  release refuses a file with keys it does not know, while a value saved from the settings page or
+  set in the environment only logs a warning there.
