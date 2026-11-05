@@ -199,6 +199,8 @@ func New(d Deps) *Server {
 	}
 	if d.OAuth != nil {
 		d.OAuth.OnGrantExpired(s.auditGrantExpired)
+		// The mcp resource, its metadata and its consent follow /mcp itself: mcp.enabled, live.
+		d.OAuth.SetMCPAvailable(s.mcpEnabled)
 	}
 	return s
 }

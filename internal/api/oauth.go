@@ -110,6 +110,9 @@ func (s *Server) oauthMetadata(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, s.d.OAuth.Metadata(s.actionPlugins()))
 }
 
+// oauthResourceMetadata serves the protected-resource metadata (RFC 9728) of the api and mcp
+// audiences. The mcp document follows mcp.enabled, read per request like /mcp itself: while MCP
+// is off it is the same JSON 404 (design N.1).
 func (s *Server) oauthResourceMetadata(w http.ResponseWriter, r *http.Request) {
 	aud := r.PathValue("audience")
 	if s.d.OAuth == nil || !s.d.OAuth.Serves(aud) {

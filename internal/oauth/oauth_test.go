@@ -105,7 +105,16 @@ func TestMetadata(t *testing.T) {
 		t.Errorf("mcp = %+v", mcp)
 	}
 	if !s.Serves("api") || s.Serves("mcp") || s.Serves("other") {
-		t.Error("Serves: want api only before the MCP server")
+		t.Error("Serves: want api only without an MCP server")
+	}
+	on := true
+	s.SetMCPAvailable(func() bool { return on })
+	if !s.Serves("api") || !s.Serves("mcp") || s.Serves("other") || s.resourcesText() != public+"/api or "+public+"/mcp" {
+		t.Error("Serves: want api and mcp while MCP is on")
+	}
+	on = false
+	if !s.Serves("api") || s.Serves("mcp") || s.resourcesText() != public+"/api" {
+		t.Error("Serves: want api only once MCP is off")
 	}
 }
 

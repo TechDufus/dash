@@ -116,7 +116,7 @@ func TestOAuthFormEndpointsAnswer405ToGet(t *testing.T) {
 // The metadata documents are served, carry the listed origin's Access-Control-Allow-Origin
 // (never credentials), and an unknown resource is 404.
 func TestOAuthMetadataRoutes(t *testing.T) {
-	s := oauthServer(t, nil)
+	s := oauthServer(t, func(d *Deps) { d.MCPEnabled = func() bool { return true } })
 	origin := map[string]string{"Origin": "https://inspector.example.com"}
 	w := req{path: "/.well-known/oauth-authorization-server", header: origin}.do(s.Handler())
 	var m oauth.AuthorizationServerMetadata
@@ -134,16 +134,51 @@ func TestOAuthMetadataRoutes(t *testing.T) {
 	if w.Header().Get("Access-Control-Allow-Origin") == "" {
 		t.Error("api resource metadata without ACAO")
 	}
-	// The MCP server is not in this release: its resource is unknown, as any other.
-	for _, aud := range []string{"mcp", "settings"} {
-		if w := (req{path: "/.well-known/oauth-protected-resource/" + aud}).do(s.Handler()); w.Code != http.StatusNotFound || !strings.Contains(w.Body.String(), `"code":"not_found"`) {
-			t.Errorf("%s resource metadata = %d %s", aud, w.Code, w.Body)
-		}
+	// With MCP on the mcp document is served (TestMCPResourceMetadataFollowsMCPEnabled); any
+	// other resource is unknown.
+	if w := (req{path: "/.well-known/oauth-protected-resource/settings"}).do(s.Handler()); w.Code != http.StatusNotFound || !strings.Contains(w.Body.String(), `"code":"not_found"`) {
+		t.Errorf("settings resource metadata = %d %s", w.Code, w.Body)
 	}
 	// An origin that is not listed gets nothing.
 	w = req{path: "/.well-known/oauth-authorization-server", header: map[string]string{"Origin": "https://evil.example.com"}}.do(s.Handler())
 	if w.Header().Get("Access-Control-Allow-Origin") != "" {
 		t.Error("an unlisted origin got ACAO")
+	}
+}
+
+// The mcp resource document follows mcp.enabled at every request, as /mcp does: a JSON 404 while
+// MCP is off, served while it is on. The api document does not depend on it, and a 401 at /mcp
+// points at the mcp document.
+func TestMCPResourceMetadataFollowsMCPEnabled(t *testing.T) {
+	on := false
+	s := oauthServer(t, func(d *Deps) {
+		newTokenFixture(t).deps(d) // MCP needs bearer tokens
+		d.MCPEnabled = func() bool { return on }
+	})
+	get := func(aud string) int {
+		return req{path: "/.well-known/oauth-protected-resource/" + aud}.do(s.Handler()).Code
+	}
+	for _, step := range []struct {
+		on       bool
+		mcp, api int
+	}{
+		{false, http.StatusNotFound, http.StatusOK},
+		{true, http.StatusOK, http.StatusOK},
+		{false, http.StatusNotFound, http.StatusOK},
+	} {
+		on = step.on
+		if m, a := get("mcp"), get("api"); m != step.mcp || a != step.api {
+			t.Errorf("mcp.enabled %t: mcp document %d, api document %d", step.on, m, a)
+		}
+	}
+	// A 401 at /mcp tells the client where the mcp document is, the one served while MCP is on.
+	on = true
+	w := req{method: http.MethodPost, path: "/mcp", raw: true, body: "{}", header: map[string]string{
+		"Authorization": "Bearer dash_" + "pat_" + strings.Repeat("a", 10) + "_" + strings.Repeat("b", 43), "Content-Type": "application/json",
+	}}.do(s.Handler())
+	want := `Bearer resource_metadata="` + testOrigin + `/.well-known/oauth-protected-resource/mcp"`
+	if w.Code != http.StatusUnauthorized || w.Header().Get("WWW-Authenticate") != want {
+		t.Errorf("401 at /mcp = %d %q, want %q", w.Code, w.Header().Get("WWW-Authenticate"), want)
 	}
 }
 

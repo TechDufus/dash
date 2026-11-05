@@ -92,11 +92,18 @@ type Server struct {
 
 	// onExpire learns of each grant revokeExpired removed; set before serving.
 	onExpire func(credentials.Grant)
+
+	// mcpOn reports whether the MCP server is on now (SetMCPAvailable); nil is off.
+	mcpOn func() bool
 }
 
 // OnGrantExpired sets f to learn of every grant revoked because its authorization code expired
 // before it was exchanged (the API audits it as oauth.grant.expire). Call it before serving.
 func (s *Server) OnGrantExpired(f func(credentials.Grant)) { s.onExpire = f }
+
+// SetMCPAvailable sets f to report, per request, whether this dash serves the MCP server: the API
+// server's mcp.enabled, false in auth.mode none. Call it before serving.
+func (s *Server) SetMCPAvailable(f func() bool) { s.mcpOn = f }
 
 // New builds a server.
 func New(o Options) (*Server, error) {
@@ -142,13 +149,13 @@ func (s *Server) ResourceMetadataURL(audience string) string {
 	return s.base + "/.well-known/oauth-protected-resource/" + audience
 }
 
-// mcpAvailable reports whether this dash serves the MCP server, and so issues tokens for the mcp
-// audience (contract G7-R3 fix A3). It is the one place that decides: until the MCP server
-// ships it is false, and a request for <issuer>/mcp is invalid_target.
-func (s *Server) mcpAvailable() bool { return false }
+// mcpAvailable reports whether this dash serves the MCP server now, and so issues tokens for the
+// mcp audience (contract G7-R3 fix A3). It is the one place that decides, live: while MCP is off
+// a request for <issuer>/mcp is invalid_target and the mcp metadata is the JSON 404.
+func (s *Server) mcpAvailable() bool { return s.mcpOn != nil && s.mcpOn() }
 
-// Serves reports whether audience is one this dash issues tokens for: api, and mcp once the MCP
-// server is available. The protected resource metadata of any other is the JSON 404.
+// Serves reports whether audience is one this dash issues tokens for now: api, and mcp while the
+// MCP server is on. The protected resource metadata of any other is the JSON 404.
 func (s *Server) Serves(audience string) bool {
 	return audience == model.TokenAudienceAPI || (audience == model.TokenAudienceMCP && s.mcpAvailable())
 }

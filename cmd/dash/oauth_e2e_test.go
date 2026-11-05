@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"github.com/TechDufus/dash/internal/api"
@@ -30,8 +31,9 @@ const (
 // served over real HTTP. Requests name the public or the direct host; both reach the one
 // listener, as the proxy and the chart's direct route do.
 type e2e struct {
-	t   *testing.T
-	srv *httptest.Server
+	t     *testing.T
+	srv   *httptest.Server
+	mcpOn *atomic.Bool // mcp.enabled, live: starts as the configuration says (true)
 }
 
 func newE2E(t *testing.T) *e2e {
@@ -39,7 +41,7 @@ func newE2E(t *testing.T) *e2e {
 	res, err := config.Resolve(config.Sources{Registry: secret.NewRegistry(), Environ: []string{
 		"DASH_SERVER_PUBLIC_URL=" + e2ePublic, "DASH_SERVER_DIRECT_URL=" + e2eDirect,
 		"DASH_DATA_DIR=" + t.TempDir(), "DASH_AUTH_MODE=proxy", `DASH_AUTH_PROXY_ADMIN_USERS=["alice"]`,
-		"DASH_AUTH_OAUTH_ENABLED=true",
+		"DASH_AUTH_OAUTH_ENABLED=true", "DASH_MCP_ENABLED=true",
 		`DASH_AUTH_OAUTH_CLIENTS=[{"clientID":"agent","name":"Agent","redirectURIs":["http://127.0.0.1/callback"],"audiences":["api","mcp"]}]`,
 	}})
 	if err != nil {
@@ -52,11 +54,13 @@ func newE2E(t *testing.T) *e2e {
 	if pa.oauth == nil {
 		t.Fatal("OAuth is off")
 	}
-	d := api.Deps{Cfg: res.Config, Version: "test", Hub: hub.New()}
+	on := &atomic.Bool{}
+	on.Store(res.Tree.MCP.Enabled)
+	d := api.Deps{Cfg: res.Config, Version: "test", Hub: hub.New(), MCPEnabled: on.Load}
 	pa.deps(&d)
 	srv := httptest.NewServer(api.New(d).Handler())
 	t.Cleanup(srv.Close)
-	return &e2e{t: t, srv: srv}
+	return &e2e{t: t, srv: srv, mcpOn: on}
 }
 
 // do sends a request for rawURL (on the public or the direct host) to the listener, as the
@@ -139,9 +143,10 @@ func (e *e2e) flow(audience, verifier string, exchangeVerifier string) (*http.Re
 
 // The full PKCE flow against the built server, behind an identity proxy with a direct URL:
 // discovery from the 401, metadata and iss on the direct URL, consent through the proxy, the
-// code exchange and refresh on the direct URL. The mcp audience is refused until the MCP server
-// ships; an api-audience token works at /api; a wrong verifier gets nothing; a refresh token
-// used twice ends the grant.
+// code exchange and refresh on the direct URL. The mcp audience follows mcp.enabled, live: while
+// it is on its metadata is served and its flow gives a token, once it is off both are refused; an
+// api-audience token works at /api; a wrong verifier gets nothing; a refresh token used twice
+// ends the grant.
 func TestOAuthEndToEnd(t *testing.T) {
 	e := newE2E(t)
 
@@ -158,11 +163,26 @@ func TestOAuthEndToEnd(t *testing.T) {
 		asm.AuthorizationEndpoint != e2ePublic+"/oauth/authorize" || asm.TokenEndpoint != e2eDirect+"/oauth/token" {
 		t.Fatalf("metadata: %+v %+v", prm, asm)
 	}
-	if r := e.do(http.MethodGet, e2eDirect+"/.well-known/oauth-protected-resource/mcp", "", nil, nil); r.StatusCode != http.StatusNotFound {
-		t.Errorf("mcp resource metadata = %d", r.StatusCode)
-	}
 
 	const verifier = "e2e-verifier-0123456789-abcdefghijklmnopqrstuvwxyz"
+	// MCP on: the mcp resource has its metadata, and its flow gives an mcp token.
+	var mrm oauth.ProtectedResourceMetadata
+	e.json(e.do(http.MethodGet, e2eDirect+"/.well-known/oauth-protected-resource/mcp", "", nil, nil), &mrm)
+	if mrm.Resource != e2eDirect+"/mcp" {
+		t.Errorf("mcp resource metadata = %+v", mrm)
+	}
+	resp, _ = e.flow("mcp", verifier, verifier)
+	var mcpTok oauth.TokenResponse
+	e.json(resp, &mcpTok)
+	if resp.StatusCode != http.StatusOK || mcpTok.AccessToken == "" {
+		t.Errorf("mcp token = %d %+v", resp.StatusCode, mcpTok)
+	}
+
+	// MCP off: the metadata is the JSON 404 and a resource of <issuer>/mcp is invalid_target.
+	e.mcpOn.Store(false)
+	if r := e.do(http.MethodGet, e2eDirect+"/.well-known/oauth-protected-resource/mcp", "", nil, nil); r.StatusCode != http.StatusNotFound {
+		t.Errorf("mcp resource metadata with MCP off = %d", r.StatusCode)
+	}
 	sum := sha256.Sum256([]byte(verifier))
 	q := url.Values{
 		"response_type": {"code"}, "client_id": {"agent"}, "redirect_uri": {"http://127.0.0.1:53682/callback"},
@@ -171,7 +191,7 @@ func TestOAuthEndToEnd(t *testing.T) {
 	}
 	resp = e.do(http.MethodGet, e2ePublic+"/oauth/authorize?"+q.Encode(), "alice", nil, nil)
 	if back, err := url.Parse(resp.Header.Get("Location")); resp.StatusCode != http.StatusFound || err != nil || back.Query().Get("error") != "invalid_target" {
-		t.Errorf("mcp authorize = %d %s", resp.StatusCode, resp.Header.Get("Location"))
+		t.Errorf("mcp authorize with MCP off = %d %s", resp.StatusCode, resp.Header.Get("Location"))
 	}
 
 	resp, _ = e.flow("api", verifier, verifier)
