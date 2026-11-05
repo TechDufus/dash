@@ -706,8 +706,8 @@ DASH_DEMO=true make dev-api   # Go API on 127.0.0.1:8080, the demo twins' fake d
 make dev-web                  # Vite on http://localhost:5173, proxying /api to the Go API
 ```
 
-`make dev-web` runs `npm ci` first when `web/node_modules` is missing. Health answers on
-http://127.0.0.1:8081/healthz.
+`make dev-web` runs `npm ci` first when `web/node_modules` is missing or older than the lockfile.
+Health answers on http://127.0.0.1:8081/healthz.
 
 When those ports are taken, move the API and point Vite at it. Start `make dev-web` first, with
 the API's new address; Vite picks the next free port on its own and prints it. Then start
@@ -744,8 +744,8 @@ both dev examples set it, and the service proxy needs `get` and `create` on `ser
 
 Open http://localhost:5173. `make check` runs everything CI runs: it regenerates the generated
 files and fails if they differ from what is committed (the table below), lints the OpenAPI
-document with vacuum, then runs `go vet`, `go test`, `tsc`, Biome, the web tests and the
-production build.
+document with vacuum, checks the Go and npm licences against the policy, then runs `go vet`,
+`go test`, `tsc`, Biome, the web tests and the production build.
 
 Web tests run on Vitest with jsdom and Testing Library (`cd web && npm test`; `npx vitest` watches).
 Tests sit next to the code as `*.test.ts(x)`. `web/src/test/harness.tsx` has the shared helpers:
@@ -766,6 +766,7 @@ commit them with the change:
 | `charts/dash/files/config.schema.json` | the config schema (`dash config schema`) | a setting, its `doc` tag or its default |
 | `charts/dash/files/secret-env.txt` | the secret settings (`dash config env`) | a secret setting |
 | `examples/kubernetes/dash.yaml` | `helm template` of `charts/dash` with `examples/kubernetes/values.yaml` | the chart or those values |
+| `THIRD_PARTY_NOTICES.md` | `tools/notices/header.md`, go-licenses and `web/scripts/licenses.mjs` | a Go or npm runtime dependency, or a vendored component |
 
 A changed config schema also needs `go test ./internal/config -run TestConfigSchemaGolden -update`
 for `internal/config/testdata/config.schema.json`.
@@ -819,4 +820,5 @@ DASH_SKIP_HOOKS=1 git push
 
 ## License
 
-MIT. See [LICENSE](LICENSE).
+MIT. See [LICENSE](LICENSE). The third-party software dash includes, and its licences, are listed
+in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).

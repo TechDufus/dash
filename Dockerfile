@@ -39,6 +39,7 @@ LABEL org.opencontainers.image.title="dash" \
       org.opencontainers.image.created="${CREATED}"
 COPY --from=go /out/dash /dash
 COPY --from=go --chown=65532:65532 /out/data /data
+COPY LICENSE THIRD_PARTY_NOTICES.md /usr/share/doc/dash/
 USER 65532:65532
 EXPOSE 8080 8081
 # /readyz answers 503 for up to server.readyTimeout (60 s) while server.readyRequires plugins
