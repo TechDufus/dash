@@ -391,8 +391,11 @@ you build yourself needs:
 
 ## OAuth
 
-MCP clients and the Android app get their tokens from dash itself: dash is an OAuth 2.1
-authorization server. It is **off** until `auth.oauth.enabled` is true (restart-only), because it
+The Android app and other API clients get their tokens from dash itself: dash is an OAuth 2.1
+authorization server. MCP clients arrive with the MCP server's release: until then a request for
+the `mcp` resource is `invalid_target` ("the MCP server is not available on this dash") and
+`/.well-known/oauth-protected-resource/mcp` answers 404. The authorization server is **off**
+until `auth.oauth.enabled` is true (restart-only), because it
 adds an endpoint that needs no sign-in (`/oauth/token`), and it runs only in the `local`, `oidc`
 and `proxy` modes with a writable data dir (the grants live in `credentials.yaml`). Otherwise every
 `/oauth/*` and `/.well-known/oauth-*` path answers a JSON 404, dash logs why at start, and
@@ -420,7 +423,7 @@ consent page never offers them to it.
 
 1. The client opens `/oauth/authorize` in the browser with `response_type=code`, `client_id`,
    `redirect_uri`, `state`, `code_challenge` with `code_challenge_method=S256` (`plain` is
-   refused), `resource` (`<issuer>/api` or `<issuer>/mcp`: the token's audience) and `scope`
+   refused), `resource` (`<issuer>/api`, the token's audience; `<issuer>/mcp` once dash serves MCP) and `scope`
    (default `read`). The redirect URI must be one the client registered, exactly; an http
    loopback one matches on any port. A request whose client or redirect URI cannot be verified is
    answered there (400); any other error goes back to the client with `state` and `iss`.
@@ -468,14 +471,14 @@ allow 60 requests a minute per key (429 after): the grant a refresh token names,
 **In the proxy mode** `/oauth/authorize` and the consent page must go through the identity proxy,
 which knows the person; the client reaches everything else on the direct host. With
 `server.directURL` set (see [API tokens in the proxy mode](#api-tokens-in-the-proxy-mode)), the
-issuer, the resources (`<directURL>/api`, `<directURL>/mcp`), the token and revoke endpoints and
+issuer, the resource (`<directURL>/api`), the token and revoke endpoints and
 the discovery documents are on the direct URL, while the metadata's `authorization_endpoint`
 stays `<publicURL>/oauth/authorize`. On the direct host `/oauth/authorize` and `/consent` answer
 404, since that host bypasses the proxy:
 
 1. the client calls `https://dash-direct.example.com/api/v1/...` without a token and reads the
    `resource_metadata` of the 401, then `/.well-known/oauth-authorization-server` there;
-2. it opens `https://dash.example.com/oauth/authorize?...&resource=https://dash-direct.example.com/mcp`
+2. it opens `https://dash.example.com/oauth/authorize?...&resource=https://dash-direct.example.com/api`
    in the browser; the proxy signs the person in and the consent page runs behind it;
 3. the browser returns to the client with `iss=https://dash-direct.example.com`, and the client
    exchanges the code and refreshes at `https://dash-direct.example.com/oauth/token`.

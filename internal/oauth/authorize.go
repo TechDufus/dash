@@ -125,11 +125,14 @@ func (s *Server) Authorize(ctx context.Context, q url.Values, actions []string, 
 	}
 	resource, _ := single(q, "resource")
 	if resource == "" {
-		return fail("invalid_request", "resource is required: "+s.Resource(model.TokenAudienceAPI)+" or "+s.Resource(model.TokenAudienceMCP))
+		return fail("invalid_request", "resource is required: "+s.resourcesText())
 	}
 	audience := s.audienceOf(resource)
 	if audience == "" {
-		return fail("invalid_target", "resource is not "+s.Resource(model.TokenAudienceAPI)+" or "+s.Resource(model.TokenAudienceMCP))
+		return fail("invalid_target", "resource is not "+s.resourcesText())
+	}
+	if !s.Serves(audience) {
+		return fail("invalid_target", "the MCP server is not available on this dash")
 	}
 	if !slices.Contains(c.Audiences, audience) {
 		return fail("invalid_target", "this client may not ask for the "+audience+" resource")

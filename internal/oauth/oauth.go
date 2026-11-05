@@ -130,6 +130,25 @@ func (s *Server) ResourceMetadataURL(audience string) string {
 	return s.base + "/.well-known/oauth-protected-resource/" + audience
 }
 
+// mcpAvailable reports whether this dash serves the MCP server, and so issues tokens for the mcp
+// audience (contract G7-R3 fix A3). It is the one place that decides: until the MCP server
+// ships it is false, and a request for <issuer>/mcp is invalid_target.
+func (s *Server) mcpAvailable() bool { return false }
+
+// Serves reports whether audience is one this dash issues tokens for: api, and mcp once the MCP
+// server is available. The protected resource metadata of any other is the JSON 404.
+func (s *Server) Serves(audience string) bool {
+	return audience == model.TokenAudienceAPI || (audience == model.TokenAudienceMCP && s.mcpAvailable())
+}
+
+// resourcesText names the resources a client may ask for, for an error description.
+func (s *Server) resourcesText() string {
+	if s.mcpAvailable() {
+		return s.Resource(model.TokenAudienceAPI) + " or " + s.Resource(model.TokenAudienceMCP)
+	}
+	return s.Resource(model.TokenAudienceAPI)
+}
+
 // audienceOf maps a resource parameter to its audience, "" for none of dash's. A trailing slash
 // is accepted (clients differ in how they spell a resource without a path).
 func (s *Server) audienceOf(resource string) string {

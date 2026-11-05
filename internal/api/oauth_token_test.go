@@ -93,8 +93,8 @@ func TestOAuthTokenEndpoint(t *testing.T) {
 	}
 }
 
-// An api-audience OAuth access token works on /api with its scopes, and an mcp one does not; a
-// refresh token is never a bearer credential; revoking the grant ends the access token at once.
+// An api-audience OAuth access token works on /api with its scopes; a refresh token is never a
+// bearer credential; revoking the grant ends the access token at once.
 func TestOAuthAccessTokenAtTheAPI(t *testing.T) {
 	e := newOAuthEnv(t)
 	api := e.grant(t, aliceAdmin, "api", "read")
@@ -103,11 +103,8 @@ func TestOAuthAccessTokenAtTheAPI(t *testing.T) {
 	if me.User != "alice" || me.Role != "admin" || me.Audience != "api" || strings.Join(me.Scopes, ",") != "read" {
 		t.Errorf("me = %+v", me)
 	}
-	mcp := e.grant(t, aliceAdmin, "mcp", "read")
-	for name, tok := range map[string]string{"mcp access token": mcp.AccessToken, "refresh token": api.RefreshToken} {
-		if w := (req{path: "/api/v1/me", header: bearer(tok)}).do(e.s.Handler()); w.Code != http.StatusUnauthorized {
-			t.Errorf("%s at /api = %d", name, w.Code)
-		}
+	if w := (req{path: "/api/v1/me", header: bearer(api.RefreshToken)}).do(e.s.Handler()); w.Code != http.StatusUnauthorized {
+		t.Errorf("refresh token at /api = %d", w.Code)
 	}
 	// A write needs no CSRF header for an OAuth token principal either.
 	if w := (req{method: http.MethodPost, path: "/api/v1/tokens", raw: true, header: bearer(api.AccessToken), body: map[string]any{}}).do(e.s.Handler()); w.Code != http.StatusForbidden || strings.Contains(w.Body.String(), "csrf") {
@@ -129,7 +126,7 @@ func TestOAuthAccessTokenAtTheAPI(t *testing.T) {
 // revocation is audited first, and an audit outage is 503 with nothing changed.
 func TestOAuthRevokeEndpoint(t *testing.T) {
 	e := newOAuthEnv(t)
-	res := e.grant(t, aliceAdmin, "mcp", "read")
+	res := e.grant(t, aliceAdmin, "api", "read")
 	if w := e.form("/oauth/revoke", url.Values{"token": {"dash_rt_nope"}}, nil); w.Code != http.StatusOK {
 		t.Errorf("unknown token = %d", w.Code)
 	}
@@ -186,7 +183,7 @@ func TestOAuthRevokeEndpoint(t *testing.T) {
 // A refresh token used twice revokes its grant, and the audit log says so.
 func TestOAuthRefreshReuseIsAudited(t *testing.T) {
 	e := newOAuthEnv(t)
-	res := e.grant(t, aliceAdmin, "mcp", "read")
+	res := e.grant(t, aliceAdmin, "api", "read")
 	refresh := func() *httptest.ResponseRecorder {
 		return e.form("/oauth/token", url.Values{"grant_type": {"refresh_token"}, "refresh_token": {res.RefreshToken}, "client_id": {"inspector"}}, nil)
 	}

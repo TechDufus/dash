@@ -97,7 +97,7 @@ func (s *Server) oauthMetadata(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) oauthResourceMetadata(w http.ResponseWriter, r *http.Request) {
 	aud := r.PathValue("audience")
-	if s.d.OAuth == nil || (aud != model.TokenAudienceAPI && aud != model.TokenAudienceMCP) {
+	if s.d.OAuth == nil || !s.d.OAuth.Serves(aud) {
 		notFound(w, r)
 		return
 	}

@@ -50,7 +50,7 @@ func approve(t *testing.T, s *Server, id string, p auth.Principal, scopes ...str
 func exchange(s *Server, code string, mod func(url.Values)) (*TokenResponse, *TokenEvent, *Error) {
 	f := url.Values{
 		"grant_type": {"authorization_code"}, "code": {code}, "client_id": {"inspector"},
-		"redirect_uri": {"http://127.0.0.1:4711/callback"}, "code_verifier": {verifier}, "resource": {public + "/mcp"},
+		"redirect_uri": {"http://127.0.0.1:4711/callback"}, "code_verifier": {verifier}, "resource": {public + "/api"},
 	}
 	if mod != nil {
 		mod(f)
@@ -79,7 +79,7 @@ func TestConsent(t *testing.T) {
 	}
 	c, _ := s.Consent(id, vera)
 	if !slices.Equal(c.Scopes, []string{"read", "logs"}) || !slices.Equal(c.DefaultScopes, []string{"read"}) ||
-		c.Client.ID != "inspector" || c.Client.Kind != "config" || c.Audience != "mcp" || c.RedirectURI != "http://127.0.0.1:4711/callback" {
+		c.Client.ID != "inspector" || c.Client.Kind != "config" || c.Audience != "api" || c.RedirectURI != "http://127.0.0.1:4711/callback" {
 		t.Errorf("viewer's consent = %+v", c)
 	}
 	if _, err := s.Approve(id, vera, []string{"read", "actions:kubernetes"}, nil); !errors.Is(err, ErrScopes) {
@@ -123,7 +123,7 @@ func TestCodeExchange(t *testing.T) {
 		t.Fatalf("token response = %+v", res)
 	}
 	a, err := s.OpenAccess(res.AccessToken)
-	if err != nil || a.Audience != "mcp" || !slices.Equal(a.Scopes, []string{"read"}) {
+	if err != nil || a.Audience != "api" || !slices.Equal(a.Scopes, []string{"read"}) {
 		t.Fatalf("access = %+v, %v", a, err)
 	}
 	g, ok := store.GrantByID(a.GrantID)
@@ -144,7 +144,7 @@ func TestCodeExchangeChecks(t *testing.T) {
 		{"the challenge as verifier", "invalid_grant", func(f url.Values) { f.Set("code_verifier", challengeOf(verifier)) }},
 		{"another client", "invalid_grant", func(f url.Values) { f.Set("client_id", "dash-android") }},
 		{"another redirect", "invalid_grant", func(f url.Values) { f.Set("redirect_uri", "http://127.0.0.1:4712/callback") }},
-		{"another resource", "invalid_target", func(f url.Values) { f.Set("resource", public+"/api") }},
+		{"another resource", "invalid_target", func(f url.Values) { f.Set("resource", public+"/mcp") }},
 	} {
 		s, store, _ := testServer(t, nil)
 		code := approve(t, s, consentID(t, s, nil), alice, "read").Get("code")
@@ -199,7 +199,7 @@ func TestRefreshRotation(t *testing.T) {
 	if _, _, oe := refresh(s, r2.RefreshToken, func(f url.Values) { f.Set("scope", "read push") }); oe == nil || oe.Code != "invalid_scope" {
 		t.Errorf("widening scope: %v", oe)
 	}
-	if _, _, oe := refresh(s, r2.RefreshToken, func(f url.Values) { f.Set("resource", public+"/api") }); oe == nil || oe.Code != "invalid_target" {
+	if _, _, oe := refresh(s, r2.RefreshToken, func(f url.Values) { f.Set("resource", public+"/mcp") }); oe == nil || oe.Code != "invalid_target" {
 		t.Errorf("another resource: %v", oe)
 	}
 	a, err := s.OpenAccess(r2.AccessToken)

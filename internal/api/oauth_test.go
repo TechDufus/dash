@@ -109,18 +109,19 @@ func TestOAuthMetadataRoutes(t *testing.T) {
 	if w.Header().Get("Access-Control-Allow-Origin") != "https://inspector.example.com" || w.Header().Get("Access-Control-Allow-Credentials") != "" {
 		t.Errorf("CORS headers = %v", w.Header())
 	}
-	for _, aud := range []string{"api", "mcp"} {
-		w := req{path: "/.well-known/oauth-protected-resource/" + aud, header: origin}.do(s.Handler())
-		var r oauth.ProtectedResourceMetadata
-		if w.Code != http.StatusOK || json.Unmarshal(w.Body.Bytes(), &r) != nil || r.Resource != testOrigin+"/"+aud {
+	w = req{path: "/.well-known/oauth-protected-resource/api", header: origin}.do(s.Handler())
+	var r oauth.ProtectedResourceMetadata
+	if w.Code != http.StatusOK || json.Unmarshal(w.Body.Bytes(), &r) != nil || r.Resource != testOrigin+"/api" {
+		t.Errorf("api resource metadata = %d %s", w.Code, w.Body)
+	}
+	if w.Header().Get("Access-Control-Allow-Origin") == "" {
+		t.Error("api resource metadata without ACAO")
+	}
+	// The MCP server is not in this release: its resource is unknown, as any other.
+	for _, aud := range []string{"mcp", "settings"} {
+		if w := (req{path: "/.well-known/oauth-protected-resource/" + aud}).do(s.Handler()); w.Code != http.StatusNotFound || !strings.Contains(w.Body.String(), `"code":"not_found"`) {
 			t.Errorf("%s resource metadata = %d %s", aud, w.Code, w.Body)
 		}
-		if w.Header().Get("Access-Control-Allow-Origin") == "" {
-			t.Errorf("%s resource metadata without ACAO", aud)
-		}
-	}
-	if w := (req{path: "/.well-known/oauth-protected-resource/settings"}).do(s.Handler()); w.Code != http.StatusNotFound {
-		t.Errorf("unknown resource = %d", w.Code)
 	}
 	// An origin that is not listed gets nothing.
 	w = req{path: "/.well-known/oauth-authorization-server", header: map[string]string{"Origin": "https://evil.example.com"}}.do(s.Handler())
@@ -134,14 +135,14 @@ func TestOAuthMetadataRoutes(t *testing.T) {
 func TestOAuthAuthorizeRoute(t *testing.T) {
 	s := oauthServer(t, nil)
 	origin := map[string]string{"Origin": "https://inspector.example.com"}
-	w := req{path: authorizeURL("mcp", nil), header: origin}.do(s.Handler())
+	w := req{path: authorizeURL("api", nil), header: origin}.do(s.Handler())
 	if w.Code != http.StatusFound || !strings.HasPrefix(w.Header().Get("Location"), testOrigin+"/consent/") {
 		t.Fatalf("authorize = %d %v", w.Code, w.Header())
 	}
 	if w.Header().Get("Access-Control-Allow-Origin") != "" || w.Header().Get("Cache-Control") != "no-store" {
 		t.Errorf("headers = %v, want no ACAO and no-store", w.Header())
 	}
-	w = req{path: authorizeURL("mcp", func(q url.Values) { q.Set("code_challenge_method", "plain") }), header: origin}.do(s.Handler())
+	w = req{path: authorizeURL("api", func(q url.Values) { q.Set("code_challenge_method", "plain") }), header: origin}.do(s.Handler())
 	loc, _ := url.Parse(w.Header().Get("Location"))
 	if w.Code != http.StatusFound || loc == nil || loc.Host != "127.0.0.1:4711" || loc.Query().Get("error") != "invalid_request" ||
 		loc.Query().Get("iss") != testOrigin || loc.Query().Get("state") != "st" {
@@ -150,9 +151,14 @@ func TestOAuthAuthorizeRoute(t *testing.T) {
 	if w.Header().Get("Access-Control-Allow-Origin") != "" {
 		t.Error("an authorize error redirect carries ACAO")
 	}
-	w = req{path: authorizeURL("mcp", func(q url.Values) { q.Set("redirect_uri", "https://evil.example.com/cb") })}.do(s.Handler())
+	w = req{path: authorizeURL("api", func(q url.Values) { q.Set("redirect_uri", "https://evil.example.com/cb") })}.do(s.Handler())
 	if w.Code != http.StatusBadRequest || w.Header().Get("Location") != "" || !strings.Contains(w.Body.String(), `"error":"invalid_request"`) {
 		t.Errorf("unregistered redirect = %d %v %s", w.Code, w.Header(), w.Body)
+	}
+	w = req{path: authorizeURL("mcp", nil)}.do(s.Handler())
+	if loc, _ := url.Parse(w.Header().Get("Location")); w.Code != http.StatusFound || loc == nil || loc.Query().Get("error") != "invalid_target" ||
+		loc.Query().Get("error_description") != "the MCP server is not available on this dash" {
+		t.Errorf("mcp resource = %d %v", w.Code, w.Header())
 	}
 }
 
@@ -177,14 +183,14 @@ func TestOAuthDirectURLChallenge(t *testing.T) {
 func TestOAuthPersonPagesAreNotOnTheDirectHost(t *testing.T) {
 	s := oauthServer(t, func(d *Deps) { d.Cfg.DirectURL = "https://dash-direct.example.com" })
 	for _, host := range []string{"dash-direct.example.com", "DASH-DIRECT.example.com.:443"} {
-		for _, path := range []string{authorizeURL("mcp", nil), "/consent/abc", "/consent"} {
+		for _, path := range []string{authorizeURL("api", nil), "/consent/abc", "/consent"} {
 			w := req{path: path, host: host}.do(s.Handler())
 			if w.Code != http.StatusNotFound || !strings.Contains(w.Body.String(), `"code":"not_found"`) {
 				t.Errorf("%s on %s = %d %s", path, host, w.Code, w.Body)
 			}
 		}
 	}
-	direct := authorizeURL("mcp", func(q url.Values) { q.Set("resource", "https://dash-direct.example.com/mcp") })
+	direct := authorizeURL("api", func(q url.Values) { q.Set("resource", "https://dash-direct.example.com/api") })
 	if w := (req{path: direct}).do(s.Handler()); w.Code != http.StatusFound || !strings.HasPrefix(w.Header().Get("Location"), testOrigin+"/consent/") {
 		t.Errorf("authorize on the public host = %d %v", w.Code, w.Header())
 	}
@@ -199,7 +205,7 @@ func TestOAuthPersonPagesAreNotOnTheDirectHost(t *testing.T) {
 func TestOAuthAuthorizeKeepsNothingForAnonymousCallers(t *testing.T) {
 	s := oauthServer(t, nil)
 	anon := map[string]string{"X-Forwarded-Preferred-Username": ""}
-	path := authorizeURL("mcp", nil)
+	path := authorizeURL("api", nil)
 	for i := range 1100 {
 		w := req{path: path, header: anon}.do(s.Handler())
 		if w.Code != http.StatusFound || w.Header().Get("Location") != "/login?next="+url.QueryEscape(path) {
@@ -209,11 +215,11 @@ func TestOAuthAuthorizeKeepsNothingForAnonymousCallers(t *testing.T) {
 	if w := (req{path: path}).do(s.Handler()); w.Code != http.StatusFound || !strings.HasPrefix(w.Header().Get("Location"), testOrigin+"/consent/") {
 		t.Errorf("alice after them = %d %v", w.Code, w.Header())
 	}
-	w := req{path: authorizeURL("mcp", func(q url.Values) { q.Set("code_challenge_method", "plain") }), header: anon}.do(s.Handler())
+	w := req{path: authorizeURL("api", func(q url.Values) { q.Set("code_challenge_method", "plain") }), header: anon}.do(s.Handler())
 	if loc, _ := url.Parse(w.Header().Get("Location")); w.Code != http.StatusFound || loc == nil || loc.Query().Get("error") != "invalid_request" {
 		t.Errorf("anonymous invalid = %d %v", w.Code, w.Header())
 	}
-	w = req{path: authorizeURL("mcp", func(q url.Values) { q.Set("state", strings.Repeat("s", 1000)) }), header: anon}.do(s.Handler())
+	w = req{path: authorizeURL("api", func(q url.Values) { q.Set("state", strings.Repeat("s", 1000)) }), header: anon}.do(s.Handler())
 	if w.Code != http.StatusBadRequest || !strings.Contains(w.Body.String(), "too long to carry through sign-in") {
 		t.Errorf("too long for next = %d %s", w.Code, w.Body)
 	}

@@ -24,8 +24,8 @@ const public = "https://dash.example.com"
 
 var t0 = time.Date(2026, 11, 5, 12, 0, 0, 0, time.UTC)
 
-// testServer is a server over a fresh store, with one config client ("inspector", loopback
-// redirect, mcp only) and the clock at *now.
+// testServer is a server over a fresh store, with two config clients ("inspector", loopback
+// redirect, api only; "mcp-only", loopback redirect, mcp only) and the clock at *now.
 func testServer(t *testing.T, mod func(*Options)) (*Server, *credentials.Store, *time.Time) {
 	t.Helper()
 	store, err := credentials.Open(t.TempDir())
@@ -36,7 +36,10 @@ func testServer(t *testing.T, mod func(*Options)) (*Server, *credentials.Store, 
 	now := t0
 	o := Options{
 		PublicURL: public, Store: store, AccessKey: make([]byte, 32), Now: func() time.Time { return now },
-		Clients: []config.OAuthClient{{ClientID: "inspector", Name: "Inspector", RedirectURIs: []string{"http://127.0.0.1/callback", "https://app.example.com/cb?x=1"}, Audiences: []string{"mcp"}}},
+		Clients: []config.OAuthClient{
+			{ClientID: "inspector", Name: "Inspector", RedirectURIs: []string{"http://127.0.0.1/callback", "https://app.example.com/cb?x=1"}, Audiences: []string{"api"}},
+			{ClientID: "mcp-only", Name: "MCP only", RedirectURIs: []string{"http://127.0.0.1/callback"}, Audiences: []string{"mcp"}},
+		},
 	}
 	if mod != nil {
 		mod(&o)
@@ -56,12 +59,12 @@ func challengeOf(v string) string {
 	return base64.RawURLEncoding.EncodeToString(sum[:])
 }
 
-// authReq is a valid authorization request of the inspector for the mcp resource.
+// authReq is a valid authorization request of the inspector for the api resource.
 func authReq(mod func(url.Values)) url.Values {
 	q := url.Values{
 		"response_type": {"code"}, "client_id": {"inspector"}, "redirect_uri": {"http://127.0.0.1:4711/callback"},
 		"state": {"xyz"}, "code_challenge": {challengeOf(verifier)}, "code_challenge_method": {"S256"},
-		"resource": {public + "/mcp"}, "scope": {"read logs"},
+		"resource": {public + "/api"}, "scope": {"read logs"},
 	}
 	if mod != nil {
 		mod(q)
@@ -101,6 +104,9 @@ func TestMetadata(t *testing.T) {
 	if mcp.Resource != public+"/mcp" || !slices.Equal(mcp.ScopesSupported, []string{"read", "logs", "actions:kubernetes"}) {
 		t.Errorf("mcp = %+v", mcp)
 	}
+	if !s.Serves("api") || s.Serves("mcp") || s.Serves("other") {
+		t.Error("Serves: want api only before the MCP server")
+	}
 }
 
 // With server.directURL the issuer, the resources and the token and revoke endpoints are on it;
@@ -124,7 +130,7 @@ func TestDirectURL(t *testing.T) {
 	if q := redirectError(t, res, err, "http://127.0.0.1:4711/callback"); q.Get("error") != "invalid_target" || q.Get("iss") != direct {
 		t.Errorf("public resource with directURL: %v", q)
 	}
-	res, err = s.Authorize(context.Background(), authReq(func(q url.Values) { q.Set("resource", direct+"/mcp") }), nil, aliceCaller)
+	res, err = s.Authorize(context.Background(), authReq(func(q url.Values) { q.Set("resource", direct+"/api") }), nil, aliceCaller)
 	if err != nil || !strings.HasPrefix(res.ConsentURL, public+"/consent/") {
 		t.Errorf("direct resource: %+v, %v", res, err)
 	}
@@ -149,15 +155,16 @@ func TestAuthorizeValidation(t *testing.T) {
 		{"no PKCE method", func(q url.Values) { q.Del("code_challenge_method") }, "invalid_request"},
 		{"short challenge", func(q url.Values) { q.Set("code_challenge", "abc") }, "invalid_request"},
 		{"no resource", func(q url.Values) { q.Del("resource") }, "invalid_request"},
-		{"another resource", func(q url.Values) { q.Set("resource", "https://other.example.com/mcp") }, "invalid_target"},
-		{"an audience the client may not use", func(q url.Values) { q.Set("resource", public+"/api") }, "invalid_target"},
+		{"another resource", func(q url.Values) { q.Set("resource", "https://other.example.com/api") }, "invalid_target"},
+		{"an audience the client may not use", func(q url.Values) { q.Set("client_id", "mcp-only") }, "invalid_target"},
+		{"the mcp resource before the MCP server", func(q url.Values) { q.Set("resource", public+"/mcp") }, "invalid_target"},
 		{"no state", func(q url.Values) { q.Del("state") }, "invalid_request"},
 		{"a token response", func(q url.Values) { q.Set("response_type", "token") }, "unsupported_response_type"},
 		{"an unknown scope", func(q url.Values) { q.Set("scope", "read admin") }, "invalid_scope"},
 		{"approvals", func(q url.Values) { q.Set("scope", "read approvals") }, "invalid_scope"},
 		{"push", func(q url.Values) { q.Set("scope", "push") }, "invalid_scope"},
 		{"actions of a plugin without actions", func(q url.Values) { q.Set("scope", "actions:flux") }, "invalid_scope"},
-		{"a repeated resource", func(q url.Values) { q.Add("resource", public+"/mcp") }, "invalid_request"},
+		{"a repeated resource", func(q url.Values) { q.Add("resource", public+"/api") }, "invalid_request"},
 	} {
 		res, err := s.Authorize(context.Background(), authReq(tc.mod), nil, aliceCaller)
 		q := redirectError(t, res, err, cb)
@@ -167,6 +174,10 @@ func TestAuthorizeValidation(t *testing.T) {
 		if tc.name != "no state" && q.Get("state") != "xyz" {
 			t.Errorf("%s: state %q", tc.name, q.Get("state"))
 		}
+	}
+	res, err = s.Authorize(context.Background(), authReq(func(q url.Values) { q.Set("resource", public+"/mcp") }), nil, aliceCaller)
+	if q := redirectError(t, res, err, cb); q.Get("error_description") != "the MCP server is not available on this dash" {
+		t.Errorf("mcp resource: %v", q)
 	}
 }
 

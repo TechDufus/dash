@@ -41,12 +41,14 @@ function scopeNote(scope: string): string {
 
 /**
  * The warning a scope carries, or undefined. Actions depend on the audience: through MCP each
- * one waits for the user's approval (design O), through the API it runs at once.
+ * one waits for the user's approval (design O), through the API it runs at once. The MCP text
+ * shows only where dash serves MCP (`mcp`, /me's capabilities.mcp), which no release before the
+ * MCP server's does.
  */
-export function scopeWarning(scope: string, audience: string): string | undefined {
+export function scopeWarning(scope: string, audience: string, mcp: boolean): string | undefined {
   if (scope === TokenScopeLogs) return "Logs can contain secrets and personal data.";
   if (scope.startsWith(TokenScopeActionsPrefix)) {
-    return audience === TokenAudienceMCP
+    return mcp && audience === TokenAudienceMCP
       ? "Each action waits for your approval."
       : "An action runs without asking again.";
   }
@@ -201,7 +203,7 @@ function ConsentForm({ consent, me }: { consent: OAuthConsent; me: Me }): JSX.El
             <div className="space-y-1 rounded-lg border border-line bg-panel p-2">
               {consent.scopes.map((scope) => {
                 const id = `consent-scope-${scope.replace(/[^\w-]/g, "-")}`;
-                const warning = scopeWarning(scope, consent.audience);
+                const warning = scopeWarning(scope, consent.audience, me.capabilities.mcp);
                 const noteId = `${id}-note`;
                 return (
                   <div key={scope} className="space-y-0.5 rounded px-1.5 py-1 hover:bg-panel-hover">

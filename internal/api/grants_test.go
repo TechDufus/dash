@@ -106,7 +106,7 @@ func TestConsentRoutes(t *testing.T) {
 	wantError(t, e.approveAs("alice", id, "read"), http.StatusNotFound, model.ErrCodeNotFound)
 
 	// Denying answers access_denied.
-	id = e.consentFor(t, "mcp", "read")
+	id = e.consentFor(t, "api", "read")
 	w = e.do(as("alice", req{method: http.MethodPost, path: "/api/v1/oauth/consents/" + id, body: model.OAuthConsentDecision{}}))
 	decodeJSON(t, w, &res)
 	if u, _ := url.Parse(res.Redirect); u.Query().Get("error") != "access_denied" {
@@ -159,11 +159,11 @@ func TestGrantWritesFailClosedOnAudit(t *testing.T) {
 func TestGrantLimit(t *testing.T) {
 	e := newOAuthEnv(t)
 	for range credentials.MaxActiveGrants {
-		if w := e.approveAs("alice", e.consentFor(t, "mcp", "read"), "read"); w.Code != http.StatusOK {
+		if w := e.approveAs("alice", e.consentFor(t, "api", "read"), "read"); w.Code != http.StatusOK {
 			t.Fatalf("approve = %d %s", w.Code, w.Body)
 		}
 	}
-	wantError(t, e.approveAs("alice", e.consentFor(t, "mcp", "read"), "read"), http.StatusConflict, model.ErrCodeGrantLimit)
+	wantError(t, e.approveAs("alice", e.consentFor(t, "api", "read"), "read"), http.StatusConflict, model.ErrCodeGrantLimit)
 	if n := len(e.s.d.Credentials.Grants("alice")); n != credentials.MaxActiveGrants {
 		t.Errorf("grants = %d", n)
 	}
@@ -173,8 +173,8 @@ func TestGrantLimit(t *testing.T) {
 // sees another user's grant as missing. ?user=me revokes all of one's grants and no token.
 func TestGrantListAndRevoke(t *testing.T) {
 	e := newOAuthEnv(t)
-	e.approveAs("alice", e.consentFor(t, "mcp", "read"), "read")
-	e.approveAs("bob", e.consentAs(t, "bob", "mcp", "read"), "read")
+	e.approveAs("alice", e.consentFor(t, "api", "read"), "read")
+	e.approveAs("bob", e.consentAs(t, "bob", "api", "logs"), "logs")
 	e.approveAs("bob", e.consentAs(t, "bob", "api", "read"), "read")
 	list := func(user, q string) (int, []model.OAuthGrantInfo) {
 		w := e.do(as(user, req{path: "/api/v1/oauth/grants" + q}))

@@ -139,9 +139,9 @@ func (e *e2e) flow(audience, verifier string, exchangeVerifier string) (*http.Re
 
 // The full PKCE flow against the built server, behind an identity proxy with a direct URL:
 // discovery from the 401, metadata and iss on the direct URL, consent through the proxy, the
-// code exchange and refresh on the direct URL. An mcp-audience token is refused at /api; an
-// api-audience token works there; a wrong verifier gets nothing; a refresh token used twice
-// ends the grant.
+// code exchange and refresh on the direct URL. The mcp audience is refused until the MCP server
+// ships; an api-audience token works at /api; a wrong verifier gets nothing; a refresh token
+// used twice ends the grant.
 func TestOAuthEndToEnd(t *testing.T) {
 	e := newE2E(t)
 
@@ -151,23 +151,27 @@ func TestOAuthEndToEnd(t *testing.T) {
 		t.Fatalf("challenge = %d %q", resp.StatusCode, resp.Header.Get("WWW-Authenticate"))
 	}
 	var prm oauth.ProtectedResourceMetadata
-	e.json(e.do(http.MethodGet, e2eDirect+"/.well-known/oauth-protected-resource/mcp", "", nil, nil), &prm)
+	e.json(e.do(http.MethodGet, e2eDirect+"/.well-known/oauth-protected-resource/api", "", nil, nil), &prm)
 	var asm oauth.AuthorizationServerMetadata
 	e.json(e.do(http.MethodGet, e2eDirect+"/.well-known/oauth-authorization-server", "", nil, nil), &asm)
-	if prm.Resource != e2eDirect+"/mcp" || prm.AuthorizationServers[0] != e2eDirect || asm.Issuer != e2eDirect ||
+	if prm.Resource != e2eDirect+"/api" || prm.AuthorizationServers[0] != e2eDirect || asm.Issuer != e2eDirect ||
 		asm.AuthorizationEndpoint != e2ePublic+"/oauth/authorize" || asm.TokenEndpoint != e2eDirect+"/oauth/token" {
 		t.Fatalf("metadata: %+v %+v", prm, asm)
 	}
+	if r := e.do(http.MethodGet, e2eDirect+"/.well-known/oauth-protected-resource/mcp", "", nil, nil); r.StatusCode != http.StatusNotFound {
+		t.Errorf("mcp resource metadata = %d", r.StatusCode)
+	}
 
 	const verifier = "e2e-verifier-0123456789-abcdefghijklmnopqrstuvwxyz"
-	resp, _ = e.flow("mcp", verifier, verifier)
-	var mcp oauth.TokenResponse
-	e.json(resp, &mcp)
-	if !strings.HasPrefix(mcp.AccessToken, "dash_at_") || !strings.HasPrefix(mcp.RefreshToken, "dash_rt_") || mcp.Scope != "read" {
-		t.Fatalf("mcp tokens = %+v", mcp)
+	sum := sha256.Sum256([]byte(verifier))
+	q := url.Values{
+		"response_type": {"code"}, "client_id": {"agent"}, "redirect_uri": {"http://127.0.0.1:53682/callback"},
+		"state": {"opaque-state"}, "code_challenge": {base64.RawURLEncoding.EncodeToString(sum[:])}, "code_challenge_method": {"S256"},
+		"resource": {e2eDirect + "/mcp"},
 	}
-	if r := e.do(http.MethodGet, e2eDirect+"/api/v1/me", "", map[string]string{"Authorization": "Bearer " + mcp.AccessToken}, nil); r.StatusCode != http.StatusUnauthorized {
-		t.Errorf("an mcp token at /api = %d", r.StatusCode)
+	resp = e.do(http.MethodGet, e2ePublic+"/oauth/authorize?"+q.Encode(), "alice", nil, nil)
+	if back, err := url.Parse(resp.Header.Get("Location")); resp.StatusCode != http.StatusFound || err != nil || back.Query().Get("error") != "invalid_target" {
+		t.Errorf("mcp authorize = %d %s", resp.StatusCode, resp.Header.Get("Location"))
 	}
 
 	resp, _ = e.flow("api", verifier, verifier)

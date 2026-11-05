@@ -86,10 +86,29 @@ describe("ConsentPage", () => {
   });
 
   it.each([
-    ["mcp", /each action waits for your approval/i, /without asking again/i],
-    ["api", /runs without asking again/i, /waits for your approval/i],
-  ])("warns about actions for the %s audience", async (audience, says, never) => {
-    stubFetch(routes({ [GET]: consent({ audience }) }));
+    [
+      "mcp where dash serves MCP",
+      "mcp",
+      true,
+      /each action waits for your approval/i,
+      /without asking again/i,
+    ],
+    [
+      "mcp before the MCP server",
+      "mcp",
+      false,
+      /runs without asking again/i,
+      /waits for your approval/i,
+    ],
+    ["api", "api", true, /runs without asking again/i, /waits for your approval/i],
+  ])("warns about actions for %s", async (_name, audience, mcp, says, never) => {
+    const base = meWith();
+    stubFetch(
+      routes({
+        "GET /api/v1/me": { ...base, capabilities: { ...base.capabilities, mcp } },
+        [GET]: consent({ audience }),
+      }),
+    );
     renderApp(<ConsentPage id="abc" />);
     const actions = await screen.findByRole("checkbox", { name: "actions:flux" });
     expect(actions).toHaveAccessibleDescription(says);
