@@ -21,6 +21,7 @@ import (
 	"github.com/TechDufus/dash/internal/obs"
 	"github.com/TechDufus/dash/internal/overview"
 	"github.com/TechDufus/dash/internal/plugin"
+	"github.com/TechDufus/dash/internal/push"
 	"github.com/TechDufus/dash/internal/secret"
 )
 
@@ -175,6 +176,16 @@ func run(reg *secret.Registry, onBound func(api, health net.Addr)) error {
 		deps.Settings = newSettingsBackend(res, store, reloader, sup, alog)
 	}
 	pa.deps(&deps)
+	if pa.push {
+		// The sender's deliveries end before the store closes (defers run last-in first-out).
+		svc := push.New(push.Options{
+			Store: pa.store, Contact: cfg.PushContact, Allow: cfg.PushAllow, PublicURL: cfg.PublicURL,
+			Metrics: metrics, Secrets: reg,
+		})
+		defer svc.Close()
+		go svc.RunSweep(ctx)
+		deps.Push = svc
+	}
 	srv := api.New(deps)
 	srv.LogMCPState()
 	reloader.Subscribe(func(c config.Change) {

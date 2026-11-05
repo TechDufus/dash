@@ -352,6 +352,10 @@ func TestMetricLabelValuesComeFromFixedSets(t *testing.T) {
 			if !slices.Contains(allowed["reason"], s.labels["reason"]) {
 				t.Errorf("auth reason %q", s.labels["reason"])
 			}
+		case "dash_push_sent_total":
+			if !slices.Contains(obs.PushKinds, s.labels["kind"]) || !slices.Contains(obs.PushResults, s.labels["result"]) {
+				t.Errorf("push labels %v", s.labels)
+			}
 		case "dash_build_info":
 		default:
 			t.Errorf("unexpected series %q", s.name)

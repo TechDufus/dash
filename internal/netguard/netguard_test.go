@@ -101,6 +101,81 @@ func TestClientRefusesAtDialTime(t *testing.T) {
 	}
 }
 
+// PrivateHosts admit one host name at private and loopback addresses, PrivatePrefixes the
+// private and loopback addresses inside them whatever the name; anything else stays refused,
+// and link-local addresses never pass. RootCAs is the trust a TLS client uses.
+func TestClientPrivateHostsAndPrefixes(t *testing.T) {
+	var hits atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { hits.Add(1) }))
+	defer srv.Close()
+	viaName := strings.Replace(srv.URL, "127.0.0.1", "localhost", 1)
+	for _, tc := range []struct {
+		name string
+		o    Options
+		url  string
+		ok   bool
+	}{
+		{"nothing allowed", Options{}, srv.URL, false},
+		{"the host by name", Options{PrivateHosts: []string{"localhost"}}, viaName, true},
+		{"another host", Options{PrivateHosts: []string{"ntfy.example.com"}}, viaName, false},
+		{"the host by name, dialled by address", Options{PrivateHosts: []string{"localhost"}}, srv.URL, false},
+		{"a prefix holding it", Options{PrivatePrefixes: []netip.Prefix{netip.MustParsePrefix("127.0.0.0/8")}}, viaName, true},
+		{"another prefix", Options{PrivatePrefixes: []netip.Prefix{netip.MustParsePrefix("10.0.0.0/8")}}, srv.URL, false},
+	} {
+		before := hits.Load()
+		resp, err := NewClient(tc.o).Get(tc.url)
+		if err == nil {
+			_ = resp.Body.Close()
+		}
+		if got := err == nil && hits.Load() == before+1; got != tc.ok {
+			t.Errorf("%s: reached %v (%v), want %v", tc.name, got, err, tc.ok)
+		}
+		if !tc.ok && !errors.Is(err, ErrRefused) {
+			t.Errorf("%s: %v, want ErrRefused", tc.name, err)
+		}
+	}
+	// RootCAs is the trust of a TLS client; without it the system's applies, which does not hold
+	// the test server's CA.
+	tlsSrv := httptest.NewTLSServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
+	defer tlsSrv.Close()
+	pool := tlsSrv.Client().Transport.(*http.Transport).TLSClientConfig.RootCAs
+	if resp, err := NewClient(Options{AllowPrivate: true, RootCAs: pool}).Get(tlsSrv.URL); err != nil {
+		t.Errorf("with the test CA: %v", err)
+	} else {
+		_ = resp.Body.Close()
+	}
+	if _, err := NewClient(Options{AllowPrivate: true}).Get(tlsSrv.URL); err == nil || errors.Is(err, ErrRefused) {
+		t.Errorf("without the test CA: %v, want a TLS error", err)
+	}
+	o := Options{PrivatePrefixes: []netip.Prefix{netip.MustParsePrefix("169.254.0.0/16")}, PrivateHosts: []string{"metadata"}}
+	if o.allowed(netip.MustParseAddr("169.254.169.254"), true) == nil {
+		t.Error("a link-local address passed")
+	}
+}
+
+// An IPv6 unique local prefix (RFC 4193) in PrivatePrefixes admits the addresses inside it;
+// another ULA prefix and IPv6 link-local addresses stay refused.
+func TestPrivatePrefixesIPv6ULA(t *testing.T) {
+	o := Options{PrivatePrefixes: []netip.Prefix{netip.MustParsePrefix("fd12:3456:789a::/48")}}
+	for _, tc := range []struct {
+		ip string
+		ok bool
+	}{
+		{"fd12:3456:789a::10", true},
+		{"fd12:3456:789a:1::1", true},
+		{"fd12:3456:789b::10", false},
+		{"fe80::1", false},
+	} {
+		err := o.allowed(netip.MustParseAddr(tc.ip), false)
+		if (err == nil) != tc.ok {
+			t.Errorf("%s: %v, want allowed %v", tc.ip, err, tc.ok)
+		}
+		if !tc.ok && !errors.Is(err, ErrRefused) {
+			t.Errorf("%s: %v, want ErrRefused", tc.ip, err)
+		}
+	}
+}
+
 // No redirect is followed, even to the same host.
 func TestClientFollowsNoRedirect(t *testing.T) {
 	var target atomic.Int32

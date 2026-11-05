@@ -2406,6 +2406,182 @@
         },
         "type": "object"
       },
+      "PushKeys": {
+        "additionalProperties": false,
+        "properties": {
+          "auth": {
+            "maxLength": 64,
+            "minLength": 1,
+            "type": "string"
+          },
+          "p256dh": {
+            "maxLength": 128,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "auth",
+          "p256dh"
+        ],
+        "type": "object"
+      },
+      "PushNotify": {
+        "additionalProperties": false,
+        "properties": {
+          "approvals": {
+            "type": "boolean"
+          },
+          "attention": {
+            "enum": [
+              "crit",
+              "warn",
+              "off"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "approvals",
+          "attention"
+        ],
+        "type": "object"
+      },
+      "PushSubscriptionInfo": {
+        "additionalProperties": false,
+        "properties": {
+          "createdAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "deviceName": {
+            "type": "string"
+          },
+          "endpointHost": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "webpush",
+              "unifiedpush"
+            ],
+            "type": "string"
+          },
+          "notify": {
+            "$ref": "#/components/schemas/PushNotify"
+          },
+          "state": {
+            "enum": [
+              "pending",
+              "verified",
+              "stale"
+            ],
+            "type": "string"
+          },
+          "verifiedAt": {
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "createdAt",
+          "deviceName",
+          "endpointHost",
+          "id",
+          "kind",
+          "notify",
+          "state",
+          "verifiedAt"
+        ],
+        "type": "object"
+      },
+      "PushSubscriptionList": {
+        "additionalProperties": false,
+        "properties": {
+          "subscriptions": {
+            "items": {
+              "$ref": "#/components/schemas/PushSubscriptionInfo"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "subscriptions"
+        ],
+        "type": "object"
+      },
+      "PushSubscriptionRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "deviceName": {
+            "maxLength": 64,
+            "minLength": 1,
+            "type": "string"
+          },
+          "endpoint": {
+            "maxLength": 2048,
+            "minLength": 1,
+            "type": "string"
+          },
+          "keys": {
+            "$ref": "#/components/schemas/PushKeys"
+          },
+          "kind": {
+            "enum": [
+              "webpush",
+              "unifiedpush"
+            ],
+            "type": "string"
+          },
+          "notify": {
+            "$ref": "#/components/schemas/PushNotify"
+          }
+        },
+        "required": [
+          "deviceName",
+          "endpoint",
+          "keys",
+          "kind",
+          "notify"
+        ],
+        "type": "object"
+      },
+      "PushVAPID": {
+        "additionalProperties": false,
+        "properties": {
+          "publicKey": {
+            "type": "string"
+          },
+          "serverUrl": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "publicKey",
+          "serverUrl"
+        ],
+        "type": "object"
+      },
+      "PushVerifyRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "maxLength": 32,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "code"
+        ],
+        "type": "object"
+      },
       "RustFSUsageData": {
         "additionalProperties": false,
         "properties": {
@@ -4316,6 +4492,240 @@
         "x-dash-scope": "logs"
       }
     },
+    "/api/v1/push/subscriptions": {
+      "get": {
+        "description": "Never the endpoints or the keys. 409 push_unavailable when push is off (it needs a writable data dir and DASH_SECRET_KEY in auth.mode local, oidc or proxy).",
+        "operationId": "listPushSubscriptions",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PushSubscriptionList"
+                }
+              }
+            },
+            "description": "List the caller's push devices",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/XRequestId"
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "summary": "List the caller's push devices",
+        "tags": [
+          "Push"
+        ],
+        "x-dash-min-role": "viewer",
+        "x-dash-scope": "push"
+      },
+      "post": {
+        "description": "201 with a new subscription, which receives a verify push with its code and nothing else until POST .../verify echoes it; it is deleted after 10 minutes unverified. 200 when the caller already holds the endpoint: the row is replaced, verified still when the keys are the same. 400 invalid_input with field errors; 409 conflict when another user holds the endpoint; 409 push_limit past 10 devices; 503 audit_unavailable. 409 push_unavailable when push is off (it needs a writable data dir and DASH_SECRET_KEY in auth.mode local, oidc or proxy).",
+        "operationId": "createPushSubscription",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PushSubscriptionRequest"
+              }
+            }
+          },
+          "description": "The JSON body of the request.",
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PushSubscriptionInfo"
+                }
+              }
+            },
+            "description": "Register a push device",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/XRequestId"
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "summary": "Register a push device",
+        "tags": [
+          "Push"
+        ],
+        "x-dash-min-role": "viewer",
+        "x-dash-scope": "push"
+      }
+    },
+    "/api/v1/push/subscriptions/{id}": {
+      "delete": {
+        "description": "404 for another user's subscription. 409 push_unavailable when push is off (it needs a writable data dir and DASH_SECRET_KEY in auth.mode local, oidc or proxy).",
+        "operationId": "deletePushSubscription",
+        "parameters": [
+          {
+            "description": "The subscription's ID, sub_<26 base32>.",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Remove a push device",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/XRequestId"
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "summary": "Remove a push device",
+        "tags": [
+          "Push"
+        ],
+        "x-dash-min-role": "viewer",
+        "x-dash-scope": "push"
+      }
+    },
+    "/api/v1/push/subscriptions/{id}/test": {
+      "post": {
+        "description": "202: queued. 409 conflict when the subscription is not verified; 429 past one a minute per subscription. 409 push_unavailable when push is off (it needs a writable data dir and DASH_SECRET_KEY in auth.mode local, oidc or proxy).",
+        "operationId": "testPushSubscription",
+        "parameters": [
+          {
+            "description": "The subscription's ID, sub_<26 base32>.",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Send a test push",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/XRequestId"
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "summary": "Send a test push",
+        "tags": [
+          "Push"
+        ],
+        "x-dash-min-role": "viewer",
+        "x-dash-scope": "push"
+      }
+    },
+    "/api/v1/push/subscriptions/{id}/verify": {
+      "post": {
+        "description": "422 invalid_input for a wrong code; the fifth wrong code deletes the subscription. 409 conflict when it is not pending; 404 for another user's. 409 push_unavailable when push is off (it needs a writable data dir and DASH_SECRET_KEY in auth.mode local, oidc or proxy).",
+        "operationId": "verifyPushSubscription",
+        "parameters": [
+          {
+            "description": "The subscription's ID, sub_<26 base32>.",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PushVerifyRequest"
+              }
+            }
+          },
+          "description": "The JSON body of the request.",
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PushSubscriptionInfo"
+                }
+              }
+            },
+            "description": "Verify a push device with its code",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/XRequestId"
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "summary": "Verify a push device with its code",
+        "tags": [
+          "Push"
+        ],
+        "x-dash-min-role": "viewer",
+        "x-dash-scope": "push"
+      }
+    },
+    "/api/v1/push/vapid": {
+      "get": {
+        "description": "The applicationServerKey a browser subscribes with, made at the first request, and the URL a native client connects to. 409 push_unavailable when push is off (it needs a writable data dir and DASH_SECRET_KEY in auth.mode local, oidc or proxy).",
+        "operationId": "getPushVAPID",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PushVAPID"
+                }
+              }
+            },
+            "description": "The VAPID public key and the server URL",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/XRequestId"
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "summary": "The VAPID public key and the server URL",
+        "tags": [
+          "Push"
+        ],
+        "x-dash-min-role": "viewer",
+        "x-dash-scope": "push"
+      }
+    },
     "/api/v1/series": {
       "get": {
         "operationId": "getSeries",
@@ -5320,6 +5730,9 @@
     {
       "description": "The plugin instances and the generic plugin routes.",
       "name": "Plugins"
+    },
+    {
+      "name": "Push"
     },
     {
       "description": "Named metric series.",

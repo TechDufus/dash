@@ -6,6 +6,7 @@
 package netguard
 
 import (
+	"context"
 	"crypto/tls"
 	"crypto/x509"
 	"errors"
@@ -14,6 +15,8 @@ import (
 	"net"
 	"net/http"
 	"net/netip"
+	"slices"
+	"strings"
 	"syscall"
 	"time"
 )
@@ -104,30 +107,56 @@ func Check(ip netip.Addr, allowPrivate bool) error {
 type Options struct {
 	// AllowPrivate also lets the client reach private and loopback addresses (Check).
 	AllowPrivate bool
+	// PrivateHosts are host names (lowercase, no trailing dot) whose connections may also reach
+	// private and loopback addresses, as AllowPrivate allows for every host (push.allowPrivate).
+	PrivateHosts []string
+	// PrivatePrefixes are address ranges whose private and loopback addresses pass, whatever
+	// host name led there. Link-local and special addresses inside them still never pass.
+	PrivatePrefixes []netip.Prefix
 	// Timeout bounds the whole exchange, body included; zero means 5 seconds.
 	Timeout time.Duration
 	// RootCAs are the certificate authorities the client trusts; nil means the system's.
 	RootCAs *x509.CertPool
 }
 
-// NewClient builds a client that dials only the addresses Check passes, uses no proxy, follows
-// no redirect (ErrRedirect) and gives up after the timeout. Read a body with ReadBody.
+// allowed reports why a connection to ip, dialled for a host whose private addresses pass or
+// not (hostPrivate), is refused, or nil.
+func (o Options) allowed(ip netip.Addr, hostPrivate bool) error {
+	err := Check(ip, o.AllowPrivate || hostPrivate)
+	if err == nil {
+		return nil
+	}
+	ip = ip.Unmap()
+	if Check(ip, true) == nil && slices.ContainsFunc(o.PrivatePrefixes, func(p netip.Prefix) bool { return p.Contains(ip) }) {
+		return nil
+	}
+	return err
+}
+
+// NewClient builds a client that dials only the addresses Check passes (and those Options
+// allow besides), uses no proxy, follows no redirect (ErrRedirect) and gives up after the
+// timeout. Read a body with ReadBody.
 func NewClient(o Options) *http.Client {
 	timeout := o.Timeout
 	if timeout <= 0 {
 		timeout = 5 * time.Second
 	}
-	dialer := &net.Dialer{Timeout: timeout, Control: func(_, address string, _ syscall.RawConn) error {
-		ap, err := netip.ParseAddrPort(address)
-		if err != nil {
-			return fmt.Errorf("%w: cannot read the dialled address", ErrRefused)
-		}
-		return Check(ap.Addr(), o.AllowPrivate)
-	}}
+	dial := func(ctx context.Context, network, addr string) (net.Conn, error) {
+		host, _, _ := net.SplitHostPort(addr)
+		hostPrivate := slices.Contains(o.PrivateHosts, strings.ToLower(strings.TrimSuffix(host, ".")))
+		d := &net.Dialer{Timeout: timeout, Control: func(_, address string, _ syscall.RawConn) error {
+			ap, err := netip.ParseAddrPort(address)
+			if err != nil {
+				return fmt.Errorf("%w: cannot read the dialled address", ErrRefused)
+			}
+			return o.allowed(ap.Addr(), hostPrivate)
+		}}
+		return d.DialContext(ctx, network, addr)
+	}
 	return &http.Client{
 		Transport: &http.Transport{
 			Proxy:                 nil, // never the environment's: the guard would check the proxy
-			DialContext:           dialer.DialContext,
+			DialContext:           dial,
 			TLSClientConfig:       &tls.Config{MinVersion: tls.VersionTLS12, RootCAs: o.RootCAs},
 			TLSHandshakeTimeout:   timeout,
 			ResponseHeaderTimeout: timeout,

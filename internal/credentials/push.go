@@ -189,8 +189,10 @@ type PushTarget struct {
 	Auth     string
 }
 
-// PushInput is a subscription to register.
+// PushInput is a subscription to register. ID is the ID a new row takes (NewPushID; empty: one
+// is made); a replaced row keeps its own.
 type PushInput struct {
+	ID                     string
 	User, Kind, DeviceName string
 	Approvals              bool
 	Attention              string
@@ -352,7 +354,8 @@ const pushIDLen = 26
 // PushIDPrefix starts a subscription ID: sub_<26 base32>.
 const PushIDPrefix = "sub_"
 
-func newPushID() (string, error) {
+// NewPushID makes a subscription ID: sub_<26 base32>.
+func NewPushID() (string, error) {
 	raw := make([]byte, pushIDLen)
 	if _, err := rand.Read(raw); err != nil {
 		return "", err
@@ -415,9 +418,13 @@ func (s *Store) AddPushSubscription(in PushInput, code string, now time.Time) (s
 	}
 	now = now.UTC().Truncate(time.Second)
 	endpointHash, keysHash := hashHex(in.Endpoint), hashHex(in.P256dh, in.Auth)
-	newID, err := newPushID()
-	if err != nil {
-		return PushSubscription{}, false, err
+	newID := in.ID
+	if newID == "" {
+		if newID, err = NewPushID(); err != nil {
+			return PushSubscription{}, false, err
+		}
+	} else if !validPushID(newID) {
+		return PushSubscription{}, false, fmt.Errorf("credentials: %q is not a push subscription ID", newID)
 	}
 	var refusal error
 	var id string
@@ -486,6 +493,21 @@ func (s *Store) AddPushSubscription(in PushInput, code string, now time.Time) (s
 		return PushSubscription{}, false, err
 	}
 	return row.view(id), row.State == PushPending, nil
+}
+
+// PushSubscriptionByEndpoint returns the subscription registered with endpoint, whoever holds it.
+func (s *Store) PushSubscriptionByEndpoint(endpoint string) (PushSubscription, bool) {
+	h := hashHex(endpoint)
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if s.doc.Push != nil {
+		for id, sub := range s.doc.Push.Subscriptions {
+			if sub.EndpointHash == h {
+				return sub.view(id), true
+			}
+		}
+	}
+	return PushSubscription{}, false
 }
 
 // VerifyPushSubscription checks code against the pending subscription id of user, in constant

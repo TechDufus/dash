@@ -50,7 +50,7 @@ type processAuth struct {
 // deps hands the authenticator, the token resolver, the credential store and the session
 // machinery to the API.
 func (p processAuth) deps(d *api.Deps) {
-	d.Auth, d.Credentials, d.OAuth, d.PushEnabled = p.authn, p.store, p.oauth, p.push
+	d.Auth, d.Credentials, d.OAuth = p.authn, p.store, p.oauth
 	if p.tokens != nil { // a nil *Resolver in the interface would not be a nil TokenResolver
 		d.Tokens = p.tokens
 	}

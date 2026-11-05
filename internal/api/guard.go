@@ -10,8 +10,8 @@ import (
 
 // guard enforces the route table's access columns in one place, ahead of the handler: the
 // principal must hold at least rt.Role, a route marked Interactive is for a person, not a
-// credential that was minted for a program, and a route of scope logs is never for the anonymous
-// viewer (the plugin routes get the same rule from serveRoute). A token must also hold the row's
+// credential that was minted for a program, and a route of scope logs or push is never for the
+// anonymous viewer (the plugin routes get the same rule from serveRoute). A token must also hold the row's
 // Scope (403 insufficient_scope; a row without one is for no token); the plugin rows are checked
 // per route and per action instead (serveRoute, runAction), whose scopes the generic row cannot
 // know. A route without a Role (the catch-alls, the SPA and the sign-in routes) is public and is
@@ -33,7 +33,7 @@ func (s *Server) guard(rt Route, next http.HandlerFunc) http.HandlerFunc {
 			writeErr(w, http.StatusForbidden, model.ErrCodeForbidden, "this route needs a signed-in user, not a token")
 			return
 		}
-		if !p.Role.AtLeast(rt.Role) || (rt.Interactive && !p.Interactive()) || (p.Kind == auth.KindAnonymous && rt.Scope == "logs") {
+		if !p.Role.AtLeast(rt.Role) || (rt.Interactive && !p.Interactive()) || (p.Kind == auth.KindAnonymous && (rt.Scope == "logs" || rt.Scope == model.OAuthScopePush)) {
 			s.deny(r, obs.AuthForbidden)
 			writeErr(w, http.StatusForbidden, model.ErrCodeForbidden, "forbidden")
 			return

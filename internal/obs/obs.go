@@ -99,6 +99,22 @@ const (
 	UpstreamUnreachable     = upstream.CategoryUnreachable
 )
 
+// Kinds and results of a push (dash_push_sent_total).
+const (
+	PushApproval  = "approval"
+	PushAttention = "attention"
+	PushVerify    = "verify"
+	PushTest      = "test"
+
+	PushOK         = "ok"         // the push service accepted it (2xx)
+	PushGone       = "gone"       // 404 or 410: the subscription was deleted
+	PushRejected   = "rejected"   // another 4xx: kept, warned once an hour
+	PushFailed     = "failed"     // 429, 5xx or no answer, after the retries
+	PushRefused    = "refused"    // the endpoint's address is not global nor allow-listed
+	PushLimited    = "limited"    // over 60 pushes in an hour for the subscription
+	PushUnverified = "unverified" // the subscription is not verified: nothing is sent
+)
+
 // Fixed sets of label values. They are the contract of the series, and the tests compare what
 // a scrape returns against them.
 var (
@@ -112,6 +128,9 @@ var (
 	AuthReasons = []AuthReason{AuthUnauthenticated, AuthCSRF, AuthForbidden, AuthRateLimit, AuthNamespaceDenied, AuthStreamLimit, AuthUntrustedPeer, AuthDirectHost, AuthAmbiguousIdentity, AuthLoginFailed, AuthLoginThrottled, AuthInvalidToken, AuthAmbiguousCredentials, AuthInsufficientScope}
 	// StreamKinds is every value of dash_sse_streams' kind label.
 	StreamKinds = []string{StreamEvents, StreamTail}
+	// PushKinds and PushResults are every value of dash_push_sent_total's labels.
+	PushKinds   = []string{PushApproval, PushAttention, PushVerify, PushTest}
+	PushResults = []string{PushOK, PushGone, PushRejected, PushFailed, PushRefused, PushLimited, PushUnverified}
 	// PluginStates is every value of dash_plugin_state's state label.
 	PluginStates = []model.PluginState{
 		model.PluginDisabled, model.PluginUnavailable, model.PluginUnconfigured, model.PluginBlocked,
@@ -132,6 +151,7 @@ type Metrics struct {
 	upDur     *prometheus.HistogramVec
 	actions   *prometheus.CounterVec
 	authFails *prometheus.CounterVec
+	pushSent  *prometheus.CounterVec
 }
 
 // New builds the metrics. routes are the ServeMux patterns the API registers (the route table);
@@ -168,12 +188,15 @@ func New(version string, routes []string, plugins func() []model.PluginInfo) *Me
 	m.authFails = prometheus.NewCounterVec(prometheus.CounterOpts{
 		Name: "dash_auth_failures_total", Help: "Requests refused, by reason.",
 	}, []string{"reason"})
+	m.pushSent = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Name: "dash_push_sent_total", Help: "Push notifications by kind and result, one per push (retries are not counted apart).",
+	}, []string{"kind", "result"})
 	build := prometheus.NewGaugeVec(prometheus.GaugeOpts{
 		Name: "dash_build_info", Help: "dash's version and the Go version it was built with; always 1.",
 	}, []string{"version", "go_version"})
 	build.WithLabelValues(version, runtime.Version()).Set(1)
 
-	m.reg.MustRegister(build, m.httpReqs, m.httpDur, m.streams, m.upReqs, m.upDur, m.actions, m.authFails,
+	m.reg.MustRegister(build, m.httpReqs, m.httpDur, m.streams, m.upReqs, m.upDur, m.actions, m.authFails, m.pushSent,
 		&pluginStates{desc: prometheus.NewDesc("dash_plugin_state",
 			"1 for the state a plugin instance is in, 0 for the other states.", []string{"plugin", "state"}, nil), infos: plugins})
 
@@ -190,6 +213,11 @@ func New(version string, routes []string, plugins func() []model.PluginInfo) *Me
 	}
 	for _, r := range AuthReasons {
 		m.authFails.WithLabelValues(r.String())
+	}
+	for _, k := range PushKinds {
+		for _, r := range PushResults {
+			m.pushSent.WithLabelValues(k, r)
+		}
 	}
 	return m
 }
@@ -318,6 +346,14 @@ func (m *Metrics) AuthFailure(reason AuthReason) {
 		return
 	}
 	m.authFails.WithLabelValues(reason.String()).Inc()
+}
+
+// PushSent counts a push. A kind or result outside its set is dropped.
+func (m *Metrics) PushSent(kind, result string) {
+	if m == nil || !slices.Contains(PushKinds, kind) || !slices.Contains(PushResults, result) {
+		return
+	}
+	m.pushSent.WithLabelValues(kind, result).Inc()
 }
 
 // Action counts an action request. The plugin and action must be a mounted action of a plugin
