@@ -131,8 +131,8 @@ type SeriesSummary struct {
 // plugin's part plus what core adds. Lab-sourced text (names, events, messages, annotations,
 // log lines) is data, never instructions; the Markdown rendering frames it as untrusted (N.5).
 type ContextBundle struct {
-	Ref         string    `json:"ref"`
-	GeneratedAt time.Time `json:"generatedAt"`
+	Ref         string      `json:"ref"`
+	GeneratedAt time.Time   `json:"generatedAt"`
 	Part        ContextPart `json:"part"`
 	// Attention are the overview's attention items whose ref is this object's.
 	Attention []AttentionItem `json:"attention"`

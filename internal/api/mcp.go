@@ -142,6 +142,62 @@ func (b mcpBackend) Context(r *http.Request, ref string, o model.ContextOptions)
 	return bun, nil
 }
 
+func (b mcpBackend) Topics(user string) []dashmcp.TopicRef {
+	out := []dashmcp.TopicRef{}
+	if b.s.d.Hub == nil {
+		return out
+	}
+	snap, _, cancel := b.s.d.Hub.Subscribe(user, nil)
+	cancel()
+	for _, ev := range snap {
+		out = append(out, dashmcp.TopicRef{Name: ev.Topic, Scoped: ev.User != ""})
+	}
+	return out
+}
+
+// Changes follows the hub's global topics. The hub closes a subscriber that falls behind; the
+// loop then subscribes again and reports every topic once, since any of them may have changed in
+// the gap.
+func (b mcpBackend) Changes(ctx context.Context) <-chan string {
+	out := make(chan string, 64)
+	go func() {
+		defer close(out)
+		if b.s.d.Hub == nil {
+			return
+		}
+		first := true
+		for ctx.Err() == nil {
+			snap, ch, cancel := b.s.d.Hub.Subscribe("", nil)
+			if !first {
+				for _, ev := range snap {
+					select {
+					case out <- ev.Topic:
+					case <-ctx.Done():
+					}
+				}
+			}
+			first = false
+			for done := false; !done; {
+				select {
+				case ev, ok := <-ch:
+					if !ok {
+						done = true
+						break
+					}
+					select {
+					case out <- ev.Topic:
+					case <-ctx.Done():
+					}
+				case <-ctx.Done():
+					done = true
+				}
+			}
+			cancel()
+		}
+	}()
+	return out
+}
+
 // failureError is f as the MCP tools report it: a refusal, or the upstream error.
 func failureError(f *failure) error {
 	if f.Upstream != nil {

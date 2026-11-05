@@ -53,6 +53,26 @@ func (s *Server) scopeFilter(next sdk.MethodHandler) sdk.MethodHandler {
 				}
 			}
 			return &out, nil
+		case "resources/list":
+			if !ok {
+				return nil, &jsonrpc.Error{Code: jsonrpc.CodeInvalidRequest, Message: "no principal"}
+			}
+			res := s.listTopics(c)
+			res.Cacheable = sdk.Cacheable{CacheScope: "private", TTLMs: 60000}
+			return res, nil
+		case "subscriptions/listen":
+			p, _ := req.GetParams().(*sdk.SubscriptionsListenParams)
+			if !ok {
+				return nil, &jsonrpc.Error{Code: jsonrpc.CodeInvalidRequest, Message: "no principal"}
+			}
+			if p == nil || p.Notifications == nil {
+				break
+			}
+			if err := s.checkSubscriptions(c, p.Notifications.ResourceSubscriptions); err != nil {
+				return nil, err
+			}
+		case "resources/subscribe", "resources/unsubscribe":
+			return nil, errLegacySubscribe
 		}
 		return next(ctx, method, req)
 	}

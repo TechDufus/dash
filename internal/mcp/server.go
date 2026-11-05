@@ -15,6 +15,7 @@ import (
 	"log/slog"
 	"net/http"
 	"reflect"
+	"time"
 
 	sdkauth "github.com/modelcontextprotocol/go-sdk/auth"
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
@@ -55,6 +56,18 @@ type Backend interface {
 	Logs(r *http.Request, ref model.LogsRef, since, query string, limit int) ([]model.LogLine, error)
 	// Context is the context bundle of ref, as r's principal.
 	Context(r *http.Request, ref string, o model.ContextOptions) (model.ContextBundle, error)
+	// Topics lists the topics user may read, in the hub's order: every global topic and the
+	// user's own copies of the user-scoped ones (Scoped set).
+	Topics(user string) []TopicRef
+	// Changes reports the name of each global topic whose data changed, until ctx ends. After a
+	// gap it may repeat names; it never reports a user-scoped topic.
+	Changes(ctx context.Context) <-chan string
+}
+
+// TopicRef names a topic a principal may read.
+type TopicRef struct {
+	Name   string
+	Scoped bool // a user-scoped copy (core.approvals): readable, never subscribable
 }
 
 // Error is a refusal a tool reports to the caller: code is a model.ErrCode*.
@@ -69,6 +82,10 @@ type Options struct {
 	Log     *slog.Logger
 	// Scrub removes every secret dash knows from one string (secret.Registry.ScrubLogLine).
 	Scrub func(string) string
+	// Context bounds the server's background work (the resource watcher); nil is never-ending.
+	Context context.Context
+	// Debounce is the least time between two updates of one resource (design N.3: 5 s).
+	Debounce time.Duration
 }
 
 // Server is the MCP server.
@@ -87,15 +104,30 @@ func New(o Options) *Server {
 	if o.Scrub == nil {
 		o.Scrub = func(s string) string { return s }
 	}
+	if o.Context == nil {
+		o.Context = context.Background()
+	}
+	if o.Debounce <= 0 {
+		o.Debounce = 5 * time.Second
+	}
 	s := &Server{o: o}
 	s.srv = sdk.NewServer(&sdk.Implementation{Name: "dash", Title: "dash", Version: o.Version}, &sdk.ServerOptions{
 		Logger:                    quiet(o.Log),
 		SupportedProtocolVersions: ProtocolVersions,
 		Capabilities: &sdk.ServerCapabilities{
-			Tools: &sdk.ToolCapabilities{ListChanged: true},
+			Tools:     &sdk.ToolCapabilities{ListChanged: true},
+			Resources: &sdk.ResourceCapabilities{Subscribe: true, ListChanged: true},
+			Prompts:   &sdk.PromptCapabilities{},
 		},
-		SetCacheable: func(_ context.Context, _ sdk.Request, c *sdk.Cacheable) {
-			c.CacheScope = "private"
+		// The subscriptions are checked in scopeFilter, which sees the caller; these only accept.
+		SubscribeHandler:   func(context.Context, *sdk.SubscribeRequest) error { return nil },
+		UnsubscribeHandler: func(context.Context, *sdk.UnsubscribeRequest) error { return nil },
+		// Every answer depends on the token (design N.3): private, 60 s for lists, 5 s for reads.
+		SetCacheable: func(_ context.Context, req sdk.Request, c *sdk.Cacheable) {
+			c.CacheScope, c.TTLMs = "private", 60000
+			if _, read := req.(*sdk.ReadResourceRequest); read {
+				c.TTLMs = 5000
+			}
 		},
 	})
 	s.tools = s.toolTable()
@@ -103,6 +135,12 @@ func New(o Options) *Server {
 		s.srv.AddTool(t.sdkTool(), s.toolHandler(t))
 	}
 	s.srv.AddReceivingMiddleware(s.scopeFilter)
+	s.srv.AddResourceTemplate(&sdk.ResourceTemplate{
+		Name: "topic", Title: "dash topic", URITemplate: topicURIPrefix + "{topic}", MIMEType: "application/json",
+		Description: "The current snapshot of one of dash's topics, the data behind a page.",
+	}, s.readTopic)
+	s.addPrompts()
+	go s.watch(o.Context)
 	h := sdk.NewStreamableHTTPHandler(func(*http.Request) *sdk.Server { return s.srv }, &sdk.StreamableHTTPOptions{
 		Stateless:                    true,
 		JSONResponse:                 true,
@@ -132,8 +170,10 @@ type warnHandler struct{ slog.Handler }
 func (h warnHandler) Enabled(ctx context.Context, lv slog.Level) bool {
 	return lv >= slog.LevelWarn && h.Handler.Enabled(ctx, lv)
 }
-func (h warnHandler) WithAttrs(a []slog.Attr) slog.Handler { return warnHandler{h.Handler.WithAttrs(a)} }
-func (h warnHandler) WithGroup(n string) slog.Handler      { return warnHandler{h.Handler.WithGroup(n)} }
+func (h warnHandler) WithAttrs(a []slog.Attr) slog.Handler {
+	return warnHandler{h.Handler.WithAttrs(a)}
+}
+func (h warnHandler) WithGroup(n string) slog.Handler { return warnHandler{h.Handler.WithGroup(n)} }
 
 // Handler serves POST /mcp for p, the token principal dash resolved for r (audience mcp).
 func (s *Server) Handler(w http.ResponseWriter, r *http.Request, p auth.Principal) {
