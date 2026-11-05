@@ -2170,7 +2170,7 @@ Remove the Zot push (`ci.yml:31`). README release steps are updated. There is no
 - [ ] P7.3 feat(mcp): read-only MCP server
 - [ ] P7.4 feat(mcp): context bundles, prompts and "Copy context for AI"
 - [ ] P7.5 feat(approvals): agent action tools with human approval
-- [ ] P7.6 feat(web): installable PWA
+- [x] P7.6 feat(web): installable PWA (v0.14.5: see the R1 deviations)
 - [ ] P7.7 feat(push): Web Push and UnifiedPush notifications
 - [ ] P7.8 docs(clients): native client and agent guides
 - [ ] P7.9 feat(plugins): optional assistant plugin (later; off by default)
@@ -2184,6 +2184,41 @@ Remove the Zot push (`ci.yml:31`). README release steps are updated. There is no
 - G7 is not required for the public release (P6.10). P7.9 is not part of this acceptance.
 
 **Dependencies:** G2, G3, P1.5, P4.2 to P4.4, P4.6, P4.7 and P5.4. Independent of G6 and the public flip. Phase 7 may start as soon as those land.
+
+### G7 R1 deviations (v0.14.5)
+
+R1 (branch `feat/g7-pwa`: the manifest, icons and offline page, the headers, the service worker, `make pwa-smoke` with the user docs, three dependency updates, then this docs commit) ships P7.6 and differs from it, and from design P.1, in these places. [docs/app.md](../app.md) is the user-facing description.
+
+| Item | The plan said | Shipped | Why |
+|---|---|---|---|
+| Precache list | Read from Vite's build manifest | Inlined into `dist/sw.js` by `web/vite-plugins/service-worker.ts` in `generateBundle` from the bundle itself (the hashed `/assets/*`, `/offline.html`, the PNG icons), with a build hash over the worker's source, the list and the public files | The worker's bytes change with every build that changes the UI, so the browser's update check sees a new worker; a worker reading `.vite/manifest.json` at install would never change, and `build.manifest` would serve that file publicly |
+| `index.html` | "precaches the app shell" | Never precached; `check-chunks` and the plugin refuse any entry outside `/assets/*`, `/offline.html` and the icons | The document carries a per-request CSP nonce; a cached copy would reuse it |
+| Worker and offline-page policies | `server.csp` applies to every response | `/sw.js` gets `default-src 'none'; connect-src 'self'; frame-ancestors 'none'` and `/offline.html` a no-script policy, both always as an enforcing `Content-Security-Policy`, whatever `server.csp` says | A worker runs under its script response's policy and keeps it until a release changes `sw.js`, as the cached offline page keeps its headers, so a relaxed mode would outlive the switch back; both allow dash's own origin only and cannot blank the UI, which is what the kill switch is for (found by the security verification) |
+| Navigation preload | Proposed by the security verification, so forwarded navigations reach the server with `Sec-Fetch-Dest: document` | Not used: a navigation the worker forwards reaches the server with `Sec-Fetch-Dest: empty`, documented; dash does not read it | With preload on, Chromium 156 sent a pass-through navigation twice (the preload, then the browser's own), so an OIDC callback's code would be replayed; `make pwa-smoke` now checks that an `/auth/callback?code=…` navigation reaches dash exactly once |
+| Offline page CSS | "an offline page" | Inline `<style>`, allowed by a sha256 the server computes from the embedded file once at start; no script, and *Try again* is a link to the page's own address | A separate stylesheet would be one more precached file outside the allowed list; a hash keeps `'unsafe-inline'` out |
+| Update | Not specified | `skipWaiting` after the atomic precache, then `clients.claim`; an old tab that asks for a chunk only the old build had recovers through `chunk-reload` (one reload) | A new release takes over at once; checked by the code review with two real builds |
+| Browser smoke | A browser smoke run | `make pwa-smoke` (Playwright's pinned full Chromium, a temporary profile, demo mode behind a counting loopback proxy) is not part of `make check` or CI; it is run at release time | The self-hosted runner has no Chromium; the headless shell and an incognito context cannot report installability |
+| Icons | 192, 512 and a maskable 512 | Those and a 180 px apple-touch-icon, rendered from the favicon glyph in `index.html` by the committed `web/scripts/icons.mjs` (`make icons`), byte-identical on rerun | The home-screen icon and the tab icon stay one design |
+| Manifest link | `<link rel="manifest">` | With `crossorigin="use-credentials"` | Behind an identity proxy the manifest fetch would otherwise go without the session cookie and be redirected to the sign-in |
+
+#### v0.14.5 release notes
+
+R1 of G7: P7.6, and three dependency updates. A patch: additive.
+
+- **dash installs as an app:** Chrome and Edge on desktop and Android, and iOS 16.4 or later from the home screen ([docs/app.md](../app.md)). It needs HTTPS (or the machine's own loopback address).
+- **An offline page** when the server cannot be reached; *Try again* reloads the page you were on.
+- **The service worker caches only dash's own static files** (the hashed scripts, styles and fonts, the icons and the offline page), never an API response, and never answers `/api`, `/oauth`, `/mcp`, the sign-in routes or another site.
+- **Dependencies:** the distroless static base image to digest `25ac8f0` (#30); prometheus `client_golang` 1.23.2 to 1.25.0, `prometheus/common` 0.66.1 to 0.72.0 and `golang.org/x/oauth2` 0.36.0 to 0.37.0 (#31); recharts 3.8.0 to 3.10.1 (#32). `/metrics` is unchanged: the same 8 families (names, types and help texts), the same 184 series and the same `Content-Type`, with Prometheus's `Accept` header and with none. The charts render the same (the screenshots are byte-identical).
+- **Upgrade:** no step.
+- **Rollback:** an older dash leaves the installed worker working: pages and data still come from the server. To remove it: developer tools → *Application* → *Service workers* → *Unregister*, then *Clear site data* (which also signs you out).
+
+**Evidence:** `make check` on every commit, each signed; `make pwa-smoke` passes (installable, the callback reaches dash once, Cache Storage holds exactly the 42-entry precache list, an offline reload shows the offline page from the worker, no CSP violation), and each of its checks was seen to fail against a mutant; `make screenshots` reproduces `docs/images` byte for byte, before and after the recharts update. The image with the new base digest builds, and `dash healthcheck` inside the demo container exits 0. `/metrics` of a demo run with `server.metrics` on was compared before and after the Go update: the `# HELP` and `# TYPE` lines and the series' names and labels match, and so does the `Content-Type` for both requests.
+
+**Evidence of the code review (`RevCodeG7`, two rounds):** install is atomic, the pass-through rules and the offline fallback are correct, and the build hash changes exactly when the UI does; an update with an old tab open recovers through `chunk-reload`. 18 of 18 worker mutants and 11 of 11 header mutants are killed; `make check` and `make pwa-smoke` pass. It found weak worker unit tests (no write recording, no failed install, no query-string match), gaps in the smoke's cleanup (a dash still starting survived a signal; no overall timeout) and policies computed on every request; all are fixed.
+
+**Security requirement verification (`RevSecG7`, two rounds):** after a local-mode session (setup, sign-in, every page, the stream, sign-out) and an offline reload, Cache Storage holds exactly the 42-entry precache list: nothing from `/api`, `/oauth`, `/mcp`, `/auth`, `/login`, `/setup` or `/.well-known`, no `Set-Cookie`, no nonce. The worker and the offline page block other origins and scripts in every `server.csp` mode; no route serves request-influenced JavaScript; registration happens only in a secure context, with scope `/`; the manifest's credentials go only to dash's own origin; a rollback leaves a working old worker. It found the policies following `server.csp` and frozen at install; they are always enforced now. Its navigation-preload proposal was dropped because preload made the browser send pass-through navigations twice; a sign-in callback now reaches dash exactly once.
+
+**Evidence of the docs review (`RevUXG7`, two rounds):** `make pwa-smoke` ran from a fresh clone with the documented setup; the documented rollback way out works; the install steps match Chrome's and Apple's documentation; the icons sit inside the maskable safe zone; the screenshots are unchanged byte for byte. It found a setup step that fetched the wrong Playwright (no `npm ci` first), and inaccurate notes on the Safari sign-in and on *Clear site data*; all are fixed.
 
 ### P7.1 feat(auth): bearer principals and personal access tokens
 
