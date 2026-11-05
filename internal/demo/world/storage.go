@@ -39,7 +39,7 @@ func (w *World) storage(now time.Time) model.StorageData {
 			Health: h, Links: w.links.Headlamp("PersistentVolumeClaim", p.ns, p.name),
 		})
 	}
-	d.BackupJobs = []model.BackupJob{{Name: "nas-backup", LastSuccessAgeSeconds: new(7.5 * 3600)}}
+	d.BackupJobs = []model.BackupJob{{Name: "nightly-backup", LastSuccessAgeSeconds: new(7.5 * 3600)}}
 	d.Etcd = model.Etcd{DBBytes: 92 << 20, QuotaBytes: 2 << 30}
 	return d
 }

@@ -136,18 +136,18 @@ func TestHardwareSelectorsAndThresholds(t *testing.T) {
 // Normalized trims names and fills the sensor aliases' defaults, and leaves its input alone.
 func TestHardwareNormalized(t *testing.T) {
 	in := defaultsWith(func(h *Hardware) {
-		h.Hosts = []HardwareHost{{Name: " r730 ", Nodename: " pve ", Model: " Dell ", SensorAliases: HardwareSensorAliases{Exhaust: " outlet "}}}
+		h.Hosts = []HardwareHost{{Name: " server1 ", Nodename: " pve ", Model: " Dell ", SensorAliases: HardwareSensorAliases{Exhaust: " outlet "}}}
 		h.Machines = []HardwareMachine{{Name: " nas ", NodeExporterNodename: " nas ", GatusEndpoint: ""}}
 	})
 	out := in.Normalized()
-	if x := out.Hosts[0]; x.Name != "r730" || x.Nodename != "pve" || x.Model != "Dell" ||
+	if x := out.Hosts[0]; x.Name != "server1" || x.Nodename != "pve" || x.Model != "Dell" ||
 		x.SensorAliases.Inlet != "inlet" || x.SensorAliases.Exhaust != "outlet" {
 		t.Errorf("host = %+v", x)
 	}
 	if m := out.Machines[0]; m.Name != "nas" || m.NodeExporterNodename != "nas" {
 		t.Errorf("machine = %+v", m)
 	}
-	if in.Hosts[0].Name != " r730 " || in.Hosts[0].SensorAliases.Inlet != "" || in.Machines[0].Name != " nas " {
+	if in.Hosts[0].Name != " server1 " || in.Hosts[0].SensorAliases.Inlet != "" || in.Machines[0].Name != " nas " {
 		t.Errorf("Normalized changed its input: %+v", in)
 	}
 }

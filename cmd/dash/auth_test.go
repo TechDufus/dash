@@ -240,7 +240,7 @@ func roleOf(t *testing.T, a auth.Authenticator, user, groups string) auth.Role {
 func TestRoleMappingFromConfig(t *testing.T) {
 	var logs logCapture
 	a, _, err := buildAuthenticator(resolvedAuth(false, false, func(c *config.AuthConfig) {
-		c.Proxy.AdminUsers = []string{"TechDufus", "  padded  ", "", "\u00a0nbsp"}
+		c.Proxy.AdminUsers = []string{"Bob", "  padded  ", "", "\u00a0nbsp"}
 		c.Proxy.AdminGroups = []string{"ops"}
 		c.Proxy.GroupsHeader = "X-Forwarded-Groups"
 	}), logs.logger())
@@ -251,8 +251,8 @@ func TestRoleMappingFromConfig(t *testing.T) {
 		user, groups string
 		want         auth.Role
 	}{
-		{"TechDufus", "", auth.RoleAdmin},
-		{"techdufus", "", auth.RoleViewer}, // exact and case-sensitive
+		{"Bob", "", auth.RoleAdmin},
+		{"bob", "", auth.RoleViewer},       // exact and case-sensitive
 		{"padded", "", auth.RoleAdmin},     // list entries are trimmed of space and tab
 		{"\u00a0nbsp", "", auth.RoleAdmin}, // a no-break space is part of the name
 		{"nbsp", "", auth.RoleViewer},      // so the plain name is another user
@@ -272,7 +272,7 @@ func TestEmptyAdminListsMakeEveryUserAViewer(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, user := range []string{"alice", "TechDufus", "*", "admin"} {
+	for _, user := range []string{"alice", "Bob", "*", "admin"} {
 		if got := roleOf(t, a, user, ""); got != auth.RoleViewer {
 			t.Errorf("%s: role = %q, want viewer with the default (empty) lists", user, got)
 		}
@@ -290,7 +290,7 @@ func TestWildcardMakesEveryoneAdmin(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, user := range []string{"alice", "TechDufus", "dash-verify"} {
+	for _, user := range []string{"alice", "Bob", "dash-verify"} {
 		if got := roleOf(t, a, user, ""); got != auth.RoleAdmin {
 			t.Errorf("%s: role = %q, want admin under the wildcard", user, got)
 		}
@@ -323,7 +323,7 @@ func TestWildcardMakesEveryoneAdmin(t *testing.T) {
 func TestProxyModeLogsCountsNotNames(t *testing.T) {
 	var logs logCapture
 	_, _, err := buildAuthenticator(resolvedAuth(false, false, func(c *config.AuthConfig) {
-		c.Proxy.AdminUsers = []string{"TechDufus", "second-admin-name", " ", ""} // blank entries are not counted
+		c.Proxy.AdminUsers = []string{"Bob", "second-admin-name", " ", ""} // blank entries are not counted
 		c.Proxy.AdminGroups = []string{"secret-group-name", "\t"}
 		c.Proxy.GroupsHeader = "X-Forwarded-Groups"
 	}), logs.logger())
@@ -334,7 +334,7 @@ func TestProxyModeLogsCountsNotNames(t *testing.T) {
 	if len(recs) != 1 || recs[0]["trustedPrefixes"] != float64(2) || recs[0]["adminUsers"] != float64(2) || recs[0]["adminGroups"] != float64(1) {
 		t.Fatalf("startup INFO = %v, want counts 2 prefixes, 2 users, 1 group:\n%s", recs, &logs.buf)
 	}
-	for _, name := range []string{"TechDufus", "second-admin-name", "secret-group-name"} {
+	for _, name := range []string{"Bob", "second-admin-name", "secret-group-name"} {
 		if strings.Contains(logs.buf.String(), name) {
 			t.Errorf("the startup log names %q:\n%s", name, &logs.buf)
 		}

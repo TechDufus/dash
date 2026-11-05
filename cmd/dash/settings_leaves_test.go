@@ -84,7 +84,7 @@ func kubernetesLeaves() []reachLeaf {
 		{"plugins.kubernetes.actions.enabled", "true", "false"},
 		{"plugins.kubernetes.actions.denyNamespaces", `["kube-system","secrets"]`, `["kube-system"]`},
 		{"plugins.kubernetes.backupJobs",
-			`[{"namespace":"backup","cronjob":"nas-backup","label":"NAS"}]`,
+			`[{"namespace":"backup","cronjob":"nightly-backup","label":"NAS"}]`,
 			`[{"namespace":"backup","cronjob":"db-backup","label":"DB"}]`},
 		{"plugins.kubernetes.apps.gateways",
 			`[{"namespace":"edge","name":"public"},{"namespace":"edge","name":"internal"}]`,

@@ -327,7 +327,7 @@ func TestEnvNamesDoNotCollide(t *testing.T) {
 func TestEnvSetsFieldsWithJSONForLists(t *testing.T) {
 	res, log, err := resolveEnv(t,
 		"DASH_SERVER_ALLOWED_HOSTS=[\"Media.Example.com\",\"192.0.2.10\"]",
-		`DASH_PLUGINS_HARDWARE_HOSTS=[{"nodename":"box","model":"Dell R730"}]`,
+		`DASH_PLUGINS_HARDWARE_HOSTS=[{"nodename":"box","model":"Example 2U server"}]`,
 		"DASH_PLUGINS_PROXMOX_NODE=pve",
 		"DASH_PLUGINS_KUBERNETES_BACKUP_JOBS=[{\"namespace\":\"backup\",\"cronjob\":\"nightly\"}]",
 	)
@@ -337,7 +337,7 @@ func TestEnvSetsFieldsWithJSONForLists(t *testing.T) {
 	c := res.Config
 	hw := res.Tree.Plugins.Hardware
 	bj := res.Tree.Plugins.Kubernetes.BackupJobs
-	if !slices.Equal(c.AllowedHosts, []string{"media.example.com", "192.0.2.10"}) || len(hw.Hosts) != 1 || hw.Hosts[0].Nodename != "box" || hw.Hosts[0].Model != "Dell R730" ||
+	if !slices.Equal(c.AllowedHosts, []string{"media.example.com", "192.0.2.10"}) || len(hw.Hosts) != 1 || hw.Hosts[0].Nodename != "box" || hw.Hosts[0].Model != "Example 2U server" ||
 		res.Tree.Plugins.Proxmox.Node != "pve" || len(bj) != 1 || bj[0].Namespace != "backup" || bj[0].CronJob != "nightly" {
 		t.Errorf("config = %+v", c)
 	}

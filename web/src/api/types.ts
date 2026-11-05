@@ -277,7 +277,7 @@ export interface HostData {
    */
   ref: string;
   /**
-   * Model is shown next to the host's name, e.g. "Dell R730"; empty shows nothing. The hardware
+   * Model is shown next to the host's name, e.g. "Example 2U server"; empty shows nothing. The hardware
    * plugin fills it from plugins.hardware.hosts[0].model.
    */
   model: string;
@@ -888,7 +888,7 @@ export interface RestartRequest {
   namespace: string;
   name: string;
   /**
-   * Confirm must equal Name in a namespace labelled homelab.io/protected=true.
+   * Confirm must equal Name in a namespace carrying the protected label (plugins.kubernetes.conventions.protectedLabel).
    */
   confirm: string;
 }

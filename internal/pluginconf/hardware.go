@@ -42,8 +42,8 @@ type HardwareHost struct {
 	// Nodename is the nodename label of its series; empty falls back to the node of the running
 	// proxmox plugin.
 	Nodename string `json:"nodename" doc:"The nodename label of the host's node-exporter and IPMI series. Empty uses the node of the running proxmox plugin (plugins.proxmox.node, or the node it discovers), so the plugin needs its URL, token ID and token secret; without it the Hardware row stays unavailable (waiting for the Proxmox node name) until nodename is set."`
-	// Model is shown next to the host's name, e.g. "Dell R730".
-	Model string `json:"model" doc:"Shown next to the host's name, e.g. Dell R730."`
+	// Model is shown next to the host's name, e.g. "Example 2U server".
+	Model string `json:"model" doc:"Shown next to the host's name, e.g. Example 2U server."`
 	// Bays is the number of drive bays the Disks grid draws; 0 numbers the slots from 1 (from 0
 	// when a disk sits in slot 0) up to the highest one that has a disk, at most 128.
 	Bays int `json:"bays" doc:"Drive bays the Disks grid draws, 0 to 128. 0 numbers the slots from 1 (from 0 when a disk sits in slot 0) up to the highest one that holds a disk, at most 128; above that, or when the disks' bay labels are not distinct numbers, the page lists the disks sorted."`

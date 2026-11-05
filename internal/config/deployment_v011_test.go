@@ -21,7 +21,7 @@ func TestDeploymentEnvV011(t *testing.T) {
 	added := []string{
 		"DASH_AUTH_MODE=proxy",
 		`DASH_AUTH_PROXY_TRUSTED_PROXIES=["127.0.0.1/32","::1/128"]`,
-		`DASH_AUTH_PROXY_ADMIN_USERS=["TechDufus"]`,
+		`DASH_AUTH_PROXY_ADMIN_USERS=["Bob"]`,
 	}
 	if want := append(append([]string(nil), old...), added...); !reflect.DeepEqual(env, want) {
 		t.Fatalf("%s is not the v0.10.0 file plus the three auth lines\n got: %q\nwant: %q", deploymentEnvFileV011, env, want)
@@ -45,7 +45,7 @@ func TestDeploymentEnvV011(t *testing.T) {
 	if want := []string{"127.0.0.1/32", "::1/128"}; !reflect.DeepEqual(p.TrustedProxies, want) {
 		t.Errorf("auth.proxy.trustedProxies = %q, want %q", p.TrustedProxies, want)
 	}
-	if want := []string{"TechDufus"}; !reflect.DeepEqual(p.AdminUsers, want) {
+	if want := []string{"Bob"}; !reflect.DeepEqual(p.AdminUsers, want) {
 		t.Errorf("auth.proxy.adminUsers = %q, want %q", p.AdminUsers, want)
 	}
 	// What the deployment leaves alone stays at the default: the two user headers, groups off.

@@ -41,7 +41,7 @@ plugins:
     tokenID: dash@pve!dash
     tokenSecret: s3cret
   hardware:
-    hosts: [{nodename: box, model: Dell R730}]
+    hosts: [{nodename: box, model: Example 2U server}]
     zfsScrubMetricPrefix: example_zfs_scrub
   headlamp: {url: "https://headlamp.example.com", cluster: prod}
   grafana: {url: "https://grafana.example.com"}
@@ -84,7 +84,7 @@ func TestFileLoadsIntoConfig(t *testing.T) {
 	if got := res.Tree.Plugins.Prometheus.URL; got != "http://prometheus.example.com:9090" {
 		t.Errorf("plugins.prometheus.url = %q", got)
 	}
-	if hw := res.Tree.Plugins.Hardware; len(hw.Hosts) != 1 || hw.Hosts[0].Nodename != "box" || hw.Hosts[0].Model != "Dell R730" || hw.ZFSScrubMetricPrefix != "example_zfs_scrub" {
+	if hw := res.Tree.Plugins.Hardware; len(hw.Hosts) != 1 || hw.Hosts[0].Nodename != "box" || hw.Hosts[0].Model != "Example 2U server" || hw.ZFSScrubMetricPrefix != "example_zfs_scrub" {
 		t.Errorf("plugins.hardware = %+v", hw)
 	}
 }

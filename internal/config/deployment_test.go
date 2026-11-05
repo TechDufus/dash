@@ -146,27 +146,27 @@ func assertHomelabEnvV08(t *testing.T, res *Resolved) {
 	if got := res.Config.PublicURL; got != "https://dash.example.com" {
 		t.Errorf("public URL = %q", got)
 	}
-	if p.Proxmox.Node != "pve-730" {
+	if p.Proxmox.Node != "node-1" {
 		t.Errorf("proxmox node = %q", p.Proxmox.Node)
 	}
-	if want := []int{2020, 2021, 2022}; !reflect.DeepEqual(p.Proxmox.CriticalVMs.IDs, want) {
+	if want := []int{101, 102, 103}; !reflect.DeepEqual(p.Proxmox.CriticalVMs.IDs, want) {
 		t.Errorf("criticalVMs.ids = %v, want %v", p.Proxmox.CriticalVMs.IDs, want)
 	}
 	if p.Proxmox.Storage.Source != "prometheus" {
 		t.Errorf("storage.source = %q, want prometheus", p.Proxmox.Storage.Source)
 	}
-	wantHosts := []pluginconf.HardwareHost{{Model: "Dell R730", Bays: 16, FanMaxRPM: 18000}}
+	wantHosts := []pluginconf.HardwareHost{{Model: "Example 2U server", Bays: 16, FanMaxRPM: 18000}}
 	if !reflect.DeepEqual(p.Hardware.Hosts, wantHosts) {
 		t.Errorf("hosts = %+v, want %+v", p.Hardware.Hosts, wantHosts)
 	}
 	wantMachines := []pluginconf.HardwareMachine{
-		{Name: "mac-mini", NodeExporterNodename: "mac-mini"},
-		{Name: "rpi-control", GatusEndpoint: "rpi-control SSH"},
+		{Name: "mini-1", NodeExporterNodename: "mini-1"},
+		{Name: "pi-1", GatusEndpoint: "pi-1 SSH"},
 	}
 	if !reflect.DeepEqual(p.Hardware.Machines, wantMachines) {
 		t.Errorf("machines = %+v, want %+v", p.Hardware.Machines, wantMachines)
 	}
-	if p.Hardware.ZFSScrubMetricPrefix != "homelab_zfs_scrub" {
+	if p.Hardware.ZFSScrubMetricPrefix != "site_zfs_scrub" {
 		t.Errorf("zfsScrubMetricPrefix = %q", p.Hardware.ZFSScrubMetricPrefix)
 	}
 	// What the deployment leaves at the defaults, which equal v0.7.0's behaviour (contract 10.2).

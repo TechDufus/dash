@@ -220,7 +220,7 @@ type Disk struct {
 type HostData struct {
 	// Ref is hardware:Host/<node> (design L.6).
 	Ref string `json:"ref"`
-	// Model is shown next to the host's name, e.g. "Dell R730"; empty shows nothing. The hardware
+	// Model is shown next to the host's name, e.g. "Example 2U server"; empty shows nothing. The hardware
 	// plugin fills it from plugins.hardware.hosts[0].model.
 	Model string `json:"model"`
 	// Bays is plugins.hardware.hosts[0].bays: the drive slots the Disks grid draws. 0 derives them:
@@ -795,7 +795,7 @@ type RestartRequest struct {
 	Kind      WorkloadKind `json:"kind"`
 	Namespace string       `json:"namespace"`
 	Name      string       `json:"name"`
-	// Confirm must equal Name in a namespace labelled homelab.io/protected=true.
+	// Confirm must equal Name in a namespace carrying the protected label (plugins.kubernetes.conventions.protectedLabel).
 	Confirm string `json:"confirm"`
 }
 

@@ -28,10 +28,10 @@ func TestDeploymentEnvV011ReachesTheAuthenticator(t *testing.T) {
 		name, peer, user string
 		role             auth.Role
 	}{
-		{"the sidecar on 127.0.0.1 signs the owner in", "127.0.0.1:41000", "TechDufus", auth.RoleAdmin},
-		{"the sidecar on ::1", "[::1]:41000", "TechDufus", auth.RoleAdmin},
+		{"the sidecar on 127.0.0.1 signs the owner in", "127.0.0.1:41000", "Bob", auth.RoleAdmin},
+		{"the sidecar on ::1", "[::1]:41000", "Bob", auth.RoleAdmin},
 		{"another user is a viewer", "127.0.0.1:41000", "dash-verify", auth.RoleViewer},
-		{"the mapping is case-sensitive", "127.0.0.1:41000", "techdufus", auth.RoleViewer},
+		{"the mapping is case-sensitive", "127.0.0.1:41000", "bob", auth.RoleViewer},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			p, f := a.Authenticate(authRequest(tc.peer, "X-Forwarded-User", tc.user))
@@ -41,7 +41,7 @@ func TestDeploymentEnvV011ReachesTheAuthenticator(t *testing.T) {
 		})
 	}
 	for _, peer := range []string{"192.0.2.1:1234", "127.0.0.2:1234"} {
-		if _, f := a.Authenticate(authRequest(peer, "X-Forwarded-User", "TechDufus")); f == nil || f.Status != 401 || f.Reason != auth.ReasonUntrustedPeer {
+		if _, f := a.Authenticate(authRequest(peer, "X-Forwarded-User", "Bob")); f == nil || f.Status != 401 || f.Reason != auth.ReasonUntrustedPeer {
 			t.Errorf("peer %s outside the trusted prefixes: failure %+v, want 401 %s", peer, f, auth.ReasonUntrustedPeer)
 		}
 	}

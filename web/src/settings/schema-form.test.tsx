@@ -285,7 +285,7 @@ describe("schema-driven form", () => {
     const hosts = await screen.findByLabelText("hosts");
     expect(hosts).toHaveAttribute("readonly");
     expect(JSON.parse((hosts as HTMLTextAreaElement).value)).toEqual([
-      { nodename: "pve1", machine: "r730" },
+      { nodename: "pve1", machine: "server1" },
     ]);
 
     const machines = screen.getByLabelText("machines");

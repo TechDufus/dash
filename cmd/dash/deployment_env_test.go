@@ -69,8 +69,8 @@ func deploymentEnvReachesThePlugins(t *testing.T, file string, wantRestart, want
 	// What the environment must resolve to, pinned here and not read back from the file it
 	// checks (internal/config's TestDeploymentEnvV08, V09 and V010 pin the same values).
 	wantMachines := []pluginconf.HardwareMachine{
-		{Name: "mac-mini", NodeExporterNodename: "mac-mini"},
-		{Name: "rpi-control", GatusEndpoint: "rpi-control SSH"},
+		{Name: "mini-1", NodeExporterNodename: "mini-1"},
+		{Name: "pi-1", GatusEndpoint: "pi-1 SSH"},
 	}
 	var mu sync.Mutex
 	var asked []string
@@ -82,7 +82,7 @@ func deploymentEnvReachesThePlugins(t *testing.T, file string, wantRestart, want
 		_, _ = w.Write([]byte(`{"status":"success","data":{"resultType":"vector","result":[]}}`))
 	}))
 	defer prom.Close()
-	pve := newFakePVEFor(t, "pve-730")
+	pve := newFakePVEFor(t, "node-1")
 	// The deployment's own hosts are not reachable here: the two upstreams are local fakes.
 	env := append(deploymentEnv(t, file), "DASH_PLUGINS_PROMETHEUS_URL="+prom.URL, "DASH_PLUGINS_PROXMOX_URL="+pve.URL)
 
@@ -112,15 +112,15 @@ func deploymentEnvReachesThePlugins(t *testing.T, file string, wantRestart, want
 		if !ok {
 			t.Fatalf("proxmox is started with %T", seen["proxmox"].Config())
 		}
-		if px.Node != "pve-730" || !slices.Equal(px.CriticalVMs.IDs, []int{2020, 2021, 2022}) || px.StorageSource() != "prometheus" {
+		if px.Node != "node-1" || !slices.Equal(px.CriticalVMs.IDs, []int{101, 102, 103}) || px.StorageSource() != "prometheus" {
 			t.Errorf("proxmox start config: node %q, critical ids %v, storage source %q", px.Node, px.CriticalVMs.IDs, px.StorageSource())
 		}
 		hw, ok := seen["hardware"].Config().(*pluginconf.Hardware)
 		if !ok {
 			t.Fatalf("hardware is started with %T", seen["hardware"].Config())
 		}
-		wantHosts := []pluginconf.HardwareHost{{Model: "Dell R730", Bays: 16, FanMaxRPM: 18000}}
-		if !slices.Equal(hw.Hosts, wantHosts) || !slices.Equal(hw.Machines, wantMachines) || hw.ZFSScrubMetricPrefix != "homelab_zfs_scrub" {
+		wantHosts := []pluginconf.HardwareHost{{Model: "Example 2U server", Bays: 16, FanMaxRPM: 18000}}
+		if !slices.Equal(hw.Hosts, wantHosts) || !slices.Equal(hw.Machines, wantMachines) || hw.ZFSScrubMetricPrefix != "site_zfs_scrub" {
 			t.Errorf("hardware start config: hosts %+v, machines %+v, zfs prefix %q", hw.Hosts, hw.Machines, hw.ZFSScrubMetricPrefix)
 		}
 		if res.Tree.Plugins.Proxmox.Node != px.Node {
@@ -204,7 +204,7 @@ func deploymentEnvReachesThePlugins(t *testing.T, file string, wantRestart, want
 			ev, ok = fw.hub.Latest("", model.TopicHardwareMachines)
 			return ok && json.Unmarshal(ev.Data, &e) == nil && json.Unmarshal(e.Data, &machines) == nil
 		})
-		if host.Ref != "hardware:Host/pve-730" || host.Name != "pve-730" || host.Model != "Dell R730" || host.Bays != 16 || host.FanMaxRPM != 18000 ||
+		if host.Ref != "hardware:Host/node-1" || host.Name != "node-1" || host.Model != "Example 2U server" || host.Bays != 16 || host.FanMaxRPM != 18000 ||
 			host.SensorAliases != (model.SensorAliases{Inlet: "inlet", Exhaust: "exhaust"}) || host.TempWarnC != 85 || host.TempCritC != 90 || !host.ScrubTracked {
 			t.Errorf("hardware.hosts = %+v", host)
 		}
@@ -215,7 +215,7 @@ func deploymentEnvReachesThePlugins(t *testing.T, file string, wantRestart, want
 		if len(got) != len(wantMachines) {
 			t.Errorf("hardware.machines = %+v, want the %d of the environment", machines.Machines, len(wantMachines))
 		}
-		wantQueries := []string{`nodename="pve-730"`, "homelab_zfs_scrub_last_errors"}
+		wantQueries := []string{`nodename="node-1"`, "site_zfs_scrub_last_errors"}
 		for _, w := range wantMachines {
 			wantSource := "gatus"
 			if w.NodeExporterNodename != "" {

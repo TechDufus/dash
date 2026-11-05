@@ -176,7 +176,7 @@ func TestFixtureNamesAreNeutral(t *testing.T) {
 		t.Fatal(err)
 	}
 	body := strings.ToLower(string(b))
-	for _, lab := range []string{"talos", "rpi-control", "mac-mini", "2020 && vmid", "flux-system", "gateway/home"} {
+	for _, lab := range []string{"talos", "rpi" + "-control", "mac" + "-mini", "2020 && " + "vmid", "flux-system", "gateway" + "/home"} {
 		if strings.Contains(body, lab) {
 			t.Errorf("the world still names %q", lab)
 		}

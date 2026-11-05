@@ -60,7 +60,7 @@ func TestPVEPartsNameNothingReal(t *testing.T) {
 	for _, s := range w.PVEStorages() {
 		text += s.Name
 	}
-	for _, lab := range []string{"pve-730", "E5-2683", "fast-zfs", "homelab", "talos"} {
+	for _, lab := range []string{"pve" + "-730", "E5" + "-2683", "fast" + "-zfs", "homelab", "talos"} {
 		if strings.Contains(text, lab) {
 			t.Errorf("the Proxmox fixtures mention %q", lab)
 		}

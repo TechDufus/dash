@@ -10,7 +10,7 @@ const (
 )
 
 // HostModel is the model of the fake host, shown next to its name (HostData.Model).
-const HostModel = "Dell R730"
+const HostModel = "Example 2U server"
 
 // Launcher is the launcher payload: five infrastructure links, all on example.com.
 func Launcher() model.LauncherData {

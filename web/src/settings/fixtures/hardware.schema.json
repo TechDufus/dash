@@ -51,7 +51,7 @@
           "type": "integer"
         },
         "model": {
-          "description": "Shown next to the host's name, e.g. Dell R730.",
+          "description": "Shown next to the host's name, e.g. Example 2U server.",
           "type": "string"
         },
         "name": {

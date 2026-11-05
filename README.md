@@ -22,10 +22,8 @@
 
 **dash** is mission control for the homelab: one Go binary (stdlib `net/http`, client-go
 informers) that serves an embedded React SPA and a live JSON/SSE API over Proxmox, Kubernetes,
-Flux, the R730, storage, Alertmanager and Gatus. It runs in the Talos cluster as
-`kubernetes/apps/dash` in [TechDufus/homelab](https://github.com/TechDufus/homelab), behind an
-oauth2-proxy sidecar that admits only the GitHub user `TechDufus`, at
-https://dash.home.techdufus.com.
+Flux, server hardware, storage, Alertmanager and Gatus. It runs as a container or in a Kubernetes
+cluster, for example behind an oauth2-proxy sidecar that admits only the users you list.
 
 ![dash overview: KPIs, live topology from the Proxmox host through the VMs to the cluster's namespaces, and the attention list](docs/images/overview.png)
 
@@ -54,15 +52,11 @@ https://dash.home.techdufus.com.
 - **Safe by design.** Writes are limited to three operations: a workload rollout restart (off
   until `plugins.kubernetes.actions.enabled` is set), a Flux reconcile request (off until
   `plugins.flux.actions.enabled` is set), and Alertmanager
-  silences that expire (off until `plugins.alertmanager.actions.enabled` is set). The homelab
-  guardrail `kubernetes/platform/guardrails/policy-dash.yaml` fences the ServiceAccount to exactly
-  those. dash also starts and serves Proxmox with no cluster at all: the kubernetes plugin is then
+  silences that expire (off until `plugins.alertmanager.actions.enabled` is set). An admission
+  policy in your cluster can fence the ServiceAccount to exactly those. dash also starts and serves Proxmox with no cluster at all: the kubernetes plugin is then
   `unavailable` and its pages are hidden.
 
 ## Screenshots
-
-All screenshots run on the built-in [demo data](#try-it-with-demo-data); every name and address
-in them is made up.
 
 | | |
 |:---:|:---:|
@@ -639,12 +633,12 @@ upstream URL turns that source off: dash makes no request to it and its panels s
 | `http://vmalertmanager-vm.monitoring.svc:9093` | `plugins.alertmanager.url` |
 | `http://vl-server.monitoring.svc:9428` | `plugins.victorialogs.url` |
 | `http://gatus.gatus.svc:8080` | `plugins.gatus.url` |
-| `homelab.io/protected`, `homelab.io/tenant` | `plugins.kubernetes.conventions.protectedLabel`, `.tenantLabel` |
-| `homelab.io/suspended` | `plugins.flux.suspendReasonAnnotation` |
+| the protected and tenant namespace labels | `plugins.kubernetes.conventions.protectedLabel`, `.tenantLabel` |
+| the Flux suspend-reason annotation | `plugins.flux.suspendReasonAnnotation` |
 | `app-` | `plugins.kubernetes.conventions.appsFluxPrefix` |
-| `homelab_zfs_scrub` | `plugins.hardware.zfsScrubMetricPrefix` |
-| `rustfs` / `nas-backup` | `plugins.kubernetes.backupJobs` (`[{namespace: rustfs, cronjob: nas-backup}]`) |
-| only routes of the gateway `gateway/home` were apps | `plugins.kubernetes.apps.gateways` (`[{namespace: gateway, name: home}]`); empty now accepts every HTTPRoute |
+| the ZFS scrub metric prefix | `plugins.hardware.zfsScrubMetricPrefix` |
+| one backup CronJob | `plugins.kubernetes.backupJobs` (`[{namespace: backup, cronjob: nightly-backup}]`) |
+| only routes of one gateway were apps | `plugins.kubernetes.apps.gateways` (`[{namespace: gateway, name: main}]`); empty now accepts every HTTPRoute |
 | the `dash` namespace was never an app | `plugins.kubernetes.apps.excludeNamespaces` (`[dash]`); empty now skips nothing |
 | app icons from a CDN | `ui.iconBaseURL` (`https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/png`); empty now shows letter tiles |
 | the RustFS buckets and capacity were always read | `plugins.rustfs.enabled` (`true`; the plugin is now off unless set, and its series names are `plugins.rustfs.metrics.*`) |
@@ -783,12 +777,10 @@ DASH_SKIP_HOOKS=1 git push
 ## Release
 
 1. On `main` with CI green: `git tag vX.Y.Z && git push origin vX.Y.Z`.
-2. CI on github-runner-1 (`release` job) pushes `registry.home.techdufus.com/dash/dash:X.Y.Z`
-   and prints `image: registry.home.techdufus.com/dash/dash:X.Y.Z@sha256:<digest>` in the log
-   and the job summary. Tags are create-only: a version can never be pushed twice.
-3. In the homelab repo, bump the `image:` line of the `dash` container in
-   `kubernetes/apps/dash/app/deployment.yaml` to that tag and digest, then `task validate`,
-   commit (signed), push and `task k8s:status`.
+2. CI (`release` job) pushes the image `dash:X.Y.Z` to the release registry and prints
+   `image: <registry>/dash/dash:X.Y.Z@sha256:<digest>` in the log and the job summary. Tags are
+   create-only: a version can never be pushed twice.
+3. Deploy that tag and digest wherever dash runs.
 
 ## License
 

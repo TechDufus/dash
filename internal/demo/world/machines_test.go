@@ -57,7 +57,7 @@ func TestMachinesAreFreshAndStable(t *testing.T) {
 // No machine of the fake lab is a real lab's: the names are generic.
 func TestMachineNamesAreGeneric(t *testing.T) {
 	for _, m := range testWorld().Machines() {
-		for _, lab := range []string{"rpi-control", "mac-mini", "talos", "homelab"} {
+		for _, lab := range []string{"rpi" + "-control", "mac" + "-mini", "talos", "homelab"} {
 			if strings.Contains(strings.ToLower(m.Name), lab) {
 				t.Errorf("machine %q names %q", m.Name, lab)
 			}

@@ -132,7 +132,7 @@ export function hardwareView(over: Partial<SettingsPluginView> = {}): SettingsPl
       field(`${H}enabled`, "boolean"),
       field(`${H}type`, "string", { value: "" }),
       field(`${H}hosts`, "array", {
-        value: [{ nodename: "pve1", machine: "r730" }],
+        value: [{ nodename: "pve1", machine: "server1" }],
         set: true,
         source: "file",
         ref: "/data/config.yaml",

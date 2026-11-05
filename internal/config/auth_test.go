@@ -376,8 +376,8 @@ func TestAdminListEntriesAreValidated(t *testing.T) {
 		path string // "" = valid
 		msg  string
 	}{
-		"users":                    {users("TechDufus", "alice"), "", ""},
-		"users padded":             {users("  TechDufus "), "", ""},
+		"users":                    {users("Bob", "alice"), "", ""},
+		"users padded":             {users("  Bob "), "", ""},
 		"wildcard user":            {users("*"), "", ""},
 		"empty user":               {users("alice", ""), "proxy.adminUsers", "entry 2 is empty"},
 		"blank user":               {users("   "), "proxy.adminUsers", "entry 1 is empty"},

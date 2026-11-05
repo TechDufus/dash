@@ -107,8 +107,8 @@ describe("the Hardware page", () => {
 
   describe("the title", () => {
     it("shows the model the host carries next to the host's name", () => {
-      draw(host({ model: "Dell R730" }));
-      expect(screen.getByText("pve-1 · Dell R730")).toBeInTheDocument();
+      draw(host({ model: "Example 2U server" }));
+      expect(screen.getByText("pve-1 · Example 2U server")).toBeInTheDocument();
     });
 
     it("shows only the name when no model is configured", () => {
