@@ -58,6 +58,10 @@ cluster, for example behind an oauth2-proxy sidecar that admits only the users y
 
 ## Screenshots
 
+All screenshots run on the built-in [demo data](#try-it-with-demo-data) at a fixed clock
+(`make screenshots`, see [Screenshots](#screenshots-1) under Develop); every name and address in
+them is made up.
+
 | | |
 |:---:|:---:|
 | ![Virtual machines](docs/images/vms.png) **Virtual machines** | ![Hardware](docs/images/hardware.png) **Hardware** |

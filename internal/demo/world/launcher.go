@@ -16,7 +16,7 @@ const HostModel = "Example 2U server"
 func Launcher() model.LauncherData {
 	return model.LauncherData{Links: []model.LauncherLink{
 		{Name: "Proxmox", Href: "https://pve.example.com:8006", Icon: "proxmox", Description: "Hypervisor"},
-		{Name: "iDRAC", Href: "https://idrac.example.com", Icon: "idrac", Description: "Out-of-band"},
+		{Name: "BMC", Href: "https://bmc.example.com", Icon: "idrac", Description: "Out-of-band"},
 		{Name: "UniFi", Href: "https://unifi.example.com", Icon: "unifi", Description: "Network"},
 		{Name: "NAS", Href: "https://nas.example.com", Icon: "unifi-drive", Description: "Backups"},
 		{Name: "GitOps repo", Href: "https://git.example.com/homelab", Icon: "github", Description: "Flux source"},
