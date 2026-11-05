@@ -1,13 +1,11 @@
 # Run dash with Docker
 
 One image runs everywhere: `ghcr.io/techdufus/dash:<version>` (distroless, user 65532; for
-linux/amd64 and linux/arm64 once published). It listens on `0.0.0.0:8080` for the web UI and the
+linux/amd64 and linux/arm64). It listens on `0.0.0.0:8080` for the web UI and the
 API and on `0.0.0.0:8081` for `/healthz` and `/readyz`, and its `HEALTHCHECK` runs
-`dash healthcheck`.
-
-> Until the image is published on GHCR, build it from a checkout under the same name (for this
-> machine's architecture only):
-> `docker build --build-arg VERSION=0.14.10 -t ghcr.io/techdufus/dash:0.14.10 .`
+`dash healthcheck`. To run code that is not released yet, build it from a checkout under the same
+name: `docker build --build-arg VERSION=0.14.10 -t ghcr.io/techdufus/dash:0.14.10 .` (this
+machine's architecture only).
 
 ## docker run
 
@@ -73,7 +71,7 @@ is usually 0600): `mkdir -p -m 0700 kube && install -m 0644 ~/.kube/config kube/
 
 [`examples/compose`](../../examples/compose) runs dash on `http://localhost:8080` with the same
 volume and the secret key as a Compose secret, plus Prometheus and Alertmanager under the
-`monitoring` profile. Build the image first (above) until it is published.
+`monitoring` profile.
 
 ```sh
 cd examples/compose
@@ -92,6 +90,21 @@ generated key and a free port: it reads the setup token from the logs, sets the 
 to be `healthy` and then requires dash's connection test against the compose Prometheus to pass.
 It removes the project, its volume and the image afterwards; run it locally with Docker, `curl`,
 `jq` and `openssl`.
+
+## Verify the image
+
+Each release image carries GitHub build-provenance and SPDX SBOM attestations (and BuildKit
+provenance and SBOM). Check where it was built:
+
+```sh
+gh attestation verify oci://ghcr.io/techdufus/dash:<version> --owner TechDufus
+cosign verify ghcr.io/techdufus/dash@<digest> \
+  --certificate-identity-regexp '^https://github.com/TechDufus/dash/' \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com
+```
+
+`<digest>` is the image's `sha256:…` digest
+(`docker buildx imagetools inspect ghcr.io/techdufus/dash:<version>`).
 
 ## Upgrade and roll back
 

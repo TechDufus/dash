@@ -4,10 +4,7 @@ The image is the one of [docker.md](docker.md): `ghcr.io/techdufus/dash:<version
 for the web UI and the API, port `8081` for `/healthz` and `/readyz`. Every platform below runs
 it unchanged; what differs is whether it gives dash a disk.
 
-Until `ghcr.io/techdufus/dash` is published, build for linux/amd64 and push to a registry your
-platform can pull from (Artifact Registry for Cloud Run, ECR for ECS), e.g.
-`docker buildx build --platform linux/amd64 --build-arg VERSION=0.14.10 -t REGISTRY/dash:0.14.10 --push .`,
-and use that name below.
+Every platform below pulls the public GHCR image directly.
 
 ## Configuration: environment and mounted files
 
@@ -28,7 +25,7 @@ variables, or mount them as files and refer to them:
 Make the password hash with the image itself (it asks for the password twice, without echo):
 
 ```sh
-docker run --rm -it REGISTRY/dash:0.14.10 hash-password
+docker run --rm -it ghcr.io/techdufus/dash:0.14.10 hash-password
 ```
 
 A value from the environment or the file wins over the settings page, which shows it locked
@@ -93,7 +90,7 @@ prefer a stop-then-start deploy to a rolling one when a volume is attached. Netw
 
 ## Platform notes
 
-**Fly.io.** `fly launch --image REGISTRY/dash:0.14.10 --internal-port 8080 --no-deploy`,
+**Fly.io.** `fly launch --image ghcr.io/techdufus/dash:0.14.10 --internal-port 8080 --no-deploy`,
 then in `fly.toml` keep `[http_service]` with `internal_port = 8080` and set
 `auto_stop_machines = "off"` (a stopped machine is a restart). Add `[mounts]` with
 `source = "dash_data"`, `destination = "/data"`, and a top-level `[checks.readyz]` with
@@ -116,7 +113,7 @@ locking; its file system is in memory): use `oidc` or `proxy`, or local mode wit
 the sign-out caveat above.
 
 ```sh
-gcloud run deploy dash --image REGISTRY/dash:0.14.10 --region REGION --allow-unauthenticated \
+gcloud run deploy dash --image ghcr.io/techdufus/dash:0.14.10 --region REGION --allow-unauthenticated \
   --port 8080 --min-instances 1 --max-instances 1 --no-cpu-throttling \
   --set-env-vars DASH_SERVER_PUBLIC_URL=https://…,DASH_SETTINGS_UI=readonly,DASH_CONFIG=/etc/dash/config.yaml \
   --set-secrets DASH_ADMIN_PASSWORD_HASH=dash-admin-hash:1,/etc/dash/config.yaml=dash-config:latest

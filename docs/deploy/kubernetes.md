@@ -15,9 +15,11 @@ ValidatingAdmissionPolicy). The pod meets the `restricted` Pod Security Standard
 privilege escalation, every capability dropped, the RuntimeDefault seccomp profile) and also runs
 with a read-only root filesystem.
 
-> Until the image is published on GHCR, build it from a checkout and push it to a registry your
-> cluster pulls from, then set `image.repository` and `image.tag` (Helm) or an `images:` entry
-> (kustomize). The chart's version is the dash version it runs.
+The image is `ghcr.io/techdufus/dash:<version>` and the chart is
+`oci://ghcr.io/techdufus/charts/dash`; the chart's version is the dash version it runs. To run
+code that is not released yet, build the image from a checkout and push it to a registry your
+cluster pulls from, then set `image.repository` and `image.tag` (Helm) or an `images:` entry
+(kustomize).
 
 ## Before either path: the namespace and the secret key
 
@@ -39,7 +41,7 @@ history; read it back with
 ## Helm
 
 ```sh
-helm install dash charts/dash --namespace dash \
+helm install dash oci://ghcr.io/techdufus/charts/dash --version 0.14.10 --namespace dash \
   --set secretKey.existingSecret=dash-secret-key \
   --set config.server.publicURL=https://dash.example.com
 kubectl -n dash rollout status deploy/dash
@@ -65,7 +67,7 @@ kubectl apply -k examples/kubernetes
 
 The base deploys into the namespace `dash` with the chart's defaults: settings editable in the
 UI on a 256Mi ReadWriteOnce volume, the read-only ClusterRole, no write action. Set your public
-URL, and the image while it is not published, in an overlay:
+URL, and optionally the image (a mirror registry), in an overlay:
 
 ```yaml
 # kustomization.yaml of your overlay

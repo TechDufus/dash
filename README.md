@@ -80,10 +80,10 @@ reconcile, silences) are refused as `csrf_failed`: dash accepts writes only from
 which in demo mode defaults to the listen address. To browse at `localhost`, start dash with
 `DASH_SERVER_PUBLIC_URL=http://localhost:8080`.
 
-**Docker.** The image `ghcr.io/techdufus/dash` is not published yet; build it from this checkout:
+**Docker.** Pull the image `ghcr.io/techdufus/dash` (linux/amd64 and linux/arm64) and run it:
 
 ```sh
-docker build --build-arg VERSION=0.14.10 -t ghcr.io/techdufus/dash:0.14.10 .
+docker pull ghcr.io/techdufus/dash:0.14.10
 mkdir -p -m 0700 secrets && openssl rand -base64 32 > secrets/dash_secret_key && chmod 0644 secrets/dash_secret_key
 docker run -d --name dash -p 127.0.0.1:8080:8080 -v dash-data:/data \
   -v "$PWD/secrets/dash_secret_key:/run/secrets/dash_secret_key:ro" \
@@ -104,17 +104,18 @@ docker compose logs dash 2>&1 | grep -m1 'setup token'
 
 After setup, set Settings → Prometheus → URL to `http://prometheus:9090`.
 
-**Kubernetes**, with the Helm chart in [`charts/dash`](charts/dash):
+**Kubernetes**, with the Helm chart `oci://ghcr.io/techdufus/charts/dash` (its version is the
+dash version it runs):
 
 ```sh
 kubectl create namespace dash
 openssl rand -base64 32 | kubectl -n dash create secret generic dash-secret-key --from-file=secretKey=/dev/stdin
-helm install dash charts/dash --namespace dash \
+helm install dash oci://ghcr.io/techdufus/charts/dash --version 0.14.10 --namespace dash \
   --set secretKey.existingSecret=dash-secret-key --set config.server.publicURL=https://dash.example.com
 ```
 
-Until the image is published, add `--set image.repository=… --set image.tag=…` for an image you
-built and pushed ([details](docs/deploy/kubernetes.md)).
+To install from a checkout instead, use `charts/dash` in place of the OCI reference
+([details](docs/deploy/kubernetes.md)).
 
 The deploy guides cover each path in full: [Docker and Compose](docs/deploy/docker.md),
 [Kubernetes](docs/deploy/kubernetes.md) (Helm, kustomize, RBAC, the oauth2-proxy sidecar) and
