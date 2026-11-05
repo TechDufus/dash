@@ -2,7 +2,8 @@
 // UI settings store, a YAML file (DASH_CONFIG) and the environment, the later layer winning per
 // field, into a typed Tree and the flat Config the rest of dash reads. DASH_DEV=true signs every
 // request in as "dev" without authentication, so it only runs on a loopback listen address, and
-// switches the dev defaults (health listener on loopback, public URL of the Vite dev server).
+// switches the dev defaults (API and health listeners on loopback, public URL of the Vite dev
+// server); otherwise the API listens on 0.0.0.0:8080.
 // DASH_DEMO=true serves built-in fake data instead of a cluster with the same defaults but never
 // signs in as "dev" (internal/demo injects the "demo" user).
 //
@@ -34,8 +35,8 @@ type Config struct {
 	Dev  bool
 	Demo bool // fake data from internal/demo; no cluster or upstreams are contacted
 
-	// Listen is the API + SPA listener, reached through oauth2-proxy. It defaults to loopback;
-	// with Dev it must be a loopback address.
+	// Listen is the API + SPA listener. It defaults to 0.0.0.0:8080 (127.0.0.1:8080 in dev and
+	// demo); with Dev it must be a loopback address. A sidecar proxy setup sets loopback.
 	Listen       string
 	HealthListen string // /healthz and /readyz only.
 	PublicURL    string

@@ -171,8 +171,9 @@ reads `X-Forwarded-For`; any other peer sending it gets 401.
 | `adminUsers`, `adminGroups` | `[]` | who is an administrator, exact and case-sensitive; with both empty everyone is a viewer. They apply on a reload |
 
 **Example: an oauth2-proxy sidecar in the same pod.** The proxy listens for the world and forwards
-to dash on the pod's loopback, so the default `trustedProxies` already believe it and nothing else
-can reach dash's port:
+to dash on the pod's loopback, so the default `trustedProxies` already believe it. Since v0.14.0
+dash listens on `0.0.0.0:8080` by default, so the sidecar setup sets
+`DASH_SERVER_LISTEN=127.0.0.1:8080` explicitly; then nothing else can reach dash's port:
 
 ```yaml
 containers:

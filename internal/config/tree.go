@@ -30,7 +30,7 @@ type Tree struct {
 // ServerConfig is how dash listens and what it calls itself.
 type ServerConfig struct {
 	PublicURL     string              `json:"publicURL" dash:"url,restart" doc:"The URL people open, with scheme and host (https://dash.example.com). Required; the only Origin accepted on writes. In dev and demo mode it defaults to http://localhost:5173."`
-	Listen        string              `json:"listen" dash:"restart" doc:"Address of the API and the web UI, reached through the identity proxy. Dev mode only accepts a loopback address."`
+	Listen        string              `json:"listen" dash:"restart" doc:"Address of the API and the web UI. The default 0.0.0.0:8080 accepts connections from any address, so keep authentication on (auth.mode local, proxy or oidc); behind a sidecar identity proxy set 127.0.0.1:8080. In dev and demo mode it defaults to 127.0.0.1:8080, and dev mode only accepts a loopback address."`
 	HealthListen  string              `json:"healthListen" dash:"restart" doc:"Address of /healthz and /readyz. In dev and demo mode it defaults to 127.0.0.1:8081."`
 	AllowedHosts  []string            `json:"allowedHosts" dash:"restart" doc:"Host names the API answers besides the host of publicURL: names or IP addresses without scheme or port. [\"*\"] accepts any. A JSON list in the environment."`
 	ReadyRequires []string            `json:"readyRequires" dash:"restart" doc:"Plugins /readyz waits for: each listed plugin must have finished starting (its first poll or cache sync) before dash reports ready, up to readyTimeout. Empty: /readyz needs only that dash is serving and every plugin's start has returned. Names are plugins.<id> sections, e.g. [\"kubernetes\"]. A JSON list in the environment."`
@@ -89,12 +89,13 @@ type PluginsConfig struct {
 }
 
 // defaults is the built-in layer. Nothing site-specific is in it: an empty upstream URL or
-// convention turns that source or feature off. Dev and demo (DASH_DEV, DASH_DEMO) listen for
-// the Vite dev server: a public URL pointing at it, and a health listener on loopback.
+// convention turns that source or feature off. The API listens on every address so a container
+// port mapping reaches it. Dev and demo (DASH_DEV, DASH_DEMO) listen for the Vite dev server: a
+// public URL pointing at it, and the API and health listeners on loopback.
 func defaults(dev, demo bool) Tree {
 	t := Tree{
 		Server: ServerConfig{
-			Listen:       "127.0.0.1:8080",
+			Listen:       "0.0.0.0:8080",
 			HealthListen: "0.0.0.0:8081",
 			ReadyTimeout: pluginconf.Duration(60 * time.Second),
 			CSP:          CSPEnforce,
@@ -125,7 +126,7 @@ func defaults(dev, demo bool) Tree {
 		},
 	}
 	if dev || demo {
-		t.Server.HealthListen, t.Server.PublicURL = "127.0.0.1:8081", "http://localhost:5173"
+		t.Server.Listen, t.Server.HealthListen, t.Server.PublicURL = "127.0.0.1:8080", "127.0.0.1:8081", "http://localhost:5173"
 	}
 	return t
 }

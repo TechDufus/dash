@@ -32,7 +32,7 @@ func mustLoad(t *testing.T, m map[string]string) Config {
 // Nothing site-specific has a default: every upstream and convention is off until configured.
 func TestNoSiteDefaults(t *testing.T) {
 	want := Config{
-		Listen: "127.0.0.1:8080", HealthListen: "0.0.0.0:8081", DataDir: "/data",
+		Listen: "0.0.0.0:8080", HealthListen: "0.0.0.0:8081", DataDir: "/data",
 		SettingsUI: SettingsEditable, Limits: defaultLimits, ReadyTimeout: 60 * time.Second, CSP: CSPEnforce,
 	}
 	if got := Defaults(); !reflect.DeepEqual(got, want) {
@@ -94,6 +94,26 @@ func TestDemoDoesNotImplyDev(t *testing.T) {
 	}
 	if c.PublicURL != "http://localhost:5173" || c.HealthListen != "127.0.0.1:8081" {
 		t.Errorf("demo defaults: PublicURL = %q, HealthListen = %q", c.PublicURL, c.HealthListen)
+	}
+}
+
+// The API listens on every address by default, so a container port mapping reaches it; dev and
+// demo keep loopback, and the environment `make dev-api` sets (DASH_DEV=true with nothing for
+// server.listen) is valid without naming a listen address.
+func TestListenDefaultPerMode(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		env  map[string]string
+		want string
+	}{
+		{"prod", map[string]string{"DASH_SERVER_PUBLIC_URL": "https://dash.example.com"}, "0.0.0.0:8080"},
+		{"make dev-api", map[string]string{"DASH_DEV": "true", "KUBECONFIG": "/nonexistent/kubeconfig"}, "127.0.0.1:8080"},
+		{"demo", map[string]string{"DASH_DEMO": "true"}, "127.0.0.1:8080"},
+		{"dev and demo", map[string]string{"DASH_DEV": "true", "DASH_DEMO": "true"}, "127.0.0.1:8080"},
+	} {
+		if c := mustLoad(t, tc.env); c.Listen != tc.want {
+			t.Errorf("%s: Listen = %q, want %q", tc.name, c.Listen, tc.want)
+		}
 	}
 }
 

@@ -1184,8 +1184,8 @@
           "description": "What one client, and all clients together, may hold open or send."
         },
         "listen": {
-          "default": "127.0.0.1:8080",
-          "description": "Address of the API and the web UI, reached through the identity proxy. Dev mode only accepts a loopback address.",
+          "default": "0.0.0.0:8080",
+          "description": "Address of the API and the web UI. The default 0.0.0.0:8080 accepts connections from any address, so keep authentication on (auth.mode local, proxy or oidc); behind a sidecar identity proxy set 127.0.0.1:8080. In dev and demo mode it defaults to 127.0.0.1:8080, and dev mode only accepts a loopback address.",
           "type": "string",
           "x-dash-restart": true
         },

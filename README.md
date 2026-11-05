@@ -176,7 +176,7 @@ file that still parses cannot be told apart from an edit and would run until the
 | Setting (file path) | Default | What |
 |---|---|---|
 | `server.publicURL` | required (dev and demo: `http://localhost:5173`) | the URL people open, with scheme and host (`https://dash.example.com`); the only `Origin` accepted on writes |
-| `server.listen` | `127.0.0.1:8080` | API and SPA, reached through the identity proxy (oauth2-proxy) |
+| `server.listen` | `0.0.0.0:8080` (dev and demo: `127.0.0.1:8080`) | API and SPA. Every address can reach the default, so keep authentication on; behind a sidecar identity proxy (oauth2-proxy) set `DASH_SERVER_LISTEN=127.0.0.1:8080` (the default before v0.14.0) |
 | `server.allowedHosts` | empty | extra Host names the API answers besides the `server.publicURL` host (a JSON list in the environment; `["*"]` accepts any) |
 | `server.healthListen` | `0.0.0.0:8081` | `/healthz` and `/readyz` |
 | `server.readyRequires` | empty | plugins `/readyz` waits for, e.g. `["kubernetes"]` for the informer sync (a JSON list in the environment); each must have left `starting` |

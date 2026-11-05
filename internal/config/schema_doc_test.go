@@ -118,7 +118,7 @@ func TestSchemaMatchesTheTreeLeaves(t *testing.T) {
 	if got := at(t, doc, "server.limits.tailMaxDuration"); got["type"] != "string" || got["format"] != "duration" || got["default"] != "30m" {
 		t.Errorf("tailMaxDuration = %v", got)
 	}
-	if got := at(t, doc, "server.listen"); got["default"] != "127.0.0.1:8080" {
+	if got := at(t, doc, "server.listen"); got["default"] != "0.0.0.0:8080" {
 		t.Errorf("listen = %v", got)
 	}
 	if got := at(t, doc, "plugins.proxmox.tokenSecret"); got["type"] != "string" {
