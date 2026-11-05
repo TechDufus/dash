@@ -223,8 +223,13 @@ DASH_SKIP_HOOKS=1 git push
 
 ## Release
 
-1. On `main` with CI green: `git tag vX.Y.Z && git push origin vX.Y.Z`.
-2. CI (`release` job) pushes the image `dash:X.Y.Z` to the release registry and prints
+1. On a branch off `main`: `make set-version VERSION=X.Y.Z`. It moves the version in
+   `charts/dash/Chart.yaml` (`version` and `appVersion`), the version pins of the README, the
+   deploy docs, `examples/compose/compose.yaml` and the bug report form, and re-renders
+   `examples/kubernetes` with `make generate`; prose that names a past version stays. Commit the
+   result and merge it: the `release` job refuses a tag whose version differs from `Chart.yaml`.
+2. On `main` with CI green: `git tag vX.Y.Z && git push origin vX.Y.Z`.
+3. CI (`release` job) pushes the image `dash:X.Y.Z` to the release registry and prints
    `image: <registry>/dash/dash:X.Y.Z@sha256:<digest>` in the log and the job summary. Tags are
    create-only: a version can never be pushed twice.
-3. Deploy that tag and digest wherever dash runs.
+4. Deploy that tag and digest wherever dash runs.

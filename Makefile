@@ -1,4 +1,4 @@
-.PHONY: generate check scan dev-api dev-api-op dev-web image screenshots icons pwa-smoke hooks hooks-uninstall
+.PHONY: generate check scan set-version dev-api dev-api-op dev-web image screenshots icons pwa-smoke hooks hooks-uninstall
 
 generate: web/node_modules/.package-lock.json
 	go tool tygo generate
@@ -58,6 +58,12 @@ check: generate
 # run needs github.com, and the link check every host the docs link (scripts/ci/lychee.toml).
 scan:
 	scripts/ci/scan.sh
+
+# The release version (X.Y.Z) in Chart.yaml, the doc pins, the Compose example and the bug report
+# form, then `make generate`: scripts/release/set-version.sh. Run it before tagging vX.Y.Z.
+set-version:
+	@[ -n "$(VERSION)" ] || { echo 'set-version: set VERSION, e.g. make set-version VERSION=1.2.3' >&2; exit 2; }
+	scripts/release/set-version.sh "$(VERSION)"
 
 # Dev mode needs nothing outside this checkout: `DASH_DEMO=true make dev-api` serves fake data.
 # Against a real cluster, KUBECONFIG comes from your environment, dev/config.yaml (see
