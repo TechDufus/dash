@@ -1,4 +1,4 @@
-.PHONY: generate check scan dev-api dev-api-op dev-web image hooks hooks-uninstall
+.PHONY: generate check scan dev-api dev-api-op dev-web image screenshots hooks hooks-uninstall
 
 generate: web/node_modules/.package-lock.json
 	go tool tygo generate
@@ -76,6 +76,16 @@ dev-web: web/node_modules/.package-lock.json
 
 image:
 	docker buildx build --load -t dash:dev .
+
+# The README screenshots (docs/images) from demo mode, the same PNGs on every run: it builds the
+# SPA and dash, and web/scripts/screenshots.mjs runs dash with DASH_DEMO=true and
+# DASH_DEMO_CLOCK=$(SCREENSHOT_CLOCK) on free loopback ports and captures every page the README
+# shows with Playwright. Needs Playwright's Chromium once: cd web && npx playwright install chromium
+SCREENSHOT_CLOCK ?= 2026-01-15T12:00:00Z
+screenshots: web/node_modules/.package-lock.json
+	cd web && npm run build
+	tmp=$$(mktemp -d) && trap 'rm -rf "$$tmp"' EXIT && go build -o "$$tmp/dash" ./cmd/dash && \
+	  cd web && DASH_DEMO_CLOCK=$(SCREENSHOT_CLOCK) npm run --silent screenshots -- "$$tmp/dash" ../docs/images
 
 hooks:
 	git config core.hooksPath .githooks

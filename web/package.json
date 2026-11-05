@@ -5,7 +5,8 @@
     "build": "vite build",
     "check": "tsc --noEmit && biome check .",
     "test": "vitest run",
-    "format": "biome format --write ."
+    "format": "biome format --write .",
+    "screenshots": "node scripts/screenshots.mjs"
   },
   "type": "module",
   "private": "true",
@@ -40,6 +41,7 @@
     "@vitejs/plugin-react": "6.1.2",
     "jsdom": "30.1.3",
     "license-checker-rseidelsohn": "5.0.1",
+    "playwright": "1.64.1",
     "shadcn": "4.23.0",
     "tailwindcss": "4.3.3",
     "typescript": "7.0.2",

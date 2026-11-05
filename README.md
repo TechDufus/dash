@@ -777,6 +777,24 @@ A new plugin starts from the contract in `internal/plugin/plugin.go`; `internal/
 is the small example. Fixtures, docs and commits use neutral names (`example.com`, `192.0.2.0/24`,
 alice and bob): `make check` fails on a lab identifier through the denylist in `internal/hygiene`.
 
+### Screenshots
+
+The images in [`docs/images`](docs/images) come from demo mode: `make screenshots` builds the SPA
+and dash, starts dash with `DASH_DEMO=true` and a fixed clock (`DASH_DEMO_CLOCK`, the Makefile's
+`SCREENSHOT_CLOCK`) on free loopback ports, and captures every page the README shows, plus the
+banner, with Playwright (`web/scripts/screenshots.mjs`; the banner's layout is
+`web/scripts/screenshots/banner.html`). The browser's clock, viewport, timezone and locale are
+fixed, motion is reduced, no request leaves dash, and a page drawn with any font the SPA does not
+bundle fails the run, so two runs on one machine write the same bytes. Playwright's Chromium is
+a one-time download:
+
+```sh
+cd web && npx playwright install chromium && cd ..
+make screenshots    # rewrites docs/images/*.png
+```
+
+Run it after a UI change those pages show, and commit the images with the change.
+
 ### Pre-push hook (opt-in)
 
 CI runs only on `main` and tags, so `.githooks/pre-push` is the pre-merge gate. It diffs the
