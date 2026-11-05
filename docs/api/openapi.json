@@ -1775,6 +1775,173 @@
         },
         "type": "object"
       },
+      "OAuthClient": {
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "builtin",
+              "metadata",
+              "config"
+            ],
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "name"
+        ],
+        "type": "object"
+      },
+      "OAuthConsent": {
+        "additionalProperties": false,
+        "properties": {
+          "audience": {
+            "enum": [
+              "api",
+              "mcp"
+            ],
+            "type": "string"
+          },
+          "client": {
+            "$ref": "#/components/schemas/OAuthClient"
+          },
+          "defaultScopes": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "expiresAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "redirectUri": {
+            "type": "string"
+          },
+          "scopes": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "audience",
+          "client",
+          "defaultScopes",
+          "expiresAt",
+          "id",
+          "redirectUri",
+          "scopes"
+        ],
+        "type": "object"
+      },
+      "OAuthConsentDecision": {
+        "additionalProperties": false,
+        "properties": {
+          "approve": {
+            "type": "boolean"
+          },
+          "scopes": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "type": "object"
+      },
+      "OAuthConsentResult": {
+        "additionalProperties": false,
+        "properties": {
+          "redirect": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "redirect"
+        ],
+        "type": "object"
+      },
+      "OAuthGrantInfo": {
+        "additionalProperties": false,
+        "properties": {
+          "audience": {
+            "enum": [
+              "api",
+              "mcp"
+            ],
+            "type": "string"
+          },
+          "client": {
+            "$ref": "#/components/schemas/OAuthClient"
+          },
+          "createdAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "expiresAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "lastUsedAt": {
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "scopes": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "user": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "audience",
+          "client",
+          "createdAt",
+          "expiresAt",
+          "id",
+          "lastUsedAt",
+          "scopes",
+          "user"
+        ],
+        "type": "object"
+      },
+      "OAuthGrantList": {
+        "additionalProperties": false,
+        "properties": {
+          "grants": {
+            "items": {
+              "$ref": "#/components/schemas/OAuthGrantInfo"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "grants"
+        ],
+        "type": "object"
+      },
       "OverviewData": {
         "additionalProperties": false,
         "properties": {
@@ -3100,6 +3267,253 @@
         ],
         "x-dash-min-role": "viewer",
         "x-dash-scope": "read"
+      }
+    },
+    "/api/v1/oauth/consents/{id}": {
+      "get": {
+        "description": "The first person to open it claims it. 404 for a request that does not exist, expired (10 minutes) or another person opened; 403 when the caller may grant none of the scopes the application asks for.",
+        "operationId": "getOAuthConsent",
+        "parameters": [
+          {
+            "description": "The ID in the consent page's address, /consent/<id>.",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OAuthConsent"
+                }
+              }
+            },
+            "description": "An authorization request waiting for consent",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/XRequestId"
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "security": [
+          {
+            "identityProxy": []
+          },
+          {
+            "sessionCookie": []
+          }
+        ],
+        "summary": "An authorization request waiting for consent",
+        "tags": [
+          "OAuth"
+        ],
+        "x-dash-interactive": true,
+        "x-dash-min-role": "viewer"
+      },
+      "post": {
+        "description": "Approving creates the grant; the answer is the address to send the browser to, with code, state and iss (or error=access_denied). 400 invalid_input for scopes outside the offered ones; 404 as for GET; 409 grant_limit past 20 grants; 503 audit_unavailable when the audit log cannot be written.",
+        "operationId": "decideOAuthConsent",
+        "parameters": [
+          {
+            "description": "The ID in the consent page's address, /consent/<id>.",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OAuthConsentDecision"
+              }
+            }
+          },
+          "description": "The JSON body of the request.",
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OAuthConsentResult"
+                }
+              }
+            },
+            "description": "Approve or deny an authorization request",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/XRequestId"
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "security": [
+          {
+            "identityProxy": []
+          },
+          {
+            "sessionCookie": []
+          }
+        ],
+        "summary": "Approve or deny an authorization request",
+        "tags": [
+          "OAuth"
+        ],
+        "x-dash-interactive": true,
+        "x-dash-min-role": "viewer"
+      }
+    },
+    "/api/v1/oauth/grants": {
+      "delete": {
+        "description": "?user=me revokes every grant of the caller (the identity proxy's \"Revoke all my connected apps\": proxy mode has no logout). Personal access tokens are not touched. 503 audit_unavailable when the audit log cannot be written.",
+        "operationId": "revokeMyOAuthGrants",
+        "parameters": [
+          {
+            "description": "Must be me.",
+            "in": "query",
+            "name": "user",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Revoke all of one's OAuth grants",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/XRequestId"
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "security": [
+          {
+            "identityProxy": []
+          },
+          {
+            "sessionCookie": []
+          }
+        ],
+        "summary": "Revoke all of one's OAuth grants",
+        "tags": [
+          "OAuth"
+        ],
+        "x-dash-interactive": true,
+        "x-dash-min-role": "viewer"
+      },
+      "get": {
+        "description": "The caller's own grants; an administrator may list one user's (?user=<name>) or everyone's (?user=*).",
+        "operationId": "listOAuthGrants",
+        "parameters": [
+          {
+            "description": "Administrators only: a user name, or * for every user. Absent or empty: the caller's own.",
+            "in": "query",
+            "name": "user",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OAuthGrantList"
+                }
+              }
+            },
+            "description": "List OAuth grants (connected apps)",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/XRequestId"
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "security": [
+          {
+            "identityProxy": []
+          },
+          {
+            "sessionCookie": []
+          }
+        ],
+        "summary": "List OAuth grants (connected apps)",
+        "tags": [
+          "OAuth"
+        ],
+        "x-dash-interactive": true,
+        "x-dash-min-role": "viewer"
+      }
+    },
+    "/api/v1/oauth/grants/{id}": {
+      "delete": {
+        "description": "Its access and refresh tokens stop working on the next request: one's own grant, or (administrators) anyone's. 404 for a grant that is not the caller's; 503 audit_unavailable when the audit log cannot be written.",
+        "operationId": "revokeOAuthGrant",
+        "parameters": [
+          {
+            "description": "The grant's ID.",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Revoke an OAuth grant",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/XRequestId"
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "security": [
+          {
+            "identityProxy": []
+          },
+          {
+            "sessionCookie": []
+          }
+        ],
+        "summary": "Revoke an OAuth grant",
+        "tags": [
+          "OAuth"
+        ],
+        "x-dash-interactive": true,
+        "x-dash-min-role": "viewer"
       }
     },
     "/api/v1/plugins": {
@@ -4634,6 +5048,9 @@
     }
   ],
   "tags": [
+    {
+      "name": "OAuth"
+    },
     {
       "description": "The plugin instances and the generic plugin routes.",
       "name": "Plugins"

@@ -116,6 +116,7 @@ func (s *Server) routeTable() []Route {
 	}
 	rows = append(rows, s.settingsRoutes()...)
 	rows = append(rows, s.tokenRoutes()...)
+	rows = append(rows, s.grantRoutes()...)
 	rows = append(rows, s.oauthRoutes()...)
 	return append(rows, []Route{
 		// The sign-in routes of the session modes (docs/auth.md). They are outside /api, so authn
