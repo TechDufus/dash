@@ -110,6 +110,11 @@ func TestAuthSectionEnvNames(t *testing.T) {
 		"DASH_AUTH_TOKENS": {"auth.tokens", "list of objects (JSON)", "", false,
 			`[{"name":"ci","role":"viewer","audience":"api","scopes":["read"],"hash":"sha256:` + strings.Repeat("ab", 32) + `"}]`,
 			[]StaticToken{{Name: "ci", Role: "viewer", Audience: "api", Scopes: []string{"read"}, Hash: "sha256:" + strings.Repeat("ab", 32)}}},
+		"DASH_AUTH_OAUTH_ENABLED":            {"auth.oauth.enabled", "boolean", "", true, "true", true},
+		"DASH_AUTH_OAUTH_CIMD_ALLOW_PRIVATE": {"auth.oauth.cimdAllowPrivate", "boolean", "", true, "true", true},
+		"DASH_AUTH_OAUTH_CLIENTS": {"auth.oauth.clients", "list of objects (JSON)", "", true,
+			`[{"clientID":"inspector","name":"Inspector","redirectURIs":["http://127.0.0.1/cb"],"audiences":["mcp"]}]`,
+			[]OAuthClient{{ClientID: "inspector", Name: "Inspector", RedirectURIs: []string{"http://127.0.0.1/cb"}, Audiences: []string{"mcp"}}}},
 	}
 	// Nothing else is generated under auth: a key added without its row fails here.
 	for name, v := range byEnv {

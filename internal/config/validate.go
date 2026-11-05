@@ -151,6 +151,22 @@ func validate(t Tree, dev, demo bool, prov map[string]Provenance) error {
 			v.fail("server.publicURL", "must be https in auth.mode=oidc: the provider sends the browser back to it with the login code (http only for a loopback host)")
 		}
 	}
+	// server.directURL (contract D20): checked once the url rule above passed it.
+	if s.DirectURL != "" && !v.failed["server.directURL"] {
+		if problem := directURLProblem(s.DirectURL, s.PublicURL); problem != "" {
+			v.fail("server.directURL", "%s", problem)
+		} else if t.Auth.Mode == AuthModeNone && !dev && !demo {
+			v.fail("server.directURL", "is set, but auth.mode=none has no OAuth and no bearer clients: remove it")
+		}
+	}
+	// OAuth names its endpoints from the origins (the issuer, /oauth/authorize on publicURL), and
+	// an issuer with a path would move the /.well-known documents under it (RFC 8414 3.1), where
+	// nothing serves them.
+	if t.Auth.OAuth.Enabled && s.PublicURL != "" && !v.failed["server.publicURL"] {
+		if u, err := url.Parse(s.PublicURL); err == nil && u.Path != "" {
+			v.fail("server.publicURL", "has a path, which auth.oauth.enabled cannot serve: the issuer, /oauth/* and the /.well-known documents are at the root of the origin")
+		}
+	}
 	// An inline launcher icon outside the allowed forms is a load error (the links of a launcher
 	// file are only read by the launcher's start, which turns its row to error instead). The
 	// message names the entry, never the icon.

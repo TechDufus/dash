@@ -26,7 +26,7 @@ func buildAuthenticator(res *config.Resolved, log *slog.Logger) (auth.Authentica
 	}
 	switch a.Mode {
 	case config.AuthModeProxy:
-		return buildProxy(a.Proxy, res.Config.Listen, log)
+		return buildProxy(a.Proxy, res.Config.Listen, res.Config.DirectURL != "", log)
 	case config.AuthModeNone:
 		return buildNone(res.Config.Listen, log), nil, nil
 	}
@@ -56,8 +56,8 @@ func fixedPrincipal(c config.Config) (auth.Principal, bool) {
 }
 
 // buildProxy is the authenticator of auth.mode=proxy, with the startup lines an operator reads
-// to learn what is trusted: counts only, never names.
-func buildProxy(c config.AuthProxyConfig, listen string, log *slog.Logger) (auth.Authenticator, *auth.Proxy, error) {
+// to learn what is trusted: counts only, never names. direct says server.directURL is set.
+func buildProxy(c config.AuthProxyConfig, listen string, direct bool, log *slog.Logger) (auth.Authenticator, *auth.Proxy, error) {
 	trust, err := auth.ParseTrust(c.TrustedProxies)
 	if err != nil {
 		return nil, nil, fmt.Errorf("auth.proxy.trustedProxies: %w", err)
@@ -81,7 +81,9 @@ func buildProxy(c config.AuthProxyConfig, listen string, log *slog.Logger) (auth
 	}
 	// A sidecar install that missed DASH_SERVER_LISTEN=127.0.0.1:8080 (the default before v0.14.0)
 	// exposes nothing, since a remote peer's identity is refused, but it should not pass silently.
-	if !config.LoopbackAddr(listen) && onlyLoopback(c.TrustedProxies) {
+	// With server.directURL the open listener is the point (contract D20): the direct route
+	// reaches it past the sidecar.
+	if !direct && !config.LoopbackAddr(listen) && onlyLoopback(c.TrustedProxies) {
 		log.Warn(proxyListenWarning, "listen", listen)
 	}
 	return p, p, nil

@@ -19,7 +19,7 @@ var statusCodes = map[int][]string{
 	http.StatusUnauthorized:        {model.ErrCodeUnauthenticated, model.ErrCodeInvalidToken},
 	http.StatusForbidden:           {model.ErrCodeForbidden, model.ErrCodeCSRFFailed, model.ErrCodeInsufficientScope},
 	http.StatusNotFound:            {model.ErrCodeNotFound},
-	http.StatusConflict:            {model.ErrCodeConflict, model.ErrCodeTokensUnavailable, model.ErrCodeTokenLimit},
+	http.StatusConflict:            {model.ErrCodeConflict, model.ErrCodeTokensUnavailable, model.ErrCodeTokenLimit, model.ErrCodeGrantLimit},
 	http.StatusMisdirectedRequest:  {model.ErrCodeUnknownHost},
 	http.StatusUnprocessableEntity: {model.ErrCodeInvalidInput},
 	http.StatusTooManyRequests:     {model.ErrCodeRateLimited, model.ErrCodeTooManyStreams},

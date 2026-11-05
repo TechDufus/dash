@@ -116,6 +116,9 @@ type Deps struct {
 	// Tokens resolves bearer credentials ahead of Auth (contract D2); nil in auth.mode=none,
 	// where a Bearer header is ignored like every other credential.
 	Tokens TokenResolver
+	// OAuthEnabled says this dash serves its OAuth authorization server (contract D21):
+	// auth.oauth.enabled in local, oidc or proxy mode with a writable data dir.
+	OAuthEnabled bool
 
 	// The session modes (auth.mode local and oidc); every field is nil in the other modes.
 	// Sessions issues and clears the session cookie (login, setup, the OIDC callback, logout).
@@ -259,7 +262,8 @@ func firstOf(r *http.Request, keys ...string) string {
 // which every log route refuses), and for an administrator actions:<plugin> for each instance
 // with mounted actions. For a token they are its own scopes. capabilities.actions says whether
 // the principal can run some action, capabilities.tokens whether it may create personal access
-// tokens. mcp, push and oauth are later releases.
+// tokens, capabilities.oauth whether dash serves its OAuth authorization server (Settings ->
+// Connected apps). mcp and push are later releases.
 func (s *Server) me(w http.ResponseWriter, r *http.Request) {
 	p := principalFrom(r.Context())
 	scopes := []string{"read", "logs"}
@@ -272,7 +276,7 @@ func (s *Server) me(w http.ResponseWriter, r *http.Request) {
 		// Every principal reads /me: a URL's userinfo (credentials) is never in it.
 		UI:           model.MeUI{IconBaseURL: config.RedactURLs(s.d.Cfg.IconBaseURL).(string)},
 		Warnings:     []string{},
-		Capabilities: model.MeCapabilities{Tokens: p.Interactive() && s.tokensAvailable()},
+		Capabilities: model.MeCapabilities{Tokens: p.Interactive() && s.tokensAvailable(), OAuth: s.d.OAuthEnabled},
 	}
 	// Standing warnings of the authenticator, for the SPA's banners. admin_wildcard and auth_none
 	// go to everyone, as they always did; anonymous_viewer and oidc_open are for administrators,

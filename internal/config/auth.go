@@ -32,7 +32,8 @@ type AuthConfig struct {
 	None  AuthNoneConfig  `json:"none" doc:"The none mode: whether it may run on a listener other machines can reach."`
 	// Tokens are the static bearer tokens (design M.5). Not a secret: a sha256 of a 256-bit token
 	// reveals nothing.
-	Tokens []StaticToken `json:"tokens" doc:"Static bearer tokens for GitOps installs, as [{name, role, audience, scopes, hash}]: role viewer or admin, audience api or mcp, scopes from read, logs and actions:<plugin> (admin only, never with audience mcp), hash the sha256:<hex> that dash token generate prints next to its dash_st_ token. The principal is token:<name>. Ignored, with a WARN at start, in auth.mode=none. From the file a reload applies a change at once, so removing an entry revokes it; from the environment it needs a restart. A JSON list in the environment."`
+	Tokens []StaticToken   `json:"tokens" doc:"Static bearer tokens for GitOps installs, as [{name, role, audience, scopes, hash}]: role viewer or admin, audience api or mcp, scopes from read, logs and actions:<plugin> (admin only, never with audience mcp), hash the sha256:<hex> that dash token generate prints next to its dash_st_ token. The principal is token:<name>. Ignored, with a WARN at start, in auth.mode=none. From the file a reload applies a change at once, so removing an entry revokes it; from the environment it needs a restart. A JSON list in the environment."`
+	OAuth  AuthOAuthConfig `json:"oauth" doc:"dash's own OAuth 2.1 authorization server, for MCP clients and the Android app."`
 }
 
 // AuthNoneConfig is the none mode of AuthConfig.
@@ -181,6 +182,7 @@ func (a AuthConfig) Validate() error {
 	}
 	a.OIDC.validate(a.Mode == AuthModeOIDC, add)
 	validateTokens(a.Tokens, add)
+	a.OAuth.validate(add)
 	return errors.Join(errs...)
 }
 

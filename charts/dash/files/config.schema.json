@@ -156,6 +156,10 @@
           "$ref": "#/$defs/AuthNoneConfig",
           "description": "The none mode: whether it may run on a listener other machines can reach."
         },
+        "oauth": {
+          "$ref": "#/$defs/AuthOAuthConfig",
+          "description": "dash's own OAuth 2.1 authorization server, for MCP clients and the Android app."
+        },
         "oidc": {
           "$ref": "#/$defs/AuthOIDCConfig",
           "description": "The oidc mode: the OpenID Connect provider, who may sign in, and who is an administrator."
@@ -196,6 +200,30 @@
       "properties": {
         "allowRemote": {
           "description": "Let auth.mode=none start on a server.listen address that is not loopback (such as the default 0.0.0.0:8080). Anyone who can reach dash is then an administrator; dash warns at every start and refuses settings changes and connection tests. Without it, none on such an address refuses to start. It cannot be set from the settings page.",
+          "type": "boolean",
+          "x-dash-restart": true
+        }
+      },
+      "type": "object"
+    },
+    "AuthOAuthConfig": {
+      "additionalProperties": false,
+      "properties": {
+        "cimdAllowPrivate": {
+          "description": "Let dash fetch a client ID metadata document (an MCP client whose client_id is an https URL) from a private, loopback or link-local address. Off by default: dash fetches them only from global addresses, so a client_id cannot make dash probe the local network.",
+          "type": "boolean",
+          "x-dash-restart": true
+        },
+        "clients": {
+          "description": "OAuth clients registered in config, as [{clientID, name, redirectURIs, audiences}]: clientID 1 to 128 visible characters that are not a URL and not dash-android, a name to show on the consent screen, redirect URIs that are https, http on a loopback host (any port matches) or a private-use scheme containing a dot (com.example.app:/callback), and audiences from api and mcp. They may never be granted approvals or push. A JSON list in the environment.",
+          "items": {
+            "$ref": "#/$defs/OAuthClient"
+          },
+          "type": "array",
+          "x-dash-restart": true
+        },
+        "enabled": {
+          "description": "Serve dash's OAuth 2.1 authorization server, so MCP clients and the Android app sign in through dash and receive tokens (/oauth/authorize, /oauth/token, /oauth/revoke and the /.well-known/oauth-* documents). Off by default: it adds an endpoint that needs no sign-in (/oauth/token). It only runs in auth.mode local, oidc and proxy with a writable data dir; otherwise those paths answer 404. Behind an identity proxy, set server.directURL so clients can reach the token endpoint.",
           "type": "boolean",
           "x-dash-restart": true
         }
@@ -951,6 +979,34 @@
       },
       "type": "object"
     },
+    "OAuthClient": {
+      "additionalProperties": false,
+      "properties": {
+        "audiences": {
+          "description": "The resources the client may ask for: api, mcp or both.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "clientID": {
+          "description": "The client_id the application sends: 1 to 128 visible characters, not a URL (a URL is a client ID metadata document) and not dash-android.",
+          "type": "string"
+        },
+        "name": {
+          "description": "The name the consent screen and Settings -> Connected apps show: 1 to 64 characters.",
+          "type": "string"
+        },
+        "redirectURIs": {
+          "description": "The exact redirect URIs the client may use: https, http on a loopback host (any port matches) or a private-use scheme containing a dot; no fragment.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "type": "object"
+    },
     "PluginsConfig": {
       "additionalProperties": false,
       "properties": {
@@ -1200,6 +1256,12 @@
             "report-only",
             "off"
           ],
+          "type": "string",
+          "x-dash-restart": true
+        },
+        "directURL": {
+          "description": "Behind an identity proxy (auth.mode=proxy): a second origin, such as https://dash-direct.example.com, that reaches dash without the proxy, for OAuth and bearer clients the proxy would send to its login page. When set, dash answers its host, it is the OAuth issuer and the base of the token, revoke and /.well-known documents and of the api and mcp resources, while /oauth/authorize stays on publicURL behind the proxy. An origin only (no path), not publicURL's, https unless the host is loopback. The Helm chart sets it with routes.direct. Refused in auth.mode=none.",
+          "format": "uri",
           "type": "string",
           "x-dash-restart": true
         },

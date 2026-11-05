@@ -38,12 +38,15 @@ type processAuth struct {
 	// tokens resolves bearer credentials (contract D2): the store's personal access tokens and
 	// auth.tokens; nil in auth.mode=none, like store.
 	tokens *tokens.Resolver
+	// oauth says dash serves its OAuth authorization server (contract D21): auth.oauth.enabled
+	// in local, oidc or proxy mode with a credential store that outlives the process.
+	oauth bool
 }
 
 // deps hands the authenticator, the token resolver, the credential store and the session
 // machinery to the API.
 func (p processAuth) deps(d *api.Deps) {
-	d.Auth, d.Credentials = p.authn, p.store
+	d.Auth, d.Credentials, d.OAuthEnabled = p.authn, p.store, p.oauth
 	if p.tokens != nil { // a nil *Resolver in the interface would not be a nil TokenResolver
 		d.Tokens = p.tokens
 	}
@@ -115,7 +118,27 @@ func startAuth(res *config.Resolved, env sessionEnv, log *slog.Logger) (processA
 			log.Warn("server.corsOrigins is ignored: auth.mode=none has no bearer clients, and every other request stays same-origin")
 		}
 	}
+	pa.oauth = oauthOn(res.Tree.Auth, fixed, pa.store, log)
 	return pa, nil
+}
+
+// oauthOn reports whether auth.oauth.enabled can take effect (contract D21): never in dev, demo
+// or auth.mode=none, and only with a credential store in a writable data dir, since a grant
+// lost at restart would strand its client. An enabled server that cannot run is a WARN.
+func oauthOn(a config.AuthConfig, fixed bool, store *credentials.Store, log *slog.Logger) bool {
+	if !a.OAuth.Enabled {
+		return false
+	}
+	switch {
+	case fixed || a.Mode == config.AuthModeNone:
+		log.Warn("auth.oauth.enabled is ignored: dev, demo and auth.mode=none have no OAuth server")
+		return false
+	case store == nil || !store.Persistent():
+		log.Warn("auth.oauth.enabled is ignored: OAuth grants need a writable data dir (DASH_DATA_DIR)")
+		return false
+	}
+	log.Info("auth: OAuth authorization server", "configClients", len(a.OAuth.Clients), "cimdAllowPrivate", a.OAuth.CIMDAllowPrivate)
+	return true
 }
 
 // sessionAuth is the authenticator of a session mode and the machinery of its routes.

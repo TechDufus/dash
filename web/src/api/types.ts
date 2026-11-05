@@ -37,6 +37,7 @@ export const ErrCodePreconditionRequired = "precondition_required"; // 428: a se
 export const ErrCodeAuditUnavailable = "audit_unavailable"; // 503
 export const ErrCodeTokensUnavailable = "tokens_unavailable"; // 409: no writable data dir keeps a new token
 export const ErrCodeTokenLimit = "token_limit"; // 409: the user holds the most tokens allowed
+export const ErrCodeGrantLimit = "grant_limit"; // 409: the user holds the most OAuth grants allowed
 export const ErrCodeUnknownHost = "unknown_host"; // 421
 export const ErrCodeInternal = "internal"; // 500
 /**
@@ -44,7 +45,7 @@ export const ErrCodeInternal = "internal"; // 500
  * carry several (a 403 is forbidden or csrf_failed, a 429 rate_limited or too_many_streams).
  * ErrCodes lists them all.
  */
-export type ErrCode = typeof ErrCodeUnauthenticated | typeof ErrCodeForbidden | typeof ErrCodeInsufficientScope | typeof ErrCodeInvalidToken | typeof ErrCodeAmbiguousCredentials | typeof ErrCodeCSRFFailed | typeof ErrCodeNotFound | typeof ErrCodeInvalidInput | typeof ErrCodeLockedField | typeof ErrCodeReadonlySettings | typeof ErrCodeRateLimited | typeof ErrCodeTooManyStreams | typeof ErrCodeUpstreamUnavailable | typeof ErrCodeApprovalRequired | typeof ErrCodeApprovalDenied | typeof ErrCodeApprovalExpired | typeof ErrCodeConflict | typeof ErrCodePreconditionFailed | typeof ErrCodePreconditionRequired | typeof ErrCodeAuditUnavailable | typeof ErrCodeTokensUnavailable | typeof ErrCodeTokenLimit | typeof ErrCodeUnknownHost | typeof ErrCodeInternal;
+export type ErrCode = typeof ErrCodeUnauthenticated | typeof ErrCodeForbidden | typeof ErrCodeInsufficientScope | typeof ErrCodeInvalidToken | typeof ErrCodeAmbiguousCredentials | typeof ErrCodeCSRFFailed | typeof ErrCodeNotFound | typeof ErrCodeInvalidInput | typeof ErrCodeLockedField | typeof ErrCodeReadonlySettings | typeof ErrCodeRateLimited | typeof ErrCodeTooManyStreams | typeof ErrCodeUpstreamUnavailable | typeof ErrCodeApprovalRequired | typeof ErrCodeApprovalDenied | typeof ErrCodeApprovalExpired | typeof ErrCodeConflict | typeof ErrCodePreconditionFailed | typeof ErrCodePreconditionRequired | typeof ErrCodeAuditUnavailable | typeof ErrCodeTokensUnavailable | typeof ErrCodeTokenLimit | typeof ErrCodeGrantLimit | typeof ErrCodeUnknownHost | typeof ErrCodeInternal;
 
 //////////
 // source: model.go
@@ -932,6 +933,121 @@ export interface SilenceRequest {
 }
 export interface SilenceResponse {
   silenceID: string;
+}
+
+//////////
+// source: oauth.go
+
+/**
+ * OAuthClientAndroid is the client ID of the built-in first-party app (design M.6): the only
+ * client that may be granted approvals or push, and only for the api audience.
+ */
+export const OAuthClientAndroid = "dash-android";
+export const OAuthScopeApprovals = "approvals";
+export const OAuthScopePush = "push";
+/**
+ * Scopes only the built-in app may hold (design M.3): an OAuth client other than dash-android
+ * that asks for one gets invalid_scope, and the consent screen never offers one to it.
+ */
+export type OAuthScope = typeof OAuthScopeApprovals | typeof OAuthScopePush;
+export const OAuthClientKindBuiltin = "builtin"; // dash-android
+export const OAuthClientKindMetadata = "metadata"; // a client ID metadata document: the client ID is its https URL
+export const OAuthClientKindConfig = "config"; // an auth.oauth.clients entry
+/**
+ * Kinds of OAuth client.
+ */
+export type OAuthClientKind = typeof OAuthClientKindBuiltin | typeof OAuthClientKindMetadata | typeof OAuthClientKindConfig;
+/**
+ * OAuthGrantsMaxPerUser is how many grants one user may hold; a consent past it is refused with
+ * 409 grant_limit.
+ */
+export const OAuthGrantsMaxPerUser = 20;
+/**
+ * OAuthClient names the application an OAuth request or a grant is for.
+ */
+export interface OAuthClient {
+  /**
+   * ID is dash-android, the URL of a client ID metadata document, or an auth.oauth.clients
+   * clientID.
+   */
+  id: string;
+  name: string; // the name the client gives itself, or its config entry's
+  kind: string;
+}
+/**
+ * OAuthConsent is GET /api/v1/oauth/consents/{id}: an authorization request waiting for the
+ * signed-in user's decision. It lives 10 minutes.
+ */
+export interface OAuthConsent {
+  id: string;
+  client: OAuthClient;
+  /**
+   * RedirectURI is where the browser goes with the answer: the client's own address.
+   */
+  redirectUri: string;
+  audience: string; // api (/api/v1) or mcp (/mcp)
+  /**
+   * Scopes are the scopes the client asked for that the user may grant: read, logs,
+   * actions:<plugin> (administrators, for a plugin whose actions are enabled) and, for
+   * dash-android only, approvals and push. Never empty.
+   */
+  scopes: string[];
+  /**
+   * DefaultScopes are the ones the screen ticks before the user does anything: read, when it
+   * is offered, and nothing else.
+   */
+  defaultScopes: string[];
+  expiresAt: string;
+}
+/**
+ * OAuthConsentDecision is the body of POST /api/v1/oauth/consents/{id}.
+ */
+export interface OAuthConsentDecision {
+  /**
+   * Approve true creates the grant with Scopes; false sends the client access_denied.
+   */
+  approve: boolean;
+  /**
+   * Scopes are the ones the user ticked: a non-empty subset of OAuthConsent.scopes when
+   * approving, ignored when denying.
+   */
+  scopes?: string[];
+}
+/**
+ * OAuthConsentResult answers POST /api/v1/oauth/consents/{id}: the address the SPA sends the
+ * browser to with location.assign. It carries code, state and iss, or error=access_denied,
+ * state and iss.
+ */
+export interface OAuthConsentResult {
+  redirect: string;
+}
+/**
+ * OAuthGrantInfo is one grant as GET /api/v1/oauth/grants lists it: a user's consent to one
+ * client, which its refresh token keeps alive. No secret is part of it.
+ */
+export interface OAuthGrantInfo {
+  id: string;
+  user: string;
+  client: OAuthClient;
+  audience: string;
+  scopes: string[];
+  /**
+   * CreatedAt is the consent; ExpiresAt the absolute end (180 days later), however often the
+   * client refreshes. A grant unused for 30 days ends earlier.
+   */
+  createdAt: string;
+  expiresAt: string;
+  /**
+   * LastUsedAt is when the client last refreshed its access token; null when it never did.
+   */
+  lastUsedAt: string | null;
+}
+/**
+ * OAuthGrantList is GET /api/v1/oauth/grants: the caller's grants, or with ?user=
+ * (administrators) one user's or, for ?user=*, everyone's.
+ */
+export interface OAuthGrantList {
+  grants: OAuthGrantInfo[];
 }
 
 //////////

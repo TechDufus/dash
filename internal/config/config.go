@@ -44,6 +44,9 @@ type Config struct {
 	Listen       string
 	HealthListen string // /healthz and /readyz only.
 	PublicURL    string
+	// DirectURL is server.directURL: the origin that reaches dash without the identity proxy
+	// (contract D20), the OAuth issuer when set; "" when unset.
+	DirectURL string
 	// AllowedHosts are extra Host names the API answers besides PublicURL's host
 	// (server.allowedHosts); "*" accepts any. See HostAllowed.
 	AllowedHosts []string
@@ -143,13 +146,14 @@ func (c Config) HostAllowed(host string) bool { return c.HostMatcher()(host) }
 
 // HostMatcher returns HostAllowed with the configuration resolved once. Ports are ignored: a
 // DNS-rebinding attacker controls the host name, not the port. Allowed are PublicURL's host,
-// every AllowedHosts entry ("*" allows any host) and, in dev and demo mode, localhost,
-// 127.0.0.1 and ::1. Both sides are compared lowercased without a trailing dot.
+// DirectURL's, every AllowedHosts entry ("*" allows any host) and, in dev and demo mode,
+// localhost, 127.0.0.1 and ::1. Both sides are compared lowercased without a trailing dot.
 func (c Config) HostMatcher() func(host string) bool {
 	public := ""
 	if u, err := url.Parse(c.PublicURL); err == nil {
 		public = normalizeHost(u.Hostname())
 	}
+	direct := directHost(c.DirectURL)
 	listed := slices.Clone(c.AllowedHosts)
 	anyHost := slices.Contains(listed, "*")
 	local := c.Dev || c.Demo
@@ -158,7 +162,7 @@ func (c Config) HostMatcher() func(host string) bool {
 		if anyHost || slices.Contains(listed, host) {
 			return true
 		}
-		if host != "" && host == public {
+		if host != "" && (host == public || host == direct) {
 			return true
 		}
 		return local && (host == "localhost" || host == "127.0.0.1" || host == "::1")

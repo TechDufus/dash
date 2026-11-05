@@ -89,6 +89,8 @@ func TestProxyModeWarnsWhenOnlyLoopbackProxiesAreTrustedOffLoopback(t *testing.T
 		// A prefix wider than the loopback range starts at a loopback address but is not loopback.
 		{"127.0.0.0/1", []string{`DASH_AUTH_PROXY_TRUSTED_PROXIES=["127.0.0.0/1"]`}, false},
 		{"::1/64", []string{`DASH_AUTH_PROXY_TRUSTED_PROXIES=["::1/64"]`}, false},
+		// With server.directURL the direct route reaches the open listener past the sidecar.
+		{"default listen with directURL", []string{"DASH_SERVER_DIRECT_URL=https://dash-direct.example.com"}, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			res, err := config.Resolve(config.Sources{

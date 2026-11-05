@@ -106,6 +106,7 @@ How dash listens and what it calls itself.
 | Setting | Variable | Type | Default | Description |
 |---|---|---|---|---|
 | `server.publicURL` | `DASH_SERVER_PUBLIC_URL` | string | - | The URL people open, with scheme and host (https://dash.example.com). Required; the only Origin accepted on writes. In dev mode it defaults to http://localhost:5173 (the Vite dev server); in demo mode without dev mode to http:// and the listen address, with 127.0.0.1 for a listener on every address (http://127.0.0.1:8080 by default). _Restart-only._ |
+| `server.directURL` | `DASH_SERVER_DIRECT_URL` | string | - | Behind an identity proxy (auth.mode=proxy): a second origin, such as https://dash-direct.example.com, that reaches dash without the proxy, for OAuth and bearer clients the proxy would send to its login page. When set, dash answers its host, it is the OAuth issuer and the base of the token, revoke and /.well-known documents and of the api and mcp resources, while /oauth/authorize stays on publicURL behind the proxy. An origin only (no path), not publicURL's, https unless the host is loopback. The Helm chart sets it with routes.direct. Refused in auth.mode=none. _Restart-only._ |
 | `server.listen` | `DASH_SERVER_LISTEN` | string | `0.0.0.0:8080` | Address of the API and the web UI. The default 0.0.0.0:8080 accepts connections from any address, so keep authentication on (auth.mode local, proxy or oidc); behind a sidecar identity proxy set 127.0.0.1:8080. In dev and demo mode it defaults to 127.0.0.1:8080, and dev mode only accepts a loopback address. _Restart-only._ |
 | `server.healthListen` | `DASH_SERVER_HEALTH_LISTEN` | string | `0.0.0.0:8081` | Address of /healthz and /readyz. In dev and demo mode it defaults to 127.0.0.1:8081. _Restart-only._ |
 | `server.allowedHosts` | `DASH_SERVER_ALLOWED_HOSTS` | list of strings (JSON) | - | Host names the API answers besides the host of publicURL: names or IP addresses without scheme or port. ["*"] accepts any. A JSON list in the environment. _Restart-only._ |
@@ -187,6 +188,16 @@ The none mode: whether it may run on a listener other machines can reach.
 | Setting | Variable | Type | Default | Description |
 |---|---|---|---|---|
 | `auth.none.allowRemote` | `DASH_AUTH_NONE_ALLOW_REMOTE` | boolean | - | Let auth.mode=none start on a server.listen address that is not loopback (such as the default 0.0.0.0:8080). Anyone who can reach dash is then an administrator; dash warns at every start and refuses settings changes and connection tests. Without it, none on such an address refuses to start. It cannot be set from the settings page. _Restart-only._ |
+
+## `auth.oauth`
+
+dash's own OAuth 2.1 authorization server, for MCP clients and the Android app.
+
+| Setting | Variable | Type | Default | Description |
+|---|---|---|---|---|
+| `auth.oauth.enabled` | `DASH_AUTH_OAUTH_ENABLED` | boolean | - | Serve dash's OAuth 2.1 authorization server, so MCP clients and the Android app sign in through dash and receive tokens (/oauth/authorize, /oauth/token, /oauth/revoke and the /.well-known/oauth-* documents). Off by default: it adds an endpoint that needs no sign-in (/oauth/token). It only runs in auth.mode local, oidc and proxy with a writable data dir; otherwise those paths answer 404. Behind an identity proxy, set server.directURL so clients can reach the token endpoint. _Restart-only._ |
+| `auth.oauth.cimdAllowPrivate` | `DASH_AUTH_OAUTH_CIMD_ALLOW_PRIVATE` | boolean | - | Let dash fetch a client ID metadata document (an MCP client whose client_id is an https URL) from a private, loopback or link-local address. Off by default: dash fetches them only from global addresses, so a client_id cannot make dash probe the local network. _Restart-only._ |
+| `auth.oauth.clients` | `DASH_AUTH_OAUTH_CLIENTS` | list of objects (JSON) | - | OAuth clients registered in config, as [{clientID, name, redirectURIs, audiences}]: clientID 1 to 128 visible characters that are not a URL and not dash-android, a name to show on the consent screen, redirect URIs that are https, http on a loopback host (any port matches) or a private-use scheme containing a dot (com.example.app:/callback), and audiences from api and mcp. They may never be granted approvals or push. A JSON list in the environment. _Restart-only._ |
 
 ## `settings`
 

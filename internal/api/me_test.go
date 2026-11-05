@@ -110,6 +110,18 @@ func TestMeIconBaseURLComesFromTheConfiguration(t *testing.T) {
 	}
 }
 
+// capabilities.oauth says whether dash serves its OAuth authorization server, which decides
+// whether the SPA offers Settings -> Connected apps.
+func TestMeCapabilitiesOAuth(t *testing.T) {
+	for _, on := range []bool{true, false} {
+		var me model.Me
+		decodeJSON(t, req{path: "/api/v1/me"}.do(newServer(func(d *Deps) { d.OAuthEnabled = on }).Handler()), &me)
+		if me.Capabilities.OAuth != on {
+			t.Errorf("OAuthEnabled %v: capabilities.oauth = %v", on, me.Capabilities.OAuth)
+		}
+	}
+}
+
 func TestMeAnswerCarriesTheUIKeyAndTheFilteredActionsOfPluginsList(t *testing.T) {
 	e := minRoleEnv(t, func(d *Deps) { d.Cfg.IconBaseURL = "https://cdn.example.com/icons" })
 	w := req{path: "/api/v1/me"}.do(e.Handler())

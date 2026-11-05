@@ -54,6 +54,7 @@
               "audit_unavailable",
               "tokens_unavailable",
               "token_limit",
+              "grant_limit",
               "unknown_host",
               "internal"
             ],

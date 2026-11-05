@@ -72,3 +72,47 @@ func TestNoneModeWarnsAboutTokenSettings(t *testing.T) {
 		}
 	}
 }
+
+// auth.oauth.enabled takes effect only in local, oidc or proxy mode with a writable data dir
+// (contract D21); elsewhere it is a WARN and capabilities.oauth stays false.
+func TestOAuthRunsOnlyWithAWritableDataDir(t *testing.T) {
+	on := func(a *config.AuthConfig) { a.OAuth.Enabled = true }
+	cases := []struct {
+		name   string
+		res    func(dir string) *config.Resolved
+		absent bool // the data dir does not exist
+		want   bool
+		warn   string
+	}{
+		{"proxy", func(string) *config.Resolved { return resolvedAuth(false, false, on) }, false, true, ""},
+		{"local", func(dir string) *config.Resolved { return localResolved(dir, nil, on) }, false, true, ""},
+		{"proxy without a data dir", func(string) *config.Resolved { return resolvedAuth(false, false, on) }, true, false, "OAuth grants need a writable data dir (DASH_DATA_DIR)"},
+		{"dev", func(string) *config.Resolved { return resolvedAuth(true, false, on) }, false, false, "dev, demo and auth.mode=none have no OAuth server"},
+		{"demo", func(string) *config.Resolved { return resolvedAuth(false, true, on) }, false, false, "dev, demo and auth.mode=none have no OAuth server"},
+		{"none", func(string) *config.Resolved {
+			return resolvedAuth(false, false, func(a *config.AuthConfig) { on(a); a.Mode = config.AuthModeNone })
+		}, false, false, "dev, demo and auth.mode=none have no OAuth server"},
+		{"not enabled", func(string) *config.Resolved { return resolvedAuth(false, false, nil) }, false, false, ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			res := tc.res(dir)
+			res.Config.DataDir = dir
+			if tc.absent {
+				res.Config.DataDir = filepath.Join(dir, "absent")
+			}
+			var logs logCapture
+			pa, _, err := startLocal(t, res, hashOf(t), &logs)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if pa.oauth != tc.want {
+				t.Errorf("oauth = %v, want %v", pa.oauth, tc.want)
+			}
+			if tc.warn != "" && len(logs.with(t, "WARN", "auth.oauth.enabled is ignored: "+tc.warn)) != 1 {
+				t.Errorf("no WARN about %q:\n%s", tc.warn, &logs.buf)
+			}
+		})
+	}
+}

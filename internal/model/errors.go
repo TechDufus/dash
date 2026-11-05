@@ -37,6 +37,7 @@ const (
 	ErrCodeAuditUnavailable     = "audit_unavailable"     // 503
 	ErrCodeTokensUnavailable    = "tokens_unavailable"    // 409: no writable data dir keeps a new token
 	ErrCodeTokenLimit           = "token_limit"           // 409: the user holds the most tokens allowed
+	ErrCodeGrantLimit           = "grant_limit"           // 409: the user holds the most OAuth grants allowed
 	ErrCodeUnknownHost          = "unknown_host"          // 421
 	ErrCodeInternal             = "internal"              // 500
 )
@@ -50,6 +51,6 @@ func ErrCodes() []string {
 		ErrCodeLockedField, ErrCodeReadonlySettings, ErrCodeRateLimited, ErrCodeTooManyStreams,
 		ErrCodeUpstreamUnavailable, ErrCodeApprovalRequired, ErrCodeApprovalDenied,
 		ErrCodeApprovalExpired, ErrCodeConflict, ErrCodePreconditionFailed, ErrCodePreconditionRequired,
-		ErrCodeAuditUnavailable, ErrCodeTokensUnavailable, ErrCodeTokenLimit, ErrCodeUnknownHost, ErrCodeInternal,
+		ErrCodeAuditUnavailable, ErrCodeTokensUnavailable, ErrCodeTokenLimit, ErrCodeGrantLimit, ErrCodeUnknownHost, ErrCodeInternal,
 	}
 }
