@@ -36,7 +36,13 @@ func TestDirectURL(t *testing.T) {
 		{"fragment", "https://direct.example.com#x", "origin"},
 		{"user info", "https://pw@direct.example.com", "user information"},
 		{"plain http", "http://direct.example.com", "https"},
-		{"the public origin", "https://dash.example.com", "another origin"},
+		{"the public origin", "https://dash.example.com", "another host"},
+		// The public host spelled with the default port, a trailing dot or upper case, or on
+		// another port: dash tells the routes apart by the Host alone.
+		{"the public origin with its default port", "https://dash.example.com:443", "another host"},
+		{"the public origin with a trailing dot", "https://DASH.example.com.", "another host"},
+		{"the public origin with both", "https://Dash.Example.com.:443", "another host"},
+		{"the public host on another port", "https://dash.example.com:8443", "another host"},
 		{"not a URL", "direct.example.com", "http(s) URL"},
 	} {
 		_, err := load(with("DASH_SERVER_DIRECT_URL", tc.value))
@@ -104,6 +110,39 @@ func TestOAuthRefusesAPublicURLPath(t *testing.T) {
 	env["DASH_AUTH_OAUTH_ENABLED"] = "true"
 	if _, err := load(env); err == nil || !strings.Contains(err.Error(), "server.publicURL") || !strings.Contains(err.Error(), "path") {
 		t.Errorf("a public URL path with OAuth: %v, want refused", err)
+	}
+}
+
+// OAuth behind the identity proxy without server.directURL is a WARN naming the key and the
+// chart's routes.direct; with a direct URL, or in another mode, it is not.
+func TestProxyOAuthWithoutDirectURLWarns(t *testing.T) {
+	base := map[string]string{"DASH_SERVER_PUBLIC_URL": "https://dash.example.com", "DASH_AUTH_MODE": "proxy", "DASH_AUTH_OAUTH_ENABLED": "true"}
+	warned := func(extra map[string]string) bool {
+		t.Helper()
+		env := map[string]string{}
+		for k, v := range base {
+			env[k] = v
+		}
+		for k, v := range extra {
+			env[k] = v
+		}
+		_, log, err := resolveWith(t, Sources{Environ: environ(env)})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return strings.Contains(log, "level=WARN") && strings.Contains(log, "server.directURL") && strings.Contains(log, "routes.direct")
+	}
+	if !warned(nil) {
+		t.Error("proxy mode with OAuth and no server.directURL does not warn")
+	}
+	if warned(map[string]string{"DASH_SERVER_DIRECT_URL": "https://dash-direct.example.com"}) {
+		t.Error("warns with server.directURL set")
+	}
+	if warned(map[string]string{"DASH_AUTH_OAUTH_ENABLED": "false"}) {
+		t.Error("warns with OAuth off")
+	}
+	if warned(map[string]string{"DASH_AUTH_MODE": "local"}) {
+		t.Error("warns in auth.mode=local")
 	}
 }
 

@@ -150,10 +150,19 @@ func Resolve(src Sources) (*Resolved, error) {
 		r.log.Warn("auth.proxy settings are ignored: auth.mode is not proxy; set DASH_AUTH_MODE=proxy if dash runs behind an identity proxy",
 			"mode", r.tree.Auth.Mode, "settings", ignored)
 	}
+	// Behind the identity proxy an OAuth client reaching /oauth/token or the API gets the
+	// proxy's login page, unless a direct route bypasses it (contract D20).
+	if !dev && !demo && r.tree.Auth.Mode == AuthModeProxy && r.tree.Auth.OAuth.Enabled && r.tree.Server.DirectURL == "" {
+		r.log.Warn(ProxyOAuthWithoutDirectWarning)
+	}
 	cfg := r.tree.config(dev, demo)
 	cfg.DemoClock = r.demoClock
 	return &Resolved{Tree: r.tree, Provenance: r.prov, Config: cfg, Keys: src.Keys, src: src}, nil
 }
+
+// ProxyOAuthWithoutDirectWarning is the WARN of auth.oauth.enabled in auth.mode=proxy without
+// server.directURL, at start and in `dash config validate`.
+const ProxyOAuthWithoutDirectWarning = "auth.oauth.enabled behind an identity proxy without server.directURL: OAuth clients and bearer clients reach the proxy, which sends them to its login page; set server.directURL to a route that bypasses it (the Helm chart's routes.direct)"
 
 // Bootstrap is what the file and the environment alone say about the settings store. The store
 // is opened before the UI layer can be read, and it is located by dataDir and settings.ui,

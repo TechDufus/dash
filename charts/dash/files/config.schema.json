@@ -1260,7 +1260,7 @@
           "x-dash-restart": true
         },
         "directURL": {
-          "description": "Behind an identity proxy (auth.mode=proxy): a second origin, such as https://dash-direct.example.com, that reaches dash without the proxy, for OAuth and bearer clients the proxy would send to its login page. When set, dash answers its host, it is the OAuth issuer and the base of the token, revoke and /.well-known documents and of the api and mcp resources, while /oauth/authorize stays on publicURL behind the proxy. An origin only (no path), not publicURL's, https unless the host is loopback. The Helm chart sets it with routes.direct. Refused in auth.mode=none.",
+          "description": "Behind an identity proxy (auth.mode=proxy): a second origin, such as https://dash-direct.example.com, that reaches dash without the proxy, for OAuth and bearer clients the proxy would send to its login page. When set, dash answers its host, it is the OAuth issuer and the base of the token, revoke and /.well-known documents and of the api and mcp resources, while /oauth/authorize stays on publicURL behind the proxy. An origin only (no path) on another host than publicURL's (a port does not tell them apart), https unless the host is loopback. The Helm chart sets it with routes.direct. Refused in auth.mode=none.",
           "format": "uri",
           "type": "string",
           "x-dash-restart": true

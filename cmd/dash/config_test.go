@@ -237,3 +237,19 @@ func TestValidateRunsTheStartupChecksAfterResolve(t *testing.T) {
 		t.Errorf("launcher file with --resolve-secrets: %v\n%s", err, out)
 	}
 }
+
+// validate prints the start's WARN about OAuth behind the identity proxy without
+// server.directURL, and still exits zero.
+func TestValidateWarnsProxyOAuthWithoutDirectURL(t *testing.T) {
+	cleanEnv(t)
+	t.Setenv("DASH_AUTH_MODE", "proxy")
+	t.Setenv("DASH_AUTH_OAUTH_ENABLED", "true")
+	out, err := validate(t)
+	if err != nil || !strings.Contains(out, "warning:") || !strings.Contains(out, "server.directURL") || !strings.Contains(out, "routes.direct") {
+		t.Errorf("proxy mode with OAuth and no direct URL: %v\n%s", err, out)
+	}
+	t.Setenv("DASH_SERVER_DIRECT_URL", "https://dash-direct.example.com")
+	if out, err := validate(t); err != nil || strings.Contains(out, "routes.direct") {
+		t.Errorf("with server.directURL: %v\n%s", err, out)
+	}
+}

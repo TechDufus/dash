@@ -116,8 +116,11 @@ func (o AuthOAuthConfig) validate(add func(path, format string, args ...any)) {
 }
 
 // directURLProblem is why direct cannot be server.directURL next to public, or "" when it can
-// (contract D20): an origin (scheme, host, optional port; no path, query or fragment) other than
-// the public URL's, https unless the host is loopback. The message never repeats the value.
+// (contract D20): an origin (scheme, host, optional port; no path, query or fragment) on another
+// host than the public URL's, https unless the host is loopback. Hosts compare as HostMatcher
+// compares them (case, trailing dot and port ignored): dash tells the two routes apart by the
+// Host alone, so a direct origin on the public host, whatever its port, would put the pages a
+// person signs in for past the identity proxy. The message never repeats the value.
 func directURLProblem(direct, public string) string {
 	u, err := url.Parse(direct)
 	if err != nil || u.Host == "" {
@@ -131,8 +134,8 @@ func directURLProblem(direct, public string) string {
 	case u.Scheme != "https" && !loopbackHost(u.Hostname()):
 		return "must be https (http only for a loopback host): OAuth clients send their tokens to it"
 	}
-	if p, err := url.Parse(public); err == nil && strings.EqualFold(p.Scheme, u.Scheme) && strings.EqualFold(p.Host, u.Host) {
-		return "must be another origin than server.publicURL: it is the address that bypasses the identity proxy"
+	if p, err := url.Parse(public); err == nil && normalizeHost(p.Hostname()) == normalizeHost(u.Hostname()) {
+		return "must be on another host than server.publicURL: it is the address that bypasses the identity proxy, and dash tells the two apart by the host"
 	}
 	return ""
 }
