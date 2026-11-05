@@ -1857,11 +1857,11 @@ R3 of G5: P5.4 and P5.5. A patch: additive, the binary is unchanged.
 
 **Body:** clear every blocker in design G and move CI and release to public infrastructure (design H). P6.1, P6.2, P6.4 and P6.5 can start right after G0; P6.6 can start once G0 and P6.1 have landed.
 
-- [ ] P6.1 test: replace real-lab identifiers in fixtures and add a denylist test
-- [ ] P6.2 chore(dev): decouple dev tooling from ../homelab
+- [x] P6.1 test: replace real-lab identifiers in fixtures and add a denylist test
+- [x] P6.2 chore(dev): decouple dev tooling from ../homelab
 - [ ] P6.3 docs: rewrite the README and add generated configuration docs
-- [ ] P6.4 docs: add SECURITY, CONTRIBUTING, CODE_OF_CONDUCT and templates
-- [ ] P6.5 chore: add LICENSE and third-party notices
+- [x] P6.4 docs: add SECURITY, CONTRIBUTING, CODE_OF_CONDUCT and templates (`SECURITY.md`, the issue forms, the pull request template and `CODEOWNERS`; no code of conduct and no `CONTRIBUTING.md`, by the owner's decision: see the R1 deviations)
+- [x] P6.5 chore: add LICENSE and third-party notices
 - [ ] P6.6 ci: move CI to GitHub-hosted runners with secret and workflow scans
 - [ ] P6.7 ci(release): publish multi-arch images and the chart to GHCR with attestations
 - [ ] P6.8 docs: automate screenshots from demo mode
@@ -1871,6 +1871,44 @@ R3 of G5: P5.4 and P5.5. A patch: additive, the binary is unchanged.
 **Acceptance criteria:** all leaves closed; the repository is public.
 
 **Dependencies:** P6.10 depends on G1 to G5 and on P6.1 to P6.9.
+
+### G6 R1 deviations (v0.14.2)
+
+R1 (branch `feat/g6-fixtures-a`: the neutral fixtures in two commits, the dev tooling, the community files, the third-party notices, the denylist test, an atomic writer for the reload tests, then this docs commit) ships P6.1, P6.2, P6.4 and P6.5, and differs from them in these places.
+
+| Item | The plan said | Shipped | Why |
+|---|---|---|---|
+| P6.4 community files | `CODE_OF_CONDUCT.md` (Contributor Covenant 2.1) and `CONTRIBUTING.md`; GitHub's community profile complete | No `CODE_OF_CONDUCT.md` and no `CONTRIBUTING.md`; the README's Develop section holds the contributor facts (setup, `make check` and `make generate`, demo mode, the neutral-names rule, where a plugin starts). The "community profile complete" criterion no longer applies | The owner's decision on 2026-11-05, on the Omarchy model: no code of conduct, contributor facts in the README. The docs review had also found that GitHub's Report content does not reach the maintainer of a personal account's repository |
+| Screenshots | The README's screenshots carry no lab identifier | Unchanged; the README no longer claims every name in them is made up | Their PNG metadata is clean, but the pixels still show old names. The repository is private, so they are no new exposure; P6.8 regenerates them from demo mode right after this release |
+| Denylist scope (D1) | A repo-wide denylist | Every tracked text file except `docs/design/**` and `docs/adr/**` | Those quote the identifiers by design; the owner-gated P6.10 history scrub rewrites them, and P6.10 then removes the exclusion |
+| R730 (D2) | Not decided | Neutralised everywhere: "Example 2U server" in the schema docs, model comments, the demo `HostModel` and the fixtures | Design G.4 lists it as lab-specific |
+| Zot push (D3) | Not covered | The Zot release push line in `ci.yml` is allowlisted; the self-hosted `homelab` label and the word `homelab` are not terms | P6.7 removes the push (J.9); `homelab` is the generic tagline (J.14) |
+| Owner handle (D4) | Allowlist the module path, GHCR image, LICENSE and the app ID | Those, plus the repository URLs, `CODEOWNERS` and the SECURITY and issue-config links to the repository; fixtures that used the handle as a user name now use alice and bob | The handle identifies the project there; as a user name it was a lab identifier |
+| Fixture list | `internal/upstream/clients_test.go`, `internal/api/silences_test.go`, `actions_test.go`, `internal/topics/*`, `internal/links/*`, `internal/demo/demo_test.go:44` | Their successors: the split upstream tests, `alertmanager_actions_test.go`, `kubernetes_restart_test.go`, `secrets_test.go`, the plugins' tests, `cmd/dash/demo_test.go`, the pinned deployment env files and their tests | G3 moved or deleted the files the epic names |
+| Two allowlist entries | Not planned | `HL_OP` (upper case only) in `Makefile`, `README.md` and `dev/secrets.env.example`; the removed variables `DASH_NAS_BACKUP_NAMESPACE` and `_CRONJOB` everywhere | `HL_OP` is the opt-in broker variable P6.2 names; dash still recognises the removed variables to refuse them with their replacement |
+| Notices in the image | P6.7 | The final stage copies `LICENSE` and `THIRD_PARTY_NOTICES.md` to `/usr/share/doc/dash/` (a `COPY`, no `RUN`) | A distributed image must carry the licences it ships; pulled forward from P6.7 |
+| `shadcn` | P6.6 (K.13) moves it to devDependencies | Moved now | The app imports only its CSS, which the shadcn/ui notice covers; as a runtime dependency its CLI inflated the notices from 137 to 359 npm packages; pulled forward from P6.6 |
+| Denylist terms | G.2 now, and the three strings P6.6 adds | All of them now, with separator variants, plus low-sensitivity names from the history (the owner's surname outside `LICENSE`, a MAC prefix, a vault name, iDRAC, VIP, router and gateway hostnames, the server line) | One test, one review; the extra names were found while counting the history for the scrub list |
+| Terms left out | Not covered | Wi-Fi network names, the lab's other machine names and the owner's other project domains are deliberately not terms | The test is public and lists its own terms, so adding them would publish them; the P6.10 scrub list covers them |
+| Reload test flake | Not in the plan | `writeTestFile` in `cmd/dash` replaces the file in one rename | `TestAdminUsersReloadAppliesOnTheNextRequest` failed once under `-race -shuffle` on a poll that read a half-written file |
+
+#### v0.14.2 release notes
+
+R1 of G6: P6.1, P6.2, P6.4 (without a code of conduct or contributing guide) and P6.5. A patch: no behaviour change apart from neutral demo, example and doc text. Image only; nothing to change in the deployment.
+
+- **Neutral names:** the demo's host model is "Example 2U server", and its backup job is `nightly-backup`. Doc and example text uses `example.com`, the documentation address ranges and neutral host and user names.
+- **Licences:** `THIRD_PARTY_NOTICES.md` lists the Go modules and npm runtime packages dash ships, plus the vendored and bundled components. The image carries it with `LICENSE` in `/usr/share/doc/dash/`. `make check` fails on stale notices and on a licence outside the policy.
+- **Repository files:** `SECURITY.md` (private vulnerability reporting), issue forms, a pull request template and `CODEOWNERS`. Dev mode needs nothing outside the checkout: `DASH_DEMO=true make dev-api` and `make dev-web`; `make dev-api-op` with `HL_OP` is the opt-in secret broker.
+- **Hygiene:** `internal/hygiene` fails `go test` on a lab identifier in any tracked text file outside the design docs, with an explicit allowlist.
+- **Rollback:** revert the image.
+
+**Evidence:** `make check` on every commit, each signed. `go test -race -shuffle=on -count=20 -run Reload ./cmd/dash ./internal/config` passed all 500 runs, and the formerly flaky test passed 200 runs under `-race -shuffle=on`. The denylist test passes on the tree, and on a `git archive` export outside any checkout through the walk fallback.
+
+**Security requirement verification (`RevG4R5Sec`):** an independent 110-term list built from the lab inventory found no lab identifier in any tracked text file outside `docs/design` and `docs/adr`, beyond the documented allowlist. Each contract term, with case and separator variants, injected into 13 file types was caught. Byte-level scanning skips only files with a NUL byte, and the scan works outside a git checkout. The screenshots' PNG metadata is clean; their pixels still show old names (P6.8). The history's identifier classes were counted for the P6.10 scrub list.
+
+**Correctness (`RevG4R5Code`):** the fixture renames (about 40 files) keep every case; mutation spot-checks are killed before and after. The licence tooling is deterministic and runs without network (`unshare -rn`), and its SPDX policy got 20 of 20 expressions right. The multi-arch build ships `LICENSE` and the notices with no `RUN` in the final stage. A fresh-clone `make check` went from 51 s to 55 s. The review found the denylist failing outside git, the shadcn CLI inflating the notices (359 to 137 runtime packages once moved), and the notices missing from the image; all fixed.
+
+**Docs (`RevG5Docs`):** the README Develop steps ran verbatim on a fresh clone without the homelab checkout: `make check`, a clean `make generate`, demo `dev-api`, `dev-web`, and the busy-ports recipe with a write through the Vite proxy. The review found a reserved dropdown value, three missing MIT texts and SECURITY.md inaccuracies, all fixed, and that a code of conduct's Report contact would not reach the maintainer of a personal account, which fed the owner's decision above.
 
 ### P6.1 test: replace real-lab identifiers in fixtures and add a denylist test
 
