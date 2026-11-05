@@ -144,22 +144,22 @@ type Server struct {
 	pwa         map[string]pwaFile // headers of sw.js and offline.html in static, computed once
 	now         func() time.Time
 	heartbeat   time.Duration
-	events      *streamLimiter // open /api/v1/stream connections
-	tails       *streamLimiter // open plugin streams (a log tail)
-	tailMax     time.Duration  // longest a plugin stream stays open
-	sseWrite    time.Duration  // deadline of each SSE write
-	bodyTimeout time.Duration  // longest a request body may take to arrive
-	actionLimit *rateLimiter   // framework actions per principal
-	tokenLimit  *tokenBucket   // requests per api token (design M.5)
-	createLimit *rateLimiter   // personal access tokens created per user
-	oauthLimit  *rateLimiter   // /oauth/token and /oauth/revoke per client_id and peer
-	testLimit   *rateLimiter   // settings connection tests per principal
-	openTarget  *rateLimiter   // stream-open audit records per user and target
-	openUser    *rateLimiter   // stream-open audit records per user
-	hostWarn    atomic.Int64   // unix nanos of the last unknown-host warning
-	serving     atomic.Bool    // the listeners are bound (MarkServing)
-	probe       principalProbe // first sighting of each user name, for the log
-	schemas     sync.Map       // reflect.Type -> json.RawMessage: action input schemas
+	events      *streamLimiter   // open /api/v1/stream connections
+	tails       *streamLimiter   // open plugin streams (a log tail)
+	tailMax     time.Duration    // longest a plugin stream stays open
+	sseWrite    time.Duration    // deadline of each SSE write
+	bodyTimeout time.Duration    // longest a request body may take to arrive
+	actionLimit *rateLimiter     // framework actions per principal
+	tokenLimit  *tokenBucket     // requests per api token (design M.5)
+	createLimit *rateLimiter     // personal access tokens created per user
+	oauthLimit  *evictingLimiter // /oauth/token and /oauth/revoke per grant, or client_id and peer
+	testLimit   *rateLimiter     // settings connection tests per principal
+	openTarget  *rateLimiter     // stream-open audit records per user and target
+	openUser    *rateLimiter     // stream-open audit records per user
+	hostWarn    atomic.Int64     // unix nanos of the last unknown-host warning
+	serving     atomic.Bool      // the listeners are bound (MarkServing)
+	probe       principalProbe   // first sighting of each user name, for the log
+	schemas     sync.Map         // reflect.Type -> json.RawMessage: action input schemas
 }
 
 // New builds a Server serving the embedded SPA.
@@ -181,7 +181,7 @@ func New(d Deps) *Server {
 		actionLimit: newRateLimiter(actionRateLimit, actionRateWindow, maxRateKeys),
 		tokenLimit:  newTokenBucket(tokenRate, tokenBurst, maxRateKeys),
 		createLimit: newRateLimiter(tokenCreateLimit, tokenCreateWindow, maxRateKeys),
-		oauthLimit:  newRateLimiter(oauthTokenLimit, oauthTokenWindow, maxRateKeys),
+		oauthLimit:  newEvictingLimiter(oauthTokenLimit, oauthTokenWindow, maxRateKeys),
 		testLimit:   newRateLimiter(settingsTestRateLimit, settingsTestRateWindow, maxRateKeys),
 		openTarget:  newRateLimiter(1, openRecordWindow, maxRateKeys),
 		openUser:    newRateLimiter(openRecordPerUser, openRecordWindow, maxRateKeys),

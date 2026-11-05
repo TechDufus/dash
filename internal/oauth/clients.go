@@ -68,6 +68,15 @@ func (s *Server) client(ctx context.Context, id string) (*Client, error) {
 	return nil, errUnknownClient
 }
 
+// knownClient reports whether id is a client dash knows without fetching anything: dash-android,
+// an auth.oauth.clients entry, or a metadata document in the cache.
+func (s *Server) knownClient(id string) bool {
+	if _, ok := s.clients[id]; ok || id == model.OAuthClientAndroid {
+		return true
+	}
+	return s.cimd.cached(id)
+}
+
 // ClientInfo is the wire form of a stored grant's client; a client gone from the config keeps the
 // name the grant recorded.
 func ClientInfo(id, name, kind string) model.OAuthClient {
@@ -119,6 +128,14 @@ type cimdCache struct {
 
 func newCIMDCache(hc *http.Client, now func() time.Time) *cimdCache {
 	return &cimdCache{http: hc, now: now, slots: make(chan struct{}, cimdFetches), entries: map[string]cimdEntry{}}
+}
+
+// cached reports whether a valid document of id is in the cache.
+func (c *cimdCache) cached(id string) bool {
+	c.mu.Lock()
+	e, ok := c.entries[id]
+	c.mu.Unlock()
+	return ok && c.now().Sub(e.fetched) < cimdTTL
 }
 
 func (c *cimdCache) get(ctx context.Context, id string) (*Client, error) {

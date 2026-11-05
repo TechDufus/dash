@@ -27,8 +27,8 @@ const (
 	auditGrantRevoke = "oauth.grant.revoke"
 )
 
-// The /oauth/token limit (contract G7-R3): per client_id and peer, so one client cannot starve
-// another behind the same ingress.
+// The /oauth/token and /oauth/revoke limit (contract G7-R3): per grant for a refresh, else per
+// known client_id and peer, so one client cannot starve another behind the same ingress.
 const (
 	oauthTokenLimit  = 60
 	oauthTokenWindow = time.Minute
@@ -142,11 +142,20 @@ func (s *Server) oauthForm(w http.ResponseWriter, r *http.Request) bool {
 	return true
 }
 
-// oauthLimitKey is the /oauth/token limit's key: the peer and a hash of the client_id, so a
-// long client_id cannot grow the table.
-func oauthLimitKey(r *http.Request, clientID string) string {
-	sum := sha256.Sum256([]byte(clientID))
-	return peerOf(r) + "|" + hex.EncodeToString(sum[:8])
+// oauthLimitKey is the /oauth/token and /oauth/revoke limit's key (fix A1): the grant a refresh
+// token names, else a hash of a client_id dash knows and the peer, else the peer alone. An
+// unknown client_id is never a key of its own, so inventing them cannot grow the table, and a
+// flood under a known client_id cannot starve the refresh of that client's real grant.
+func (s *Server) oauthLimitKey(r *http.Request) string {
+	subject := s.d.OAuth.LimitSubject(r.PostForm)
+	switch {
+	case subject.GrantID != "":
+		return "grant|" + subject.GrantID
+	case subject.ClientID != "":
+		sum := sha256.Sum256([]byte(subject.ClientID))
+		return "client|" + peerOf(r) + "|" + hex.EncodeToString(sum[:8])
+	}
+	return "peer|" + peerOf(r)
 }
 
 // grantActor is the audit actor of a change a client made to its own grant at the token or
@@ -161,7 +170,7 @@ func grantTarget(g credentials.Grant) audit.Target {
 }
 
 // oauthToken answers /oauth/token (RFC 6749 3.2): the code exchange with PKCE and the refresh
-// with rotation. Past 60 requests a minute for one client_id from one peer it is 429. A grant
+// with rotation. Past 60 requests a minute under one key (oauthLimitKey) it is 429. A grant
 // revoked because a code or refresh token was used twice is recorded in the audit log.
 func (s *Server) oauthToken(w http.ResponseWriter, r *http.Request) {
 	if s.d.OAuth == nil {
@@ -171,7 +180,7 @@ func (s *Server) oauthToken(w http.ResponseWriter, r *http.Request) {
 	if !s.oauthForm(w, r) {
 		return
 	}
-	if ok, retry := s.oauthLimit.allow(oauthLimitKey(r, r.PostForm.Get("client_id")), s.now()); !ok {
+	if ok, retry := s.oauthLimit.allow(s.oauthLimitKey(r), s.now()); !ok {
 		s.deny(r, obs.AuthRateLimit)
 		w.Header().Set("Retry-After", strconv.Itoa(int(math.Ceil(retry.Seconds()))))
 		writeJSON(w, http.StatusTooManyRequests, &oauth.Error{Code: "temporarily_unavailable", Description: "too many token requests; try again later"})
@@ -210,7 +219,7 @@ func (s *Server) oauthRevoke(w http.ResponseWriter, r *http.Request) {
 	if !s.oauthForm(w, r) {
 		return
 	}
-	if ok, retry := s.oauthLimit.allow(oauthLimitKey(r, r.PostForm.Get("client_id")), s.now()); !ok {
+	if ok, retry := s.oauthLimit.allow(s.oauthLimitKey(r), s.now()); !ok {
 		s.deny(r, obs.AuthRateLimit)
 		w.Header().Set("Retry-After", strconv.Itoa(int(math.Ceil(retry.Seconds()))))
 		writeJSON(w, http.StatusTooManyRequests, &oauth.Error{Code: "temporarily_unavailable", Description: "too many requests; try again later"})

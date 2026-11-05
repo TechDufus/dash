@@ -1,6 +1,7 @@
 package api
 
 import (
+	"container/list"
 	"sync"
 	"time"
 )
@@ -89,4 +90,56 @@ func (l *rateLimiter) dropExpired(now, cutoff time.Time) {
 			delete(l.hits, k)
 		}
 	}
+}
+
+// evictingLimiter is a sliding-window limiter like rateLimiter whose keys anyone can choose (the
+// OAuth endpoints, contract G7-R3 fix A1): a full table never refuses a new key, it forgets the
+// key used longest ago, which is an expired one when there is any. A forgotten key starts over,
+// so a flood of new keys can only give a key more room, never take a key's room away.
+type evictingLimiter struct {
+	limit   int
+	window  time.Duration
+	maxKeys int
+
+	mu    sync.Mutex
+	keys  map[string]*list.Element
+	order *list.List // of *limitedKey, the key used longest ago first
+}
+
+type limitedKey struct {
+	key  string
+	hits []time.Time // oldest first
+}
+
+func newEvictingLimiter(limit int, window time.Duration, maxKeys int) *evictingLimiter {
+	return &evictingLimiter{limit: limit, window: window, maxKeys: maxKeys, keys: map[string]*list.Element{}, order: list.New()}
+}
+
+// allow is rateLimiter.allow without the refusal of a full table.
+func (l *evictingLimiter) allow(key string, now time.Time) (ok bool, retry time.Duration) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	e, known := l.keys[key]
+	if !known {
+		for len(l.keys) >= l.maxKeys {
+			oldest := l.order.Front()
+			delete(l.keys, oldest.Value.(*limitedKey).key)
+			l.order.Remove(oldest)
+		}
+		e = l.order.PushBack(&limitedKey{key: key})
+		l.keys[key] = e
+	}
+	l.order.MoveToBack(e)
+	k := e.Value.(*limitedKey)
+	cutoff := now.Add(-l.window)
+	i := 0
+	for i < len(k.hits) && !k.hits[i].After(cutoff) {
+		i++
+	}
+	k.hits = k.hits[i:]
+	if len(k.hits) >= l.limit {
+		return false, max(k.hits[0].Sub(cutoff), time.Second)
+	}
+	k.hits = append(k.hits, now)
+	return true, 0
 }

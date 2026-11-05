@@ -64,7 +64,8 @@ after name resolution, so a rebinding name is refused too), uses no proxy from t
 follows no redirect and reads at most 64 KiB within 5 seconds. `auth.oauth.cimdAllowPrivate` adds
 private and loopback addresses, never link-local ones. `/oauth/token` and `/oauth/revoke` need no
 sign-in and no CSRF header (they read no cookie), and are limited to 60 requests a minute per
-client and peer; unknown pending requests are capped. Behind an identity proxy,
+grant (a refresh), else per known client and peer, else per peer; the limit's table forgets its
+oldest key rather than refuse a new one. Unknown pending requests are capped. Behind an identity proxy,
 `server.directURL` names a second origin for these endpoints; the proxy's trusted peers stay
 loopback, so nothing arriving on the direct host is signed in by a header.
 

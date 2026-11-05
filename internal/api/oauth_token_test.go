@@ -2,6 +2,7 @@ package api
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -229,5 +230,55 @@ func TestOAuthTokenRateLimit(t *testing.T) {
 		header: map[string]string{"Content-Type": "application/x-www-form-urlencoded"}}.do(e.s.Handler())
 	if w.Code != http.StatusBadRequest {
 		t.Errorf("another peer = %d", w.Code)
+	}
+}
+
+// The limit's table cannot be filled shut: 4200 requests, each from a new peer with a new
+// client_id, leave dash-android's first request unlimited.
+func TestOAuthLimitTableNeverRefusesANewKey(t *testing.T) {
+	e := newOAuthEnv(t)
+	h := e.s.Handler()
+	for i := range 4200 {
+		f := url.Values{"grant_type": {"refresh_token"}, "refresh_token": {"x"}, "client_id": {fmt.Sprintf("junk-%d", i)}}
+		peer := fmt.Sprintf("127.1.%d.%d:5000", i/256, i%256)
+		w := req{method: http.MethodPost, path: "/oauth/token", body: f.Encode(), raw: true, peer: peer,
+			header: map[string]string{"Content-Type": "application/x-www-form-urlencoded", "X-Forwarded-Preferred-Username": ""}}.do(h)
+		if w.Code != http.StatusBadRequest {
+			t.Fatalf("junk request %d = %d", i+1, w.Code)
+		}
+	}
+	android := url.Values{"grant_type": {"refresh_token"}, "refresh_token": {"x"}, "client_id": {"dash-android"}}
+	if w := e.form("/oauth/token", android, nil); w.Code != http.StatusBadRequest {
+		t.Errorf("dash-android after the flood = %d %s", w.Code, w.Body)
+	}
+}
+
+// A flood of junk refreshes under a client's client_id, from the client's own peer, uses up that
+// client_id's limit but not the refresh of the client's real grant, which is keyed on the grant.
+// Unknown client_ids share the peer's one key.
+func TestOAuthJunkRefreshesDoNotStarveARealRefresh(t *testing.T) {
+	e := newOAuthEnv(t)
+	res := e.grant(t, aliceAdmin, "api", "read")
+	junk := url.Values{"grant_type": {"refresh_token"}, "refresh_token": {"x"}, "client_id": {"inspector"}}
+	for range oauthTokenLimit {
+		e.form("/oauth/token", junk, nil)
+	}
+	if w := e.form("/oauth/token", junk, nil); w.Code != http.StatusTooManyRequests {
+		t.Fatalf("junk past the limit = %d", w.Code)
+	}
+	valid := url.Values{"grant_type": {"refresh_token"}, "refresh_token": {res.RefreshToken}, "client_id": {"inspector"}}
+	if w := e.form("/oauth/token", valid, nil); w.Code != http.StatusOK {
+		t.Errorf("the real refresh = %d %s", w.Code, w.Body)
+	}
+
+	for i := range oauthTokenLimit {
+		unknown := url.Values{"grant_type": {"refresh_token"}, "refresh_token": {"x"}, "client_id": {fmt.Sprintf("unknown-%d", i)}}
+		if w := e.form("/oauth/token", unknown, nil); w.Code != http.StatusBadRequest {
+			t.Fatalf("unknown client %d = %d", i+1, w.Code)
+		}
+	}
+	unknown := url.Values{"grant_type": {"refresh_token"}, "refresh_token": {"x"}, "client_id": {"unknown-new"}}
+	if w := e.form("/oauth/token", unknown, nil); w.Code != http.StatusTooManyRequests {
+		t.Errorf("a new unknown client_id past the peer's limit = %d", w.Code)
 	}
 }

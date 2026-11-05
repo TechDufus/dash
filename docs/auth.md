@@ -459,7 +459,8 @@ changes.
 **CORS and limits.** A `server.corsOrigins` origin gets `Access-Control-Allow-Origin` on the
 `/.well-known/oauth-*` documents, `/oauth/token` and `/oauth/revoke`, never on `/oauth/authorize`
 (a browser navigation). `/oauth/token` and `/oauth/revoke` take a form with no CSRF header and
-allow 60 requests a minute per `client_id` and peer (429 after). Every `/oauth` answer is
+allow 60 requests a minute per key (429 after): the grant a refresh token names, else a known
+`client_id` and the peer, else the peer alone. Every `/oauth` answer is
 `Cache-Control: no-store`.
 
 **In the proxy mode** `/oauth/authorize` and the consent page must go through the identity proxy,

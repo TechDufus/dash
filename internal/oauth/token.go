@@ -234,3 +234,28 @@ func (s *Server) RevocationTarget(form url.Values) (credentials.Grant, bool) {
 	}
 	return g, true
 }
+
+// LimitSubject is what a request to /oauth/token or /oauth/revoke is rate limited as (contract
+// G7-R3 fix A1): the grant its refresh token (or token to revoke) names, when that grant is
+// stored; else its client_id when dash knows the client without fetching anything (dash-android,
+// an auth.oauth.clients entry, a cached metadata document); else nothing, and the API keys the
+// request on its peer alone.
+type LimitSubject struct {
+	GrantID  string
+	ClientID string
+}
+
+// LimitSubject finds the subject of form; it never fetches a metadata document.
+func (s *Server) LimitSubject(form url.Values) LimitSubject {
+	for _, k := range []string{"refresh_token", "token"} {
+		if id, ok := credentials.ParseRefreshToken(form.Get(k)); ok {
+			if _, found := s.store.GrantByID(id); found {
+				return LimitSubject{GrantID: id}
+			}
+		}
+	}
+	if id := form.Get("client_id"); s.knownClient(id) {
+		return LimitSubject{ClientID: id}
+	}
+	return LimitSubject{}
+}
