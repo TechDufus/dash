@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"os"
 	"path/filepath"
 	"reflect"
 	"slices"
@@ -195,6 +196,27 @@ func requireLeaf(t *testing.T, section any, leaf, want string) {
 	}
 	if w := wantLeaf(t, got.Type(), want); !reflect.DeepEqual(got.Interface(), w.Interface()) {
 		t.Errorf("%s: the plugin received %#v, want %#v", leaf, got.Interface(), w.Interface())
+	}
+}
+
+// leafHolds reports whether the section's field at path holds what the environment text want says.
+func leafHolds(t *testing.T, section any, leaf, want string) bool {
+	t.Helper()
+	got := leafOf(t, section, leaf)
+	if r, ok := got.Interface().(interface{ Reveal() string }); ok {
+		return r.Reveal() == want
+	}
+	return reflect.DeepEqual(got.Interface(), wantLeaf(t, got.Type(), want).Interface())
+}
+
+// replaceTestFile replaces path with body in one rename, so a reader sees the old file or the new
+// one, never the empty file os.WriteFile leaves between its truncation and its write.
+func replaceTestFile(t *testing.T, path, body string) {
+	t.Helper()
+	tmp := path + ".tmp"
+	writeTestFile(t, tmp, body)
+	if err := os.Rename(tmp, path); err != nil {
+		t.Fatal(err)
 	}
 }
 
@@ -403,9 +425,19 @@ func settingsReachThePlugin(t *testing.T, id plugin.ID, leaves []reachLeaf, pl p
 			if leaf.next == "" {
 				return
 			}
-			// A reload of the file layer restarts the instance, which gets the new value.
-			writeTestFile(t, cfgPath, fileDoc(leaf.path, leaf.next))
-			waitFor(t, func() bool { return f.Starts() == 2 })
+			// A reload of the file layer restarts the instance, which gets the new value. The file is
+			// replaced in one rename and the wait is for that value, not for a start count: a poll
+			// (every millisecond) that read the file between os.WriteFile's truncation and its write
+			// restarted the instance with the default first, so the count could pass 2 between two
+			// looks of a wait for exactly 2.
+			replaceTestFile(t, cfgPath, fileDoc(leaf.path, leaf.next))
+			waitFor(t, func() bool {
+				return f.Starts() >= 2 && leafHolds(t, f.Config(), strings.TrimPrefix(leaf.path, prefix), leaf.next)
+			})
+			// The rename leaves no moment with another file, so a third start is a double restart.
+			if n := f.Starts(); n != 2 {
+				t.Errorf("%d starts after the reload, want 2", n)
+			}
 			requireLeaf(t, f.Config(), strings.TrimPrefix(leaf.path, prefix), leaf.next)
 			for _, l := range leaves {
 				if l.path != leaf.path {
