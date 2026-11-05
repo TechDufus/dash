@@ -65,7 +65,8 @@ func startFakeVLogs(t *testing.T, tls bool, records []string) *fakeVLogs {
 	f := &fakeVLogs{records: records}
 	h := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		f.mu.Lock()
-		f.queries = append(f.queries, r.URL.Query())
+		_ = r.ParseForm() // the LogsQL reads send their arguments as a POST form
+		f.queries = append(f.queries, r.Form)
 		f.auths = append(f.auths, r.Header.Get("Authorization"))
 		status, recs := f.status, append([]string(nil), f.records...)
 		if r.URL.Path == "/select/logsql/tail" {
@@ -566,6 +567,39 @@ func TestVictoriaLogsSearchSecretNeverReachesTheLog(t *testing.T) {
 		if strings.Contains(out, part) || strings.Contains(w.Body.String(), part) {
 			t.Errorf("the start of the secret reached the log or the answer:\n%s", out)
 		}
+	}
+}
+
+// A registered secret that holds a quote and a backslash, typed into the search while
+// VictoriaLogs is down: LogsQL quoting doubles the backslash and escapes the quote, so the URL
+// held it in a form the registry does not recognise, and the failed request's WARN repeated the
+// URL. The search now travels in a POST body, and no form of the secret reaches the log or the
+// answer, on a query or a tail.
+func TestVictoriaLogsQuotedSecretNeverReachesTheLogWhenTheUpstreamIsDown(t *testing.T) {
+	const secretText = `s3"cr\et-canary-4417`
+	reg := secret.NewRegistry()
+	reg.Add(secret.New(secretText, ""))
+	closed := httptest.NewServer(http.NotFoundHandler())
+	closedURL := closed.URL
+	closed.Close()
+	logs := captureSlog(t)
+	e := newVLEnv(t, newFakeVLogs(t), reg, func(c *pluginconf.VictoriaLogs, _ *plugin.InstanceConfig) { c.URL = closedURL })
+	e.waitRunning(t)
+	search := url.QueryEscape("before " + secretText + " after")
+	q := e.get(vlLogsPath + "?ns=media&pod=p1&q=" + search)
+	tail := e.get(vlTailPath + "?ns=media&pod=p1&q=" + search)
+	if q.Code != http.StatusBadGateway {
+		t.Errorf("GET logs = %d %s, want 502", q.Code, q.Body)
+	}
+	// Every form of the secret (as typed, LogsQL-quoted, URL-encoded either way) holds this run.
+	const core = "canary-4417"
+	for what, out := range map[string]string{"log": logs.String(), "query answer": q.Body.String(), "tail answer": tail.Body.String()} {
+		if strings.Contains(out, core) {
+			t.Errorf("a form of the secret reached the %s:\n%s", what, out)
+		}
+	}
+	if !strings.Contains(logs.String(), "/select/logsql/") {
+		t.Errorf("the failed request was not logged at all, so the test proves nothing:\n%s", logs)
 	}
 }
 

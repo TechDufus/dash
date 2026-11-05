@@ -213,7 +213,8 @@ func (v *VLogs) Query(ctx context.Context, q LogQuery) ([]model.LogLine, error) 
 	if err != nil {
 		return nil, err
 	}
-	resp, err := v.short.open(ctx, http.MethodGet, "/select/logsql/query", url.Values{"query": {expr}, "limit": {strconv.Itoa(v.limit)}}, nil, nil)
+	body, hdr := logsQLForm(url.Values{"query": {expr}, "limit": {strconv.Itoa(v.limit)}})
+	resp, err := v.short.open(ctx, http.MethodPost, "/select/logsql/query", nil, body, hdr)
 	if err != nil {
 		return nil, err
 	}
@@ -246,7 +247,8 @@ func (v *VLogs) Tail(ctx context.Context, q LogQuery, emit func(model.LogLine) e
 		// Whole seconds, rounded up, in the plain duration form LogsQL accepts.
 		params.Set("start_offset", strconv.FormatInt(int64((q.StartOffset+time.Second-1)/time.Second), 10)+"s")
 	}
-	resp, err := v.stream.open(ctx, http.MethodGet, "/select/logsql/tail", params, nil, nil)
+	body, hdr := logsQLForm(params)
+	resp, err := v.stream.open(ctx, http.MethodPost, "/select/logsql/tail", nil, body, hdr)
 	if err != nil {
 		if ctx.Err() != nil {
 			return nil
@@ -266,6 +268,15 @@ func (v *VLogs) Tail(ctx context.Context, q LogQuery, emit func(model.LogLine) e
 		return err
 	}
 	return nil
+}
+
+// logsQLForm is the body and header of a LogsQL read: the query goes in a POST form, never in
+// the URL. A failed request's error (*url.Error) repeats its URL, and LogsQL quoting doubles a
+// backslash and escapes a quote, so a registered secret typed into the search would reach a log
+// line in a form the registry does not recognise. VictoriaLogs takes the arguments of its query
+// endpoints from a form body as from the URL.
+func logsQLForm(form url.Values) (io.Reader, http.Header) {
+	return strings.NewReader(form.Encode()), readOnlyPost("application/x-www-form-urlencoded")
 }
 
 // readLogLines decodes JSON lines from r and passes each to emit, its message cut by cut;

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -104,10 +105,30 @@ func TestBuildQueryInvalid(t *testing.T) {
 const vlNewest = `{"_msg":"second","_time":"2026-10-30T21:39:17.5Z","kubernetes.pod_name":"p1","kubernetes.container_name":"c1","kubernetes.pod_namespace":"n"}`
 const vlOldest = `{"_msg":"first","_time":"2026-10-30T21:39:16.940789516Z","kubernetes.pod_name":"p1","kubernetes.container_name":"c1","kubernetes.pod_namespace":"n"}`
 
+// logsQL checks that r is a LogsQL read sent as a POST form with nothing in the URL's query, and
+// returns its body as sent and parsed.
+func logsQL(t *testing.T, r *http.Request) (string, url.Values) {
+	t.Helper()
+	if r.Method != http.MethodPost || r.URL.RawQuery != "" || r.Header.Get("Content-Type") != "application/x-www-form-urlencoded" {
+		t.Errorf("LogsQL request %s %s (%s): want a POST form and no URL query", r.Method, r.URL, r.Header.Get("Content-Type"))
+	}
+	b, err := io.ReadAll(r.Body)
+	if err != nil {
+		t.Error(err)
+	}
+	form, err := url.ParseQuery(string(b))
+	if err != nil {
+		t.Error(err)
+	}
+	return string(b), form
+}
+
 func TestVLogsQuery(t *testing.T) {
 	var gotQuery, gotLimit, gotPath string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		gotPath, gotQuery, gotLimit = r.URL.Path, r.URL.Query().Get("query"), r.URL.Query().Get("limit")
+		var form url.Values
+		_, form = logsQL(t, r)
+		gotPath, gotQuery, gotLimit = r.URL.Path, form.Get("query"), form.Get("limit")
 		// Newest first, as the query sorts; one junk line that must be skipped.
 		fmt.Fprintf(w, "%s\nnot json\n%s\n", vlNewest, vlOldest)
 	}))
@@ -163,7 +184,9 @@ func TestVLogsQueryEmptyAndErrors(t *testing.T) {
 func TestVLogsTail(t *testing.T) {
 	var gotQuery, gotRawQuery string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		gotQuery, gotRawQuery = r.URL.Query().Get("query"), r.URL.RawQuery
+		var form url.Values
+		gotRawQuery, form = logsQL(t, r)
+		gotQuery = form.Get("query")
 		fmt.Fprintf(w, "%s\n%s\n", vlOldest, vlNewest)
 		w.(http.Flusher).Flush()
 		<-r.Context().Done() // stay open like a real tail
@@ -191,13 +214,13 @@ func TestVLogsTail(t *testing.T) {
 	}
 	wantRaw := "offset=1s&query=" + url.QueryEscape(`kubernetes.pod_namespace:="n" kubernetes.pod_name:="p1" "x"`)
 	if gotRawQuery != wantRaw {
-		t.Fatalf("raw query = %q, want %q", gotRawQuery, wantRaw)
+		t.Fatalf("form = %q, want %q", gotRawQuery, wantRaw)
 	}
 }
 
 func TestVLogsTailStartOffset(t *testing.T) {
 	var raw string
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { raw = r.URL.RawQuery }))
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { raw, _ = logsQL(t, r) }))
 	defer srv.Close()
 	for _, tc := range []struct {
 		off  time.Duration
@@ -326,7 +349,8 @@ func TestBuildQueryUsesTheConfiguredFields(t *testing.T) {
 func TestVLogsReadsPodAndContainerThroughTheMapping(t *testing.T) {
 	var gotQuery, gotLimit string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		gotQuery, gotLimit = r.URL.Query().Get("query"), r.URL.Query().Get("limit")
+		_, form := logsQL(t, r)
+		gotQuery, gotLimit = form.Get("query"), form.Get("limit")
 		fmt.Fprint(w, `{"_msg":"hello","_time":"2026-10-30T21:39:17.5Z","k8s.namespace":"n","k8s.pod":"p1","ctr":"c1","k8s.node":"node-a","level":"info"}`+"\n")
 	}))
 	defer srv.Close()
@@ -357,7 +381,10 @@ func TestVLogsReadsPodAndContainerThroughTheMapping(t *testing.T) {
 
 func TestVLogsLimitDefaults(t *testing.T) {
 	var gotLimit string
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { gotLimit = r.URL.Query().Get("limit") }))
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, form := logsQL(t, r)
+		gotLimit = form.Get("limit")
+	}))
 	defer srv.Close()
 	for _, limit := range []int{0, -3} {
 		gotLimit = ""
