@@ -191,6 +191,7 @@ func (s *Server) startSession(w http.ResponseWriter, r *http.Request, user, acti
 	rec := s.localRecord(r, action, auth.Principal{Kind: auth.KindSession, User: user})
 	rec.Target = audit.Target{Kind: "user", Name: user}
 	s.d.Audit.Event(rec)
+	s.syncTokens(user, nil, nil) // a local account has no groups or role claim
 	http.SetCookie(w, c)
 	return true
 }

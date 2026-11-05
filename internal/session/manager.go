@@ -83,6 +83,12 @@ func kept(have, keep []string) []string {
 	return out
 }
 
+// Apply is id as a session keeps it: the groups and role-claim values of k only. Login records
+// the same on the user's tokens (design M.8).
+func (k Keep) Apply(id Identity) Identity {
+	return Identity{User: id.User, Groups: kept(id.Groups, k.Groups), RoleClaim: kept(id.RoleClaim, k.RoleClaim)}
+}
+
 // Issue seals a new session for id, filtered by keep, with iat now, exp now+IdleTimeout and the
 // current epochs of the user and of everyone, and returns the cookie to set. ErrTooLarge when
 // the sealed value would exceed MaxSealedBytes: the caller refuses the login.
@@ -94,10 +100,11 @@ func (m *Manager) Issue(id Identity, keep Keep) (*http.Cookie, error) {
 		return nil, errors.New("session: a session needs a user")
 	}
 	now := m.now()
+	kid := keep.Apply(id)
 	p := Payload{
 		User:        id.User,
-		Groups:      kept(id.Groups, keep.Groups),
-		RoleClaim:   kept(id.RoleClaim, keep.RoleClaim),
+		Groups:      kid.Groups,
+		RoleClaim:   kid.RoleClaim,
 		IssuedAt:    now.Unix(),
 		ExpiresAt:   now.Add(IdleTimeout).Unix(),
 		UserEpoch:   m.epochs.Epoch(id.User),

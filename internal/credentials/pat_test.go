@@ -245,3 +245,65 @@ func TestMemoryStoreKeepsTokensInProcess(t *testing.T) {
 	}
 	must(t, s.FlushLastUsed())
 }
+
+// SyncIdentity rewrites a user's tokens only when their groups or role-claim values differ (as a
+// set), and then writes the file; otherwise it writes nothing. Another user's tokens stay.
+func TestSyncIdentityWritesOnlyOnAChange(t *testing.T) {
+	dir := t.TempDir()
+	s := open(t, dir)
+	_, bob := newPAT(t, s, "bob") // groups [ops]
+	_, carol := newPAT(t, s, "carol")
+	before, err := os.Stat(s.Path())
+	must(t, err)
+	for _, groups := range [][]string{{"ops"}} {
+		changed, err := s.SyncIdentity("bob", groups, nil)
+		if err != nil || changed {
+			t.Fatalf("same groups: changed %v, %v", changed, err)
+		}
+	}
+	if after, _ := os.Stat(s.Path()); !os.SameFile(before, after) {
+		t.Fatal("an unchanged identity wrote the file")
+	}
+	changed, err := s.SyncIdentity("bob", []string{"dev", "ops"}, []string{"admin"})
+	if err != nil || !changed {
+		t.Fatalf("changed groups: %v, %v", changed, err)
+	}
+	if after, _ := os.Stat(s.Path()); os.SameFile(before, after) {
+		t.Error("a changed identity was not written")
+	}
+	if p, _ := s.PATByID(bob.ID); !slices.Equal(p.Groups, []string{"dev", "ops"}) || !slices.Equal(p.RoleClaim, []string{"admin"}) {
+		t.Errorf("bob's token = %+v", p)
+	}
+	if p, _ := s.PATByID(carol.ID); !slices.Equal(p.Groups, []string{"ops"}) {
+		t.Errorf("carol's token changed: %+v", p)
+	}
+	if changed, _ := s.SyncIdentity("bob", []string{"ops", "dev"}, []string{"admin"}); changed {
+		t.Error("the same set in another order counted as a change")
+	}
+	must(t, s.Close())
+	s = open(t, dir)
+	if p, _ := s.PATByID(bob.ID); !slices.Equal(p.Groups, []string{"dev", "ops"}) {
+		t.Errorf("after a reopen bob's token = %+v", p)
+	}
+}
+
+// A sync whose write fails still applies in this process, as an epoch bump does: a demotion
+// reaches the token at once, and the next sync finds nothing to change, so it neither writes nor
+// fails again.
+func TestSyncIdentityHoldsWhenTheWriteFails(t *testing.T) {
+	skipIfRoot(t)
+	dir := t.TempDir()
+	s := open(t, dir)
+	_, bob := newPAT(t, s, "bob") // groups [ops]
+	must(t, os.Chmod(dir, 0o500))
+	t.Cleanup(func() { os.Chmod(dir, 0o700) })
+	if changed, err := s.SyncIdentity("bob", nil, nil); !changed || err == nil {
+		t.Fatalf("SyncIdentity = %v, %v; want the change and the write error", changed, err)
+	}
+	if p, _ := s.PATByID(bob.ID); len(p.Groups) != 0 {
+		t.Errorf("the demotion did not reach the token: %v", p.Groups)
+	}
+	if changed, err := s.SyncIdentity("bob", nil, nil); changed || err != nil {
+		t.Errorf("the next sync = %v, %v; want nothing to do", changed, err)
+	}
+}

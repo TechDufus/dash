@@ -24,6 +24,7 @@ import (
 	"github.com/TechDufus/dash/internal/secret"
 	"github.com/TechDufus/dash/internal/session"
 	"github.com/TechDufus/dash/internal/session/sessiontest"
+	"github.com/TechDufus/dash/internal/tokens"
 )
 
 const (
@@ -83,6 +84,7 @@ func newOIDCEnv(t *testing.T, o oidcOpts) *oidcEnv {
 	srv := newServer(func(d *Deps) {
 		opt(d)
 		d.Audit, d.OIDC = al, e.p
+		d.Tokens = tokens.New(sh.Store, sh.Roles, nil, e.clock.now)
 	})
 	mux := http.NewServeMux()
 	mux.Handle("GET /auth/oidc/start", srv.requestID(http.HandlerFunc(srv.oidcStart)))

@@ -390,3 +390,50 @@ func (s *Store) RunLastUsedFlush(ctx context.Context, every time.Duration) {
 		}
 	}
 }
+
+// SyncIdentity records groups and roleClaim on every personal access token of user whose
+// recorded values differ (design M.8: tokens follow the identity provider), and reports whether
+// it changed any. The values are compared as sets. When nothing differs it takes no write lock
+// and writes nothing, so a caller may run it on every request of a person. Like an epoch bump the
+// change holds in this process even when the write fails (the error says so): a demotion must
+// reach the tokens at once, and the next request finds nothing to change, so a broken file is
+// not rewritten on every request.
+func (s *Store) SyncIdentity(user string, groups, roleClaim []string) (changed bool, err error) {
+	differs := func(p PAT) bool {
+		return p.User == user && (!sameSet(p.Groups, groups) || !sameSet(p.RoleClaim, roleClaim))
+	}
+	s.mu.RLock()
+	stale := false
+	for _, p := range s.doc.PATs {
+		if differs(p) {
+			stale = true
+			break
+		}
+	}
+	s.mu.RUnlock()
+	if !stale {
+		return false, nil
+	}
+	err = s.update(true, func(d *document) bool {
+		for id, p := range d.PATs {
+			if differs(p) {
+				p.Groups, p.RoleClaim = slices.Clone(groups), slices.Clone(roleClaim)
+				d.PATs[id] = p
+				changed = true
+			}
+		}
+		return changed
+	})
+	return changed, err
+}
+
+// sameSet reports whether a and b hold the same values, in any order; nil equals empty.
+func sameSet(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	x, y := slices.Clone(a), slices.Clone(b)
+	slices.Sort(x)
+	slices.Sort(y)
+	return slices.Equal(x, y)
+}

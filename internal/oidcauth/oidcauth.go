@@ -98,6 +98,10 @@ type Login struct {
 	Cookie *http.Cookie
 	Next   string
 	User   string
+	// Groups and RoleClaim are what the session keeps of the identity (session.Keep): what
+	// dash records on the user's tokens at this login (design M.8).
+	Groups    []string
+	RoleClaim []string
 }
 
 // Config is the oidc mode, built by cmd/dash from auth.oidc.* (validated there: the issuer is
@@ -313,11 +317,13 @@ func (p *Provider) Callback(r *http.Request) (Login, error) {
 	if !p.allowed(id) {
 		return login, ErrNotAllowed
 	}
-	cookie, err := p.sessions.Issue(id, p.keep())
+	keep := p.keep()
+	cookie, err := p.sessions.Issue(id, keep)
 	if err != nil {
 		return Login{User: id.User}, fail("session", err)
 	}
-	login.Cookie = cookie
+	kept := keep.Apply(id)
+	login.Cookie, login.Groups, login.RoleClaim = cookie, kept.Groups, kept.RoleClaim
 	return login, nil
 }
 

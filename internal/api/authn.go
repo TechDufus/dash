@@ -58,6 +58,10 @@ func (s *Server) authn(next http.Handler) http.Handler {
 			}
 		}
 		s.probe.see(p, peerOf(r))
+		if p.Kind == auth.KindProxy {
+			// The proxy mode sees a person's groups on every request (design M.8).
+			s.syncTokens(p.User, p.Groups, nil)
+		}
 		next.ServeHTTP(w, r)
 	})
 }

@@ -75,6 +75,7 @@ func (s *Server) oidcCallback(w http.ResponseWriter, r *http.Request) {
 	default:
 		http.SetCookie(w, login.Cookie)
 		s.d.Audit.Event(s.oidcRecord(r, "auth.login", login.User))
+		s.syncTokens(login.User, login.Groups, login.RoleClaim)
 		found(w, login.Next)
 	}
 }

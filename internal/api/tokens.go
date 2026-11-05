@@ -89,6 +89,18 @@ func (s *Server) tokensReady(w http.ResponseWriter) bool {
 	return true
 }
 
+// syncTokens records what dash just saw of user's identity on their tokens (design M.8): at a
+// login in the local and oidc modes, and at every request in the proxy mode. Nothing is written
+// when nothing changed. A failed write leaves the old values and is logged; the request goes on.
+func (s *Server) syncTokens(user string, groups, roleClaim []string) {
+	if s.d.Credentials == nil || user == "" {
+		return
+	}
+	if _, err := s.d.Credentials.SyncIdentity(user, groups, roleClaim); err != nil {
+		slog.Warn("tokens: recording the user's groups on their tokens failed", "error", err)
+	}
+}
+
 // tokenInfo is the wire form of a stored token.
 func tokenInfo(p credentials.PAT) model.TokenInfo {
 	return model.TokenInfo{
