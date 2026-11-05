@@ -23,6 +23,9 @@ const PluginSettingsPage = lazy(() =>
 const AuditPage = lazy(() =>
   import("@/settings/audit-page").then((m) => ({ default: m.AuditPage })),
 );
+const TokensPage = lazy(() =>
+  import("@/settings/tokens-page").then((m) => ({ default: m.TokensPage })),
+);
 
 export function PageLoading() {
   return (
@@ -194,6 +197,12 @@ export function PluginRoutes() {
         <AdminOnly>
           <AuditPage />
         </AdminOnly>
+      </Route>
+      <Route path="/settings/tokens">
+        {/* Every interactive user's page (D8): it explains itself where tokens do not exist. */}
+        <RouteBoundary>
+          <TokensPage />
+        </RouteBoundary>
       </Route>
       <Route path="/settings/plugins/:id">
         {(params) => (

@@ -28,6 +28,12 @@ export function SettingsPage(): JSX.Element {
           >
             Audit log
           </Link>
+          <Link
+            href="/settings/tokens"
+            className="text-sm text-accent underline-offset-4 hover:underline"
+          >
+            Tokens
+          </Link>
           <ExportButton />
         </div>
       </div>
