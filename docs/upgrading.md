@@ -1,0 +1,82 @@
+# Upgrading
+
+dash is 0.x: a minor release may change behaviour, and its release notes say how. This page keeps
+the changes that still matter when you upgrade from an old release. The sign-in changes of v0.12
+(the default `auth.mode` became `local`) are in [auth.md](auth.md).
+
+## No site defaults
+
+Earlier versions defaulted to one homelab's service addresses and names. They are gone. An empty
+upstream URL turns that source off: dash makes no request to it and its panels show
+"source not configured". If you relied on a default, set it explicitly:
+
+| Removed default | Set |
+|---|---|
+| `http://vmsingle-vm.monitoring.svc:8428` | `plugins.prometheus.url` |
+| `http://vmalertmanager-vm.monitoring.svc:9093` | `plugins.alertmanager.url` |
+| `http://vl-server.monitoring.svc:9428` | `plugins.victorialogs.url` |
+| `http://gatus.gatus.svc:8080` | `plugins.gatus.url` |
+| the protected and tenant namespace labels | `plugins.kubernetes.conventions.protectedLabel`, `.tenantLabel` |
+| the Flux suspend-reason annotation | `plugins.flux.suspendReasonAnnotation` |
+| `app-` | `plugins.kubernetes.conventions.appsFluxPrefix` |
+| the ZFS scrub metric prefix | `plugins.hardware.zfsScrubMetricPrefix` |
+| one backup CronJob | `plugins.kubernetes.backupJobs` (`[{namespace: backup, cronjob: nightly-backup}]`) |
+| only routes of one gateway were apps | `plugins.kubernetes.apps.gateways` (`[{namespace: gateway, name: main}]`); empty now accepts every HTTPRoute |
+| the `dash` namespace was never an app | `plugins.kubernetes.apps.excludeNamespaces` (`[dash]`); empty now skips nothing |
+| app icons from a CDN | `ui.iconBaseURL` (`https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/png`); empty now shows letter tiles |
+| the RustFS buckets and capacity were always read | `plugins.rustfs.enabled` (`true`; the plugin is now off unless set, and its series names are `plugins.rustfs.metrics.*`) |
+| one Flux source was always the one that had to be signed and verified | `plugins.flux.verify.sources` (`[{kind: GitRepository, namespace: <ns>, name: <name>}]`); empty now pins none, and any source with `spec.verify` is checked (attention items, the verified tile and the GitOps page) unless `plugins.flux.verify.requireWhenSpecVerify` is `false`, which keeps only the pins in scope |
+| Reconcile was always on | `plugins.flux.actions.enabled` (`true`; the action is now off unless set) |
+| the Gatus group `infrastructure` was critical | `plugins.gatus.criticalGroups` (`DASH_PLUGINS_GATUS_CRITICAL_GROUPS='["infrastructure"]'`); empty now makes every failing check a warning |
+| the API listened on `127.0.0.1:8080` (until v0.14.0) | `server.listen` (`DASH_SERVER_LISTEN=127.0.0.1:8080` behind a sidecar identity proxy); the default is now `0.0.0.0:8080` |
+
+## Removed variable names
+
+dash 0.5.0 no longer reads the names it used before the config file; it refuses to start and
+tells you the replacement.
+
+| Removed | Replacement |
+|---|---|
+| `DASH_PUBLIC_URL`, `DASH_LISTEN`, `DASH_HEALTH_LISTEN` | `DASH_SERVER_PUBLIC_URL`, `DASH_SERVER_LISTEN`, `DASH_SERVER_HEALTH_LISTEN` |
+| `DASH_ALLOWED_HOSTS` (comma-separated) | `DASH_SERVER_ALLOWED_HOSTS` (JSON list, e.g. `["dash.example.com"]`) |
+| `DASH_VM_URL`, `DASH_ALERTMANAGER_URL`, `DASH_VLOGS_URL`, `DASH_GATUS_URL` | `DASH_PLUGINS_PROMETHEUS_URL`, `DASH_PLUGINS_ALERTMANAGER_URL`, `DASH_PLUGINS_VICTORIALOGS_URL`, `DASH_PLUGINS_GATUS_URL` |
+| `DASH_PROXMOX_URL`, `DASH_PROXMOX_NODE` | `DASH_PLUGINS_PROXMOX_URL`, `DASH_PLUGINS_PROXMOX_NODE` |
+| `DASH_PROXMOX_TOKEN` (`<user>!<token>=<secret>`) | `DASH_PLUGINS_PROXMOX_TOKEN_ID` and `DASH_PLUGINS_PROXMOX_TOKEN_SECRET` |
+| `DASH_HOST_NODENAME`, `DASH_HOST_MODEL` | `DASH_PLUGINS_HARDWARE_HOSTS` (JSON) |
+| `DASH_HEADLAMP_URL`, `DASH_HEADLAMP_CLUSTER`, `DASH_GRAFANA_URL` | `DASH_PLUGINS_HEADLAMP_URL`, `DASH_PLUGINS_HEADLAMP_CLUSTER`, `DASH_PLUGINS_GRAFANA_URL` |
+| `DASH_LAUNCHER_FILE` | `DASH_PLUGINS_LAUNCHER_FILE` |
+| `DASH_LABEL_PROTECTED`, `DASH_LABEL_TENANT`, `DASH_APPS_FLUX_PREFIX` | `DASH_PLUGINS_KUBERNETES_CONVENTIONS_PROTECTED_LABEL`, `…_TENANT_LABEL`, `…_APPS_FLUX_PREFIX` |
+| `DASH_ANNOTATION_SUSPEND_REASON` | `DASH_PLUGINS_FLUX_SUSPEND_REASON_ANNOTATION` |
+| `DASH_ZFS_SCRUB_METRIC_PREFIX` | `DASH_PLUGINS_HARDWARE_ZFS_SCRUB_METRIC_PREFIX` |
+| `DASH_NAS_BACKUP_NAMESPACE`, `DASH_NAS_BACKUP_CRONJOB` | `DASH_PLUGINS_KUBERNETES_BACKUP_JOBS` (JSON) |
+
+The `_FILE` form of each removed name is refused the same way. `DASH_ALLOWED_HOSTS` was
+comma-separated; `DASH_SERVER_ALLOWED_HOSTS` is a JSON list. `DASH_PROXMOX_TOKEN=user@realm!name=secret`
+is two variables now: split the old value at the first `=`. `DASH_DEV`, `DASH_DEMO`, `DASH_CONFIG`
+and `KUBECONFIG` are unchanged: `KUBECONFIG` fills `plugins.kubernetes.kubeconfig` (the generated
+name wins), with no `_FILE` form because it is another tool's variable.
+
+## Removed API paths
+
+The API moved under `/api/v1` and the plugins' own routes; every old path answers 404:
+
+| Removed | Now |
+|---|---|
+| `/api/actions/reconcile` | the flux plugin's `reconcile` action, `POST /api/v1/plugins/flux/actions/reconcile` |
+| `/api/actions/restart` | the kubernetes plugin's `restart` action, `POST /api/v1/plugins/kubernetes/actions/restart` |
+| `/api/pods/{ns}/{name}` | `/api/v1/plugins/kubernetes/pods/{ns}/{name}` |
+| `/api/vms/{vmid}` | `/api/v1/plugins/proxmox/vms/{vmid}` |
+| `/api/logs`, `/api/logs/tail` | `/api/v1/plugins/victorialogs/logs`, `.../logs/tail` |
+| `/api/silences` | the alertmanager plugin's `silence.create` and `silence.expire` actions |
+| `/api/me`, `/api/stream`, `/api/series` | `/api/v1/me`, `/api/v1/stream`, `/api/v1/series` |
+
+## Behaviour changes worth knowing
+
+- **`DASH_DEV` no longer sends the plugins' upstream URLs through the API server** (since
+  v0.9.0). To reach in-cluster services from a laptop set
+  `DASH_PLUGINS_KUBERNETES_UPSTREAM_VIA_API_SERVER=true` (`plugins.kubernetes.upstreamViaAPIServer`).
+- **`/readyz` no longer waits for the Kubernetes caches to fill.** List `kubernetes` in
+  `server.readyRequires` to hold it until the new pod has data.
+- **The Hardware plugin reads the host's node from the running Proxmox plugin.** v0.7.0 used
+  `plugins.proxmox.node` as the host's node even without a Proxmox token; set
+  `plugins.hardware.hosts[0].nodename` to run Hardware without one.

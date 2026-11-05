@@ -159,7 +159,7 @@ func TestRemovedVariablesAreListedTogether(t *testing.T) {
 		"  DASH_PUBLIC_URL -> DASH_SERVER_PUBLIC_URL",
 		"  DASH_VM_URL -> DASH_PLUGINS_PROMETHEUS_URL",
 		"  DASH_PROXMOX_TOKEN_FILE -> DASH_PLUGINS_PROXMOX_TOKEN_ID_FILE and DASH_PLUGINS_PROXMOX_TOKEN_SECRET_FILE",
-		`see "Removed variable names" in the README`,
+		`see "Removed variable names" in docs/upgrading.md`,
 	} {
 		if !strings.Contains(msg, want) {
 			t.Errorf("message lacks %q:\n%s", want, msg)
@@ -553,7 +553,7 @@ func TestEnvTable(t *testing.T) {
 	if v := byPath["settings.ui"]; !v.Restart {
 		t.Errorf("settings.ui is read once at startup: %+v", v)
 	}
-	for _, want := range []string{"PATH", "DASH_PLUGINS_PROXMOX_TOKEN_SECRET", "DASH_DATA_DIR", "KUBECONFIG", "_FILE", "applies live for prometheus", "plugins that use or require it", "a grafana change restarts alertmanager", "a gatus change restarts hardware", "a kubernetes change restarts proxmox, flux and cnpg", "rustfs is off unless enabled: true", "A change to any section that is not a plugin's", "except auth.proxy.adminUsers and auth.proxy.adminGroups, which apply without one"} {
+	for _, want := range []string{"PATH", "DASH_PLUGINS_PROXMOX_TOKEN_SECRET", "DASH_DATA_DIR", "KUBECONFIG", "_FILE", "applies live for prometheus", "plugins that use or require it", "a grafana change restarts alertmanager", "a gatus change restarts hardware", "a kubernetes change restarts proxmox, flux and cnpg", "rustfs is off unless enabled: true", "A change to any section that is not a plugin's", "except the administrator lists (auth.proxy.adminUsers, auth.proxy.adminGroups,\nauth.oidc.adminUsers, auth.oidc.adminGroups and auth.oidc.adminRoles), which apply without one"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("table lacks %q:\n%s", want, out)
 		}

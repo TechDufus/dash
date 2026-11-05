@@ -3,7 +3,7 @@
 dash has a settings page for administrators (`/settings`) and the API it is built on
 (`/api/v1/settings/**`). What the page saves goes into `ui-settings.yaml` in the data directory:
 a sparse layer below the config file and the environment (see
-[Configuration](../README.md#configuration)). Whatever the file or the environment sets wins and
+[Configuration](configuration.md)). Whatever the file or the environment sets wins and
 cannot be changed from the page. dash never writes the operator's config file.
 
 ## Who can use it

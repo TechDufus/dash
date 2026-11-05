@@ -14,3 +14,17 @@ none of the Flux kinds.
 ## Demo twin
 
 The reconcile action answers 202 and changes nothing.
+
+## Settings
+
+- `plugins.flux.suspendReasonAnnotation`: the reason shows in the suspended warning's detail and
+  on the GitOps page; empty shows "suspended" alone.
+- The check that a `plugins.flux.verify.sources` entry exists is skipped while the list of its
+  kind cannot be read, so a refused list never raises a false critical. An entry with an unknown
+  field, another kind, no namespace or name, or a duplicate is refused when the configuration
+  loads. In the environment:
+  `DASH_PLUGINS_FLUX_VERIFY_SOURCES='[{"kind":"GitRepository","namespace":"gitops","name":"fleet"}]'`.
+
+## Kubernetes RBAC
+
+The reconcile write goes through the kubernetes plugin's client.

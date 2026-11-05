@@ -1,4 +1,4 @@
-# dash with Docker Compose. See docs/deploy/docker.md and README.md "Run with Docker Compose".
+# dash with Docker Compose. See docs/deploy/docker.md.
 #
 #   mkdir -p -m 0700 secrets && openssl rand -base64 32 > secrets/dash_secret_key && chmod 0644 secrets/dash_secret_key   # dash (uid 65532) reads it through a bind mount
 #   docker compose up -d                         # dash alone

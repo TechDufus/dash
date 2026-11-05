@@ -17,3 +17,8 @@ silences an alert for a set time, and expires a silence dash created.
 
 Creating a silence mutes the alerts it matches and expiring it unmutes them, so the Alerts page
 behaves as it would against a real Alertmanager.
+
+## Settings
+
+An alert whose `severity` label value is not listed in `plugins.alertmanager.severityMap` is not
+attention.

@@ -60,6 +60,9 @@ Every setting is under `plugins.alertmanager` in the config file and is also in 
 | `plugins.alertmanager.protectedAlerts` | `DASH_PLUGINS_ALERTMANAGER_PROTECTED_ALERTS` | list of strings (JSON) | `["Watchdog"]` | no | no | Alert names nobody can silence through dash, whatever the role. A JSON list in the environment. |
 | `plugins.alertmanager.actions.enabled` | `DASH_PLUGINS_ALERTMANAGER_ACTIONS_ENABLED` | boolean | - | no | no | Offer the plugin's actions. Off by default: without it the actions are not mounted and the web UI does not show their buttons. |
 
+An alert whose `severity` label value is not listed in `plugins.alertmanager.severityMap` is not
+attention.
+
 ## Actions
 
 ### `silence.create`: Silence

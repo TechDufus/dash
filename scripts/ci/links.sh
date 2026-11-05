@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # The link check of the docs, with lychee (pinned in tools.sh). Every tracked Markdown file is an
 # input except docs/design (the planning record, which quotes links as they were) and the
-# hand-written sources of generated pages (cmd/dash/plugindocs, tools/notices), whose relative
-# links resolve only in the page they end up in.
+# hand-written sources of generated pages (cmd/dash/plugindocs, tools/notices,
+# internal/config/configuration.intro.md), whose relative links resolve only in the page they end
+# up in.
 #
 #   links.sh offline   make check: relative links and their #anchors; no network
 #   links.sh online    make scan: the http(s) links, with retries; needs the hosts the docs link
@@ -26,7 +27,7 @@ lychee=$(fetch lychee "$LYCHEE_VERSION" \
 	"$lychee_sha256" "lychee-$lychee_asset/lychee")
 
 inputs() {
-	git ls-files -- '*.md' ':!:docs/design/**' ':!:cmd/dash/plugindocs/**' ':!:tools/notices/**'
+	git ls-files -- '*.md' ':!:docs/design/**' ':!:cmd/dash/plugindocs/**' ':!:tools/notices/**' ':!:internal/config/configuration.intro.md'
 }
 
 run=("$lychee" --config scripts/ci/lychee.toml --no-progress --mode plain --files-from -)

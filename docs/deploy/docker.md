@@ -13,13 +13,14 @@ API and on `0.0.0.0:8081` for `/healthz` and `/readyz`, and its `HEALTHCHECK` ru
 
 ```sh
 docker volume create dash-data
-openssl rand -base64 32 > dash-secret.key
-chmod 0644 dash-secret.key   # the container's user (65532) reads it through the bind mount
+mkdir -p -m 0700 secrets   # only you can reach the key inside
+openssl rand -base64 32 > secrets/dash_secret_key
+chmod 0644 secrets/dash_secret_key   # the container's user (65532) reads it through the bind mount
 
 docker run -d --name dash --restart unless-stopped \
   -p 127.0.0.1:8080:8080 \
   -v dash-data:/data \
-  -v "$PWD/dash-secret.key:/run/secrets/dash_secret_key:ro" \
+  -v "$PWD/secrets/dash_secret_key:/run/secrets/dash_secret_key:ro" \
   -e DASH_SECRET_KEY_FILE=/run/secrets/dash_secret_key \
   -e DASH_SERVER_PUBLIC_URL=http://localhost:8080 \
   ghcr.io/techdufus/dash:0.14.0
@@ -70,9 +71,9 @@ is usually 0600): `mkdir -p -m 0700 kube && install -m 0644 ~/.kube/config kube/
 
 ## Docker Compose
 
-[`examples/compose`](../../examples/compose) runs dash with the same volume and the secret key
-as a Compose secret, plus Prometheus and Alertmanager under the `monitoring` profile. Build the
-image first (above) until it is published.
+[`examples/compose`](../../examples/compose) runs dash on `http://localhost:8080` with the same
+volume and the secret key as a Compose secret, plus Prometheus and Alertmanager under the
+`monitoring` profile. Build the image first (above) until it is published.
 
 ```sh
 cd examples/compose
@@ -119,5 +120,5 @@ docker start dash
 ```
 
 Restore into an empty volume with `tar xzf … -C /data` the same way and `chown -R 65532:65532
-/data` inside that helper container. Back up `dash-secret.key` separately: the archive's stored
+/data` inside that helper container. Back up `secrets/dash_secret_key` separately: the archive's stored
 secrets are useless without it.

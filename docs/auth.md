@@ -180,6 +180,10 @@ reads `X-Forwarded-For`; any other peer sending it gets 401.
 | `trustedProxies` | `["127.0.0.1/32","::1/128"]` | the believed peers (CIDRs or addresses); `0.0.0.0/0` needs `allowAnyPeer: true` |
 | `adminUsers`, `adminGroups` | `[]` | who is an administrator, exact and case-sensitive; with both empty everyone is a viewer. They apply on a reload |
 
+An admin entry no header can carry (a user over 128 bytes, a group over 256, invalid UTF-8, a
+control character, a comma in a group) stops dash from starting, and so does an `auth.proxy`
+admin list set while `auth.mode` is not `proxy`.
+
 **Example: an oauth2-proxy sidecar in the same pod.** The proxy listens for the world and forwards
 to dash on the pod's loopback, so the default `trustedProxies` already believe it. Since v0.14.0
 dash listens on `0.0.0.0:8080` by default, so the sidecar setup sets

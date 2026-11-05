@@ -47,6 +47,10 @@ Every setting is under `plugins.cnpg` in the config file and is also in the [con
 | `plugins.cnpg.enabled` | `DASH_PLUGINS_CNPG_ENABLED` | boolean | - | no | no | false turns the plugin off: its topics are removed, and the web UI drops its rail entry, palette entries, overview tiles and panels and shows a switched-off page at its address. Unset turns it on when it has the settings it needs (rustfs is off unless enabled: true, because nothing in its settings says an object store exists); a plugin without them is disabled ("not configured: set plugins.<id>.url", naming the setting to make) and the web UI hides its pages. true with settings missing or invalid makes it unconfigured, which hides its pages too. This is how prometheus, alertmanager, gatus, victorialogs, proxmox, hardware, kubernetes, flux, cnpg, rustfs, grafana, headlamp and launcher behave, and a change to any of their settings applies live: that plugin restarts, and so do the plugins that use or require it (a prometheus change restarts proxmox, hardware, kubernetes, cnpg and rustfs; a gatus change restarts hardware and kubernetes; a proxmox change restarts hardware; a kubernetes change restarts proxmox, flux and cnpg; a grafana change restarts alertmanager). |
 | `plugins.cnpg.backupMetric` | `DASH_PLUGINS_CNPG_BACKUP_METRIC` | string | `barman_cloud_cloudnative_pg_io_last_available_backup_timestamp` | no | no | Name of the Prometheus series that holds the Unix time of a cluster's last available backup, labelled namespace and cluster (role="primary" selects the primary's). The default is the Barman Cloud plugin's barman_cloud_cloudnative_pg_io_last_available_backup_timestamp. Must be a valid metric name. |
 
+The cnpg plugin reads the newest sample of `plugins.cnpg.backupMetric` per cluster with
+`role="primary"` for the age shown on the Storage page. Without the prometheus plugin the
+clusters are listed with a `prometheus: not_configured` note and no age.
+
 ## Actions
 
 None: the plugin only reads.
@@ -63,6 +67,9 @@ rules:
     resources: [clusters]
     verbs: [get, list, watch]
 ```
+
+The cnpg plugin reads the CloudNativePG clusters with the same ServiceAccount as the kubernetes
+plugin; a refusal shows on the cnpg row, not on the kubernetes one.
 
 ## Demo twin
 

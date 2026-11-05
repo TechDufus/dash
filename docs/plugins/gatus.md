@@ -29,6 +29,9 @@ Published on `/api/v1/stream` and `/api/v1/topics/{topic}`:
 |---|---|---|
 | `gatus.status` | `StatusData` | Endpoint health checks. |
 
+The Status page lists the groups of `plugins.gatus.criticalGroups` first, then the others
+alphabetically.
+
 ## Dependencies
 
 A change to a plugin's settings restarts it and the plugins that require or use it.

@@ -103,7 +103,7 @@ func removedEnvError(env map[string]string) error {
 	if len(lines) == 0 {
 		return nil
 	}
-	return fmt.Errorf("config: these environment variables were removed in v0.5.0 (they were deprecated aliases in v0.4.0):\n%s\nsee \"Removed variable names\" in the README", strings.Join(lines, "\n"))
+	return fmt.Errorf("config: these environment variables were removed in v0.5.0 (they were deprecated aliases in v0.4.0):\n%s\nsee \"Removed variable names\" in docs/upgrading.md", strings.Join(lines, "\n"))
 }
 
 // removedName reports whether name is in removedEnv. An empty one counts as unset and is not

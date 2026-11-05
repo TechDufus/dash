@@ -56,6 +56,14 @@ Every setting is under `plugins.flux` in the config file and is also in the [con
 | `plugins.flux.actions.enabled` | `DASH_PLUGINS_FLUX_ACTIONS_ENABLED` | boolean | - | no | no | Offer the plugin's actions. Off by default: without it the actions are not mounted and the web UI does not show their buttons. |
 | `plugins.flux.actions.denyNamespaces` | `DASH_PLUGINS_FLUX_ACTIONS_DENY_NAMESPACES` | list of strings (JSON) | - | no | no | Namespaces the plugin's actions refuse, whatever the role. A JSON list in the environment. |
 
+- `plugins.flux.suspendReasonAnnotation`: the reason shows in the suspended warning's detail and
+  on the GitOps page; empty shows "suspended" alone.
+- The check that a `plugins.flux.verify.sources` entry exists is skipped while the list of its
+  kind cannot be read, so a refused list never raises a false critical. An entry with an unknown
+  field, another kind, no namespace or name, or a duplicate is refused when the configuration
+  loads. In the environment:
+  `DASH_PLUGINS_FLUX_VERIFY_SOURCES='[{"kind":"GitRepository","namespace":"gitops","name":"fleet"}]'`.
+
 ## Actions
 
 ### `reconcile`: Reconcile
@@ -112,6 +120,8 @@ rules:
     resources: [gitrepositories, ocirepositories, helmrepositories]
     verbs: [patch]
 ```
+
+The reconcile write goes through the kubernetes plugin's client.
 
 ## Demo twin
 

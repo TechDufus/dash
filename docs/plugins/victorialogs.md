@@ -42,6 +42,10 @@ Every setting is under `plugins.victorialogs` in the config file and is also in 
 | `plugins.victorialogs.limit` | `DASH_PLUGINS_VICTORIALOGS_LIMIT` | integer | `500` | no | no | Most log lines one query returns. Greater than zero. |
 | `plugins.victorialogs.denyNamespaces` | `DASH_PLUGINS_VICTORIALOGS_DENY_NAMESPACES` | list of strings (JSON) | - | no | no | Namespaces whose logs dash refuses to show, whatever the role. A JSON list in the environment. |
 
+The `plugins.victorialogs.fields.*` fields are used for the query and for the pod and container
+shown with each line. The fields that share a name's prefix up to its first dot (`kubernetes.` by
+default) are left out of the message text.
+
 ## Actions
 
 None: the plugin only reads.

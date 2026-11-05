@@ -33,7 +33,7 @@ func squash(s string) string {
 // The `enabled` doc sentence says exactly which plugins apply a change live and what restarts
 // with them, as the manifests say it: every plugin dash ships behaves like that, and each plugin
 // that uses or requires another is listed as restarting with it. The sentence is in the
-// pluginconf doc tag, in `dash config env` (and the generated page) and in the README row.
+// pluginconf doc tag, in `dash config env` and in the generated page (its configuration intro).
 func TestEnabledDocNamesTheUsers(t *testing.T) {
 	var live []string
 	dependents := map[plugin.ID][]string{}
@@ -65,10 +65,6 @@ func TestEnabledDocNamesTheUsers(t *testing.T) {
 	if err := config.WriteEnvMarkdown(&page); err != nil {
 		t.Fatal(err)
 	}
-	readme, err := os.ReadFile("../../README.md")
-	if err != nil {
-		t.Fatal(err)
-	}
 
 	tagWants := []string{"This is how " + joinWith(live, "and") + " behave", restarts + "."}
 	missing := func(text string, wants []string) []string {
@@ -87,12 +83,11 @@ func TestEnabledDocNamesTheUsers(t *testing.T) {
 	}{
 		{"the enabled doc tag", field.Tag.Get("doc"), tagWants},
 		{"dash config env", table.String(), []string{
-			"applies live for " + joinWith(live, "and") + ",", restarts + ". A change to any section that is not a plugin's needs a restart, except auth.proxy.adminUsers and auth.proxy.adminGroups, which apply without one.",
+			"applies live for " + joinWith(live, "and") + ",", restarts + ". A change to any section that is not a plugin's needs a restart, except the administrator lists (auth.proxy.adminUsers, auth.proxy.adminGroups, auth.oidc.adminUsers, auth.oidc.adminGroups and auth.oidc.adminRoles), which apply without one.",
 		}},
 		{"the generated page", page.String(), []string{
-			"applies live for " + joinWith(live, "and") + ",", restarts + ". A change to any section that is not a plugin's needs a restart, except auth.proxy.adminUsers and auth.proxy.adminGroups, which apply without one.",
+			"applies live for " + joinWith(live, "and") + ",", restarts + ". A change to any section that is not a plugin's needs a restart, except the administrator lists (auth.proxy.adminUsers, auth.proxy.adminGroups, auth.oidc.adminUsers, auth.oidc.adminGroups and auth.oidc.adminRoles), which apply without one.",
 		}},
-		{"the README row", string(readme), []string{"That is how " + joinWith(live, "and") + " behave", restarts + "."}},
 	} {
 		for _, want := range missing(doc.text, doc.wants) {
 			t.Errorf("%s lacks %q", doc.name, want)
@@ -130,10 +125,6 @@ func TestEnabledDocStatesTheRustFSException(t *testing.T) {
 	if err := config.WriteEnvMarkdown(&page); err != nil {
 		t.Fatal(err)
 	}
-	readme, err := os.ReadFile("../../README.md")
-	if err != nil {
-		t.Fatal(err)
-	}
 	schema, err := os.ReadFile("../../internal/config/testdata/config.schema.json")
 	if err != nil {
 		t.Fatal(err)
@@ -150,7 +141,6 @@ func TestEnabledDocStatesTheRustFSException(t *testing.T) {
 		{"the enabled doc tag", field.Tag.Get("doc")},
 		{"dash config env", table.String()},
 		{"the generated page", page.String()},
-		{"the README row", string(readme)},
 		{"docs/configuration.md", string(generated)},
 		{"the schema golden", string(schema)},
 		{"docs/plugins/README.md", string(index)},

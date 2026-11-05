@@ -37,4 +37,4 @@ body:
     attributes:
       label: Contribution
       options:
-        - label: I would like to implement this myself (the README's Develop section describes the setup).
+        - label: I would like to implement this myself (docs/development.md describes the setup).

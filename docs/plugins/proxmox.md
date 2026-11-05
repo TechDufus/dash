@@ -10,7 +10,8 @@ stopped VM is an attention item on the Overview: critical when `plugins.proxmox.
 names it, a warning otherwise. The topology on the Overview runs from the host through its VMs
 to the cluster. The plugin runs once `url`, `tokenID` and `tokenSecret` are all set; with
 `storage.source: api` (the default) the token needs the `Datastore.Audit` privilege on
-`/storage` for the storage list.
+`/storage` for the storage list. The client is tested against API answers of Proxmox VE 8 and 9
+(`internal/upstream/testdata/proxmox`).
 
 ## What it shows
 
@@ -78,6 +79,12 @@ Every setting is under `plugins.proxmox` in the config file and is also in the [
 | `plugins.proxmox.criticalVMs.tags` | `DASH_PLUGINS_PROXMOX_CRITICAL_VMS_TAGS` | list of strings (JSON) | - | no | no | VM tags that make a VM critical (compared without regard to case). A JSON list in the environment. |
 | `plugins.proxmox.storage.source` | `DASH_PLUGINS_PROXMOX_STORAGE_SOURCE` | string | `api` | no | no | Where the storage list comes from: api reads the node's storages from the Proxmox API (the API token needs the Datastore.Audit privilege on /storage); prometheus reads the pve-exporter series pve_disk_usage_bytes, pve_disk_size_bytes and pve_storage_info through the prometheus plugin. |
 | `plugins.proxmox.series.vmSelector` | `DASH_PLUGINS_PROXMOX_SERIES_VM_SELECTOR` | string | `id="qemu/{vmid}"` | no | no | The label matcher that selects one VM in the pve-exporter series of the VM charts: one label, = or =~, and a quoted value with {vmid} once, e.g. id="qemu/{vmid}". |
+
+- With a `k8s:` token still being read, the row says it waits for a Kubernetes Secret.
+- `plugins.proxmox.tls.insecureSkipVerify` makes dash log a startup WARN and list an `ok` source
+  named `tls: verification disabled` in the Overview's sources (not on the Proxmox row, and drawn
+  as no chip: chips show failing sources only).
+- In the environment: `DASH_PLUGINS_PROXMOX_CRITICAL_VMS_IDS='[101,102]'`.
 
 ## Actions
 

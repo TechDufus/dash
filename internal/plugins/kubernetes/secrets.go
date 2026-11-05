@@ -24,9 +24,9 @@ import (
 // Get and then a Watch limited to that one object by field selector, started from the Get's
 // resourceVersion (a 410 Gone starts over with a new Get). Only the referenced keys are copied,
 // into their handles, and the object is dropped. The RBAC that makes this work is get, list and
-// watch with resourceNames on the named Secrets in a namespaced Role (README): a list or watch
-// restricted by resourceNames must carry the matching metadata.name field selector, and
-// dash never asks for anything wider.
+// watch with resourceNames on the named Secrets in a namespaced Role (docs/plugins/kubernetes.md):
+// a list or watch restricted by resourceNames must carry the matching metadata.name field
+// selector, and dash never asks for anything wider.
 
 const (
 	defaultMinBackoff = time.Second

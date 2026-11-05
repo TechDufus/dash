@@ -40,6 +40,15 @@ Every setting is under `plugins.launcher` in the config file and is also in the 
 | `plugins.launcher.file` | `DASH_PLUGINS_LAUNCHER_FILE` | string | - | no | no | Path of a YAML or JSON file with the launcher's links (see docs/launcher.example.yaml). The file is read when the launcher starts: restart dash, or change the launcher's settings, to read it again; an unreadable file makes the launcher report an error. Not together with links. |
 | `plugins.launcher.links` | `DASH_PLUGINS_LAUNCHER_LINKS` | list of objects (JSON) | - | no | no | The launcher's links, inline: a list of {name, href, icon, description}. icon is an icon name (resolved against ui.iconBaseURL; without it the link shows a letter tile), a same-origin path, or an image URL under ui.iconBaseURL. Not together with file. |
 
+- Mount a file from a ConfigMap and point `plugins.launcher.file` at it, or list the links in
+  `plugins.launcher.links`.
+- An unreadable file makes the launcher plugin report `error`, and dash still starts.
+- An invalid link in `plugins.launcher.links` is refused when the configuration loads, and so is
+  an inline `icon` outside the three forms (another origin than `ui.iconBaseURL`, `javascript:`,
+  `data:`), named by its entry. Such an icon in the launcher file makes the launcher report
+  `error` with a warning that names the entry, and dash still starts.
+- A link's `href` that is not `http:` or `https:` is shown as text, not a link.
+
 ## Actions
 
 None: the plugin only reads.
