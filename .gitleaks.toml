@@ -1,11 +1,18 @@
 # gitleaks configuration for `make scan` (scripts/ci/scan.sh): the default rules, plus an
-# allowlist of test fixtures only. Each entry names exact values, only in Go test files, and says
-# why the value is not a secret. Never allowlist a real secret: remove it from the history and
+# allowlist. Each entry names exact values or named assignments, in the files it applies to, and
+# says why the value is not a secret. Never allowlist a real secret: remove it from the history and
 # rotate it instead.
 title = "dash"
 
 [extend]
 useDefault = true
+
+[[allowlists]]
+description = "The sha256 checksums that pin the Gateway API and Flux manifests in scripts/ci/kind-smoke.sh: public digests of release files"
+condition = "AND"
+regexTarget = "match"
+paths = ['''^scripts/ci/kind-smoke\.sh$''']
+regexes = ['''^(GATEWAY_API|FLUX)_SHA256=[0-9a-f]{64}$''']
 
 [[allowlists]]
 description = "Canary values the redaction tests plant to prove that dash never writes a secret to a response, a stream, the audit log or slog"
