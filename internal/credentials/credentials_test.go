@@ -205,7 +205,7 @@ func TestUnwritableOrMissingDirIsInMemory(t *testing.T) {
 func TestUnreadableFileIsAnErrorAndIsKept(t *testing.T) {
 	salt := strings.Repeat("A", 43) // 32 zero bytes, base64url
 	for name, body := range map[string]string{
-		"newer schema":   "schemaVersion: 2\nepochs: {}\nglobalEpoch: 0\nsessionSalt: " + salt + "\n",
+		"newer schema":   "schemaVersion: 3\nepochs: {}\nglobalEpoch: 0\nsessionSalt: " + salt + "\n",
 		"no schema":      "epochs: {}\n",
 		"not yaml":       "schemaVersion: [\n",
 		"bad salt":       "schemaVersion: 1\nsessionSalt: short\n",

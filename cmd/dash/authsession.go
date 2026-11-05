@@ -24,26 +24,30 @@ import (
 // (no writable data dir for the setup) nor supplied (no DASH_ADMIN_PASSWORD_HASH).
 var errLocalNeedsState = errors.New("auth.mode=local needs a writable data dir (DASH_DATA_DIR) or DASH_ADMIN_PASSWORD_HASH")
 
-// processAuth is the authenticator of the process and, in a session mode, what the API's
-// session routes need.
+// processAuth is the authenticator of the process, its credential store and, in a session
+// mode, what the API's session routes need.
 type processAuth struct {
 	authn auth.Authenticator
 	proxy *auth.Proxy  // proxy mode: the reloader replaces its role map
 	sess  *sessionAuth // session modes; nil otherwise
+	// store keeps the personal access tokens (contract D1): the data dir's credentials.yaml in
+	// local, oidc and proxy mode, in memory in dev and demo or without a writable data dir; nil
+	// in auth.mode=none, which has no tokens.
+	store *credentials.Store
 }
 
-// deps hands the authenticator and the session machinery to the API.
+// deps hands the authenticator, the credential store and the session machinery to the API.
 func (p processAuth) deps(d *api.Deps) {
-	d.Auth = p.authn
+	d.Auth, d.Credentials = p.authn, p.store
 	if s := p.sess; s != nil {
-		d.Sessions, d.Credentials, d.Local, d.OIDC = s.sessions, s.store, s.local, s.oidc
+		d.Sessions, d.Local, d.OIDC = s.sessions, s.local, s.oidc
 	}
 }
 
-// close releases the credential store of a session mode.
+// close writes what the credential store holds in memory and releases it.
 func (p processAuth) close() {
-	if p.sess != nil {
-		_ = p.sess.store.Close()
+	if p.store != nil {
+		_ = p.store.Close()
 	}
 }
 
@@ -55,21 +59,36 @@ type sessionEnv struct {
 	secrets   *secret.Registry // cuts the IdP's error text (oidcauth.Config.Secrets); nil = shapes only
 }
 
-// startAuth builds the authenticator auth.mode selects. Dev and demo outrank the mode
-// (buildAuthenticator); the session modes open the credential store and derive the session key.
+// startAuth builds the authenticator auth.mode selects and opens the credential store. Dev and
+// demo outrank the mode (buildAuthenticator) and keep their store in memory; the session modes
+// derive the session key from theirs; auth.mode=none opens none.
 func startAuth(res *config.Resolved, env sessionEnv, log *slog.Logger) (processAuth, error) {
-	if _, fixed := fixedPrincipal(res.Config); !fixed && config.SessionMode(res.Tree.Auth.Mode) {
+	_, fixed := fixedPrincipal(res.Config)
+	if !fixed && config.SessionMode(res.Tree.Auth.Mode) {
 		s, err := buildSessionAuth(res, env, log)
 		if err != nil {
 			return processAuth{}, err
 		}
-		return processAuth{authn: s.authn, sess: s}, nil
+		return processAuth{authn: s.authn, sess: s, store: s.store}, nil
 	}
 	if env.adminHash != "" {
 		log.Warn("DASH_ADMIN_PASSWORD_HASH is ignored: dash is not in auth.mode=local")
 	}
 	a, p, err := buildAuthenticator(res, log)
-	return processAuth{authn: a, proxy: p}, err
+	if err != nil {
+		return processAuth{}, err
+	}
+	pa := processAuth{authn: a, proxy: p}
+	switch {
+	case fixed:
+		pa.store, err = credentials.OpenMemory()
+	case res.Tree.Auth.Mode == config.AuthModeProxy:
+		pa.store, err = credentials.Open(res.Config.DataDir)
+	}
+	if err != nil {
+		return processAuth{}, fmt.Errorf("credentials store: %w", err)
+	}
+	return pa, nil
 }
 
 // sessionAuth is the authenticator of a session mode and the machinery of its routes.

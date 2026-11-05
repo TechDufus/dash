@@ -1,15 +1,16 @@
 // Package credentials is dash's credential store, credentials.yaml in the data directory (design
 // M.7, contract D10): the local administrator account, the per-user session epochs, the global
-// epoch and the session salt. It is not the settings store: auth.* is not editable from the UI,
-// and a restored settings backup must never bring back an old password.
+// epoch, the session salt and the personal access tokens (hashes only). It is not the settings
+// store: auth.* is not editable from the UI, and a restored settings backup must never bring
+// back an old password or a revoked token.
 //
-// The file is mode 0600 and carries a schemaVersion. Every write is atomic (a temporary file,
-// fsync, rename, fsync of the directory) and there are no .bak copies. The store has a mutex of
-// its own and holds its own flock on .credentials.lock, so a second dash on the same data
-// directory is refused even when the settings store is read-only (and takes no lock). Without a
-// writable data directory the store lives in memory (Persistent is false) and starts empty at
-// every start. Phase 7 extends the document (personal access tokens, grants, push keys) under
-// the same lock.
+// The file is mode 0600 and carries a schemaVersion: 1 until it holds a personal access token,
+// 2 from then on, so an older dash refuses it rather than dropping the tokens on its next write.
+// Every write is atomic (a temporary file, fsync, rename, fsync of the directory) and there are
+// no .bak copies. The store has a mutex of its own and holds its own flock on
+// .credentials.lock, so a second dash on the same data directory is refused even when the
+// settings store is read-only (and takes no lock). Without a writable data directory the store
+// lives in memory (Persistent is false) and starts empty at every start.
 package credentials
 
 import (
@@ -39,8 +40,9 @@ const (
 	FileName = "credentials.yaml"
 	// LockName is the file the store holds an exclusive flock on while it is open.
 	LockName = ".credentials.lock"
-	// SchemaVersion is the version of the document this dash writes; a newer one is an error.
-	SchemaVersion = 1
+	// SchemaVersion is the newest document this dash reads; a newer one is an error. A document
+	// is written as 1 until it holds a personal access token (writtenVersion).
+	SchemaVersion = 2
 	// SaltSize is the length of the session salt.
 	SaltSize = 32
 )
@@ -58,8 +60,8 @@ var ErrFileChanged = errors.New("credentials: credentials.yaml was removed or re
 // tempPattern names the temporary files of the atomic write; Open removes the ones a crash left.
 const tempPattern = ".credentials.yaml.tmp-*"
 
-const header = "# Managed by dash: the local administrator account and the session epochs. Do not edit.\n" +
-	"# Stop dash, then delete this file to end every session and reopen /setup.\n"
+const header = "# Managed by dash: the local administrator account, the session epochs and the personal access tokens. Do not edit.\n" +
+	"# Stop dash, then delete this file to end every session, revoke every token and reopen /setup.\n"
 
 // Admin is the local administrator account (auth.mode=local).
 type Admin struct {
@@ -80,6 +82,8 @@ type document struct {
 	GlobalEpoch uint64            `json:"globalEpoch"`
 	// SessionSalt is base64url (no padding) of SaltSize random bytes.
 	SessionSalt string `json:"sessionSalt"`
+	// PATs are the personal access tokens by ID.
+	PATs map[string]PAT `json:"pats,omitempty"`
 }
 
 // Store is the open credential store. Its methods are safe for concurrent use.
@@ -95,21 +99,22 @@ type Store struct {
 	// gone or another one since is never written over (ErrFileChanged). warned: said so once.
 	file   os.FileInfo
 	warned bool
+
+	// used holds the lastUsedAt times of tokens not written yet (FlushLastUsed), under its own
+	// mutex so a request never waits for a write.
+	usedMu sync.Mutex
+	used   map[string]time.Time
 }
 
 // Open opens the store of dir. A writable dir gives a persistent store: it takes the flock
 // (ErrLocked when another process holds it), reads credentials.yaml if it exists (a newer
 // schemaVersion or a file that cannot be parsed is an error, never overwritten), and writes a new
 // file with a fresh session salt when there is none. A missing, unwritable or empty dir gives an
-// in-memory store with a random salt (Persistent is false). cmd/dash opens it only in the
-// session modes, so proxy, none, dev and demo never create the file.
+// in-memory store with a random salt (Persistent is false). cmd/dash opens it in every auth
+// mode but none, and in memory (OpenMemory) in dev and demo.
 func Open(dir string) (*Store, error) {
 	if !writable(dir) {
-		salt, err := newSalt()
-		if err != nil {
-			return nil, err
-		}
-		return &Store{doc: emptyDocument(salt), salt: salt}, nil
+		return OpenMemory()
 	}
 	lock, err := acquireLock(dir)
 	if err != nil {
@@ -122,6 +127,15 @@ func Open(dir string) (*Store, error) {
 		return nil, err
 	}
 	return s, nil
+}
+
+// OpenMemory is a store that lives in this process only: it starts empty and is gone at exit.
+func OpenMemory() (*Store, error) {
+	salt, err := newSalt()
+	if err != nil {
+		return nil, err
+	}
+	return &Store{doc: emptyDocument(salt), salt: salt}, nil
 }
 
 // writable reports whether dir exists and accepts new files. Creating a probe is the only
@@ -165,7 +179,7 @@ func newSalt() ([]byte, error) {
 
 func emptyDocument(salt []byte) document {
 	return document{
-		SchemaVersion: SchemaVersion,
+		SchemaVersion: 1,
 		Epochs:        map[string]uint64{},
 		SessionSalt:   base64.RawURLEncoding.EncodeToString(salt),
 	}
@@ -262,10 +276,16 @@ func decode(data []byte) (document, []byte, error) {
 	if doc.Epochs == nil {
 		doc.Epochs = map[string]uint64{}
 	}
+	for id, p := range doc.PATs {
+		if err := validPAT(id, p); err != nil {
+			return document{}, nil, err
+		}
+	}
 	return doc, salt, nil
 }
 
 func encode(doc document) ([]byte, error) {
+	doc.SchemaVersion = writtenVersion(doc)
 	b, err := yaml.Marshal(doc)
 	if err != nil {
 		return nil, err
@@ -342,6 +362,7 @@ func (s *Store) update(keepOnFailure bool, change func(*document) bool) error {
 		a := *next.Admin
 		next.Admin = &a
 	}
+	next.PATs = clonePATs(s.doc.PATs)
 	if !change(&next) {
 		return nil
 	}
@@ -383,8 +404,11 @@ func (s *Store) Persistent() bool { return s.path != "" }
 // Path is the credential file, "" for an in-memory store.
 func (s *Store) Path() string { return s.path }
 
-// Close releases the lock. Later writes fail.
+// Close writes the tokens' last use and releases the lock. Later writes fail.
 func (s *Store) Close() error {
+	if err := s.FlushLastUsed(); err != nil && !errors.Is(err, errClosed) {
+		slog.Warn("credentials: writing the tokens' last use failed", "err", err)
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.closed = true

@@ -261,12 +261,12 @@ func TestAnonymousViewerIsOffByDefaultAtStart(t *testing.T) {
 	}
 }
 
-// The proxy, none, dev and demo modes open no credential store and ignore an admin hash, with a
-// WARN.
-func TestOtherModesOpenNoCredentialStore(t *testing.T) {
-	dir := t.TempDir()
+// The proxy, none, dev and demo modes build no session machinery and ignore an admin hash, with
+// a WARN. Dev mode keeps its credential store in memory even over auth.mode=local and a
+// writable data dir (TestCredentialStoreOpensInEveryModeButNone has the other modes).
+func TestOtherModesBuildNoSessions(t *testing.T) {
 	res := resolvedAuth(false, false, nil)
-	res.Config.DataDir = dir
+	res.Config.DataDir = t.TempDir()
 	var logs logCapture
 	pa, _, err := startLocal(t, res, hashOf(t), &logs)
 	if err != nil || pa.sess != nil || pa.proxy == nil {
@@ -275,13 +275,14 @@ func TestOtherModesOpenNoCredentialStore(t *testing.T) {
 	if len(logs.with(t, "WARN", "DASH_ADMIN_PASSWORD_HASH is ignored: dash is not in auth.mode=local")) != 1 {
 		t.Error("the ignored hash was not warned about")
 	}
+	dir := t.TempDir()
 	dev := localResolved(dir, nil, nil)
 	dev.Config.Dev = true
-	if pa, _, err := startLocal(t, dev, "", nil); err != nil || pa.sess != nil {
-		t.Errorf("dev mode with auth.mode=local: %+v %v, want the fixed identity", pa, err)
+	if pa, _, err := startLocal(t, dev, "", nil); err != nil || pa.sess != nil || pa.store == nil || pa.store.Persistent() {
+		t.Errorf("dev mode with auth.mode=local: %+v %v, want the fixed identity and an in-memory store", pa, err)
 	}
 	if m, _ := filepath.Glob(filepath.Join(dir, "*credentials*")); len(m) != 0 {
-		t.Errorf("a credential file was created outside a session mode: %v", m)
+		t.Errorf("dev mode created a credential file: %v", m)
 	}
 }
 

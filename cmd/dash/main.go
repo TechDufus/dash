@@ -17,6 +17,7 @@ import (
 
 	"github.com/TechDufus/dash/internal/api"
 	"github.com/TechDufus/dash/internal/config"
+	"github.com/TechDufus/dash/internal/credentials"
 	"github.com/TechDufus/dash/internal/obs"
 	"github.com/TechDufus/dash/internal/overview"
 	"github.com/TechDufus/dash/internal/plugin"
@@ -139,6 +140,10 @@ func run(reg *secret.Registry, onBound func(api, health net.Addr)) error {
 	reloaderDone := make(chan struct{})
 	go func() { defer close(reloaderDone); reloader.Run(ctx) }()
 	defer func() { stop(); <-reloaderDone }()
+	if pa.store != nil {
+		// Close writes the last ones after the loop ends (pa.close).
+		go pa.store.RunLastUsedFlush(ctx, credentials.LastUsedFlushInterval)
+	}
 	// Plugins stop after the servers, before the reloader and the audit log.
 	defer func() {
 		sctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
