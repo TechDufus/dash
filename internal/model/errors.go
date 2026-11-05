@@ -33,6 +33,7 @@ const (
 	ErrCodeApprovalExpired      = "approval_expired"      // 410
 	ErrCodeConflict             = "conflict"              // 409
 	ErrCodePreconditionFailed   = "precondition_failed"   // 412
+	ErrCodePreconditionRequired = "precondition_required" // 428: a settings write without If-Match
 	ErrCodeAuditUnavailable     = "audit_unavailable"     // 503
 	ErrCodeUnknownHost          = "unknown_host"          // 421
 	ErrCodeInternal             = "internal"              // 500
@@ -46,7 +47,7 @@ func ErrCodes() []string {
 		ErrCodeAmbiguousCredentials, ErrCodeCSRFFailed, ErrCodeNotFound, ErrCodeInvalidInput,
 		ErrCodeLockedField, ErrCodeReadonlySettings, ErrCodeRateLimited, ErrCodeTooManyStreams,
 		ErrCodeUpstreamUnavailable, ErrCodeApprovalRequired, ErrCodeApprovalDenied,
-		ErrCodeApprovalExpired, ErrCodeConflict, ErrCodePreconditionFailed, ErrCodeAuditUnavailable,
-		ErrCodeUnknownHost, ErrCodeInternal,
+		ErrCodeApprovalExpired, ErrCodeConflict, ErrCodePreconditionFailed, ErrCodePreconditionRequired,
+		ErrCodeAuditUnavailable, ErrCodeUnknownHost, ErrCodeInternal,
 	}
 }

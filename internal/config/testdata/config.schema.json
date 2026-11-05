@@ -1244,11 +1244,13 @@
       "properties": {
         "caFile": {
           "description": "Path of a PEM file with the certificate authority that signed the service's certificate, added to the system roots. Empty uses the system roots only.",
-          "type": "string"
+          "type": "string",
+          "x-dash-dest": true
         },
         "insecureSkipVerify": {
           "description": "Skip verifying the service's certificate and host name. Anyone on the network path can then impersonate the service: prefer caFile.",
-          "type": "boolean"
+          "type": "boolean",
+          "x-dash-dest": true
         }
       },
       "type": "object"

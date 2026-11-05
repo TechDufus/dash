@@ -150,6 +150,9 @@ func run(reg *secret.Registry, onBound func(api, health net.Addr)) error {
 		Cfg: cfg, Version: version, Hub: h, Plugins: sup,
 		Health: sup, Metrics: metrics, Secrets: reg, Audit: alog,
 	}
+	if store != nil { // demo mode has no store and no settings API
+		deps.Settings = newSettingsBackend(res, store, reloader, sup, alog, reg)
+	}
 	pa.deps(&deps)
 	srv := api.New(deps)
 	handler := srv.Handler()

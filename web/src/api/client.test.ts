@@ -53,3 +53,51 @@ describe("api client: a 401 goes to handle401", () => {
     expect(assign).not.toHaveBeenCalled();
   });
 });
+
+describe("api client: writes and text", () => {
+  it("sends a PUT with its JSON body, the CSRF header and the revision as If-Match", async () => {
+    const f = stubFetch({
+      "PUT /api/v1/settings/plugins/proxmox": { revision: 8, restartRequired: [] },
+    });
+    const out = await api.put<{ revision: number }>(
+      "/api/v1/settings/plugins/proxmox",
+      { node: "pve" },
+      { ifMatch: 7 },
+    );
+    expect(out.revision).toBe(8);
+    const [call] = f.callsTo("PUT /api/v1/settings/plugins/proxmox");
+    expect(call?.body).toEqual({ node: "pve" });
+    expect(call?.headers.get("If-Match")).toBe('"7"');
+    expect(call?.headers.get("X-Dash-Csrf")).toBe("1");
+    expect(call?.headers.get("Content-Type")).toBe("application/json");
+  });
+
+  it("sends no If-Match without a revision, and a DELETE may carry one", async () => {
+    const f = stubFetch({ "PUT /x": {}, "DELETE /y": undefined });
+    await api.put("/x", {});
+    await api.del("/y", { ifMatch: 3 });
+    expect(f.callsTo("PUT /x")[0]?.headers.has("If-Match")).toBe(false);
+    expect(f.callsTo("DELETE /y")[0]?.headers.get("If-Match")).toBe('"3"');
+  });
+
+  it("answers a body that is not JSON as text", async () => {
+    const yaml = "plugins:\n  proxmox:\n    node: pve\n";
+    stubFetch({
+      "GET /api/v1/settings/export": () =>
+        new Response(yaml, { headers: { "Content-Type": "text/yaml" } }),
+    });
+    await expect(api.text("/api/v1/settings/export")).resolves.toBe(yaml);
+  });
+
+  it("rejects a refused PUT with the envelope's code and details", async () => {
+    const details = { path: "plugins.proxmox.url", source: "env", ref: "DASH_PLUGINS_PROXMOX_URL" };
+    stubFetch({
+      "PUT /x": () =>
+        json({ error: "locked", code: "locked_field", requestId: "r1", details }, 409),
+    });
+    const err = (await api.put("/x", {}, { ifMatch: 1 }).catch((e: unknown) => e)) as ApiError;
+    expect(err).toBeInstanceOf(ApiError);
+    expect([err.status, err.code, err.requestId]).toEqual([409, "locked_field", "r1"]);
+    expect(err.details).toEqual(details);
+  });
+});

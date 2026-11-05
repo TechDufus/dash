@@ -4,7 +4,10 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"io/fs"
 	"log/slog"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -12,6 +15,9 @@ import (
 	"time"
 
 	"github.com/TechDufus/dash/internal/config"
+	"github.com/TechDufus/dash/internal/model"
+	"github.com/TechDufus/dash/internal/pluginconf"
+	"github.com/TechDufus/dash/internal/plugins/prometheus"
 	"github.com/TechDufus/dash/internal/secret"
 	"github.com/TechDufus/dash/internal/settings"
 )
@@ -188,5 +194,105 @@ func TestDemoModeOpensNoStore(t *testing.T) {
 	}
 	if strings.Contains(log.String(), "settings") {
 		t.Errorf("demo mode says nothing about settings:\n%s", log)
+	}
+}
+
+// The settings API learns from the backend why the store is read-only and whether a secret
+// can be saved: settings.ui readonly is config, a data dir that cannot be written is data_dir.
+func TestSettingsBackendDescribesTheStore(t *testing.T) {
+	key := "DASH_SECRET_KEY=" + testKey(1)
+	for name, tc := range map[string]struct {
+		missing bool
+		env     []string
+		want    model.SettingsStore
+	}{
+		"editable":          {env: []string{key}, want: model.SettingsStore{Writable: true, SecretKey: true}},
+		"settings.ui":       {env: []string{"DASH_SETTINGS_UI=readonly"}, want: model.SettingsStore{Readonly: true, Reason: model.SettingsStoreReasonConfig, Writable: true}},
+		"missing data dir":  {missing: true, want: model.SettingsStore{Readonly: true, Reason: model.SettingsStoreReasonDataDir}},
+		"missing, readonly": {missing: true, env: []string{"DASH_SETTINGS_UI=readonly"}, want: model.SettingsStore{Readonly: true, Reason: model.SettingsStoreReasonConfig}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			dir := t.TempDir()
+			if tc.missing {
+				dir = filepath.Join(dir, "missing")
+			}
+			startEnv(t, dir, tc.env...)
+			captureLog(t)
+			reg := secret.NewRegistry()
+			res, store, alog, err := openState(reg, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { _ = alog.Close(); _ = store.Close() })
+			fw := newFramework(res, store, config.ReloadOptions{}, reg, nil, nil, false)
+			b := newSettingsBackend(res, store, fw.reloader, fw.sup, alog, reg)
+			tc.want.DataDir = dir
+			if got := b.Store(); got != tc.want {
+				t.Errorf("store = %+v, want %+v", got, tc.want)
+			}
+		})
+	}
+}
+
+// PluginConfig hands Check exactly what the supervisor would run the plugin with, so a check
+// of the running configuration reaches the upstream instead of failing on its type.
+func TestSettingsBackendPluginConfigIsWhatTheSupervisorChecks(t *testing.T) {
+	up := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"status":"success","data":{"resultType":"scalar","result":[0,"1"]}}`))
+	}))
+	t.Cleanup(up.Close)
+	startEnv(t, t.TempDir(), "DASH_PLUGINS_PROMETHEUS_URL="+up.URL)
+	captureLog(t)
+	reg := secret.NewRegistry()
+	res, store, alog, err := openState(reg, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = alog.Close(); _ = store.Close() })
+	fw := newFramework(res, store, config.ReloadOptions{}, reg, nil, nil, false)
+	if err := fw.sup.Add(prometheus.New); err != nil {
+		t.Fatal(err)
+	}
+	b := newSettingsBackend(res, store, fw.reloader, fw.sup, alog, reg)
+
+	cfg, fromUI, ok := b.PluginConfig(b.Resolved(), "prometheus")
+	if p, isProm := cfg.(*pluginconf.Prometheus); !ok || fromUI || !isProm || p.URL != up.URL {
+		t.Fatalf("PluginConfig = %#v, fromUI %v, ok %v", cfg, fromUI, ok)
+	}
+	if !b.Testable("prometheus") || b.Testable("grafana") {
+		t.Error("prometheus has a connection check, grafana does not")
+	}
+	rep, err := b.Check(context.Background(), "prometheus", cfg, fromUI)
+	if err != nil || len(rep.Checks) == 0 || !rep.Checks[0].OK {
+		t.Errorf("Check = %+v, %v", rep, err)
+	}
+	if _, _, ok := b.PluginConfig(b.Resolved(), "nope"); ok {
+		t.Error("an unknown id has no configuration")
+	}
+}
+
+func TestOwnNamespace(t *testing.T) {
+	file := func(content string, err error) func(string) ([]byte, error) {
+		return func(path string) ([]byte, error) {
+			if path != serviceAccountNamespace {
+				t.Errorf("read %s", path)
+			}
+			return []byte(content), err
+		}
+	}
+	env := func(v string) func(string) string { return func(string) string { return v } }
+	for name, tc := range map[string]struct {
+		getenv   func(string) string
+		readFile func(string) ([]byte, error)
+		want     string
+	}{
+		"POD_NAMESPACE first":  {env(" dash "), file("other", nil), "dash"},
+		"service account file": {env(""), file("dash\n", nil), "dash"},
+		"outside a cluster":    {env(""), file("", fs.ErrNotExist), ""},
+	} {
+		if got := ownNamespace(tc.getenv, tc.readFile); got != tc.want {
+			t.Errorf("%s: %q, want %q", name, got, tc.want)
+		}
 	}
 }

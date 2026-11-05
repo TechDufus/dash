@@ -2,6 +2,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"io"
@@ -25,6 +26,7 @@ import (
 	"github.com/TechDufus/dash/internal/plugin"
 	"github.com/TechDufus/dash/internal/secret"
 	"github.com/TechDufus/dash/internal/session"
+	"github.com/TechDufus/dash/internal/settings"
 	"github.com/TechDufus/dash/internal/upstream"
 	"github.com/TechDufus/dash/web"
 )
@@ -42,6 +44,62 @@ type PluginsAPI interface {
 	Links() plugin.LinkResolver
 	Series(name string) (plugin.SeriesSpec, plugin.ID, bool)
 	Ready() bool
+}
+
+// SettingsBackend is what the settings routes (P4.7) use of the configuration: the reloader, the
+// UI settings store, the secret writer and the connection checks. cmd/dash implements it over
+// the real ones (settingsBackend); settingstest.Fake is the same wiring over a temporary data
+// directory, with hooks for tests.
+//
+// Every write runs inside WithLock and calls Reload before fn returns: the If-Match check,
+// Candidate, Apply (or a secret write) and Reload all happen under the one reloader lock, so
+// neither another write nor the reloader's tick can interleave (design D14b, D15).
+type SettingsBackend interface {
+	// Resolved is the running configuration with the provenance of every value. It is shared:
+	// never modify it.
+	Resolved() *config.Resolved
+	// RestartRequired lists, sorted, the settings changed since this process started that need
+	// a restart (Reloader.RestartRequired).
+	RestartRequired() []string
+	// WithLock runs fn holding the reloader lock (Reloader.WithLock). fn must not call WithLock.
+	WithLock(fn func() error) error
+	// Candidate resolves the configuration with ui as the whole UI layer, strictly: a problem
+	// with a UI value that differs from the store's is an error naming its path
+	// (config.FieldErrors). Nothing running or stored changes. Call it inside WithLock.
+	Candidate(ui map[string]any) (*config.Resolved, error)
+	// Reload puts the files and the store into effect now (Reloader.Reload). Call it only
+	// inside WithLock.
+	Reload() error
+
+	// Store describes the UI settings store; it does not change while dash runs.
+	Store() model.SettingsStore
+	// Revision is the store's revision: the If-Match of a write.
+	Revision() uint64
+	// Stored is a deep copy of the store's values: the sparse, nested UI layer.
+	Stored() map[string]any
+	// Apply writes sets and deletes (dotted paths) as one commit and one revision; scrub lists
+	// the secret paths whose old values are removed from the backups (settings.Store.Apply). A
+	// non-zero prev with an error means the write landed: Revert(prev).
+	Apply(sets map[string]any, deletes, scrub []string) (prev settings.Snapshot, err error)
+	// Revert writes prev's values back as a new revision (settings.Store.Revert).
+	Revert(prev settings.Snapshot) error
+	// ReplaceSecret and ClearSecret are config.SecretWriter's Replace and Clear: they audit
+	// their own intent and outcome and scrub the backups.
+	ReplaceSecret(path, plaintext string, actor audit.Actor) error
+	ClearSecret(path string, actor audit.Actor) error
+
+	// PluginConfig is the configuration of plugin id in res as the plugin receives it: the
+	// candidate Check takes, and whether a URL of the section comes from the UI (the dial guard
+	// then refuses loopback). ok is false for an id res has no section for.
+	PluginConfig(res *config.Resolved, id string) (cfg any, fromUI bool, ok bool)
+	// Testable reports whether Check can test plugin id (plugin.Supervisor.Testable).
+	Testable(id string) bool
+	// Check runs plugin id's connection check against cfg (plugin.Supervisor.Check): an error
+	// is plugin.ErrNotCheckable or the plugin's refusal of cfg, whose text may hold values.
+	Check(ctx context.Context, id string, cfg any, fromUI bool) (plugin.CheckReport, error)
+	// Namespace is the Kubernetes namespace dash runs in (POD_NAMESPACE, else the service
+	// account's namespace file); "" outside a cluster.
+	Namespace() string
 }
 
 // Deps are the collaborators of a Server.
@@ -67,6 +125,8 @@ type Deps struct {
 	Local *localauth.Local
 	// OIDC is the configured identity provider; nil unless auth.mode=oidc.
 	OIDC *oidcauth.Provider
+	// Settings backs /api/v1/settings/**; nil (demo mode) makes every settings route 404.
+	Settings SettingsBackend
 }
 
 // Server holds the handlers' state.
@@ -83,6 +143,7 @@ type Server struct {
 	sseWrite    time.Duration  // deadline of each SSE write
 	bodyTimeout time.Duration  // longest a request body may take to arrive
 	actionLimit *rateLimiter   // framework actions per principal
+	testLimit   *rateLimiter   // settings connection tests per principal
 	openTarget  *rateLimiter   // stream-open audit records per user and target
 	openUser    *rateLimiter   // stream-open audit records per user
 	hostWarn    atomic.Int64   // unix nanos of the last unknown-host warning
@@ -108,6 +169,7 @@ func New(d Deps) *Server {
 		tails:   newStreamLimiter(l.TailsPerUser, l.Tails),
 		tailMax: l.TailMaxDuration, sseWrite: l.SSEWriteTimeout, bodyTimeout: l.BodyReadTimeout,
 		actionLimit: newRateLimiter(actionRateLimit, actionRateWindow, maxRateKeys),
+		testLimit:   newRateLimiter(settingsTestRateLimit, settingsTestRateWindow, maxRateKeys),
 		openTarget:  newRateLimiter(1, openRecordWindow, maxRateKeys),
 		openUser:    newRateLimiter(openRecordPerUser, openRecordWindow, maxRateKeys),
 	}

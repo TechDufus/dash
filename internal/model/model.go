@@ -752,6 +752,13 @@ type AuthDetailsOIDC struct {
 	Issuer string `json:"issuer"` // the host of auth.oidc.issuer, never the full URL
 }
 
+// SetupResult answers a successful POST /setup (auth.mode local): the account that was created,
+// so the page can name it. Only the holder of the setup token ever sees it; no unauthenticated
+// answer carries the account name.
+type SetupResult struct {
+	AdminUser string `json:"adminUser"` // auth.local.adminUser
+}
+
 // MeUI is the site configuration the SPA reads once with /me.
 type MeUI struct {
 	// IconBaseURL resolves the icon names of launcher links and is the only origin an absolute

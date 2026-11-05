@@ -6,10 +6,11 @@ import (
 	"github.com/TechDufus/dash/internal/secret"
 )
 
-// TLS is how a plugin verifies the TLS certificate of the service it calls.
+// TLS is how a plugin verifies the TLS certificate of the service it calls. Both fields decide
+// where requests go (dest, design D16).
 type TLS struct {
-	CAFile             string `json:"caFile" doc:"Path of a PEM file with the certificate authority that signed the service's certificate, added to the system roots. Empty uses the system roots only."`
-	InsecureSkipVerify bool   `json:"insecureSkipVerify" doc:"Skip verifying the service's certificate and host name. Anyone on the network path can then impersonate the service: prefer caFile."`
+	CAFile             string `json:"caFile" dash:"dest" doc:"Path of a PEM file with the certificate authority that signed the service's certificate, added to the system roots. Empty uses the system roots only."`
+	InsecureSkipVerify bool   `json:"insecureSkipVerify" dash:"dest" doc:"Skip verifying the service's certificate and host name. Anyone on the network path can then impersonate the service: prefer caFile."`
 }
 
 // BasicAuth is a user name and password sent as HTTP Basic authentication.

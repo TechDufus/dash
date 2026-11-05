@@ -1,0 +1,137 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "properties": {
+    "enabled": {
+      "description": "false turns the plugin off: its topics are removed, and the web UI drops its rail entry, palette entries, overview tiles and panels and shows a switched-off page at its address. Unset turns it on when it has the settings it needs (rustfs is off unless enabled: true, because nothing in its settings says an object store exists); a plugin without them is disabled (\"not configured: set plugins.<id>.url\", naming the setting to make) and the web UI hides its pages. true with settings missing or invalid makes it unconfigured, which hides its pages too. This is how prometheus, alertmanager, gatus, victorialogs, proxmox, hardware, kubernetes, flux, cnpg, rustfs, grafana, headlamp and launcher behave, and a change to any of their settings applies live: that plugin restarts, and so do the plugins that use or require it (a prometheus change restarts proxmox, hardware, kubernetes, cnpg and rustfs; a gatus change restarts hardware and kubernetes; a proxmox change restarts hardware; a kubernetes change restarts proxmox, flux and cnpg; a grafana change restarts alertmanager).",
+      "type": "boolean"
+    },
+    "hosts": {
+      "description": "The machine behind the cluster, as [{name, nodename, model, bays, fanMaxRPM, sensorAliases}]; every key is optional, and [{}] reads the Proxmox node, which needs the proxmox plugin to run (its URL, token ID and token secret set) unless nodename is set. One entry is supported for now. A JSON list in the environment.",
+      "items": {
+        "$ref": "#/$defs/HardwareHost"
+      },
+      "type": "array"
+    },
+    "machines": {
+      "description": "Machines outside the cluster to show as up or down, as [{name, nodeExporterNodename}] (up while their node-exporter is scraped) or [{name, gatusEndpoint}] (up while that Gatus check passes). A JSON list in the environment.",
+      "items": {
+        "$ref": "#/$defs/HardwareMachine"
+      },
+      "type": "array"
+    },
+    "selectors": {
+      "$ref": "#/$defs/HardwareSelectors",
+      "description": "The label values dash's queries select by."
+    },
+    "tempThresholds": {
+      "$ref": "#/$defs/TempThresholds",
+      "description": "CPU package temperature, in °C, at which the host turns warning and critical (whole degrees)."
+    },
+    "type": {
+      "description": "The plugin type. dash runs one instance per type, so this is empty or the section name.",
+      "type": "string"
+    },
+    "zfsScrubMetricPrefix": {
+      "description": "Prefix of the ZFS scrub series: <prefix>_last_end_timestamp_seconds, <prefix>_last_errors and <prefix>_in_progress. Must be a valid metric name. Empty queries no scrub data and the pool cards show none.",
+      "type": "string"
+    }
+  },
+  "type": "object",
+  "$defs": {
+    "HardwareHost": {
+      "additionalProperties": false,
+      "properties": {
+        "bays": {
+          "description": "Drive bays the Disks grid draws, 0 to 128. 0 numbers the slots from 1 (from 0 when a disk sits in slot 0) up to the highest one that holds a disk, at most 128; above that, or when the disks' bay labels are not distinct numbers, the page lists the disks sorted.",
+          "type": "integer"
+        },
+        "fanMaxRPM": {
+          "description": "Top of the fan gauges, in RPM, 0 to 100000. 0 scales them to the fastest fan seen. A gauge never ends below the speed a fan reports.",
+          "type": "integer"
+        },
+        "model": {
+          "description": "Shown next to the host's name, e.g. Dell R730.",
+          "type": "string"
+        },
+        "name": {
+          "description": "The host's name in the web UI. Empty uses the Proxmox node's name, then the nodename.",
+          "type": "string"
+        },
+        "nodename": {
+          "description": "The nodename label of the host's node-exporter and IPMI series. Empty uses the node of the running proxmox plugin (plugins.proxmox.node, or the node it discovers), so the plugin needs its URL, token ID and token secret; without it the Hardware row stays unavailable (waiting for the Proxmox node name) until nodename is set.",
+          "type": "string"
+        },
+        "sensorAliases": {
+          "$ref": "#/$defs/HardwareSensorAliases",
+          "description": "Which temperature sensors the Inlet and Exhaust tiles read."
+        }
+      },
+      "type": "object"
+    },
+    "HardwareMachine": {
+      "additionalProperties": false,
+      "properties": {
+        "gatusEndpoint": {
+          "description": "The name of the Gatus check that tells whether the machine is reachable (compared without regard to case). A check that does not exist counts as down. Exactly one of nodeExporterNodename and gatusEndpoint.",
+          "type": "string"
+        },
+        "name": {
+          "description": "The machine's name in the web UI, unique ignoring case, at most 64 bytes.",
+          "type": "string"
+        },
+        "nodeExporterNodename": {
+          "description": "The nodename label of the machine's node-exporter: it is up while the node-exporter is scraped. Exactly one of nodeExporterNodename and gatusEndpoint.",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "HardwareSelectors": {
+      "additionalProperties": false,
+      "properties": {
+        "hwmonChip": {
+          "default": "platform_coretemp_.*",
+          "description": "RE2 regular expression for the chip label of the CPU package temperature (node_hwmon_temp_celsius), e.g. platform_coretemp_.* for Intel.",
+          "type": "string"
+        },
+        "nodeExporterJob": {
+          "default": "node-exporter",
+          "description": "The job label of the node-exporter targets, which the machines' up queries select.",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "HardwareSensorAliases": {
+      "additionalProperties": false,
+      "properties": {
+        "exhaust": {
+          "description": "Text the exhaust sensor's name contains, ignoring case. Empty means exhaust.",
+          "type": "string"
+        },
+        "inlet": {
+          "description": "Text the inlet sensor's name contains, ignoring case. Empty means inlet.",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "TempThresholds": {
+      "additionalProperties": false,
+      "properties": {
+        "crit": {
+          "default": 90,
+          "description": "The CPU package temperature, in °C, from which the host is critical.",
+          "type": "integer"
+        },
+        "warn": {
+          "default": 85,
+          "description": "The CPU package temperature, in °C, from which the host is warning. Greater than zero and below crit.",
+          "type": "integer"
+        }
+      },
+      "type": "object"
+    }
+  }
+}

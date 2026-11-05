@@ -55,7 +55,7 @@ func (r Route) pattern() string {
 // routes, and the two catch-alls.
 func (s *Server) routeTable() []Route {
 	viewer := auth.RoleViewer
-	return []Route{
+	rows := []Route{
 		{
 			ID: "getMe", Method: "GET", Path: "/api/v1/me", Tag: "Session", Role: viewer, Scope: "read",
 			Summary: "Who the request acts as, and what the API offers it", Response: model.Me{}, Handler: s.me,
@@ -105,7 +105,9 @@ func (s *Server) routeTable() []Route {
 			Method: "POST", Path: "/api/v1/plugins/{id}/actions/{name}", Plugin: true, Handler: s.runAction,
 			Summary: "Run an action of a running plugin", Tag: "Plugins", Role: auth.RoleAdmin,
 		},
-
+	}
+	rows = append(rows, s.settingsRoutes()...)
+	return append(rows, []Route{
 		// The sign-in routes of the session modes (docs/auth.md). They are outside /api, so authn
 		// does not run (logout reads the session itself) and the guard has no role to enforce;
 		// csrf, the host check and the security headers (no-store) apply as everywhere.
@@ -119,7 +121,7 @@ func (s *Server) routeTable() []Route {
 			writeErr(w, http.StatusNotFound, model.ErrCodeNotFound, "not found")
 		}},
 		{Path: "/", Infra: true, Handler: s.serveStatic},
-	}
+	}...)
 }
 
 // RoutePatterns lists the ServeMux pattern of every route the API registers, for the metrics'

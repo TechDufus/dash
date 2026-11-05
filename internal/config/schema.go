@@ -25,6 +25,9 @@ type leaf struct {
 	secret  bool
 	restart bool
 	url     bool
+	// dest: the leaf decides where or how a request is sent (design D16): changing it while
+	// the section has a set secret needs every set secret re-entered.
+	dest bool
 }
 
 // field returns the leaf's value inside t.
@@ -88,6 +91,8 @@ func (s *schemaT) walk(n *node, t reflect.Type, index []int, prefix string) {
 					l.restart = true
 				case "url":
 					l.url = true
+				case "dest":
+					l.dest = true
 				case "":
 				case "required":
 					// Only the JSON Schema reflector reads these (internal/jsonschema).

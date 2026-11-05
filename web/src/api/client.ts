@@ -37,12 +37,29 @@ export function withParams(path: string, params?: Params): string {
   return s ? `${path}?${s}` : path;
 }
 
+/** Per-request options of the write helpers. */
+export interface WriteOptions {
+  /** The revision the write is based on, sent as `If-Match: "<revision>"` (the settings API). */
+  ifMatch?: number;
+}
+
+interface RequestOptions extends WriteOptions {
+  /** Answer the body as text instead of parsing JSON (an export download). */
+  text?: boolean;
+}
+
 // handle401 (auth/handle401.ts) decides what a 401 means: a reload behind the identity proxy, the
 // login or setup page in the local mode, the provider in the oidc mode; once per 30 s at most.
-async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
-  const headers: Record<string, string> = { Accept: "application/json" };
+async function request<T>(
+  method: string,
+  path: string,
+  body?: unknown,
+  opts: RequestOptions = {},
+): Promise<T> {
+  const headers: Record<string, string> = { Accept: opts.text ? "*/*" : "application/json" };
   if (method !== "GET" && method !== "HEAD") headers["X-Dash-Csrf"] = "1";
   if (body !== undefined) headers["Content-Type"] = "application/json";
+  if (opts.ifMatch !== undefined) headers["If-Match"] = `"${opts.ifMatch}"`;
   let res: Response;
   try {
     res = await fetch(path, {
@@ -74,13 +91,18 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
   }
   if (res.status === 204) return undefined as T;
   const text = await res.text();
+  if (opts.text) return text as T;
   return (text ? JSON.parse(text) : undefined) as T;
 }
 
 export const api = {
   get: <T>(path: string, params?: Params) => request<T>("GET", withParams(path, params)),
+  /** GET of a body that is not JSON (text/yaml), as text. */
+  text: (path: string, params?: Params) =>
+    request<string>("GET", withParams(path, params), undefined, { text: true }),
   post: <T>(path: string, body?: unknown) => request<T>("POST", path, body ?? {}),
-  del: <T>(path: string) => request<T>("DELETE", path),
+  put: <T>(path: string, body: unknown, opts?: WriteOptions) => request<T>("PUT", path, body, opts),
+  del: <T>(path: string, opts?: WriteOptions) => request<T>("DELETE", path, undefined, opts),
 };
 
 export function errorMessage(e: unknown): string {

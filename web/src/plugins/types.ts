@@ -1,7 +1,7 @@
 import type { LucideIcon } from "lucide-react";
 import type { ComponentType, LazyExoticComponent } from "react";
 import type { TopicData } from "@/api/topics";
-import type { HostData, OverviewData, Topic } from "@/api/types";
+import type { HostData, OverviewData, SettingsPluginView, Topic } from "@/api/types";
 
 declare const topicBrand: unique symbol;
 
@@ -54,6 +54,12 @@ export interface PaletteCtx {
   close(): void;
 }
 
+/** Props of a module's own settings form (P4.9). */
+export interface SettingsFormProps {
+  /** GET /api/v1/settings/plugins/{id} as last read; a save or a test refetches it. */
+  view: SettingsPluginView;
+}
+
 export interface PluginModule<Id extends string = string, T extends TopicMap = TopicMap> {
   /** Equals the Go Manifest.ID and the directory name under modules/. */
   id: Id;
@@ -68,6 +74,11 @@ export interface PluginModule<Id extends string = string, T extends TopicMap = T
   palette?(ctx: PaletteCtx): readonly PaletteGroup[];
   /** Icons for the Link.kind values this module's links carry. */
   linkIcons?: Readonly<Record<string, LucideIcon>>;
+  /**
+   * A settings form of the module's own, shown on /settings/plugins/:id instead of the generic
+   * form built from the plugin's configuration schema. None of the shipped modules has one.
+   */
+  settings?: LazyExoticComponent<ComponentType<SettingsFormProps>>;
 }
 
 export function definePlugin<const Id extends string, const T extends TopicMap>(

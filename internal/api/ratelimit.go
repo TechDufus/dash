@@ -21,6 +21,13 @@ const (
 	openRecordPerUser = 30
 )
 
+// The connection tests of the settings API (design D17): a principal may run this many in any
+// window, so the button cannot turn dash into a scanner of the network it can reach.
+const (
+	settingsTestRateLimit  = 10
+	settingsTestRateWindow = time.Minute
+)
+
 // rateLimiter is a sliding-window limiter: at most limit events per key in any window. It
 // holds at most maxKeys keys; the keys are authenticated users, so a full table means the
 // identity provider hands out thousands of names, not that a client is flooding it, and a

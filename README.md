@@ -428,11 +428,11 @@ These are sent today: `unauthenticated`, `forbidden`, `csrf_failed`, `not_found`
 login backoff, and plugin actions), `conflict`, `too_many_streams`, `upstream_unavailable` (502,
 or 503 when the OIDC provider cannot be reached), `audit_unavailable`, `unknown_host`; `internal`
 comes from plugin action routes. `insufficient_scope`, `ambiguous_credentials`, `locked_field`,
-`readonly_settings`, `approval_required`, `approval_denied`, `approval_expired` and
-`precondition_failed` are reserved for the client, settings and approval work that follows, and
-the OpenAPI document lists them all. The sign-in routes (`POST /login`, `POST /setup`,
-`POST /auth/logout`, `GET /auth/oidc/start`, `GET /auth/callback`) are outside `/api` and not in
-the OpenAPI document; [docs/auth.md](docs/auth.md) describes them.
+`readonly_settings`, `approval_required`, `approval_denied`, `approval_expired`,
+`precondition_failed` and `precondition_required` are reserved for the client, settings and
+approval work that follows, and the OpenAPI document lists them all. The sign-in routes
+(`POST /login`, `POST /setup`, `POST /auth/logout`, `GET /auth/oidc/start`, `GET /auth/callback`)
+are outside `/api` and not in the OpenAPI document; [docs/auth.md](docs/auth.md) describes them.
 
 ### Kubernetes permissions (RBAC)
 

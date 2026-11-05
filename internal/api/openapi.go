@@ -55,10 +55,11 @@ type specBuilder struct {
 }
 
 var tagDocs = map[string]string{
-	"Session": "Who is calling.",
-	"Topics":  "Live state: one envelope per topic, as a snapshot or a stream.",
-	"Series":  "Named metric series.",
-	"Plugins": "The plugin instances and the generic plugin routes.",
+	"Session":  "Who is calling.",
+	"Topics":   "Live state: one envelope per topic, as a snapshot or a stream.",
+	"Series":   "Named metric series.",
+	"Plugins":  "The plugin instances and the generic plugin routes.",
+	"Settings": "The effective configuration with its provenance, and the UI settings store: administrators only, from a browser session.",
 }
 
 var pathVarRE = regexp.MustCompile(`\{([A-Za-z0-9_]+)(?:\.\.\.)?\}`)

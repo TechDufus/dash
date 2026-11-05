@@ -50,6 +50,7 @@
               "approval_expired",
               "conflict",
               "precondition_failed",
+              "precondition_required",
               "audit_unavailable",
               "unknown_host",
               "internal"

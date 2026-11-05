@@ -1,10 +1,16 @@
 package main
 
 import (
+	"context"
 	"log/slog"
+	"os"
+	"strings"
 
+	"github.com/TechDufus/dash/internal/api"
 	"github.com/TechDufus/dash/internal/audit"
 	"github.com/TechDufus/dash/internal/config"
+	"github.com/TechDufus/dash/internal/model"
+	"github.com/TechDufus/dash/internal/plugin"
 	"github.com/TechDufus/dash/internal/secret"
 	"github.com/TechDufus/dash/internal/settings"
 )
@@ -92,4 +98,96 @@ func openSettings(boot config.Bootstrap) (*settings.Store, error) {
 		slog.Info("settings are read-only: nothing can be saved from the UI", "reason", reason)
 	}
 	return store, nil
+}
+
+// settingsBackend is the api.SettingsBackend of a running dash: the reloader, the settings store,
+// the secret writer over both, and the supervisor's connection checks (design D14, D15).
+type settingsBackend struct {
+	rel       *config.Reloader
+	store     *settings.Store
+	writer    config.SecretWriter
+	sup       *plugin.Supervisor
+	info      model.SettingsStore
+	namespace string
+}
+
+var _ api.SettingsBackend = (*settingsBackend)(nil)
+
+// newSettingsBackend joins the parts run builds. res is the startup resolution: the keyring
+// and the data directory do not change while dash runs. The data directory counts as writable
+// when the audit log file is open there. store must not be nil (demo mode has no settings API).
+func newSettingsBackend(res *config.Resolved, store *settings.Store, rel *config.Reloader, sup *plugin.Supervisor,
+	alog *audit.Log, reg *secret.Registry) *settingsBackend {
+	info := model.SettingsStore{
+		Readonly: store.ReadOnly(), DataDir: res.Config.DataDir, Writable: alog.Enabled(), SecretKey: res.Keys != nil,
+	}
+	switch {
+	case !info.Readonly:
+	case res.Config.SettingsUI == config.SettingsReadOnly:
+		info.Reason = model.SettingsStoreReasonConfig
+	default:
+		info.Reason = model.SettingsStoreReasonDataDir
+	}
+	return &settingsBackend{
+		rel: rel, store: store, sup: sup, info: info, namespace: ownNamespace(os.Getenv, os.ReadFile),
+		writer: config.SecretWriter{Store: store, Keys: res.Keys, Audit: alog, Registry: reg},
+	}
+}
+
+// serviceAccountNamespace is where Kubernetes mounts the pod's namespace.
+const serviceAccountNamespace = "/var/run/secrets/kubernetes.io/serviceaccount/namespace"
+
+// ownNamespace is the namespace dash runs in: POD_NAMESPACE, else the service account's
+// namespace file, else "" (not in a cluster).
+func ownNamespace(getenv func(string) string, readFile func(string) ([]byte, error)) string {
+	if ns := strings.TrimSpace(getenv("POD_NAMESPACE")); ns != "" {
+		return ns
+	}
+	if b, err := readFile(serviceAccountNamespace); err == nil {
+		return strings.TrimSpace(string(b))
+	}
+	return ""
+}
+
+func (b *settingsBackend) Resolved() *config.Resolved     { return b.rel.Resolved() }
+func (b *settingsBackend) RestartRequired() []string      { return b.rel.RestartRequired() }
+func (b *settingsBackend) WithLock(fn func() error) error { return b.rel.WithLock(fn) }
+func (b *settingsBackend) Candidate(ui map[string]any) (*config.Resolved, error) {
+	return b.rel.Candidate(ui)
+}
+func (b *settingsBackend) Reload() error                       { return b.rel.Reload() }
+func (b *settingsBackend) Store() model.SettingsStore          { return b.info }
+func (b *settingsBackend) Revision() uint64                    { return b.store.Revision() }
+func (b *settingsBackend) Stored() map[string]any              { return b.store.Values() }
+func (b *settingsBackend) Revert(prev settings.Snapshot) error { return b.store.Revert(prev) }
+func (b *settingsBackend) Namespace() string                   { return b.namespace }
+
+func (b *settingsBackend) Apply(sets map[string]any, deletes, scrub []string) (settings.Snapshot, error) {
+	return b.store.Apply(sets, deletes, scrub)
+}
+
+func (b *settingsBackend) ReplaceSecret(path, plaintext string, actor audit.Actor) error {
+	return b.writer.Replace(path, plaintext, actor)
+}
+
+func (b *settingsBackend) ClearSecret(path string, actor audit.Actor) error {
+	return b.writer.Clear(path, actor)
+}
+
+// PluginConfig is the configuration the supervisor would give plugin id under res: what
+// instanceConfig makes of its section, and the provenance of its URLs: the one conversion,
+// shared with resolvedSettings.Instances, so a check tests what the plugin would run with.
+func (b *settingsBackend) PluginConfig(res *config.Resolved, id string) (any, bool, bool) {
+	for _, sec := range res.Tree.PluginSections() {
+		if sec.Name == id {
+			return instanceConfig(sec).Config, res.FromUI("plugins." + sec.Name), true
+		}
+	}
+	return nil, false, false
+}
+
+func (b *settingsBackend) Testable(id string) bool { return b.sup.Testable(plugin.ID(id)) }
+
+func (b *settingsBackend) Check(ctx context.Context, id string, cfg any, fromUI bool) (plugin.CheckReport, error) {
+	return b.sup.Check(ctx, plugin.ID(id), cfg, fromUI)
 }

@@ -49,6 +49,8 @@ export interface CorePage {
   title: string;
   icon: LucideIcon;
   order: number;
+  /** Listed in the navigation for administrators only (me.role === "admin"): Settings. */
+  adminOnly?: boolean;
 }
 
 export const CORE_PAGES: readonly CorePage[] = [

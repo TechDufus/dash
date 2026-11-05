@@ -11,6 +11,7 @@
 //	                          secret          writeOnly: true and x-dash-secret: true
 //	                          restart         x-dash-restart: true (a change needs a restart)
 //	                          url             format: uri
+//	                          dest            x-dash-dest: true (the field decides where requests go)
 //	                          format=<f>      format: <f>
 //	                          enum=a|b|c      enum: [a, b, c] (numbers for integer fields)
 //	doc:"text"              description
@@ -343,6 +344,8 @@ func applyOptions(name string, f reflect.StructField, prop Schema) (required boo
 			prop["x-dash-restart"] = true
 		case key == "url" && !hasVal:
 			prop["format"] = "uri"
+		case key == "dest" && !hasVal:
+			prop["x-dash-dest"] = true
 		case key == "format" && hasVal && val != "":
 			prop["format"] = val
 		case key == "enum" && hasVal && val != "":

@@ -33,6 +33,7 @@ export const ErrCodeApprovalDenied = "approval_denied"; // 403
 export const ErrCodeApprovalExpired = "approval_expired"; // 410
 export const ErrCodeConflict = "conflict"; // 409
 export const ErrCodePreconditionFailed = "precondition_failed"; // 412
+export const ErrCodePreconditionRequired = "precondition_required"; // 428: a settings write without If-Match
 export const ErrCodeAuditUnavailable = "audit_unavailable"; // 503
 export const ErrCodeUnknownHost = "unknown_host"; // 421
 export const ErrCodeInternal = "internal"; // 500
@@ -41,7 +42,7 @@ export const ErrCodeInternal = "internal"; // 500
  * carry several (a 403 is forbidden or csrf_failed, a 429 rate_limited or too_many_streams).
  * ErrCodes lists them all.
  */
-export type ErrCode = typeof ErrCodeUnauthenticated | typeof ErrCodeForbidden | typeof ErrCodeInsufficientScope | typeof ErrCodeInvalidToken | typeof ErrCodeAmbiguousCredentials | typeof ErrCodeCSRFFailed | typeof ErrCodeNotFound | typeof ErrCodeInvalidInput | typeof ErrCodeLockedField | typeof ErrCodeReadonlySettings | typeof ErrCodeRateLimited | typeof ErrCodeTooManyStreams | typeof ErrCodeUpstreamUnavailable | typeof ErrCodeApprovalRequired | typeof ErrCodeApprovalDenied | typeof ErrCodeApprovalExpired | typeof ErrCodeConflict | typeof ErrCodePreconditionFailed | typeof ErrCodeAuditUnavailable | typeof ErrCodeUnknownHost | typeof ErrCodeInternal;
+export type ErrCode = typeof ErrCodeUnauthenticated | typeof ErrCodeForbidden | typeof ErrCodeInsufficientScope | typeof ErrCodeInvalidToken | typeof ErrCodeAmbiguousCredentials | typeof ErrCodeCSRFFailed | typeof ErrCodeNotFound | typeof ErrCodeInvalidInput | typeof ErrCodeLockedField | typeof ErrCodeReadonlySettings | typeof ErrCodeRateLimited | typeof ErrCodeTooManyStreams | typeof ErrCodeUpstreamUnavailable | typeof ErrCodeApprovalRequired | typeof ErrCodeApprovalDenied | typeof ErrCodeApprovalExpired | typeof ErrCodeConflict | typeof ErrCodePreconditionFailed | typeof ErrCodePreconditionRequired | typeof ErrCodeAuditUnavailable | typeof ErrCodeUnknownHost | typeof ErrCodeInternal;
 
 //////////
 // source: model.go
@@ -831,6 +832,14 @@ export interface AuthDetailsOIDC {
   issuer: string; // the host of auth.oidc.issuer, never the full URL
 }
 /**
+ * SetupResult answers a successful POST /setup (auth.mode local): the account that was created,
+ * so the page can name it. Only the holder of the setup token ever sees it; no unauthenticated
+ * answer carries the account name.
+ */
+export interface SetupResult {
+  adminUser: string; // auth.local.adminUser
+}
+/**
  * MeUI is the site configuration the SPA reads once with /me.
  */
 export interface MeUI {
@@ -1024,4 +1033,304 @@ export interface KPI {
   unit: string;
   value: number /* float64 */;
   health: Health;
+}
+
+//////////
+// source: settings.go
+
+/**
+ * SettingSource is the layer an effective value came from (design B.2): the lowest is the
+ * default, then the UI store, the config file and the environment.
+ */
+export const SettingSourceDefault = "default";
+export const SettingSourceUI = "ui";
+export const SettingSourceFile = "file";
+export const SettingSourceEnv = "env";
+export type SettingSource = typeof SettingSourceDefault | typeof SettingSourceUI | typeof SettingSourceFile | typeof SettingSourceEnv;
+/**
+ * SettingLock says why a field cannot be written from the UI. A file or env value names its
+ * layer (with Ref), before ui-ineligible (server.*, auth.*, settings.ui,
+ * settings.secretNamespaces, dataDir) and readonly (the whole store is read-only).
+ */
+export const SettingLockFile = "file";
+export const SettingLockEnv = "env";
+export const SettingLockIneligible = "ui-ineligible";
+export const SettingLockReadonly = "readonly";
+export type SettingLock = typeof SettingLockFile | typeof SettingLockEnv | typeof SettingLockIneligible | typeof SettingLockReadonly;
+/**
+ * SettingField is one leaf of the configuration as the settings page shows it: its effective
+ * value with where it came from, and whether the UI may write it. A list, or an object inside a
+ * list, is one leaf and locks whole (design B.2).
+ */
+export interface SettingField {
+  path: string; // dotted, from the root: plugins.proxmox.tokenSecret
+  type: string; // string, integer, number, boolean, array or object
+  /**
+   * Value is the effective value. It is absent for a secret, and a URL's userinfo is redacted.
+   */
+  value?: unknown;
+  secret?: boolean;
+  /**
+   * Set says that a value (or, for a secret, a secret) is configured, whatever its layer.
+   */
+  set: boolean;
+  source: SettingSource;
+  /**
+   * Ref is the environment variable, the config file path, or a secret's reference (env:NAME,
+   * file:/path, k8s:ns/name#key). Never a value.
+   */
+  ref?: string;
+  locked: boolean;
+  lockedBy?: SettingLock;
+  /**
+   * Shadowed: the store holds a UI value that a file or env value hides ("overridden by env;
+   * stored value unused"). DELETE .../stored/{field} removes it.
+   */
+  shadowed?: boolean;
+  stored?: boolean; // the UI store holds a value for this path
+  restart?: boolean; // a change applies after a restart (x-dash-restart)
+  enum?: string[];
+  doc?: string;
+}
+/**
+ * SettingsStoreReason says why the settings store is read-only.
+ */
+/**
+ * SettingsStoreReasonConfig: settings.ui is readonly (GitOps-managed).
+ */
+export const SettingsStoreReasonConfig = "config";
+/**
+ * SettingsStoreReasonDataDir: the data directory is missing or not writable.
+ */
+export const SettingsStoreReasonDataDir = "data_dir";
+export type SettingsStoreReason = typeof SettingsStoreReasonConfig | typeof SettingsStoreReasonDataDir;
+/**
+ * SettingsStore describes the UI settings store.
+ */
+export interface SettingsStore {
+  readonly: boolean;
+  reason?: SettingsStoreReason; // set when Readonly
+  dataDir: string;
+  /**
+   * Writable: the data directory can be written (the audit log file is open there), whatever
+   * settings.ui says.
+   */
+  writable: boolean;
+  /**
+   * SecretKey: DASH_SECRET_KEY is configured, so a secret can be saved from the UI.
+   */
+  secretKey: boolean;
+}
+/**
+ * SettingsPlugin is one row of the settings page's plugin list. State and Message are the
+ * plugin's row of core.plugins when the settings were read; the page follows the stream.
+ */
+export interface SettingsPlugin {
+  id: string;
+  name: string;
+  state: PluginState;
+  message: string;
+  /**
+   * Configurable: the plugin has settings (a configuration schema).
+   */
+  configurable: boolean;
+  /**
+   * Testable: POST .../plugins/{id}/test exists for it (a connection check, not demo mode).
+   */
+  testable: boolean;
+  enabled: SettingField; // plugins.<id>.enabled
+}
+/**
+ * SettingsView is GET /api/v1/settings.
+ */
+export interface SettingsView {
+  /**
+   * Revision is the store's revision: the If-Match of the next write.
+   */
+  revision: number /* uint64 */;
+  store: SettingsStore;
+  /**
+   * RestartRequired lists, sorted, the settings changed since this process started that apply
+   * only after a restart. Empty, never null.
+   */
+  restartRequired: string[];
+  /**
+   * General is every leaf outside plugins.*: server.*, auth.*, settings.*, dataDir (all
+   * ui-ineligible) and ui.* (writable through PUT /settings/general, restart-marked).
+   */
+  general: SettingField[];
+  plugins: SettingsPlugin[];
+}
+/**
+ * SettingsPluginView is GET /api/v1/settings/plugins/{id}.
+ */
+export interface SettingsPluginView {
+  id: string;
+  /**
+   * Schema is the plugin's configuration schema: a JSON Schema 2020-12 document whose nested
+   * objects are $ref into its own $defs (internal/jsonschema). writeOnly and x-dash-secret
+   * mark a secret, x-dash-restart a setting that needs a restart. A destination leaf is a
+   * format: uri one (its host or port) or an x-dash-dest one (tls.*): changing it while the
+   * plugin has a set secret needs every set secret re-entered (design D16).
+   */
+  schema: { [key: string]: unknown };
+  /**
+   * Fields are every leaf of plugins.<id>, in schema order.
+   */
+  fields: SettingField[];
+  revision: number /* uint64 */;
+  testable: boolean;
+}
+/**
+ * SettingsPatchResult answers a successful PUT /settings/general or /settings/plugins/{id}, and
+ * every other settings write.
+ */
+export interface SettingsPatchResult {
+  revision: number /* uint64 */;
+  restartRequired: string[];
+}
+/**
+ * SettingsSecretWrite is the body of PUT /settings/plugins/{id}/secrets/{field...}: exactly one
+ * of a value (at most 8 KiB, stored encrypted) or a k8s: reference.
+ */
+export interface SettingsSecretWrite {
+  value?: string;
+  ref?: string; // k8s:<namespace>/<name>#<key>
+}
+/**
+ * SettingsTestRequest is the body of POST /settings/plugins/{id}/test: the form's pending
+ * changes. The candidate is the effective configuration with Patch merged in (RFC 7396,
+ * relative to plugins.<id>) and the supplied secrets, keyed like the secret routes' field
+ * (relative to plugins.<id>, e.g. tokenSecret or auth.bearerToken). A stored secret is never
+ * sent to a changed destination (design D16).
+ */
+export interface SettingsTestRequest {
+  patch?: { [key: string]: unknown };
+  secrets?: { [key: string]: string};
+}
+/**
+ * CheckReport answers POST /settings/plugins/{id}/test: one result per probe, in the order they
+ * ran (plugin.CheckReport on the wire).
+ */
+export interface CheckReport {
+  checks: ConnectionCheck[];
+}
+/**
+ * ConnectionCheck is one probe of a connection check. Category is empty when OK, otherwise one
+ * of unreachable, timeout, tls, auth, invalid_response, not_configured or http_<code>; Message is
+ * the category's fixed text, never an upstream URL, host or body.
+ */
+export interface ConnectionCheck {
+  name: string;
+  ok: boolean;
+  category?: string;
+  message?: string;
+  latencyMs: number /* int */;
+}
+/**
+ * SettingsFieldError is one per-path problem of a write or a test.
+ */
+export interface SettingsFieldError {
+  path: string; // dotted, from the root
+  message: string; // fixed text: never the value that was sent
+}
+/**
+ * SettingsReason is the details.reason of a settings error that is not about one field.
+ */
+/**
+ * SettingsReasonSecretLocked: 409 locked_field, a destination change while a secret is set
+ * by a locked layer (env, file, k8s: from those); Path names the secret.
+ */
+export const SettingsReasonSecretLocked = "secret_locked";
+/**
+ * SettingsReasonNoSecretKey: 409 conflict, a secret write without DASH_SECRET_KEY.
+ */
+export const SettingsReasonNoSecretKey = "no_secret_key";
+/**
+ * SettingsReasonInvalidConfiguration: 422 invalid_input for a failure no field carries (an
+ * invalid file or env, an unreadable stored secret, an env:/file: reference, a plugin's own
+ * validation); Fields lists the per-path problems that are known.
+ */
+export const SettingsReasonInvalidConfiguration = "invalid_configuration";
+export type SettingsReason = typeof SettingsReasonSecretLocked | typeof SettingsReasonNoSecretKey | typeof SettingsReasonInvalidConfiguration;
+/**
+ * SettingsErrorDetails is the details of a settings route's error: 409 locked_field
+ * {path, source, ref} (source file, env or ui-ineligible; ref absent for ui-ineligible), 409
+ * locked_field {path, reason: secret_locked}, 409 conflict {reason: no_secret_key}, 422
+ * invalid_input {fields} or {reason: invalid_configuration, fields}.
+ */
+export interface SettingsErrorDetails {
+  path?: string;
+  source?: SettingLock;
+  ref?: string;
+  reason?: SettingsReason;
+  fields?: SettingsFieldError[];
+}
+/**
+ * AuditKind classifies an audit record.
+ */
+export const AuditKindIntent = "intent"; // precedes a change; its outcome has the same ID
+export const AuditKindOutcome = "outcome"; // follows a change
+export const AuditKindEvent = "event"; // a single step: login, logout, setup, settings.test
+export const AuditKindDenial = "denial"; // a refused request
+export type AuditKind = typeof AuditKindIntent | typeof AuditKindOutcome | typeof AuditKindEvent | typeof AuditKindDenial;
+/**
+ * AuditRing is one of the two lists the audit view pages through: denials (unauth) apart from
+ * everything else (main), so a flood of refusals cannot push what signed-in users did out.
+ */
+export const AuditRingMain = "main";
+export const AuditRingUnauth = "unauth";
+export type AuditRing = typeof AuditRingMain | typeof AuditRingUnauth;
+/**
+ * AuditTarget is the object an action or change applies to.
+ */
+export interface AuditTarget {
+  kind?: string;
+  namespace?: string;
+  name?: string;
+}
+/**
+ * AuditActor is who acted. Surface is ui, api or mcp.
+ */
+export interface AuditActor {
+  type?: string;
+  user?: string;
+  surface?: string;
+}
+/**
+ * AuditEntry is one audit record as the audit view shows it: field paths only, never values,
+ * and no hash chain (prev).
+ */
+export interface AuditEntry {
+  time: string;
+  kind: AuditKind;
+  id?: string; // shared by an intent and its outcome
+  action?: string;
+  target?: AuditTarget;
+  fields?: string[];
+  result?: string; // ok or error
+  error?: string;
+  plugin?: string;
+  reason?: string;
+  actor: AuditActor;
+  peer?: string;
+  requestId?: string;
+}
+/**
+ * AuditSource says where the audit view's records come from.
+ */
+export const AuditSourceFile = "file"; // audit.jsonl and its rotated files
+export const AuditSourceMemory = "memory"; // the in-memory rings since this start (no data dir)
+export type AuditSource = typeof AuditSourceFile | typeof AuditSourceMemory;
+/**
+ * SettingsAudit is GET /api/v1/settings/audit?ring=&limit=&before=: one page of a ring, newest
+ * first. Next, when set, is the before of the next (older) page; it is opaque and valid for the
+ * same ring only.
+ */
+export interface SettingsAudit {
+  enabled: boolean; // the audit log file is on
+  source: AuditSource;
+  ring: AuditRing;
+  records: AuditEntry[];
+  next?: string;
 }
