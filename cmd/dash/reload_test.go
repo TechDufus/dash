@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"errors"
 	"io"
 	"log/slog"
 	"net/http"
@@ -39,9 +40,24 @@ func (b *lockedBuf) String() string {
 	return b.buf.String()
 }
 
+// writeTestFile replaces path with body in one rename of a temp file from the same directory, so
+// a reloader polling path sees the old file or the new one, never the empty or half-written file
+// that os.WriteFile leaves between its truncation and the end of its write.
 func writeTestFile(t *testing.T, path, body string) {
 	t.Helper()
-	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+	f, err := os.CreateTemp(filepath.Dir(path), "."+filepath.Base(path)+".*.tmp")
+	if err != nil {
+		t.Fatal(err)
+	}
+	tmp := f.Name()
+	_, werr := f.WriteString(body)
+	cerr := f.Close()
+	if err := errors.Join(werr, cerr, os.Chmod(tmp, 0o600)); err != nil {
+		_ = os.Remove(tmp)
+		t.Fatal(err)
+	}
+	if err := os.Rename(tmp, path); err != nil {
+		_ = os.Remove(tmp)
 		t.Fatal(err)
 	}
 }
