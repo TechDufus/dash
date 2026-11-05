@@ -1,20 +1,40 @@
 name: ci
+# Runners. While the repository is private, pushes to main and v* tags run on the self-hosted
+# runner and pull requests run nothing, Dependabot's included (their checks show as skipped): only
+# collaborators can open a pull request, and no pull request's code runs on the self-hosted runner
+# (design G.8), nor are GitHub-hosted minutes spent before the repository is public. That guarantee
+# holds only while the repository is private: a fork's pull request runs the workflow file of its
+# own branch, which could ask for the self-hosted labels. So before the flip, P6.7 moves release
+# off the self-hosted runner and P6.9 deregisters that runner. Once public, every job runs on
+# ubuntu-24.04, for pushes and pull requests alike, with no edit here beyond P6.7's to release.
 on:
   push:
     branches: [main]
     tags: ["v*"]
-permissions:
-  contents: read
+  pull_request:
+# No token permission by default; each job asks for what it needs.
+permissions: {}
 concurrency:
   group: ci-${{ github.ref }}
-  cancel-in-progress: false
+  # A new push to a pull request cancels its running checks. A main or tag run in progress always
+  # finishes, but GitHub still cancels an older one that is only queued when a newer one arrives.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 jobs:
   check:
-    runs-on: [self-hosted, linux, x64, homelab, dash]
+    if: github.event_name != 'pull_request' || !github.event.repository.private
+    runs-on: ${{ github.event.repository.private && fromJSON('["self-hosted","linux","x64","homelab","dash"]') || 'ubuntu-24.04' }}
     timeout-minutes: 20
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - uses: jdx/mise-action@6be3c7ed4c21d4f76b208d351d95aac273ebb76d # v5.2.4
+        with:
+          # No Actions cache: the workflow also runs for release tags, and a cache written by
+          # another run could poison what a tag builds (zizmor cache-poisoning).
+          cache: false
       - run: make check
       # Proves the image cross-compiles for both platforms without emulation, whether or not the
       # runner has emulators registered: every RUN must execute on the build platform
@@ -37,16 +57,42 @@ jobs:
           fi
           grep -qE '^#[0-9]+ \[linux/amd64->arm64 go [0-9/]+\] RUN .*GOARCH=arm64' <<<"$runs" \
             || { echo "::error::no cross-compiling arm64 Go build in the log"; exit 1; }
+  # make scan: gitleaks and trufflehog over the whole history (fetch-depth 0 brings every branch
+  # and tag), govulncheck, actionlint and zizmor. The scanner binaries are pinned by sha256 in
+  # scripts/ci/scan.sh; SCAN_TOOLS_DIR in the job's temp dir makes every run download and verify
+  # them afresh, never reuse a copy a self-hosted runner kept.
+  scan:
+    if: github.event_name != 'pull_request' || !github.event.repository.private
+    runs-on: ${{ github.event.repository.private && fromJSON('["self-hosted","linux","x64","homelab","dash"]') || 'ubuntu-24.04' }}
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: jdx/mise-action@6be3c7ed4c21d4f76b208d351d95aac273ebb76d # v5.2.4
+        with:
+          cache: false
+      - run: make scan
+        env:
+          SCAN_TOOLS_DIR: ${{ runner.temp }}/scan-tools
   # examples/compose end to end: the image built from this checkout, the monitoring profile, the
   # setup token, the settings API, the prometheus plugin turning healthy and dash's connection
   # test querying the compose Prometheus. The script removes its project, volume, network and
   # image on exit.
   smoke:
     needs: check
-    runs-on: [self-hosted, linux, x64, homelab, dash]
+    if: github.event_name != 'pull_request' || !github.event.repository.private
+    runs-on: ${{ github.event.repository.private && fromJSON('["self-hosted","linux","x64","homelab","dash"]') || 'ubuntu-24.04' }}
     timeout-minutes: 15
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - name: Compose smoke test
         env:
           PROMETHEUS_IMAGE: prom/prometheus:v3.7.3@sha256:49214755b6153f90a597adcbff0252cc61069f8ab69ce8411285cd4a560e8038
@@ -62,13 +108,20 @@ jobs:
   # the last step removes them by name whatever happened.
   kind:
     needs: check
-    runs-on: [self-hosted, linux, x64, homelab, dash]
+    if: github.event_name != 'pull_request' || !github.event.repository.private
+    runs-on: ${{ github.event.repository.private && fromJSON('["self-hosted","linux","x64","homelab","dash"]') || 'ubuntu-24.04' }}
     timeout-minutes: 20
+    permissions:
+      contents: read
     env:
       DASH_KIND_NAME: dash-kind-${{ github.run_id }}-${{ github.run_attempt }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - uses: jdx/mise-action@6be3c7ed4c21d4f76b208d351d95aac273ebb76d # v5.2.4
+        with:
+          cache: false
       - name: kubeconform the rendered chart and examples/kubernetes
         run: |
           set -euo pipefail
@@ -94,13 +147,20 @@ jobs:
           kind delete cluster --name "$DASH_KIND_NAME" --kubeconfig "$RUNNER_TEMP/kind-cleanup.kubeconfig" || true
           docker network rm "$DASH_KIND_NAME" || true
           docker image rm "dash:kind-$DASH_KIND_NAME" || true
+  # Self-hosted and tag-only until P6.7 moves the release to GitHub-hosted runners and GHCR; a
+  # pull request never reaches it. It needs no token permission: the push goes to a registry
+  # outside GitHub.
   release:
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: [check, smoke, kind]
+    needs: [check, scan, smoke, kind]
     runs-on: [self-hosted, linux, x64, homelab, dash]
     timeout-minutes: 30
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - name: Build and push the image
         run: |
           set -euo pipefail
