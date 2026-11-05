@@ -34,6 +34,10 @@ type Config struct {
 	// loopback Listen. Demo has the same defaults but never the "dev" user.
 	Dev  bool
 	Demo bool // fake data from internal/demo; no cluster or upstreams are contacted
+	// DemoClock is DASH_DEMO_CLOCK: the instant demo mode's world stands still at, so every
+	// demo value is the same on every run (the screenshots). Zero is the wall clock; only demo
+	// mode sets it.
+	DemoClock time.Time
 
 	// Listen is the API + SPA listener. It defaults to 0.0.0.0:8080 (127.0.0.1:8080 in dev and
 	// demo); with Dev it must be a loopback address. A sidecar proxy setup sets loopback.

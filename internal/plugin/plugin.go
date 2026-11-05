@@ -316,6 +316,10 @@ type Host interface {
 	// Service returns what a Provider exports, only for ids in Requires/Uses whose instance is
 	// running.
 	Service(id ID) (any, bool)
+	// Now is the clock of what the plugin shows: payload times, checkedAt, a demo twin's world
+	// (Options.Now). Outside demo mode it is the wall clock. Demo mode may fix it at one instant
+	// (DASH_DEMO_CLOCK), and only demo twins run there, so a twin MUST NOT measure a duration,
+	// timeout or backoff with it: it uses a time.Ticker or time.Since, which keep running.
 	Now() time.Time
 	// Go runs fn in a goroutine that recovers panics: the instance becomes "error"
 	// ("panic in <name>") and the process survives. Pollers MUST use it.

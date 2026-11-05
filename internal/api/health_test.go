@@ -144,7 +144,7 @@ func TestReadyRequiresWaitsThenReadyWithWarning(t *testing.T) {
 	s, _ := healthServer(t, func(o *plugin.Options) {
 		o.ReadyRequires = []plugin.ID{"kubernetes"}
 		o.ReadyTimeout = time.Minute
-		o.Now = clock
+		o.Wall = clock
 		o.Log = slog.New(slog.NewTextHandler(&logs, nil))
 	}, nil, neverSyncs.Factory(), plugintest.New("other").Factory())
 	s.MarkServing()

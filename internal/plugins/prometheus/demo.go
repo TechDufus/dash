@@ -11,16 +11,20 @@ import (
 )
 
 // Demo is the twin that runs under DASH_DEMO=true: the same manifest, no upstream, and a
-// Querier that draws synthetic series shaped like the real queries' results.
+// Querier that draws synthetic series shaped like the real queries' results. Its instant
+// values are read at the host's clock (demo mode's fixed clock, when set).
 func (*Plugin) Demo() plugin.Plugin { return &twin{q: demoQuerier{now: time.Now}} }
 
 type twin struct{ q demoQuerier }
 
-func (*twin) Manifest() plugin.Manifest                     { return manifest() }
-func (*twin) Start(context.Context, plugin.Host, any) error { return nil }
-func (*twin) Stop(context.Context) error                    { return nil }
-func (*twin) Status() plugin.Status                         { return plugin.Status{State: plugin.StateHealthy} }
-func (t *twin) Service() any                                { return svc.Querier(t.q) }
+func (*twin) Manifest() plugin.Manifest { return manifest() }
+func (t *twin) Start(_ context.Context, h plugin.Host, _ any) error {
+	t.q = demoQuerier{now: h.Now}
+	return nil
+}
+func (*twin) Stop(context.Context) error { return nil }
+func (*twin) Status() plugin.Status      { return plugin.Status{State: plugin.StateHealthy} }
+func (t *twin) Service() any             { return svc.Querier(t.q) }
 
 var _ plugin.Provider = (*twin)(nil)
 

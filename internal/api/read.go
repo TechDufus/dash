@@ -50,6 +50,9 @@ func (s *Server) series(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	end := s.now()
+	if c := s.d.Cfg.DemoClock; !c.IsZero() {
+		end = c // demo mode's fixed clock (DASH_DEMO_CLOCK): the same chart on every run
+	}
 	lines, err := prom.Range(r.Context(), expr, end.Add(-window), end, step)
 	if err != nil {
 		s.badGateway(w, "metrics unavailable", err)

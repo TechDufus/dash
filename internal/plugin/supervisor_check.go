@@ -92,4 +92,6 @@ func (e checkEnv) HTTPClient(c HTTPConfig) (*http.Client, error) {
 	return cl, nil
 }
 
-func (e checkEnv) Now() time.Time { return e.s.opt.Now() }
+// Now is Options.Wall: a check measures its latency with it, and a duration never runs on the
+// demo clock.
+func (e checkEnv) Now() time.Time { return e.s.opt.Wall() }

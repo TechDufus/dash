@@ -67,7 +67,12 @@ func TestSupervisorCheckRunsAFreshCheckerWithinCheckTimeout(t *testing.T) {
 		gotDeadline, _ = ctx.Deadline()
 		return plugin.CheckReport{Checks: []plugin.CheckResult{{Name: "read", OK: true}}}
 	}
-	e := newEnv(t, func(o *plugin.Options) { o.Now = func() time.Time { return now } }, f.factory).run(t)
+	// The display clock stands elsewhere (a fixed demo clock): latency is a duration, measured on
+	// Options.Wall.
+	e := newEnv(t, func(o *plugin.Options) {
+		o.Wall = func() time.Time { return now }
+		o.Now = func() time.Time { return now.Add(-time.Hour) }
+	}, f.factory).run(t)
 	eventually(t, "ck to run", func() bool { return e.sup.Running("ck") })
 	running := f.all()
 
@@ -88,7 +93,7 @@ func TestSupervisorCheckRunsAFreshCheckerWithinCheckTimeout(t *testing.T) {
 		t.Errorf("the checker got %v, want the candidate itself", gotCfg)
 	}
 	if !gotNow.Equal(now) {
-		t.Errorf("env.Now() = %v, want Options.Now's %v", gotNow, now)
+		t.Errorf("env.Now() = %v, want Options.Wall's %v", gotNow, now)
 	}
 	if gotDeadline.Before(before.Add(plugin.CheckTimeout)) || gotDeadline.After(after.Add(plugin.CheckTimeout)) {
 		t.Errorf("the check's deadline %v is not CheckTimeout (%v) after the call", gotDeadline, plugin.CheckTimeout)

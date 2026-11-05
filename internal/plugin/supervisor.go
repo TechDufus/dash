@@ -51,7 +51,14 @@ type Options struct {
 	// Demo makes the supervisor run the demo twin (the Demo interface) of every plugin that has
 	// one, with its actions enabled, and leaves the rest disabled (design 1.9).
 	Demo bool
-	Now  func() time.Time
+	// Now is the clock of what dash shows: Host.Now, so the plugins' payload and checkedAt times
+	// and, through the core host, the overview's. Demo mode may fix it at one instant
+	// (DASH_DEMO_CLOCK). Default time.Now.
+	Now func() time.Time
+	// Wall is the clock durations are measured with: ReadyTimeout since Run and a connection
+	// check's latency (CheckEnv.Now). It is apart from Now so that a fixed demo clock, which
+	// stands still, never stops a timeout from elapsing. Default time.Now; tests fake it.
+	Wall func() time.Time
 	Log  *slog.Logger
 }
 
@@ -161,6 +168,9 @@ func NewSupervisor(o Options) *Supervisor {
 	}
 	if o.Now == nil {
 		o.Now = time.Now
+	}
+	if o.Wall == nil {
+		o.Wall = time.Now
 	}
 	return &Supervisor{opt: o, byID: map[ID]*instance{}, unknown: map[ID]bool{}, kickCh: make(chan struct{}, 1)}
 }
@@ -470,7 +480,7 @@ func (s *Supervisor) Run(ctx context.Context) error {
 		s.lifeMu.Unlock()
 		return errors.New("plugin: Run after Shutdown")
 	}
-	s.baseCtx, s.runStart = ctx, s.opt.Now()
+	s.baseCtx, s.runStart = ctx, s.opt.Wall()
 	s.reconcile()
 	s.started.Store(true)
 	s.lifeMu.Unlock()

@@ -11,6 +11,7 @@ import (
 	"reflect"
 	"slices"
 	"strings"
+	"time"
 
 	"sigs.k8s.io/yaml"
 
@@ -149,7 +150,9 @@ func Resolve(src Sources) (*Resolved, error) {
 		r.log.Warn("auth.proxy settings are ignored: auth.mode is not proxy; set DASH_AUTH_MODE=proxy if dash runs behind an identity proxy",
 			"mode", r.tree.Auth.Mode, "settings", ignored)
 	}
-	return &Resolved{Tree: r.tree, Provenance: r.prov, Config: r.tree.config(dev, demo), Keys: src.Keys, src: src}, nil
+	cfg := r.tree.config(dev, demo)
+	cfg.DemoClock = r.demoClock
+	return &Resolved{Tree: r.tree, Provenance: r.prov, Config: cfg, Keys: src.Keys, src: src}, nil
 }
 
 // Bootstrap is what the file and the environment alone say about the settings store. The store
@@ -195,8 +198,12 @@ func layer(src Sources) (r *resolver, dev, demo bool, err error) {
 	}
 	env := envMap(src.Environ)
 	dev, demo = envTrue(env["DASH_DEV"]), envTrue(env["DASH_DEMO"])
+	clock, err := demoClockOf(env, demo)
+	if err != nil {
+		return nil, false, false, err
+	}
 
-	r = &resolver{tree: defaults(dev, demo), prov: map[string]Provenance{}, raw: map[string]string{}, plain: map[string]string{}, keys: src.Keys, log: log, skipSecrets: src.SkipSecrets, k8s: src.K8s, strictUI: src.strictUI}
+	r = &resolver{tree: defaults(dev, demo), prov: map[string]Provenance{}, raw: map[string]string{}, plain: map[string]string{}, keys: src.Keys, log: log, skipSecrets: src.SkipSecrets, k8s: src.K8s, strictUI: src.strictUI, demoClock: clock}
 	for _, l := range schema.leaves {
 		r.prov[l.path] = Provenance{Source: SourceDefault}
 	}
@@ -238,6 +245,8 @@ type resolver struct {
 	k8s         *secret.K8sRefs
 	// strictUI turns UI problems into errors (Sources.strictUI).
 	strictUI map[string]any
+	// demoClock is DASH_DEMO_CLOCK (Config.DemoClock); zero when unset.
+	demoClock time.Time
 
 	// sealedErrs are the stored enc:v1: secrets that cannot be decrypted. They are collected,
 	// not logged as ignored UI settings like other stale values: a stored credential is never
@@ -570,3 +579,24 @@ func envMap(environ []string) map[string]string {
 }
 
 func envTrue(v string) bool { return strings.EqualFold(strings.TrimSpace(v), "true") }
+
+// demoClockEnv fixes the clock of demo mode's world (Config.DemoClock).
+const demoClockEnv = "DASH_DEMO_CLOCK"
+
+// demoClockOf reads DASH_DEMO_CLOCK: an RFC 3339 instant, accepted only with DASH_DEMO=true.
+// Unset or empty is the zero time (the wall clock). Outside demo mode it is refused rather than
+// ignored: a fixed clock in a live deployment would freeze every timestamp it shows.
+func demoClockOf(env map[string]string, demo bool) (time.Time, error) {
+	v := strings.TrimSpace(env[demoClockEnv])
+	if v == "" {
+		return time.Time{}, nil
+	}
+	if !demo {
+		return time.Time{}, fmt.Errorf("%s is only for demo mode: set DASH_DEMO=true or unset %s", demoClockEnv, demoClockEnv)
+	}
+	t, err := time.Parse(time.RFC3339, v)
+	if err != nil {
+		return time.Time{}, fmt.Errorf("%s=%q is not an RFC 3339 time such as 2026-01-15T12:00:00Z", demoClockEnv, v)
+	}
+	return t.UTC(), nil
+}

@@ -1197,7 +1197,7 @@ func TestReadyWaitsForRequiredPluginsUntilTimeout(t *testing.T) {
 	e := newEnv(t, func(o *plugin.Options) {
 		o.ReadyRequires = []plugin.ID{"slow", "off", "unknown"}
 		o.ReadyTimeout = time.Minute
-		o.Now = clock
+		o.Wall = clock
 		o.Log = slog.New(slog.NewTextHandler(&buf, nil))
 	}, slow.Factory(), off.Factory())
 	e.set.Set(plugin.InstanceConfig{Name: "off", Enabled: new(false)})
@@ -1231,6 +1231,35 @@ func TestReadyWaitsForRequiredPluginsUntilTimeout(t *testing.T) {
 	}
 	if !strings.Contains(buf.String(), "plugins=[slow]") || !strings.Contains(buf.String(), "level=WARN") {
 		t.Fatalf("the timeout did not warn about the plugin:\n%s", buf.String())
+	}
+}
+
+// A fixed demo clock (Options.Now standing still, as DASH_DEMO_CLOCK sets it) does not hold the
+// readiness timeout back: it runs on the wall clock (Options.Wall), so a demo twin that never
+// leaves starting stops blocking /readyz once ReadyTimeout has passed.
+func TestReadyTimeoutElapsesWithAFixedDemoClock(t *testing.T) {
+	const timeout = 200 * time.Millisecond
+	var buf lockedBuffer
+	frozen := time.Date(2026, 1, 15, 12, 0, 0, 0, time.UTC)
+	twin := plugintest.New("stuck", plugintest.Status(plugin.StateStarting, ""))
+	e := newEnv(t, func(o *plugin.Options) {
+		o.Demo = true
+		o.Now = func() time.Time { return frozen }
+		o.ReadyRequires = []plugin.ID{"stuck"}
+		o.ReadyTimeout = timeout
+		o.Log = slog.New(slog.NewTextHandler(&buf, nil))
+	}, plugintest.WithDemo(plugintest.New("stuck"), twin))
+	begin := time.Now()
+	e.run(t)
+	if e.sup.Ready() && time.Since(begin) < timeout {
+		t.Fatal("ready before the timeout while the required twin is starting")
+	}
+	eventually(t, "ready after the timeout with the demo clock standing still", e.sup.Ready)
+	if elapsed := time.Since(begin); elapsed < timeout {
+		t.Errorf("ready after %v, before the %v timeout", elapsed, timeout)
+	}
+	if !strings.Contains(buf.String(), "plugins=[stuck]") {
+		t.Errorf("the timeout did not warn about the twin:\n%s", buf.String())
 	}
 }
 

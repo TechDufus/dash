@@ -97,6 +97,32 @@ func TestDemoDoesNotImplyDev(t *testing.T) {
 	}
 }
 
+// DASH_DEMO_CLOCK fixes demo mode's clock at an RFC 3339 instant (kept in UTC); unset or empty
+// leaves the wall clock. Outside demo mode, and with a time that does not parse, dash refuses to
+// start and names the variable.
+func TestDemoClock(t *testing.T) {
+	c := mustLoad(t, map[string]string{"DASH_DEMO": "true", "DASH_DEMO_CLOCK": "2026-01-15T14:00:00+02:00"})
+	if want := time.Date(2026, 1, 15, 12, 0, 0, 0, time.UTC); !c.DemoClock.Equal(want) || c.DemoClock.Location() != time.UTC {
+		t.Errorf("DemoClock = %v, want %v", c.DemoClock, want)
+	}
+	if c := mustLoad(t, map[string]string{"DASH_DEMO": "true", "DASH_DEMO_CLOCK": ""}); !c.DemoClock.IsZero() {
+		t.Errorf("empty DASH_DEMO_CLOCK: DemoClock = %v, want the wall clock", c.DemoClock)
+	}
+	for name, env := range map[string]map[string]string{
+		"not demo":      {"DASH_DEV": "true", "DASH_DEMO_CLOCK": "2026-01-15T12:00:00Z"},
+		"demo false":    {"DASH_DEMO": "false", "DASH_SERVER_PUBLIC_URL": "https://dash.example.com", "DASH_DEMO_CLOCK": "2026-01-15T12:00:00Z"},
+		"no zone":       {"DASH_DEMO": "true", "DASH_DEMO_CLOCK": "2026-01-15T12:00:00"},
+		"not a time":    {"DASH_DEMO": "true", "DASH_DEMO_CLOCK": "yesterday"},
+		"date only":     {"DASH_DEMO": "true", "DASH_DEMO_CLOCK": "2026-01-15"},
+		"unix seconds":  {"DASH_DEMO": "true", "DASH_DEMO_CLOCK": "1768478400"},
+		"bad month day": {"DASH_DEMO": "true", "DASH_DEMO_CLOCK": "2026-02-30T12:00:00Z"},
+	} {
+		if _, err := load(env); err == nil || !strings.Contains(err.Error(), "DASH_DEMO_CLOCK") {
+			t.Errorf("%s: err = %v, want a refusal naming DASH_DEMO_CLOCK", name, err)
+		}
+	}
+}
+
 // The API listens on every address by default, so a container port mapping reaches it; dev and
 // demo keep loopback, and the environment `make dev-api` sets (DASH_DEV=true with nothing for
 // server.listen) is valid without naming a listen address. auth.mode=none does not move the

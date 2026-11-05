@@ -21,7 +21,7 @@ import (
 // processEnv are variables of the process or of its deployment that are not tree fields. They
 // never warn as unknown.
 var processEnv = map[string]bool{
-	"DASH_DEV": true, "DASH_DEMO": true, "DASH_CONFIG": true,
+	"DASH_DEV": true, "DASH_DEMO": true, "DASH_DEMO_CLOCK": true, "DASH_CONFIG": true,
 	"DASH_API": true, // the Vite dev proxy's backend address (web/vite.config.ts)
 	// The secret-key variables are read by SecretKeys (keys.go), not by the tree.
 	"DASH_SECRET_KEY": true, "DASH_SECRET_KEY_FILE": true,

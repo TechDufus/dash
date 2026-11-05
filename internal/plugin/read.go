@@ -241,7 +241,8 @@ func (s *Supervisor) Series(name string) (SeriesSpec, ID, bool) {
 // Ready reports the plugin half of /readyz: every instance's Start has returned, and every
 // instance in Options.ReadyRequires has left "starting" (a disabled or unknown one counts as
 // settled). A required plugin that is still starting when ReadyTimeout has passed since Run
-// began does not hold readiness back; one WARN names it.
+// began does not hold readiness back; one WARN names it. The timeout runs on Options.Wall, so a
+// fixed demo clock does not hold it back.
 func (s *Supervisor) Ready() bool {
 	if !s.started.Load() {
 		return false
@@ -259,7 +260,7 @@ func (s *Supervisor) Ready() bool {
 	if len(pending) == 0 {
 		return true
 	}
-	if s.opt.Now().Sub(s.runStart) < s.opt.ReadyTimeout {
+	if s.opt.Wall().Sub(s.runStart) < s.opt.ReadyTimeout {
 		return false
 	}
 	s.readyWarn.Do(func() {

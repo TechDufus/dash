@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/TechDufus/dash/internal/config"
 	"github.com/TechDufus/dash/internal/hub"
@@ -107,6 +108,8 @@ type framework struct {
 	hub      *hub.Hub
 	sup      *plugin.Supervisor
 	reloader *config.Reloader
+	// now is demo mode's fixed clock (DASH_DEMO_CLOCK), nil for the wall clock.
+	now func() time.Time
 }
 
 // newFramework joins the three. A rotated secret file reaches the running credentials through
@@ -117,10 +120,16 @@ type framework struct {
 //
 // reg scrubs the log lines plugins publish (nil scrubs by shape only), transport wraps the
 // client of every plugin and checkTransport the client of a connection check (nil leaves either
-// alone), and demo runs the plugins' demo twins.
+// alone), and demo runs the plugins' demo twins. A fixed demo clock (config.Config.DemoClock)
+// becomes the clock of the plugins, of the overview (through the core host) and of the hub's
+// updatedAt stamps, so a demo run serves the same values every time.
 func newFramework(res *config.Resolved, store *settings.Store, opts config.ReloadOptions, reg *secret.Registry,
 	refs *secret.K8sRefs, transport, checkTransport func(plugin.ID, http.RoundTripper) http.RoundTripper, demo bool) *framework {
 	f := &framework{hub: hub.New()}
+	if c := res.Config.DemoClock; !c.IsZero() {
+		f.now = func() time.Time { return c }
+	}
+	f.hub.SetClock(f.now)
 	// f.sup is set before the reloader's loop can start, so the hook never sees nil. The auth
 	// section is live: its admin lists are applied in-process (reloadAuth).
 	opts.Live = func(section string) bool { return section == "auth" || f.sup.Live(section) }
@@ -132,7 +141,7 @@ func newFramework(res *config.Resolved, store *settings.Store, opts config.Reloa
 	f.sup = plugin.NewSupervisor(plugin.Options{
 		Publisher: f.hub, Settings: resolvedSettings{f.reloader.Resolved}, ReadyRequires: ready, ReadyTimeout: res.Config.ReadyTimeout,
 		Transport: transport, CheckTransport: checkTransport, ScrubLog: reg.ScrubLogLine, CutLog: reg.CutRunes, Demo: demo,
-		IconBase: res.Config.IconBaseURL,
+		IconBase: res.Config.IconBaseURL, Now: f.now,
 	})
 	f.hub.SetOrder(f.sup.TopicOrder)
 	f.reloader.Subscribe(func(c config.Change) {

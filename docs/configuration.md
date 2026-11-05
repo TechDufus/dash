@@ -542,6 +542,7 @@ These are not settings; the config file cannot set them.
 | `DASH_CONFIG` | Path of the config file. It must exist. Without it dash reads `config.yaml` in the data directory when there is one. |
 | `DASH_DEV` | `true` signs every request in as `dev` without authentication and uses the development defaults; it only starts on a loopback `server.listen`. |
 | `DASH_DEMO` | `true` serves fake data and contacts nothing; it opens no data directory. |
+| `DASH_DEMO_CLOCK` | An RFC 3339 time (`2026-01-15T12:00:00Z`) the demo world stands still at, so every demo value is the same on every run (the README screenshots). Only with `DASH_DEMO=true`; dash refuses to start with it otherwise. |
 | `DASH_SECRET_KEY`, `DASH_SECRET_KEY_FILE` | The key that encrypts secrets saved from the UI. Without one they can only be set through `env:` and `file:` references. |
 | `DASH_SECRET_KEY_PREVIOUS`, `DASH_SECRET_KEY_PREVIOUS_FILE` | The key being rotated out. |
 | `KUBECONFIG` | Fills `plugins.kubernetes.kubeconfig` (another tool's variable: no `_FILE` form). The generated name wins over it. |

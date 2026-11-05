@@ -2,11 +2,18 @@ package main
 
 import (
 	"encoding/json"
+	"maps"
+	"net/http"
+	"net/http/httptest"
 	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/TechDufus/dash/internal/api"
+	"github.com/TechDufus/dash/internal/auth"
+	"github.com/TechDufus/dash/internal/config"
 	"github.com/TechDufus/dash/internal/model"
 )
 
@@ -277,4 +284,67 @@ func TestDemoPluginSwitchesOffAndOnWithoutRestart(t *testing.T) {
 	writeTestFile(t, cfgPath, "plugins:\n  flux:\n    enabled: true\n")
 	waitFor(t, func() bool { return state() == model.PluginHealthy })
 	waitFor(t, func() bool { k, i := fluxParts(); return len(k) == 4 && len(i) == 1 })
+}
+
+// demoBytes is what a demo run serves: every topic's envelope as the hub holds it, by topic,
+// and the series behind the host CPU chart.
+func demoBytes(t *testing.T, fw *framework, cfg config.Config) map[string]string {
+	t.Helper()
+	snap, _, cancel := fw.hub.Subscribe("", nil)
+	cancel()
+	out := map[string]string{}
+	for _, ev := range snap {
+		out[ev.Topic] = string(ev.Data)
+	}
+	srv := api.New(api.Deps{
+		Cfg: cfg, Hub: fw.hub, Plugins: fw.sup, Health: fw.sup,
+		Auth: auth.Fixed(auth.Principal{Kind: auth.KindDemo, User: "demo", Role: auth.RoleAdmin}),
+	})
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, cfg.PublicURL+"/api/v1/series?name=host.cpu&range=1h", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("series = %d %s", rec.Code, rec.Body)
+	}
+	out["series host.cpu"] = rec.Body.String()
+	return out
+}
+
+// With a fixed clock (DASH_DEMO_CLOCK) two demo runs serve the same bytes: every topic,
+// updatedAt and the sources' checkedAt included, and the chart series. Every stamp is the clock.
+func TestDemoClockMakesTwoRunsIdentical(t *testing.T) {
+	const clock = "2026-01-15T12:00:00Z"
+	a, cfgA := startDemo(t, "DASH_DEMO_CLOCK="+clock)
+	b, cfgB := startDemo(t, "DASH_DEMO_CLOCK="+clock)
+	if want, _ := time.Parse(time.RFC3339, clock); !cfgA.DemoClock.Equal(want) {
+		t.Fatalf("DemoClock = %v, want %s", cfgA.DemoClock, clock)
+	}
+	awaitDemoTopics(t, a)
+	envs := awaitDemoTopics(t, b)
+
+	// Both runs settle (the overview rebuilds once a second); they must settle on the same bytes.
+	var got, want map[string]string
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		got, want = demoBytes(t, a, cfgA), demoBytes(t, b, cfgB)
+		if maps.Equal(got, want) || time.Now().After(deadline) {
+			break
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	for _, k := range slices.Sorted(maps.Keys(want)) {
+		if got[k] != want[k] {
+			t.Errorf("%s differs between two runs at the same clock:\n%s\n%s", k, got[k], want[k])
+		}
+	}
+
+	for _, e := range envs {
+		if e.UpdatedAt.Format(time.RFC3339) != clock {
+			t.Errorf("%s: updatedAt = %v, want the demo clock", e.Topic, e.UpdatedAt)
+		}
+		for _, s := range e.Sources {
+			if !s.CheckedAt.IsZero() && s.CheckedAt.UTC().Format(time.RFC3339) != clock {
+				t.Errorf("%s: source %s checkedAt = %v, want the demo clock", e.Topic, s.Name, s.CheckedAt)
+			}
+		}
+	}
 }

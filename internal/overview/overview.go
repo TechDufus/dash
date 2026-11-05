@@ -28,7 +28,9 @@ const rebuildEvery = time.Second
 
 // Publisher owns the overview's rebuild loop.
 type Publisher struct {
-	d   Deps
+	d Deps
+	// now is the clock attention is judged at; nil is the core host's (plugin.Options.Now), so
+	// demo mode's fixed clock reaches the overview. Tests fix it.
 	now func() time.Time
 
 	mu sync.Mutex
@@ -40,7 +42,6 @@ type Publisher struct {
 func New(d Deps) *Publisher {
 	return &Publisher{
 		d:          d,
-		now:        time.Now,
 		badSources: map[plugin.ID]struct{}{},
 	}
 }
@@ -79,8 +80,13 @@ func (p *Publisher) rebuild() {
 	if len(contributors) == 0 {
 		return
 	}
-	data := p.buildOverview(contributors, p.now())
-	p.d.Hosts.HostFor(plugin.Core).Publish(strings.TrimPrefix(string(model.TopicOverview), string(plugin.Core)+"."), data, p.overviewSources(contributors))
+	core := p.d.Hosts.HostFor(plugin.Core)
+	now := core.Now()
+	if p.now != nil {
+		now = p.now()
+	}
+	data := p.buildOverview(contributors, now)
+	core.Publish(strings.TrimPrefix(string(model.TopicOverview), string(plugin.Core)+"."), data, p.overviewSources(contributors))
 }
 
 // buildOverview composes core.overview from what each running plugin in cs adds.

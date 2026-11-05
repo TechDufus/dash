@@ -75,6 +75,17 @@ func (h *Hub) SetOrder(order func() []model.Topic) {
 	h.order = order
 }
 
+// SetClock sets the clock that stamps each envelope's updatedAt; nil restores the wall clock.
+// Demo mode's fixed clock (DASH_DEMO_CLOCK) uses it.
+func (h *Hub) SetClock(now func() time.Time) {
+	if now == nil {
+		now = time.Now
+	}
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.now = now
+}
+
 // Publish marshals data into an Envelope and publishes it, to every subscriber, when data or the
 // sources' ok/error changed since the last publish of that topic (checkedAt and updatedAt are not
 // compared, so a quiet topic stays quiet). It reports whether anything was published.
