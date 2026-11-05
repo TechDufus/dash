@@ -53,6 +53,7 @@
               "precondition_required",
               "audit_unavailable",
               "tokens_unavailable",
+              "token_limit",
               "unknown_host",
               "internal"
             ],
@@ -2519,6 +2520,137 @@
         },
         "type": "object"
       },
+      "TokenCreateRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "actionNamespaces": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "audience": {
+            "enum": [
+              "api",
+              "mcp"
+            ],
+            "type": "string"
+          },
+          "expiresInDays": {
+            "maximum": 365,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "name": {
+            "maxLength": 64,
+            "minLength": 1,
+            "type": "string"
+          },
+          "scopes": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "audience",
+          "name",
+          "scopes"
+        ],
+        "type": "object"
+      },
+      "TokenCreated": {
+        "additionalProperties": false,
+        "properties": {
+          "info": {
+            "$ref": "#/components/schemas/TokenInfo"
+          },
+          "token": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "info",
+          "token"
+        ],
+        "type": "object"
+      },
+      "TokenInfo": {
+        "additionalProperties": false,
+        "properties": {
+          "actionNamespaces": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "audience": {
+            "enum": [
+              "api",
+              "mcp"
+            ],
+            "type": "string"
+          },
+          "createdAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "expiresAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "lastUsedAt": {
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "name": {
+            "type": "string"
+          },
+          "scopes": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "user": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "actionNamespaces",
+          "audience",
+          "createdAt",
+          "expiresAt",
+          "id",
+          "lastUsedAt",
+          "name",
+          "scopes",
+          "user"
+        ],
+        "type": "object"
+      },
+      "TokenList": {
+        "additionalProperties": false,
+        "properties": {
+          "tokens": {
+            "items": {
+              "$ref": "#/components/schemas/TokenInfo"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "tokens"
+        ],
+        "type": "object"
+      },
       "Topology": {
         "additionalProperties": false,
         "properties": {
@@ -2897,6 +3029,11 @@
       }
     },
     "securitySchemes": {
+      "bearerAuth": {
+        "description": "A personal access token (dash_pat_..., Settings -> Tokens) or a static token of auth.tokens, for the api audience. A token reaches only the routes its scopes (x-dash-scope) allow, never one marked x-dash-interactive, and needs no X-Dash-Csrf or Origin. Sent together with the session cookie it is 400 ambiguous_credentials; an unknown, expired, revoked or mcp-audience token is 401 invalid_token. 300 requests a minute per token.",
+        "scheme": "bearer",
+        "type": "http"
+      },
       "identityProxy": {
         "description": "The user the identity proxy in front of dash authenticated. dash believes the header only from a TCP peer in auth.proxy.trustedProxies (X-Forwarded-For is never read), so a client cannot send it itself. Dev, demo and auth.mode none supply a fixed user.",
         "in": "header",
@@ -3610,10 +3747,19 @@
             "$ref": "#/components/responses/Error"
           }
         },
+        "security": [
+          {
+            "identityProxy": []
+          },
+          {
+            "sessionCookie": []
+          }
+        ],
         "summary": "Every setting with its effective value, where it comes from and whether the UI may write it, and the plugin list",
         "tags": [
           "Settings"
         ],
+        "x-dash-interactive": true,
         "x-dash-min-role": "admin"
       }
     },
@@ -3666,10 +3812,19 @@
             "$ref": "#/components/responses/Error"
           }
         },
+        "security": [
+          {
+            "identityProxy": []
+          },
+          {
+            "sessionCookie": []
+          }
+        ],
         "summary": "One page of the audit log, newest first",
         "tags": [
           "Settings"
         ],
+        "x-dash-interactive": true,
         "x-dash-min-role": "admin"
       }
     },
@@ -3697,10 +3852,19 @@
             "$ref": "#/components/responses/Error"
           }
         },
+        "security": [
+          {
+            "identityProxy": []
+          },
+          {
+            "sessionCookie": []
+          }
+        ],
         "summary": "The values the UI store holds, as a config.yaml snippet (text/yaml); a stored secret is a comment, never its value",
         "tags": [
           "Settings"
         ],
+        "x-dash-interactive": true,
         "x-dash-min-role": "admin"
       }
     },
@@ -3740,10 +3904,19 @@
             "$ref": "#/components/responses/Error"
           }
         },
+        "security": [
+          {
+            "identityProxy": []
+          },
+          {
+            "sessionCookie": []
+          }
+        ],
         "summary": "Write settings outside plugins.* (only ui.* may come from the UI): a JSON merge patch relative to the root; If-Match: \"<revision>\" is required. Field errors can come in two rounds: a value of the wrong type stops the resolution before the remaining checks run",
         "tags": [
           "Settings"
         ],
+        "x-dash-interactive": true,
         "x-dash-min-role": "admin"
       }
     },
@@ -3781,10 +3954,19 @@
             "$ref": "#/components/responses/Error"
           }
         },
+        "security": [
+          {
+            "identityProxy": []
+          },
+          {
+            "sessionCookie": []
+          }
+        ],
         "summary": "A plugin's settings: its schema and every field with its provenance",
         "tags": [
           "Settings"
         ],
+        "x-dash-interactive": true,
         "x-dash-min-role": "admin"
       },
       "put": {
@@ -3832,10 +4014,19 @@
             "$ref": "#/components/responses/Error"
           }
         },
+        "security": [
+          {
+            "identityProxy": []
+          },
+          {
+            "sessionCookie": []
+          }
+        ],
         "summary": "Write a plugin's settings: a JSON merge patch relative to plugins.<id> (null resets a field to its default); If-Match: \"<revision>\" is required. A change of where requests go needs every set secret in the same patch. Field errors can come in two rounds: a value of the wrong type stops the resolution before the remaining checks run",
         "tags": [
           "Settings"
         ],
+        "x-dash-interactive": true,
         "x-dash-min-role": "admin"
       }
     },
@@ -3882,10 +4073,19 @@
             "$ref": "#/components/responses/Error"
           }
         },
+        "security": [
+          {
+            "identityProxy": []
+          },
+          {
+            "sessionCookie": []
+          }
+        ],
         "summary": "Clear a secret saved from the UI; If-Match is optional",
         "tags": [
           "Settings"
         ],
+        "x-dash-interactive": true,
         "x-dash-min-role": "admin"
       },
       "put": {
@@ -3941,10 +4141,19 @@
             "$ref": "#/components/responses/Error"
           }
         },
+        "security": [
+          {
+            "identityProxy": []
+          },
+          {
+            "sessionCookie": []
+          }
+        ],
         "summary": "Replace a secret: a value (stored encrypted, at most 8 KiB) or a k8s: reference; If-Match is optional",
         "tags": [
           "Settings"
         ],
+        "x-dash-interactive": true,
         "x-dash-min-role": "admin"
       }
     },
@@ -3991,10 +4200,19 @@
             "$ref": "#/components/responses/Error"
           }
         },
+        "security": [
+          {
+            "identityProxy": []
+          },
+          {
+            "sessionCookie": []
+          }
+        ],
         "summary": "Remove the value the UI store holds for a field, also one the file or the environment overrides; If-Match is optional",
         "tags": [
           "Settings"
         ],
+        "x-dash-interactive": true,
         "x-dash-min-role": "admin"
       }
     },
@@ -4043,10 +4261,19 @@
             "$ref": "#/components/responses/Error"
           }
         },
+        "security": [
+          {
+            "identityProxy": []
+          },
+          {
+            "sessionCookie": []
+          }
+        ],
         "summary": "Test a plugin's connection with the pending changes, without saving them (10 a minute)",
         "tags": [
           "Settings"
         ],
+        "x-dash-interactive": true,
         "x-dash-min-role": "admin"
       }
     },
@@ -4075,10 +4302,19 @@
             "$ref": "#/components/responses/Error"
           }
         },
+        "security": [
+          {
+            "identityProxy": []
+          },
+          {
+            "sessionCookie": []
+          }
+        ],
         "summary": "The JSON Schema 2020-12 of the configuration (the config file and the UI layer)",
         "tags": [
           "Settings"
         ],
+        "x-dash-interactive": true,
         "x-dash-min-role": "admin"
       }
     },
@@ -4121,6 +4357,150 @@
         ],
         "x-dash-min-role": "viewer",
         "x-dash-scope": "read"
+      }
+    },
+    "/api/v1/tokens": {
+      "get": {
+        "description": "The caller's own tokens; an administrator may list one user's (?user=<name>) or everyone's (?user=*). Expired tokens stay listed for 30 days.",
+        "operationId": "listTokens",
+        "parameters": [
+          {
+            "description": "Administrators only: a user name, or * for every user. Absent or empty: the caller's own.",
+            "in": "query",
+            "name": "user",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TokenList"
+                }
+              }
+            },
+            "description": "List personal access tokens",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/XRequestId"
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "security": [
+          {
+            "identityProxy": []
+          },
+          {
+            "sessionCookie": []
+          }
+        ],
+        "summary": "List personal access tokens",
+        "tags": [
+          "Tokens"
+        ],
+        "x-dash-interactive": true,
+        "x-dash-min-role": "viewer"
+      },
+      "post": {
+        "description": "The answer holds the token, shown this once. 400 invalid_input with field errors; 403 for actions:* by a viewer and for approvals or push; 409 token_limit past 50 unexpired tokens, 409 tokens_unavailable when nothing would keep it; 429 past 10 creations a minute; 503 audit_unavailable when the audit log cannot be written.",
+        "operationId": "createToken",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TokenCreateRequest"
+              }
+            }
+          },
+          "description": "The JSON body of the request.",
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TokenCreated"
+                }
+              }
+            },
+            "description": "Create a personal access token",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/XRequestId"
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "security": [
+          {
+            "identityProxy": []
+          },
+          {
+            "sessionCookie": []
+          }
+        ],
+        "summary": "Create a personal access token",
+        "tags": [
+          "Tokens"
+        ],
+        "x-dash-interactive": true,
+        "x-dash-min-role": "viewer"
+      }
+    },
+    "/api/v1/tokens/{id}": {
+      "delete": {
+        "description": "Applies to the next request: one's own token, or (administrators) anyone's. 404 for a token that is not the caller's; 500 when credentials.yaml cannot be written (the token stays revoked until dash restarts).",
+        "operationId": "revokeToken",
+        "parameters": [
+          {
+            "description": "The token's ID (the 10 characters after dash_pat_).",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Revoke a personal access token",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/XRequestId"
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "security": [
+          {
+            "identityProxy": []
+          },
+          {
+            "sessionCookie": []
+          }
+        ],
+        "summary": "Revoke a personal access token",
+        "tags": [
+          "Tokens"
+        ],
+        "x-dash-interactive": true,
+        "x-dash-min-role": "viewer"
       }
     },
     "/api/v1/topics/{topic}": {
@@ -4235,6 +4615,9 @@
     },
     {
       "sessionCookie": []
+    },
+    {
+      "bearerAuth": []
     }
   ],
   "servers": [
@@ -4259,6 +4642,9 @@
     {
       "description": "The effective configuration with its provenance, and the UI settings store: administrators only, from a browser session.",
       "name": "Settings"
+    },
+    {
+      "name": "Tokens"
     },
     {
       "description": "Live state: one envelope per topic, as a snapshot or a stream.",

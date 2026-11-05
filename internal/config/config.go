@@ -47,6 +47,9 @@ type Config struct {
 	// AllowedHosts are extra Host names the API answers besides PublicURL's host
 	// (server.allowedHosts); "*" accepts any. See HostAllowed.
 	AllowedHosts []string
+	// CORSOrigins are the origins of browser-based bearer clients (server.corsOrigins, design
+	// L.7), lowercased scheme://host[:port]; empty sends no CORS header.
+	CORSOrigins []string
 	// ReadyRequires are the plugins /readyz waits for, and ReadyTimeout how long it waits
 	// (server.readyRequires, server.readyTimeout); ReadyTimeout is positive once resolved.
 	ReadyRequires []string

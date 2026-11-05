@@ -107,7 +107,7 @@ func (b *specBuilder) build() object {
 		"servers":  []object{{"url": "/", "description": "The dash instance that served this document."}},
 		"tags":     tags,
 		"paths":    b.paths,
-		"security": []object{{"identityProxy": []string{}}, {"sessionCookie": []string{}}},
+		"security": []object{{"identityProxy": []string{}}, {"sessionCookie": []string{}}, {"bearerAuth": []string{}}},
 		"components": object{
 			"schemas": schemas,
 			"securitySchemes": object{
@@ -120,6 +120,13 @@ func (b *specBuilder) build() object {
 					"type": "apiKey", "in": "cookie", "name": "__Host-dash_session",
 					"description": "The session of auth.mode local (POST /login) and oidc (GET /auth/callback). The cookie is __Host-dash_session " +
 						"when server.publicURL is https and dash_session otherwise; HttpOnly, SameSite=Lax. A write also needs X-Dash-Csrf: 1 and the public Origin.",
+				},
+				"bearerAuth": object{
+					"type": "http", "scheme": "bearer",
+					"description": "A personal access token (dash_pat_..., Settings -> Tokens) or a static token of auth.tokens, for the api " +
+						"audience. A token reaches only the routes its scopes (x-dash-scope) allow, never one marked x-dash-interactive, " +
+						"and needs no X-Dash-Csrf or Origin. Sent together with the session cookie it is 400 ambiguous_credentials; an " +
+						"unknown, expired, revoked or mcp-audience token is 401 invalid_token. 300 requests a minute per token.",
 				},
 			},
 			"headers": object{
@@ -169,6 +176,11 @@ func (b *specBuilder) operation(r Route) object {
 	}
 	if r.Scope != "" {
 		op["x-dash-scope"] = r.Scope
+	}
+	if r.Interactive {
+		// For people only: a bearer token is refused with 403 whatever its scopes.
+		op["x-dash-interactive"] = true
+		op["security"] = []object{{"identityProxy": []string{}}, {"sessionCookie": []string{}}}
 	}
 	op["parameters"] = params(r.Path, r.PathParams, r.Query)
 	if r.Request != nil {

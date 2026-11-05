@@ -18,8 +18,8 @@ const minEncodedLen = 8
 // (design C.6). Token characters follow the prefix: base64url for the dash_*
 // tokens, base64 std plus ':' for the enc:v1:<kid>:<payload> form.
 var (
-	shapes    = regexp.MustCompile(`\A(?:dash_(?:pat|at|rt)_[A-Za-z0-9_-]+|enc:v1:[A-Za-z0-9+/=:_-]+)`)
-	logShapes = regexp.MustCompile(`\A(?:dash_(?:pat|at|rt|setup)_[A-Za-z0-9_-]+|enc:v1:[A-Za-z0-9+/=:_-]+)`)
+	shapes    = regexp.MustCompile(`\A(?:dash_(?:pat|st|at|rt)_[A-Za-z0-9_-]+|enc:v1:[A-Za-z0-9+/=:_-]+)`)
+	logShapes = regexp.MustCompile(`\A(?:dash_(?:pat|st|at|rt|setup)_[A-Za-z0-9_-]+|enc:v1:[A-Za-z0-9+/=:_-]+)`)
 )
 
 // Registry knows every secret currently in use and scrubs them from text. It
@@ -70,7 +70,7 @@ func (r *Registry) AddString(s string) {
 }
 
 // Scrub replaces every registered secret, its encoded forms, and credentials
-// that match a known token shape (dash_pat_, dash_at_, dash_rt_, enc:v1:) with
+// that match a known token shape (dash_pat_, dash_st_, dash_at_, dash_rt_, enc:v1:) with
 // "[redacted]".
 func (r *Registry) Scrub(s string) string {
 	return r.scrub(s, shapes)

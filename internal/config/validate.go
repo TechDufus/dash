@@ -102,6 +102,11 @@ func validate(t Tree, dev, demo bool, prov map[string]Provenance) error {
 			v.fail("server.allowedHosts", "entry %d is not a host name or IP address (no scheme or port)", i+1)
 		}
 	}
+	for i, o := range s.CORSOrigins {
+		if !originRE.MatchString(o) {
+			v.fail("server.corsOrigins", "entry %d is not an origin: scheme://host[:port] with http or https and no path, never \"*\"", i+1)
+		}
+	}
 	if s.ReadyTimeout <= 0 {
 		v.fail("server.readyTimeout", "must be greater than zero")
 	}

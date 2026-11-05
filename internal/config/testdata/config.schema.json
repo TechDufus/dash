@@ -1184,6 +1184,14 @@
           "type": "array",
           "x-dash-restart": true
         },
+        "corsOrigins": {
+          "description": "Origins of browser-based bearer clients (an MCP inspector, a web tool) that may call the API cross-origin, as scheme://host[:port] with no path; never \"*\". Empty (the default) sends no Access-Control-* header at all. A listed origin gets preflight answers and Access-Control-Allow-Origin on bearer requests and on 401s, never Access-Control-Allow-Credentials; requests from the web UI stay same-origin. A JSON list in the environment.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array",
+          "x-dash-restart": true
+        },
         "csp": {
           "default": "enforce",
           "description": "Whether dash sends a Content-Security-Policy header. enforce (the default): the browser blocks what the policy does not allow. report-only: the browser only reports violations in its console, so a page that the policy would break keeps working while you find the cause. off: no policy header at all, except on /sw.js and /offline.html, whose own policies are always enforced. This is the kill switch for a browser that blanks the web UI under enforce; X-Content-Type-Options and Referrer-Policy are sent in every mode. Prefer DASH_SERVER_CSP: an image rollback to a release before this setting only warns about the unknown variable, while it refuses an unknown key in a config file. In a YAML file quote the value (csp: \"off\"): a bare off is YAML false and is refused.",

@@ -147,6 +147,7 @@ type Server struct {
 	bodyTimeout time.Duration  // longest a request body may take to arrive
 	actionLimit *rateLimiter   // framework actions per principal
 	tokenLimit  *tokenBucket   // requests per api token (design M.5)
+	createLimit *rateLimiter   // personal access tokens created per user
 	testLimit   *rateLimiter   // settings connection tests per principal
 	openTarget  *rateLimiter   // stream-open audit records per user and target
 	openUser    *rateLimiter   // stream-open audit records per user
@@ -174,6 +175,7 @@ func New(d Deps) *Server {
 		tailMax: l.TailMaxDuration, sseWrite: l.SSEWriteTimeout, bodyTimeout: l.BodyReadTimeout,
 		actionLimit: newRateLimiter(actionRateLimit, actionRateWindow, maxRateKeys),
 		tokenLimit:  newTokenBucket(tokenRate, tokenBurst, maxRateKeys),
+		createLimit: newRateLimiter(tokenCreateLimit, tokenCreateWindow, maxRateKeys),
 		testLimit:   newRateLimiter(settingsTestRateLimit, settingsTestRateWindow, maxRateKeys),
 		openTarget:  newRateLimiter(1, openRecordWindow, maxRateKeys),
 		openUser:    newRateLimiter(openRecordPerUser, openRecordWindow, maxRateKeys),
@@ -181,12 +183,13 @@ func New(d Deps) *Server {
 }
 
 // Handler is the API plus the SPA, for the loopback listener. The chain is request id, security
-// headers, host check, authentication, CSRF, then the mux the route table builds (whose guard
-// enforces each route's role). Authentication runs before CSRF, so a refusal for a missing header
-// names the user and an unauthenticated write is 401. The security headers sit just inside the
-// request id, so every answer carries them, including a refused host.
+// headers, host check, CORS, authentication, CSRF, then the mux the route table builds (whose
+// guard enforces each route's role). Authentication runs before CSRF, so a refusal for a missing
+// header names the user and an unauthenticated write is 401. The security headers sit just
+// inside the request id, so every answer carries them, including a refused host; CORS sits
+// inside the host check, so a host dash does not serve gets no CORS answer either.
 func (s *Server) Handler() http.Handler {
-	return s.d.Metrics.Instrument(s.requestID(securityHeaders(s.cspMode)(s.hosts(s.authn(s.csrf(s.mux()))))))
+	return s.d.Metrics.Instrument(s.requestID(securityHeaders(s.cspMode)(s.hosts(s.cors(s.authn(s.csrf(s.mux())))))))
 }
 
 func writeJSON(w http.ResponseWriter, code int, v any) {

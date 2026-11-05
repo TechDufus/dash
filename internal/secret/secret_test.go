@@ -268,6 +268,7 @@ func TestScrubPrefixes(t *testing.T) {
 	tests := []struct{ in, want string }{
 		{"auth dash_pat_ABCDEFGHIJ_abc-DEF_123 rejected", "auth [redacted] rejected"},
 		{"dash_at_AbC123-_xyz.", "[redacted]."},
+		{"static dash_st_AbC123-_xyz0 in a log", "static [redacted] in a log"},
 		{"rt=dash_rt_0123456789_secretPART_x&next=1", "rt=[redacted]&next=1"},
 		{"stored enc:v1:0a1b2c3d:QUJD+/xyz== here", "stored [redacted] here"},
 		{"setup dash_setup_Abc123_-x", "setup dash_setup_Abc123_-x"},
@@ -483,8 +484,8 @@ func TestShortSecretEncodedFormsStayReadable(t *testing.T) {
 
 // The documented shapes, matched at the start of the text.
 var (
-	oracleShapes    = regexp.MustCompile(`^(?:dash_(?:pat|at|rt)_[A-Za-z0-9_-]+|enc:v1:[A-Za-z0-9+/=:_-]+)`)
-	oracleLogShapes = regexp.MustCompile(`^(?:dash_(?:pat|at|rt|setup)_[A-Za-z0-9_-]+|enc:v1:[A-Za-z0-9+/=:_-]+)`)
+	oracleShapes    = regexp.MustCompile(`^(?:dash_(?:pat|st|at|rt)_[A-Za-z0-9_-]+|enc:v1:[A-Za-z0-9+/=:_-]+)`)
+	oracleLogShapes = regexp.MustCompile(`^(?:dash_(?:pat|st|at|rt|setup)_[A-Za-z0-9_-]+|enc:v1:[A-Za-z0-9+/=:_-]+)`)
 )
 
 // oracleForms is the documented set of forms of one secret (addForms).

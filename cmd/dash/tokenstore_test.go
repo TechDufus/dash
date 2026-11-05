@@ -53,3 +53,22 @@ func TestCredentialStoreOpensInEveryModeButNone(t *testing.T) {
 		})
 	}
 }
+
+// auth.mode=none resolves no bearer token, so auth.tokens and server.corsOrigins do nothing there:
+// each is warned about at start.
+func TestNoneModeWarnsAboutTokenSettings(t *testing.T) {
+	res := resolvedAuth(false, false, func(a *config.AuthConfig) {
+		a.Mode = config.AuthModeNone
+		a.Tokens = []config.StaticToken{{Name: "ci"}}
+	})
+	res.Config.CORSOrigins = []string{"https://inspector.example.com"}
+	var logs logCapture
+	if _, _, err := startLocal(t, res, "", &logs); err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"auth.tokens is ignored: auth.mode=none resolves no bearer token", "server.corsOrigins is ignored: auth.mode=none has no bearer clients, and every other request stays same-origin"} {
+		if len(logs.with(t, "WARN", want)) != 1 {
+			t.Errorf("no WARN %q", want)
+		}
+	}
+}

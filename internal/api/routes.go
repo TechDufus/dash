@@ -115,6 +115,7 @@ func (s *Server) routeTable() []Route {
 		},
 	}
 	rows = append(rows, s.settingsRoutes()...)
+	rows = append(rows, s.tokenRoutes()...)
 	return append(rows, []Route{
 		// The sign-in routes of the session modes (docs/auth.md). They are outside /api, so authn
 		// does not run (logout reads the session itself) and the guard has no role to enforce;

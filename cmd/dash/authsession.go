@@ -107,8 +107,13 @@ func startAuth(res *config.Resolved, env sessionEnv, log *slog.Logger) (processA
 		if n := len(res.Tree.Auth.Tokens); n > 0 {
 			log.Info("auth: static tokens", "count", n)
 		}
-	} else if len(res.Tree.Auth.Tokens) > 0 {
-		log.Warn("auth.tokens is ignored: auth.mode=none resolves no bearer token")
+	} else {
+		if len(res.Tree.Auth.Tokens) > 0 {
+			log.Warn("auth.tokens is ignored: auth.mode=none resolves no bearer token")
+		}
+		if len(res.Config.CORSOrigins) > 0 {
+			log.Warn("server.corsOrigins is ignored: auth.mode=none has no bearer clients, and every other request stays same-origin")
+		}
 	}
 	return pa, nil
 }

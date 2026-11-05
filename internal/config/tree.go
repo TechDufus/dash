@@ -35,6 +35,7 @@ type ServerConfig struct {
 	Listen        string              `json:"listen" dash:"restart" doc:"Address of the API and the web UI. The default 0.0.0.0:8080 accepts connections from any address, so keep authentication on (auth.mode local, proxy or oidc); behind a sidecar identity proxy set 127.0.0.1:8080. In dev and demo mode it defaults to 127.0.0.1:8080, and dev mode only accepts a loopback address."`
 	HealthListen  string              `json:"healthListen" dash:"restart" doc:"Address of /healthz and /readyz. In dev and demo mode it defaults to 127.0.0.1:8081."`
 	AllowedHosts  []string            `json:"allowedHosts" dash:"restart" doc:"Host names the API answers besides the host of publicURL: names or IP addresses without scheme or port. [\"*\"] accepts any. A JSON list in the environment."`
+	CORSOrigins   []string            `json:"corsOrigins" dash:"restart" doc:"Origins of browser-based bearer clients (an MCP inspector, a web tool) that may call the API cross-origin, as scheme://host[:port] with no path; never \"*\". Empty (the default) sends no Access-Control-* header at all. A listed origin gets preflight answers and Access-Control-Allow-Origin on bearer requests and on 401s, never Access-Control-Allow-Credentials; requests from the web UI stay same-origin. A JSON list in the environment."`
 	ReadyRequires []string            `json:"readyRequires" dash:"restart" doc:"Plugins /readyz waits for: each listed plugin must have finished starting (its first poll or cache sync) before dash reports ready, up to readyTimeout. Empty: /readyz needs only that dash is serving and every plugin's start has returned. Names are plugins.<id> sections, e.g. [\"kubernetes\"]. A JSON list in the environment."`
 	ReadyTimeout  pluginconf.Duration `json:"readyTimeout" dash:"restart" doc:"How long /readyz waits for the readyRequires plugins, counted from startup. After that dash reports ready anyway and logs a warning naming the plugins still starting."`
 	Metrics       bool                `json:"metrics" dash:"restart" doc:"Serve dash's own Prometheus metrics at /metrics on the health listener. Off by default. The listener is unauthenticated and the metrics name plugins and their states, so keep it cluster-internal."`
@@ -175,6 +176,7 @@ func (t *Tree) normalize() {
 		}
 	}
 	t.Server.AllowedHosts = splitHosts(strings.Join(t.Server.AllowedHosts, ","))
+	t.Server.CORSOrigins = normalizeOrigins(t.Server.CORSOrigins)
 	t.Server.ReadyRequires = splitHosts(strings.Join(t.Server.ReadyRequires, ","))
 	t.Auth.normalize()
 	for i := range t.Plugins.Kubernetes.BackupJobs {
@@ -192,6 +194,7 @@ func (t Tree) config(dev, demo bool) Config {
 		HealthListen:  t.Server.HealthListen,
 		PublicURL:     t.Server.PublicURL,
 		AllowedHosts:  t.Server.AllowedHosts,
+		CORSOrigins:   t.Server.CORSOrigins,
 		ReadyRequires: t.Server.ReadyRequires,
 		ReadyTimeout:  time.Duration(t.Server.ReadyTimeout),
 		Metrics:       t.Server.Metrics,

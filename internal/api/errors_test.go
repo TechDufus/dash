@@ -15,11 +15,11 @@ import (
 // statusCodes is the table of design L.2 (contract §3.2): the codes an error of each status may
 // carry. A status with several is told apart by what failed.
 var statusCodes = map[int][]string{
-	http.StatusBadRequest:          {model.ErrCodeInvalidInput},
-	http.StatusUnauthorized:        {model.ErrCodeUnauthenticated},
-	http.StatusForbidden:           {model.ErrCodeForbidden, model.ErrCodeCSRFFailed},
+	http.StatusBadRequest:          {model.ErrCodeInvalidInput, model.ErrCodeAmbiguousCredentials},
+	http.StatusUnauthorized:        {model.ErrCodeUnauthenticated, model.ErrCodeInvalidToken},
+	http.StatusForbidden:           {model.ErrCodeForbidden, model.ErrCodeCSRFFailed, model.ErrCodeInsufficientScope},
 	http.StatusNotFound:            {model.ErrCodeNotFound},
-	http.StatusConflict:            {model.ErrCodeConflict},
+	http.StatusConflict:            {model.ErrCodeConflict, model.ErrCodeTokensUnavailable, model.ErrCodeTokenLimit},
 	http.StatusMisdirectedRequest:  {model.ErrCodeUnknownHost},
 	http.StatusUnprocessableEntity: {model.ErrCodeInvalidInput},
 	http.StatusTooManyRequests:     {model.ErrCodeRateLimited, model.ErrCodeTooManyStreams},

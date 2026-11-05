@@ -46,6 +46,9 @@ func (s *Server) authn(next http.Handler) http.Handler {
 		}
 		ctx := context.WithValue(context.WithValue(r.Context(), userKey{}, p.User), principalKey{}, p)
 		r = r.WithContext(ctx)
+		if p.Kind == auth.KindToken {
+			markTokenForCORS(r)
+		}
 		if p.Kind == auth.KindToken && p.Audience == "api" {
 			if ok, retry := s.tokenLimit.allow(p.TokenID, s.now()); !ok {
 				s.deny(r, obs.AuthRateLimit)

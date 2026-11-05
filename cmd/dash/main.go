@@ -60,13 +60,16 @@ func command(args []string, out io.Writer) error {
 	if len(args) >= 1 && args[0] == "hash-password" {
 		return hashPasswordCommand(args[1:], os.Stdin, out)
 	}
+	if len(args) >= 1 && args[0] == "token" {
+		return tokenCommand(args[1:], out)
+	}
 	if len(args) >= 1 && args[0] == "healthcheck" {
 		return healthcheckCommand(args[1:])
 	}
 	if len(args) >= 1 && args[0] == "docs" { // not in the usage: it writes this repository's docs
 		return docsCommand(args[1:])
 	}
-	return fmt.Errorf("unknown command %q; usage: %s | %s | %s | %s | %s", strings.Join(args, " "), configUsage, auditUsage, apiUsage, hashPasswordUsage, healthcheckUsage)
+	return fmt.Errorf("unknown command %q; usage: %s | %s | %s | %s | %s | %s", strings.Join(args, " "), configUsage, auditUsage, apiUsage, hashPasswordUsage, tokenUsage, healthcheckUsage)
 }
 
 // exitCode is the exit status of a subcommand that returned err: 1 when it ran and found a

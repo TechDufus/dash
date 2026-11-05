@@ -36,6 +36,7 @@ export const ErrCodePreconditionFailed = "precondition_failed"; // 412
 export const ErrCodePreconditionRequired = "precondition_required"; // 428: a settings write without If-Match
 export const ErrCodeAuditUnavailable = "audit_unavailable"; // 503
 export const ErrCodeTokensUnavailable = "tokens_unavailable"; // 409: no writable data dir keeps a new token
+export const ErrCodeTokenLimit = "token_limit"; // 409: the user holds the most tokens allowed
 export const ErrCodeUnknownHost = "unknown_host"; // 421
 export const ErrCodeInternal = "internal"; // 500
 /**
@@ -43,7 +44,7 @@ export const ErrCodeInternal = "internal"; // 500
  * carry several (a 403 is forbidden or csrf_failed, a 429 rate_limited or too_many_streams).
  * ErrCodes lists them all.
  */
-export type ErrCode = typeof ErrCodeUnauthenticated | typeof ErrCodeForbidden | typeof ErrCodeInsufficientScope | typeof ErrCodeInvalidToken | typeof ErrCodeAmbiguousCredentials | typeof ErrCodeCSRFFailed | typeof ErrCodeNotFound | typeof ErrCodeInvalidInput | typeof ErrCodeLockedField | typeof ErrCodeReadonlySettings | typeof ErrCodeRateLimited | typeof ErrCodeTooManyStreams | typeof ErrCodeUpstreamUnavailable | typeof ErrCodeApprovalRequired | typeof ErrCodeApprovalDenied | typeof ErrCodeApprovalExpired | typeof ErrCodeConflict | typeof ErrCodePreconditionFailed | typeof ErrCodePreconditionRequired | typeof ErrCodeAuditUnavailable | typeof ErrCodeTokensUnavailable | typeof ErrCodeUnknownHost | typeof ErrCodeInternal;
+export type ErrCode = typeof ErrCodeUnauthenticated | typeof ErrCodeForbidden | typeof ErrCodeInsufficientScope | typeof ErrCodeInvalidToken | typeof ErrCodeAmbiguousCredentials | typeof ErrCodeCSRFFailed | typeof ErrCodeNotFound | typeof ErrCodeInvalidInput | typeof ErrCodeLockedField | typeof ErrCodeReadonlySettings | typeof ErrCodeRateLimited | typeof ErrCodeTooManyStreams | typeof ErrCodeUpstreamUnavailable | typeof ErrCodeApprovalRequired | typeof ErrCodeApprovalDenied | typeof ErrCodeApprovalExpired | typeof ErrCodeConflict | typeof ErrCodePreconditionFailed | typeof ErrCodePreconditionRequired | typeof ErrCodeAuditUnavailable | typeof ErrCodeTokensUnavailable | typeof ErrCodeTokenLimit | typeof ErrCodeUnknownHost | typeof ErrCodeInternal;
 
 //////////
 // source: model.go
