@@ -69,6 +69,9 @@ model these protections make up. In particular:
   ValidatingAdmissionPolicy that holds dash's ServiceAccount to what its actions do (see
   [docs/deploy/kubernetes.md](docs/deploy/kubernetes.md#the-guardrail)), and the pod's security
   context.
+- **Push notifications:** Web Push and UnifiedPush ([docs/push.md](docs/push.md)): device
+  verification, the sealing of the VAPID key and the endpoints, `push.allowPrivate`, and a push
+  reaching someone who may not see what it says.
 
 ### Planned, not yet built
 
@@ -79,7 +82,6 @@ today. Each enters the scope above in the release that ships it:
 | Feature | Status |
 |---|---|
 | Human approval of agent actions | planned, not built |
-| Push notifications (Web Push and UnifiedPush) | planned, not built |
 
 ## Out of scope
 

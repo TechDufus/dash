@@ -205,9 +205,18 @@ untrusted-data sentence; every string is scrubbed before it is encoded; results 
 64 KiB. Each token has its rate and concurrency limits, and every call is audited with surface
 `mcp` and the SHA-256 of its arguments, never the arguments.
 
+## Push notifications
+
+Push needs a writable data dir and `DASH_SECRET_KEY`, and is off in `auth.mode=none`, dev and
+demo. Each person registers their own devices; a device receives only a verification code until
+that code comes back, and a token never holds the `push` scope. The VAPID private key and each
+device's endpoint and keys are sealed with `DASH_SECRET_KEY`; an endpoint is never logged or
+audited, only its host. Payloads are lab text, never secrets, end-to-end encrypted (RFC 8291),
+and dash posts only to global https endpoints unless `push.allowPrivate` admits a LAN one. The
+user's role is checked again when an attention push is sent. Details: [push.md](push.md).
+
 ## Not built yet
 
-These features are designed and planned, and **none of them exists in any release**: human
-approval of agent actions (agents can only read today) and push notifications. Each will be
-documented here when it ships. [SECURITY.md](../SECURITY.md#planned-not-yet-built) lists them in
-the reporting scope.
+This feature is designed and planned, and **does not exist in any release**: human approval of
+agent actions (agents can only read today). It will be documented here when it ships.
+[SECURITY.md](../SECURITY.md#planned-not-yet-built) lists it in the reporting scope.

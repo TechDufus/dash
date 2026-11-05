@@ -128,6 +128,7 @@ The deploy guides cover each path in full: [Docker and Compose](docs/deploy/dock
 - [Installing dash as an app](docs/app.md): the PWA, iOS and rolling back.
 - [MCP server and context bundles](docs/mcp.md): read-only access for AI agents, and
   "Copy context for AI".
+- [Push notifications](docs/push.md): Web Push and UnifiedPush to the devices in Settings → Devices.
 - [Security model](docs/security.md), and how to report a vulnerability: [SECURITY.md](SECURITY.md).
 - Deploy: [Docker](docs/deploy/docker.md), [Kubernetes](docs/deploy/kubernetes.md),
   [other platforms](docs/deploy/paas.md).
