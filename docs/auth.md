@@ -113,12 +113,15 @@ mode (a session of the local mode never opens in the oidc mode, or the other way
   restore) the file, then start it.** A file removed or replaced while dash runs is not written
   again; dash logs a warning and the sessions end at the next restart.
 
-"Log out" ends your sessions on every device (a copied cookie stops working too); "Log out
-everywhere" (administrators) ends every session of every user. An event stream or log tail that is
-already open ends at its next heartbeat, within 15 seconds, and the page goes to sign in again.
-`credentials.yaml` is mode 0600, written atomically, never backed up (`.bak`), and locked
-(`.credentials.lock`) so that a second dash on the same data dir refuses to start. It also holds
-the [personal access tokens](#api-tokens) (their hashes), so deleting it revokes every token too.
+"Log out" ends your sessions on every device (a copied cookie stops working too). "Log out
+everywhere" does the same and revokes your [connected apps](#oauth) too; "Sign out all users"
+(administrators) ends every session of every user and revokes every connected app. Each asks
+first. No logout revokes a personal access token: revoke those in Settings → Tokens. An event
+stream or log tail that is already open ends at its next heartbeat, within 15 seconds, and the
+page goes to sign in again. `credentials.yaml` is mode 0600, written atomically, never backed up
+(`.bak`), and locked (`.credentials.lock`) so that a second dash on the same data dir refuses to
+start. It also holds the [personal access tokens](#api-tokens) and the [OAuth grants](#oauth)
+(their hashes), so deleting it revokes every token and grant too.
 
 ## The oidc mode
 
@@ -191,7 +194,9 @@ dash listens on `0.0.0.0:8080` by default, so the sidecar setup sets
 `DASH_SERVER_LISTEN=127.0.0.1:8080` explicitly; then nothing else can reach dash's port. Without
 that line dash still refuses identity headers from any other peer, and it logs a WARN at start
 ("the API listens on a non-loopback address but only loopback proxies are trusted") whenever
-every trusted proxy is a loopback address and the listener is not:
+every trusted proxy is a loopback address and the listener is not, unless `server.directURL`
+says a direct route reaches that listener on purpose
+([API tokens in the proxy mode](#api-tokens-in-the-proxy-mode)):
 
 ```yaml
 containers:
@@ -229,9 +234,10 @@ and nothing else, so the identity headers of a proxy are not read.
 - A credential that does not start with `dash_` is refused before any lookup. An unknown, expired
   or revoked token is 401 `invalid_token` ("invalid token"); a valid token of the other audience
   is 401 `invalid_token` too, saying "token not valid for this API (audience mcp)". Every 401 of
-  `/api` carries `WWW-Authenticate: Bearer resource_metadata="<publicURL>/.well-known/oauth-protected-resource/api"`.
-  The document itself arrives with the built-in OAuth server; until then every `/.well-known/`
-  path answers a JSON 404.
+  `/api` carries `WWW-Authenticate: Bearer resource_metadata="<base>/.well-known/oauth-protected-resource/api"`,
+  where `<base>` is `server.directURL` when it is set and `server.publicURL` otherwise. The
+  document is served while [OAuth](#oauth) is on; otherwise every `/.well-known/` path answers a
+  JSON 404.
 - A token request needs no `X-Dash-Csrf` header and no `Origin`: the skip applies to a request
   whose token dash resolved, never to one that merely carries the header.
 - An `api` token gets 300 requests a minute on average, in bursts of up to 300 (a token bucket);
@@ -241,9 +247,10 @@ and nothing else, so the identity headers of a proxy are not read.
 - An open event stream or log tail re-checks its token at every heartbeat, so a revoked token's
   stream ends within 15 seconds.
 - The audit log records a token's request with `actor.type: token`, the `api` surface and its
-  `tokenID` (the token's ID, or `static:<name>`), and the audit view shows it. `authMode` stays
-  the server's mode (`proxy`, `local`, ...), in `/api/v1/me` as in the audit log, and a refused
-  bearer credential is recorded on the `api` surface.
+  `tokenID` (the token's ID, or `static:<name>`), or for an OAuth access token its `grantID` and
+  `clientID`, and the audit view shows them. `authMode` stays the server's mode (`proxy`,
+  `local`, ...), in `/api/v1/me` as in the audit log, and a refused bearer credential is recorded
+  on the `api` surface.
 
 **Scopes** narrow what the role allows:
 
@@ -360,24 +367,124 @@ same-origin.
 ### API tokens in the proxy mode
 
 A bearer client has no identity proxy session, so the proxy in front of dash turns it away (or
-strips its `Authorization`). Bearer clients need a route to dash that bypasses the identity proxy.
-The chart's `routes.direct` and `server.directURL` provide one in the release with the built-in
-OAuth server. Until then a proxy-mode install can create and manage tokens, and a route you set up
-yourself needs:
+strips its `Authorization`). Bearer clients need a second host that reaches dash without the
+proxy, named by `server.directURL` (restart-only): an origin only (`https://dash-direct.example.com`,
+no path), not `server.publicURL`'s, https unless the host is loopback, and refused in
+`auth.mode=none`. With it set:
+
+- dash answers that host (no need to list it in `server.allowedHosts`);
+- the start no longer warns that dash listens on a non-loopback address while only loopback
+  proxies are trusted: that is the point of the direct host;
+- the 401 challenge points at `<directURL>/.well-known/oauth-protected-resource/<api|mcp>`, and
+  [OAuth](#oauth) uses it as the issuer and the base of its token, revoke and discovery endpoints.
+
+The Helm chart's `routes.direct` sets all of this up for the oauth2-proxy sidecar
+([kubernetes.md](deploy/kubernetes.md#a-direct-host-for-bearer-clients-routesdirect)). A route
+you build yourself needs:
 
 - dash listening where that route reaches it: `server.listen` on a non-loopback address such as
   `0.0.0.0:8080` (the sidecar setup binds `127.0.0.1`, which only the proxy reaches);
-- the route's host name in `server.allowedHosts` (any other `Host` gets 421);
+- `server.directURL` set to that route's origin;
 - the route's peer never in `auth.proxy.trustedProxies`: dash would then believe identity headers
   that peer forwards. Keep the trusted list to the sidecar's loopback addresses, so the direct
-  route carries bearer tokens and nothing else.
+  route carries bearer tokens and nothing else, and its browser pages sign nobody in.
+
+## OAuth
+
+MCP clients and the Android app get their tokens from dash itself: dash is an OAuth 2.1
+authorization server. It is **off** until `auth.oauth.enabled` is true (restart-only), because it
+adds an endpoint that needs no sign-in (`/oauth/token`), and it runs only in the `local`, `oidc`
+and `proxy` modes with a writable data dir (the grants live in `credentials.yaml`). Otherwise every
+`/oauth/*` and `/.well-known/oauth-*` path answers a JSON 404, dash logs why at start, and
+`/api/v1/me` says `capabilities.oauth: false`. With OAuth on, `server.publicURL` may not have a
+path. There is no dynamic client registration.
+
+**Clients** are public (no client secret):
+
+- `dash-android`, the first-party app: redirect `io.github.techdufus.dash:/oauth2redirect`, the
+  `api` audience only, and the only client that may be granted `approvals` and `push`;
+- a client ID metadata document: the client's `client_id` is an https URL with a path, and dash
+  fetches it (5 seconds, 64 KiB, no redirect, no proxy from the environment, cached 24 hours).
+  The document needs `client_id` equal to its URL, a `client_name`, and `redirect_uris` that are
+  https, http on a loopback host, or a private-use scheme containing a dot
+  (`com.example.app:/callback`). dash fetches only from global addresses, unless
+  `auth.oauth.cimdAllowPrivate` is true, which adds private (RFC 1918, CGNAT, ULA) and loopback
+  addresses; link-local addresses, where cloud metadata services live, stay refused;
+- `auth.oauth.clients` from the config (`DASH_AUTH_OAUTH_CLIENTS` as JSON):
+  `[{clientID, name, redirectURIs, audiences}]`, with the same redirect rules.
+
+Any client but `dash-android` that asks for `approvals` or `push` gets `invalid_scope`, and the
+consent page never offers them to it.
+
+**The flow** is the authorization code flow with PKCE:
+
+1. The client opens `/oauth/authorize` in the browser with `response_type=code`, `client_id`,
+   `redirect_uri`, `state`, `code_challenge` with `code_challenge_method=S256` (`plain` is
+   refused), `resource` (`<issuer>/api` or `<issuer>/mcp`: the token's audience) and `scope`
+   (default `read`). The redirect URI must be one the client registered, exactly; an http
+   loopback one matches on any port. A request whose client or redirect URI cannot be verified is
+   answered there (400); any other error goes back to the client with `state` and `iss`.
+2. dash keeps the request for 10 minutes and sends the browser to `/consent/<id>`, which signs
+   the person in first if needed. The first person to open it claims it. The page ticks only
+   `read`; `logs` and `actions:<plugin>` carry warnings, and only an administrator is offered
+   `actions:<plugin>`.
+3. Approving sends the browser back to the client with `code`, `state` and `iss` (RFC 9207);
+   denying with `error=access_denied`.
+4. The client exchanges the code (60 seconds, once) with its `code_verifier` at `/oauth/token`
+   for an access token and a refresh token. A wrong verifier, client or redirect URI, or a code
+   used twice, revokes what the code made.
+
+**Tokens.** An access token is `dash_at_<base64url>`, lives 15 minutes and is sealed with
+XChaCha20-Poly1305 under a key derived from `DASH_SECRET_KEY` and the salt in `credentials.yaml`:
+without the key it is random per start, so access tokens end at a restart (clients refresh).
+Each request re-checks that its grant still exists, derives the role from the groups and
+role-claim value the grant recorded and the current mapping, and narrows it to the grant's scopes;
+it works only at its audience. A refresh token is `dash_rt_<grant>_<secret>`, stored as a hash and
+rotated on every refresh; presenting a rotated one again revokes the grant. A grant ends 30 days
+after its last refresh and 180 days after the consent. `/oauth/revoke` (RFC 7009) takes either
+token and revokes the whole grant; a refresh token is never a bearer credential.
+
+**Connected apps.** Each consent is a grant: Settings → Connected apps (`/settings/connected-apps`)
+lists yours (client, audience, scopes, created and last used) with a revoke button, and an
+administrator sees and revokes everyone's. A user holds at most 20 grants (409 `grant_limit`).
+Grants follow the identity provider like personal access tokens: the groups and role-claim value
+they record are rewritten at the user's next login (`local`, `oidc`) or next request (`proxy`).
+Removing a user at the identity provider does not reach grants they no longer use
+interactively, so offboarding includes revoking them. "Log out everywhere" revokes your grants and
+"Sign out all users" everyone's; the proxy mode, which has no logout, offers "Revoke all my
+connected apps" instead. Approving a consent and revoking a grant are audited before they
+happen: when the audit log cannot be written the answer is 503 `audit_unavailable` and nothing
+changes.
+
+**CORS and limits.** A `server.corsOrigins` origin gets `Access-Control-Allow-Origin` on the
+`/.well-known/oauth-*` documents, `/oauth/token` and `/oauth/revoke`, never on `/oauth/authorize`
+(a browser navigation). `/oauth/token` and `/oauth/revoke` take a form with no CSRF header and
+allow 60 requests a minute per `client_id` and peer (429 after). Every `/oauth` answer is
+`Cache-Control: no-store`.
+
+**In the proxy mode** `/oauth/authorize` and the consent page must go through the identity proxy,
+which knows the person; the client reaches everything else on the direct host. With
+`server.directURL` set (see [API tokens in the proxy mode](#api-tokens-in-the-proxy-mode)), the
+issuer, the resources (`<directURL>/api`, `<directURL>/mcp`), the token and revoke endpoints and
+the discovery documents are on the direct URL, while the metadata's `authorization_endpoint`
+stays `<publicURL>/oauth/authorize`:
+
+1. the client calls `https://dash-direct.example.com/api/v1/...` without a token and reads the
+   `resource_metadata` of the 401, then `/.well-known/oauth-authorization-server` there;
+2. it opens `https://dash.example.com/oauth/authorize?...&resource=https://dash-direct.example.com/mcp`
+   in the browser; the proxy signs the person in and the consent page runs behind it;
+3. the browser returns to the client with `iss=https://dash-direct.example.com`, and the client
+   exchanges the code and refreshes at `https://dash-direct.example.com/oauth/token`.
+
+The endpoints and their answers are in [the API reference](api/README.md#oauth).
 
 ## What the API answers
 
 `/api/v1/me` says who you are: `user`, `role`, `authMode` (`local`, `oidc`, `proxy`, `none`,
 `dev` or `demo`), `scopes` (for a person what they may put on a token; for a token its own),
-`audience`, `capabilities.tokens` (whether you may create a token here) and `warnings`
-(`admin_wildcard`, `auth_none`, and for administrators `anonymous_viewer` and `oidc_open`).
+`audience`, `capabilities.tokens` (whether you may create a token here), `capabilities.oauth`
+(whether dash serves [OAuth](#oauth)) and `warnings` (`admin_wildcard`, `auth_none`, and for
+administrators `anonymous_viewer` and `oidc_open`).
 
 A request to `/api` without a valid sign-in is 401 with
 `{"code": "unauthenticated", "details": {"mode": "local", "setup": false, "oidc": {"issuer": "<host>"}}}`
@@ -391,7 +498,7 @@ The sign-in routes are outside `/api` and not in the OpenAPI document:
 |---|---|
 | `POST /login` `{"username","password"}` | 204 and the session cookie; 401 `unauthenticated` for any wrong name or password; 429 `rate_limited` with `Retry-After` |
 | `POST /setup` `{"token","password"}` | 200 `{"adminUser"}` (the account it created; no other answer names it) and the session cookie; 401 `invalid_token`; 400 for a password out of bounds; 404 once the account exists |
-| `POST /auth/logout` `{"scope":"this"\|"user"\|"all"}` | 204 and a cookie that clears the session; `all` is for administrators |
+| `POST /auth/logout` `{"scope":"this"\|"user"\|"all"}` | 204 and a cookie that clears the session; `user` also revokes your OAuth grants, `all` (administrators) every session and every grant; 503 `audit_unavailable`, with nothing changed, when there are grants to revoke and the audit log cannot be written |
 | `GET /auth/oidc/start?next=/path` | 302 to the provider; 503 `upstream_unavailable` when it cannot be reached |
 | `GET /auth/callback` | 302 to `next` with the session, or to `/login?error=not_allowed` / `oidc_failed` |
 

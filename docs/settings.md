@@ -49,11 +49,17 @@ Writes are refused in two more cases:
   creates one (shown once, with a copy button) and revokes one after a confirmation. An
   administrator also lists one user's or everyone's tokens and may grant `actions:<plugin>`.
   Without a writable data directory the page explains why tokens can't be created.
+- **`/settings/connected-apps`**, open to every signed-in user while dash serves
+  [OAuth](auth.md#oauth), lists the applications they connected (OAuth grants): the client, the
+  audience, the scopes, when it was created and last used, with a revoke behind a confirmation.
+  An administrator also lists one user's or everyone's. In the proxy mode, which has no logout,
+  **Revoke all my connected apps** revokes every one of the caller's grants.
 
-A viewer gets the navigation entry for the one settings page a viewer may use, **Tokens**
-(personal access tokens): `/settings` shows them only that link. Any other settings URL shows
-a viewer "Not authorised", and the page sends no settings request. The anonymous viewer of the
-`local` mode and every user of the `none` mode have no tokens, so no entry at all.
+A viewer gets the navigation entries for the settings pages a viewer may use, **Tokens**
+(personal access tokens) and, with OAuth on, **Connected apps**: `/settings` shows them only
+those links. Any other settings URL shows a viewer "Not authorised", and the page sends no
+settings request. The anonymous viewer of the `local` mode and every user of the `none` mode
+have no tokens, so no entry at all.
 
 Two notices sit above every page for administrators: **Restart required** lists the settings
 that changed since dash started and apply only after a restart (it reads the settings every

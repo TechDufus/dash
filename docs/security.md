@@ -45,6 +45,29 @@ from the owner's recorded groups and the current admin lists. Settings and token
 tokens (403). Revocation applies to the next request and ends open streams within a heartbeat.
 Details: [API tokens](auth.md#api-tokens).
 
+## OAuth
+
+With `auth.oauth.enabled` (off by default) dash is an OAuth 2.1 authorization server for public
+clients ([auth.md](auth.md#oauth)). The authorization code flow requires PKCE S256 and a
+`resource`, and returns `iss` with the code; a redirect URI must match one the client registered
+exactly (an http loopback one on any port), and an error is never sent to an unverified one.
+Only the built-in `dash-android` client may be granted `approvals` or `push`; any other client
+asking for them gets `invalid_scope`. Consent is always asked, interactive-only and CSRF-checked.
+Codes live 60 seconds and work once. Access tokens are sealed (XChaCha20-Poly1305, under a key
+from `DASH_SECRET_KEY` and the store's salt), live 15 minutes, and each use re-checks the grant
+and derives the role again. Refresh tokens are stored as hashes and rotate; a rotated one used
+again, a code used twice, or a failed PKCE check revokes the grant. Grants are capped at 20 a
+user and end after 30 idle or 180 days; approving and revoking them is audited fail-closed.
+
+A client ID metadata document is fetched by a client that dials only global addresses (checked
+after name resolution, so a rebinding name is refused too), uses no proxy from the environment,
+follows no redirect and reads at most 64 KiB within 5 seconds. `auth.oauth.cimdAllowPrivate` adds
+private and loopback addresses, never link-local ones. `/oauth/token` and `/oauth/revoke` need no
+sign-in and no CSRF header (they read no cookie), and are limited to 60 requests a minute per
+client and peer; unknown pending requests are capped. Behind an identity proxy,
+`server.directURL` names a second origin for these endpoints; the proxy's trusted peers stay
+loopback, so nothing arriving on the direct host is signed in by a header.
+
 ## Requests
 
 - **CSRF and Origin.** Every request other than `GET` and `HEAD` needs the header
@@ -54,10 +77,12 @@ Details: [API tokens](auth.md#api-tokens).
   exempt (a browser never attaches a bearer token on its own); a `Bearer` header that resolves to
   nothing, as in `auth.mode=none`, exempts nothing.
 - **CORS.** None by default. `server.corsOrigins` lets listed origins call the API with a bearer
-  token, never with cookies (`Access-Control-Allow-Credentials` is never sent).
-- **The Host allow-list.** The API listener answers only the host of `server.publicURL` and the
-  names in `server.allowedHosts`; any other `Host` gets 421 `unknown_host`. This stops DNS
-  rebinding: a hostile page whose name resolves to dash's address cannot read dash's answers.
+  token, and read the OAuth metadata, token and revoke endpoints, never with cookies
+  (`Access-Control-Allow-Credentials` is never sent) and never `/oauth/authorize`.
+- **The Host allow-list.** The API listener answers only the hosts of `server.publicURL` and
+  `server.directURL` and the names in `server.allowedHosts`; any other `Host` gets 421
+  `unknown_host`. This stops DNS rebinding: a hostile page whose name resolves to dash's address
+  cannot read dash's answers.
   `server.allowedHosts: ["*"]` turns the check off. Dev and demo mode also accept `localhost`,
   `127.0.0.1` and `::1`.
 - **Content-Security-Policy.** The web UI's document gets `default-src 'self'`, scripts only from
@@ -164,7 +189,7 @@ workflows for unsafe patterns (actionlint, zizmor).
 
 ## Not built yet
 
-These features are designed and planned, and **none of them exists in any release**: a built-in
-OAuth 2.1 server, an MCP server for AI agents, human approval of agent actions, and push
-notifications. Each will be documented here when it ships.
-[SECURITY.md](../SECURITY.md#planned-not-yet-built) lists them in the reporting scope.
+These features are designed and planned, and **none of them exists in any release**: an MCP
+server for AI agents, human approval of agent actions, and push notifications. Each will be
+documented here when it ships. [SECURITY.md](../SECURITY.md#planned-not-yet-built) lists them in
+the reporting scope.

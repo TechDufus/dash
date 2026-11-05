@@ -45,6 +45,11 @@ model these protections make up. In particular:
   administrator's action, or anyone reaching dash as someone else, is a vulnerability.
 - **API tokens:** personal access tokens and `auth.tokens`, their scopes, audiences and
   revocation, the CSRF exemption of a bearer request and `server.corsOrigins`.
+- **The OAuth authorization server** (`auth.oauth`, since v0.14.7): `/oauth/authorize`,
+  `/oauth/token`, `/oauth/revoke` and the `/.well-known/oauth-*` documents, PKCE and the
+  redirect URI match, the consent page and Settings → Connected apps, the access and refresh
+  tokens and the grants behind them, the fetch of client ID metadata documents and its address
+  guard (`auth.oauth.cimdAllowPrivate`), and `server.directURL`.
 - **Settings and secrets:** the settings store and the settings page, the encryption of secrets
   saved from the UI (`DASH_SECRET_KEY` and its rotation), the `env:`, `file:` and `k8s:` secret
   references, redaction of secrets in logs, API answers and the audit log, and the audit log
@@ -68,7 +73,6 @@ today. Each enters the scope above in the release that ships it:
 
 | Feature | Status |
 |---|---|
-| A built-in OAuth 2.1 authorization server | planned, not built |
 | An MCP server for AI agents | planned, not built |
 | Human approval of agent actions | planned, not built |
 | Push notifications (Web Push and UnifiedPush) | planned, not built |

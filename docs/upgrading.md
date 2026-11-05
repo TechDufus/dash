@@ -94,3 +94,14 @@ The API moved under `/api/v1` and the plugins' own routes; every old path answer
   set. Remove `auth.tokens` and `server.corsOrigins` from the config file too: v0.14.5 refuses a
   file with keys it does not know. Since v0.14.6 the proxy mode creates the file in a writable data
   dir as well, and a second dash on the same data dir refuses to start.
+- **OAuth and rolling back (v0.14.7).** v0.14.7 adds the OAuth authorization server
+  (`auth.oauth`, off by default) and `server.directURL`. "Log out everywhere" now revokes your
+  connected apps as well, and is offered to every signed-in user; "Sign out all users" is the
+  administrators' former "Log out everywhere". OAuth grants live in `credentials.yaml`. To roll
+  back to v0.14.6, remove `auth.oauth` and `server.directURL` from the config file (and their
+  variables): v0.14.6 refuses a file with keys it does not know. v0.14.6 does not know grants
+  either: it ignores them, drops them at its next write of `credentials.yaml`, and a later
+  upgrade could find the ones it did not drop. So the file must hold no grants: revoke every
+  connected app before rolling back ("Sign out all users", or Settings → Connected apps), or
+  stop dash and delete `credentials.yaml`, which ends every session and revokes every token and
+  grant. With the chart, turn `routes.direct` off first.
