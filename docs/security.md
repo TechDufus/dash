@@ -32,16 +32,29 @@ from its last renewal and at most 7 days. Logging out ends the user's sessions o
 an administrator can end everyone's. In the local mode failed logins back off per address and
 per account, up to 15 minutes. Details: [Sessions](auth.md#sessions).
 
-In the `local`, `oidc` and `proxy` modes a `Bearer` credential is refused (401 `invalid_token`):
-API tokens do not exist yet (see [Not built yet](#not-built-yet)). `none`, `DASH_DEV` and
-`DASH_DEMO` ignore it.
+## API tokens
+
+Programs authenticate with a bearer token: a personal access token (Settings → Tokens) or a
+static token of `auth.tokens`. dash stores only SHA-256 hashes, in `credentials.yaml` (mode 0600),
+and compares them in constant time. dash keeps no `.bak` copy of the file; restoring the data
+volume brings back revoked tokens, so revoke them again after a restore. The token's secret is
+never logged, audited or shown again. Tokens are bound to one audience (`api`
+or `mcp`), narrowed by scopes (`read`, `logs`, `actions:<plugin>` for administrators; never
+`approvals` or `push`) and to an expiry of at most a year, and the role is derived on every request
+from the owner's recorded groups and the current admin lists. Settings and token management refuse
+tokens (403). Revocation applies to the next request and ends open streams within a heartbeat.
+Details: [API tokens](auth.md#api-tokens).
 
 ## Requests
 
 - **CSRF and Origin.** Every request other than `GET` and `HEAD` needs the header
   `X-Dash-Csrf: 1` and an `Origin` equal to the origin of `server.publicURL`; anything else is
   403 `csrf_failed` (a wrong `Host` is 421 and an unauthenticated `/api` request 401 first). A
-  browser page on another site can send neither.
+  browser page on another site can send neither. A request dash resolved to an API token is
+  exempt (a browser never attaches a bearer token on its own); a `Bearer` header that resolves to
+  nothing, as in `auth.mode=none`, exempts nothing.
+- **CORS.** None by default. `server.corsOrigins` lets listed origins call the API with a bearer
+  token, never with cookies (`Access-Control-Allow-Credentials` is never sent).
 - **The Host allow-list.** The API listener answers only the host of `server.publicURL` and the
   names in `server.allowedHosts`; any other `Host` gets 421 `unknown_host`. This stops DNS
   rebinding: a hostile page whose name resolves to dash's address cannot read dash's answers.
@@ -109,9 +122,10 @@ signing keys) also uses the environment's proxy and has no dial guard.
 
 Every action, settings change, silence change and stored-secret change is recorded as an `audit`
 log record, and appended to `audit.jsonl` in the data directory when it is writable: who, what,
-the target and the outcome, never a secret or a changed value. Refused requests (CSRF,
-unauthenticated, stream caps, a denied namespace) are recorded too, at most once per user (or,
-before sign-in, per peer) and reason a minute.
+the target and the outcome, never a secret or a changed value. A token's request names the token
+(`actor.tokenID`); creating or revoking a token is audited like any change. Refused requests (CSRF,
+unauthenticated, an invalid token, a missing scope, stream caps, a denied namespace) are recorded
+too, at most once per user (or, before sign-in, per peer) and reason a minute.
 Each line carries the hash of the one before, and `dash audit verify` checks the chain. The
 chain proves the history was not rewritten, not that it is complete: dropping the first line,
 or editing or dropping a last line that is not an intent, still verifies.
@@ -150,7 +164,7 @@ workflows for unsafe patterns (actionlint, zizmor).
 
 ## Not built yet
 
-These features are designed and planned, and **none of them exists in any release**: personal
-access tokens and bearer-token API clients, a built-in OAuth 2.1 server, an MCP server for AI
-agents, human approval of agent actions, and push notifications. Each will be documented here when
-it ships. [SECURITY.md](../SECURITY.md#planned-not-yet-built) lists them in the reporting scope.
+These features are designed and planned, and **none of them exists in any release**: a built-in
+OAuth 2.1 server, an MCP server for AI agents, human approval of agent actions, and push
+notifications. Each will be documented here when it ships.
+[SECURITY.md](../SECURITY.md#planned-not-yet-built) lists them in the reporting scope.

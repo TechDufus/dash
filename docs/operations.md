@@ -38,7 +38,7 @@ answers 404. The registry is private: there are no Go or process collectors, onl
 | `dash_plugin_state` | `plugin`, `state`: 1 for the state an instance is in, 0 for the other seven |
 | `dash_upstream_requests_total`, `dash_upstream_request_duration_seconds` | `plugin` (`prometheus`, `alertmanager`, `victorialogs`, `gatus`, `proxmox`), `outcome` (counter only: `ok`, `timeout`, `tls`, `auth`, `http_4xx`, `http_5xx`, `invalid_response`, `unreachable`) |
 | `dash_actions_total` | `plugin`, `action`, `outcome` (`ok`, `error`, `denied`, `invalid`, `rate_limited`) |
-| `dash_auth_failures_total` | `reason` (`unauthenticated`, `csrf`, `forbidden`, `rate_limit`, `namespace_denied`, `stream_limit`, `untrusted_peer`, `ambiguous_identity`, `login_failed`, `login_throttled`) |
+| `dash_auth_failures_total` | `reason` (`unauthenticated`, `csrf`, `forbidden`, `rate_limit`, `namespace_denied`, `stream_limit`, `untrusted_peer`, `ambiguous_identity`, `login_failed`, `login_throttled`, `invalid_token`, `ambiguous_credentials`, `insufficient_scope`) |
 
 Every label value comes from a fixed set: a route is a pattern, never the path asked for, and no
 series carries a user, an object or a host name. The `/metrics` endpoint is unauthenticated like
@@ -91,6 +91,17 @@ the target. Refused requests (CSRF, unauthenticated, stream caps, a denied names
 too, at most once per peer and reason per minute. Each line carries the SHA-256 of the previous
 one, so an edited, deleted or reordered line is detectable. At 10 MiB the file rotates to
 `audit.jsonl.1` (newest) to `audit.jsonl.5` (oldest); older records are dropped.
+
+API tokens add these records:
+
+| Record | Action | Target | Actor |
+|---|---|---|---|
+| a token created | `token.create` (intent, then outcome) | `{kind: token, namespace: <owner>, name: <token ID>}` | the person who created it |
+| a token revoked | `token.revoke` (intent, then outcome) | as above | the person who revoked it (the owner, or an administrator) |
+| a request by a token | the action's own (an action, a log tail) | the action's | `type: token`, the owner (`token:<name>` for a static token), `tokenID`, `surface: api` |
+| a refused token | the request line, kind `denial`, reason `invalid_token`, `ambiguous_credentials`, `insufficient_scope` or `forbidden` | none | `surface: api`; the token's owner when it resolved |
+
+`authMode` is always the server's mode. No record holds a token's secret.
 
 - **Without a writable data dir** (missing, read-only, or demo mode) the records go to stdout
   and the latest 500 records, plus 200 refusals, are kept in memory and shown on the audit

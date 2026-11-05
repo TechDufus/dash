@@ -86,3 +86,11 @@ The API moved under `/api/v1` and the plugins' own routes; every old path answer
   from the server. To remove it: developer tools → *Application* → *Service workers* →
   *Unregister*, then *Storage* → *Clear site data*, which also signs you out
   ([details](app.md#rolling-back)).
+- **API tokens and rolling back (v0.14.6).** `credentials.yaml` stays `schemaVersion: 1` until it
+  holds a personal access token; from the first token on it is written as `schemaVersion: 2`, which
+  v0.14.5 and earlier refuse to start with (rather than drop the tokens). To roll back to v0.14.5
+  after creating tokens, stop dash and delete `credentials.yaml`: that ends every session and
+  revokes every token, and in the local mode reopens `/setup` unless `DASH_ADMIN_PASSWORD_HASH` is
+  set. Remove `auth.tokens` and `server.corsOrigins` from the config file too: v0.14.5 refuses a
+  file with keys it does not know. Since v0.14.6 the proxy mode creates the file in a writable data
+  dir as well, and a second dash on the same data dir refuses to start.

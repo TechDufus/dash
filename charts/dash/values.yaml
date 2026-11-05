@@ -64,7 +64,9 @@ secretKey:
 persistence:
   # true: a PersistentVolumeClaim for /data (UI settings, credentials, audit log, backups).
   # false: an emptyDir, lost with the pod. Set settings.ui: readonly then: edits made in the UI
-  # would vanish at the next restart, and so would every sign-in.
+  # would vanish at the next restart, and so would every sign-in and every personal access
+  # token. With replicaCount above 1 each pod has its own credentials.yaml, so a token created
+  # through one pod is unknown to the others: keep one replica for tokens.
   enabled: true
   size: 256Mi
   # [ReadWriteOncePod] keeps any second pod in the cluster off the volume, where the CSI driver

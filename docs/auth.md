@@ -117,7 +117,8 @@ mode (a session of the local mode never opens in the oidc mode, or the other way
 everywhere" (administrators) ends every session of every user. An event stream or log tail that is
 already open ends at its next heartbeat, within 15 seconds, and the page goes to sign in again.
 `credentials.yaml` is mode 0600, written atomically, never backed up (`.bak`), and locked
-(`.credentials.lock`) so that a second dash on the same data dir refuses to start.
+(`.credentials.lock`) so that a second dash on the same data dir refuses to start. It also holds
+the [personal access tokens](#api-tokens) (their hashes), so deleting it revokes every token too.
 
 ## The oidc mode
 
@@ -213,13 +214,170 @@ The Service and the route point at the proxy's port (4180), never at dash's. das
 `principal seen` line the first time each user appears, with the header that named them: use it to
 check the exact name to put in `adminUsers`. oauth2-proxy strips any `X-Forwarded-*` a client
 sends before it sets its own. With `--pass-authorization-header` unset it forwards no
-`Authorization`; a `Bearer` credential that does reach dash is refused (401 `invalid_token`).
+`Authorization`, so a bearer client cannot reach dash through the proxy at all; see
+[API tokens in the proxy mode](#api-tokens-in-the-proxy-mode).
+
+## API tokens
+
+Programs (scripts, CI jobs, agents) call the API with a bearer token:
+`Authorization: Bearer <token>`. In every mode but `none` (which ignores the header, and where the
+token routes answer 404) dash looks at a bearer credential **first**: the request is the token's
+and nothing else, so the identity headers of a proxy are not read.
+
+- With dash's session cookie as well it is 400 `ambiguous_credentials`. An identity proxy's own
+  cookie is not dash's and does not count.
+- A credential that does not start with `dash_` is refused before any lookup. An unknown, expired
+  or revoked token is 401 `invalid_token` ("invalid token"); a valid token of the other audience
+  is 401 `invalid_token` too, saying "token not valid for this API (audience mcp)". Every 401 of
+  `/api` carries `WWW-Authenticate: Bearer resource_metadata="<publicURL>/.well-known/oauth-protected-resource/api"`.
+  The document itself arrives with the built-in OAuth server; until then every `/.well-known/`
+  path answers a JSON 404.
+- A token request needs no `X-Dash-Csrf` header and no `Origin`: the skip applies to a request
+  whose token dash resolved, never to one that merely carries the header.
+- An `api` token gets 300 requests a minute on average, in bursts of up to 300 (a token bucket);
+  past that it is 429 `rate_limited` with `Retry-After`.
+- Settings, the token routes and every other route for people answer a token 403 `forbidden`
+  ("this route needs a signed-in user, not a token").
+- An open event stream or log tail re-checks its token at every heartbeat, so a revoked token's
+  stream ends within 15 seconds.
+- The audit log records a token's request with `actor.type: token`, the `api` surface and its
+  `tokenID` (the token's ID, or `static:<name>`), and the audit view shows it. `authMode` stays
+  the server's mode (`proxy`, `local`, ...), in `/api/v1/me` as in the audit log, and a refused
+  bearer credential is recorded on the `api` surface.
+
+**Scopes** narrow what the role allows:
+
+| Scope | Grants |
+|---|---|
+| `read` | `/api/v1/me`, topics, the stream, series and the plugins' read routes |
+| `logs` | log queries and tails |
+| `actions:<plugin>` | that plugin's enabled actions; minted by administrators only, for a plugin whose actions are enabled |
+
+A token without the scope a route needs gets 403 `insufficient_scope`, and the message names the
+scope ("this token lacks the read scope"). `approvals` and `push` never go on a personal access
+token or a static token. A token's role is derived on every request (below), and each action
+still needs its own role: when an administrator who minted an `actions:` token is demoted, the
+token keeps its scope but runs only the actions a viewer may run (most need an administrator).
+Revoke the token if it should run nothing.
+
+**Action namespaces.** A token's `actionNamespaces` restrict where its actions may act: each entry
+is an exact namespace (`media` admits `media`, not `media-prod`) or a prefix ending in `*` (`apps-*`
+admits `apps-web`, never `my-apps-x`). An empty list adds no restriction. A non-empty list also
+refuses an action whose target has no namespace, a silence for example (403), unless it holds
+`*`.
+
+**Audiences.** Each token is bound to `api` (`/api/v1`) or `mcp` (`/mcp`, for the MCP server of a
+later release; the Tokens page offers it once dash serves MCP). Presented at the other surface it
+is 401 `invalid_token`, so a token handed to an agent for MCP cannot be replayed against the REST
+API.
+
+### Personal access tokens
+
+Settings → Tokens (`/settings/tokens`), open to everyone who signs in, creates them; the token is
+shown once, and the dialog that shows it closes only with Done or its close button. The format is
+`dash_pat_<10-character ID>_<43-character secret>`; dash keeps only its SHA-256 and compares in
+constant time. Each token has a name (1 to 64 characters with at least one visible one, no control
+or format characters), an audience, scopes, the optional `actionNamespaces` (above) and an expiry
+of 1 to 365 days (30 when absent). `lastUsedAt` is noted only for a request the token was accepted
+for, kept in memory and written (in UTC, to the second) at least every 5 minutes and when dash
+stops.
+
+A viewer creates `read` and `logs` tokens and revokes their own; an administrator also creates
+`actions:<plugin>` tokens and lists (`GET /api/v1/tokens?user=<name>` or `?user=*`) and revokes
+anyone's. A user holds at most 50 tokens that have not expired (409 `token_limit`) and creates at
+most 10 a minute (429). Tokens that expired more than 30 days ago are deleted. Revocation applies
+to the next request. Creating and revoking are audited before they happen: when the audit log
+cannot be written, the answer is 503 `audit_unavailable` and nothing changes. A revocation that
+cannot be written to `credentials.yaml` (a full disk, a file replaced while dash runs) still holds
+in dash, but answers 500: the token would come back at the next restart. In an emergency stop dash
+and delete `credentials.yaml`: that revokes every token and ends every session.
+
+Tokens need somewhere to live. With a writable data dir they are in `credentials.yaml` in the
+local, oidc and proxy modes. Without one the store is in memory, and creating a token is refused
+(409 `tokens_unavailable`; `/api/v1/me` says `capabilities.tokens: false`, and the Tokens page
+says tokens are not available) because it would be lost at the next restart. Dev and demo mode
+keep tokens in memory anyway, so you can try a client against them; they are gone when dash
+stops. On Kubernetes the same holds for the pod: with the chart's `persistence.enabled: false`
+the data dir is an `emptyDir`, so every token vanishes when the pod restarts, and with several
+replicas each pod has its own tokens: a token created through one pod is unknown to the others.
+Run one replica with persistence for tokens.
+
+**Tokens follow the identity provider.** A token records its owner's groups and role-claim values
+(local users have none), and the role is derived from them with the current admin lists on every
+request, then narrowed by the scopes. Whenever dash sees the person again (a login in the local
+and oidc modes, any request in the proxy mode) it rewrites what their tokens record, and writes
+nothing when it is unchanged; when the file cannot be written the change still holds in dash.
+A group change therefore reaches a token at the owner's next login (local, oidc) or next request
+(proxy). Removing someone at the identity provider does not reach a token they never use
+interactively: when you offboard a person, revoke their tokens in dash too.
+
+| Route | What |
+|---|---|
+| `GET /api/v1/tokens` | `{"tokens": [{id, name, user, audience, scopes, actionNamespaces, createdAt, expiresAt, lastUsedAt}]}`; `?user=` for administrators (empty: your own) |
+| `POST /api/v1/tokens` `{name, audience, scopes, actionNamespaces?, expiresInDays?}` | 201 `{"token", "info"}`; 400 `invalid_input` with `details.fields[{path, message}]`; 403 for `actions:*` by a viewer and for `approvals` or `push`; 409 `token_limit` or `tokens_unavailable`; 429 |
+| `DELETE /api/v1/tokens/{id}` | 204; 404 for a token that is not yours (viewers); 500 when the revocation could not be written |
+
+### Static tokens
+
+For GitOps installs, `auth.tokens` (file, or `DASH_AUTH_TOKENS` as JSON) lists tokens by their
+hash. Make each token with `dash token generate`, which prints a `dash_st_<43 characters>` token
+and its hash; only the hash goes into the config. A token you make some other way must start with
+`dash_` (dash refuses any other bearer credential before looking it up) and should be as random:
+the log scrubber redacts `dash_st_` tokens by their shape.
+
+```yaml
+auth:
+  tokens:
+    - {name: ci, role: viewer, audience: api, scopes: [read], hash: "sha256:<64 hex digits>"}
+```
+
+The principal is `token:<name>` with the configured role. Scopes are limited as for personal
+access tokens, and an `mcp` token cannot hold `actions:*`: an agent's actions wait for the owning
+user's approval, and a static token has no owner (use a personal access token). A broken entry
+stops dash from starting, naming its position, never its value. A change in the config file
+applies on reload, so removing an entry revokes it at once; from the environment it needs a
+restart. In `auth.mode=none` the list is ignored, with a WARN at start. The settings page shows
+each entry as `ci (viewer, api, read)`, never its hash.
+
+### CORS
+
+Browser-based bearer clients (an MCP inspector, a web tool on another origin) need
+`server.corsOrigins`, a list of origins (`scheme://host[:port]`, never `*`; restart-only). Without
+it dash sends no `Access-Control-*` header at all, and neither does it in `auth.mode=none`, which
+has no bearer clients (the setting is ignored there, with a WARN at start). A listed origin gets:
+
+- an answer to its preflight (`OPTIONS` with `Access-Control-Request-Method`), on the origin alone:
+  `Access-Control-Allow-Origin: <origin>`, `Access-Control-Allow-Methods: GET, POST, DELETE`,
+  `Access-Control-Allow-Headers: authorization, content-type, if-none-match, mcp-protocol-version, mcp-method, mcp-name`,
+  `Access-Control-Max-Age: 600` and `Vary: Origin`;
+- `Access-Control-Allow-Origin` and `Access-Control-Expose-Headers: ETag, X-Request-Id, WWW-Authenticate`
+  on every answer to a request dash resolved to a token, and on any 401. A `Bearer` header that
+  resolves to no token grants nothing.
+
+`Access-Control-Allow-Credentials` is never sent, so cookie and identity-proxy requests stay
+same-origin.
+
+### API tokens in the proxy mode
+
+A bearer client has no identity proxy session, so the proxy in front of dash turns it away (or
+strips its `Authorization`). Bearer clients need a route to dash that bypasses the identity proxy.
+The chart's `routes.direct` and `server.directURL` provide one in the release with the built-in
+OAuth server. Until then a proxy-mode install can create and manage tokens, and a route you set up
+yourself needs:
+
+- dash listening where that route reaches it: `server.listen` on a non-loopback address such as
+  `0.0.0.0:8080` (the sidecar setup binds `127.0.0.1`, which only the proxy reaches);
+- the route's host name in `server.allowedHosts` (any other `Host` gets 421);
+- the route's peer never in `auth.proxy.trustedProxies`: dash would then believe identity headers
+  that peer forwards. Keep the trusted list to the sidecar's loopback addresses, so the direct
+  route carries bearer tokens and nothing else.
 
 ## What the API answers
 
 `/api/v1/me` says who you are: `user`, `role`, `authMode` (`local`, `oidc`, `proxy`, `none`,
-`dev` or `demo`) and `warnings` (`admin_wildcard`, `auth_none`, and for administrators
-`anonymous_viewer` and `oidc_open`).
+`dev` or `demo`), `scopes` (for a person what they may put on a token; for a token its own),
+`audience`, `capabilities.tokens` (whether you may create a token here) and `warnings`
+(`admin_wildcard`, `auth_none`, and for administrators `anonymous_viewer` and `oidc_open`).
 
 A request to `/api` without a valid sign-in is 401 with
 `{"code": "unauthenticated", "details": {"mode": "local", "setup": false, "oidc": {"issuer": "<host>"}}}`

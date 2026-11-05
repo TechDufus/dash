@@ -43,6 +43,8 @@ model these protections make up. In particular:
   [docs/auth.md](docs/auth.md)), the session cookie, login and logout, the setup token, the trust
   in `auth.proxy.trustedProxies`, and the viewer and administrator roles: a viewer reaching an
   administrator's action, or anyone reaching dash as someone else, is a vulnerability.
+- **API tokens:** personal access tokens and `auth.tokens`, their scopes, audiences and
+  revocation, the CSRF exemption of a bearer request and `server.corsOrigins`.
 - **Settings and secrets:** the settings store and the settings page, the encryption of secrets
   saved from the UI (`DASH_SECRET_KEY` and its rotation), the `env:`, `file:` and `k8s:` secret
   references, redaction of secrets in logs, API answers and the audit log, and the audit log
@@ -66,7 +68,6 @@ today. Each enters the scope above in the release that ships it:
 
 | Feature | Status |
 |---|---|
-| Personal access tokens and bearer-token API clients | planned, not built |
 | A built-in OAuth 2.1 authorization server | planned, not built |
 | An MCP server for AI agents | planned, not built |
 | Human approval of agent actions | planned, not built |

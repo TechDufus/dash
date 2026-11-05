@@ -9,7 +9,7 @@ cannot be changed from the page. dash never writes the operator's config file.
 ## Who can use it
 
 Every settings route is for an administrator signed in through the browser (a session, the
-identity proxy, `none`, dev): a viewer gets 403 and a `Bearer` credential is refused. The routes
+identity proxy, `none`, dev): a viewer gets 403, and so does an API token. The routes
 are under the `Settings` tag of [the OpenAPI document](api/openapi.json). In demo mode every
 settings route answers 404 `not_found` ("settings are not available in demo mode").
 
