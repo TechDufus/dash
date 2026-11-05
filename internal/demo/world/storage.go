@@ -6,7 +6,7 @@ import (
 	"github.com/TechDufus/dash/internal/model"
 )
 
-// Storage is the kubernetes.storage payload: PVCs, the NAS backup age and etcd. The buckets and the
+// Storage is the kubernetes.storage payload: PVCs, the backup job's age and etcd. The buckets and the
 // RustFS capacity are in cnpg.go and rustfs.go.
 func (w *World) Storage() model.StorageData { return w.storage(w.clock()) }
 
