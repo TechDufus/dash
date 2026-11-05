@@ -16,6 +16,27 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: jdx/mise-action@6be3c7ed4c21d4f76b208d351d95aac273ebb76d # v5.2.4
       - run: make check
+      # Proves the image cross-compiles for both platforms without emulation, whether or not the
+      # runner has emulators registered: every RUN must execute on the build platform
+      # (linux/amd64, or linux/amd64->arm64 for the cross-compiling stage), and the arm64 Go
+      # build must be one of them. Nothing is pushed or loaded.
+      - name: Build the image for linux/amd64 and linux/arm64 (not pushed)
+        run: |
+          set -euo pipefail
+          builder=dash-multiarch-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT
+          log=$RUNNER_TEMP/multiarch.log
+          trap 'docker buildx rm --force "$builder" >/dev/null 2>&1 || true' EXIT
+          docker buildx create --name "$builder" --driver docker-container \
+            --driver-opt image=moby/buildkit:v0.26.3@sha256:5601811fde88bb9e8a577bfe804af82bccb712e1cd07ff94663bded5e628cf75
+          docker buildx build --builder "$builder" --platform linux/amd64,linux/arm64 \
+            --output type=cacheonly --progress plain . 2>&1 | tee "$log"
+          runs=$(grep -E '^#[0-9]+ \[[^]]*\] RUN' "$log" || true)
+          emulated=$(grep -vE '^#[0-9]+ \[linux/amd64[] -]' <<<"$runs" || true)
+          if [[ -n $emulated ]]; then
+            echo "::error::a RUN step ran on the target platform (emulated):"; echo "$emulated"; exit 1
+          fi
+          grep -qE '^#[0-9]+ \[linux/amd64->arm64 go [0-9/]+\] RUN .*GOARCH=arm64' <<<"$runs" \
+            || { echo "::error::no cross-compiling arm64 Go build in the log"; exit 1; }
   release:
     if: startsWith(github.ref, 'refs/tags/v')
     needs: check
@@ -32,8 +53,10 @@ jobs:
           if docker buildx imagetools inspect "$image" >/dev/null 2>&1; then
             echo "::error::$image already exists (dash-ci is create-only); tag a new version"; exit 1
           fi
-          docker buildx build --build-arg VERSION="$version" --tag "$image" --push \
-            --metadata-file "$RUNNER_TEMP/meta.json" .
+          docker buildx build --build-arg VERSION="$version" \
+            --build-arg REVISION="$GITHUB_SHA" \
+            --build-arg CREATED="$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            --tag "$image" --push --metadata-file "$RUNNER_TEMP/meta.json" .
           digest=$(jq -r '."containerimage.digest"' "$RUNNER_TEMP/meta.json")
           echo "image: $image@$digest"
           echo "image: \`$image@$digest\`" >> "$GITHUB_STEP_SUMMARY"
