@@ -171,7 +171,10 @@ func oauthOn(a config.AuthConfig, fixed bool, store *credentials.Store, log *slo
 // pushOn reports whether push can run (contract D37): never in dev, demo or auth.mode=none
 // (no outbound traffic from a demo), and otherwise only with a credential store in a writable
 // data dir, DASH_SECRET_KEY to seal the VAPID key and endpoints, and a contact for the VAPID
-// signature. When it cannot, one INFO names what is missing.
+// signature. When it cannot, one INFO names what is missing. When it can, it opens the store's
+// push data (contract D39): values sealed with DASH_SECRET_KEY_PREVIOUS are re-sealed, and a
+// VAPID key or subscription that no longer opens is a WARN naming the devices that must
+// subscribe again.
 func pushOn(res *config.Resolved, fixed bool, store *credentials.Store, log *slog.Logger) bool {
 	var missing []string
 	switch {
@@ -193,6 +196,18 @@ func pushOn(res *config.Resolved, fixed bool, store *credentials.Store, log *slo
 	if len(missing) > 0 {
 		log.Info("push: off", "missing", strings.Join(missing, "; "))
 		return false
+	}
+	opened, err := store.OpenPush(res.Keys)
+	if err != nil {
+		log.Warn("push: off: the credential store's push data cannot be written", "err", err)
+		return false
+	}
+	if opened.Lost || opened.Stale > 0 {
+		log.Warn("push: the stored push keys do not open with DASH_SECRET_KEY (was it rotated without DASH_SECRET_KEY_PREVIOUS?); a new VAPID key is made at first need, and the stale devices must subscribe again in Settings -> Devices",
+			"vapidKeyLost", opened.Lost, "staleDevices", opened.Stale)
+	}
+	if opened.Resealed > 0 {
+		log.Info("push: re-sealed with the current DASH_SECRET_KEY", "values", opened.Resealed)
 	}
 	log.Info("push: on", "allowPrivate", len(res.Tree.Push.AllowPrivate))
 	return true

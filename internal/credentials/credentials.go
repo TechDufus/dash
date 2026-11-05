@@ -1,12 +1,13 @@
 // Package credentials is dash's credential store, credentials.yaml in the data directory (design
 // M.7, contract D10): the local administrator account, the per-user session epochs, the global
-// epoch, the session salt, the personal access tokens and the OAuth grants (hashes only). It is
-// not the settings store: auth.* is not editable from the UI, and a restored settings backup
-// must never bring back an old password, a revoked token or a revoked grant.
+// epoch, the session salt, the personal access tokens and the OAuth grants (hashes only), and
+// the push key and subscriptions (sealed with DASH_SECRET_KEY). It is not the settings store:
+// auth.* is not editable from the UI, and a restored settings backup must never bring back an
+// old password, a revoked token or a revoked grant.
 //
-// The file is mode 0600 and carries a schemaVersion: 1 until it holds a personal access token
-// or an OAuth grant, 2 from then on, so an older dash refuses it rather than dropping them on
-// its next write.
+// The file is mode 0600 and carries a schemaVersion: 1 until it holds a personal access token,
+// an OAuth grant or push data, 2 from then on, so an older dash refuses it rather than dropping
+// them on its next write.
 // Every write is atomic (a temporary file, fsync, rename, fsync of the directory) and there are
 // no .bak copies. The store has a mutex of its own and holds its own flock on
 // .credentials.lock, so a second dash on the same data directory is refused even when the
@@ -33,6 +34,8 @@ import (
 	"time"
 
 	"sigs.k8s.io/yaml"
+
+	"github.com/TechDufus/dash/internal/secret"
 )
 
 // Names and version of the store on disk.
@@ -61,8 +64,8 @@ var ErrFileChanged = errors.New("credentials: credentials.yaml was removed or re
 // tempPattern names the temporary files of the atomic write; Open removes the ones a crash left.
 const tempPattern = ".credentials.yaml.tmp-*"
 
-const header = "# Managed by dash: the local administrator account, the session epochs, the personal access tokens and the OAuth grants. Do not edit.\n" +
-	"# Stop dash, then delete this file to end every session, revoke every token and grant, and reopen /setup.\n"
+const header = "# Managed by dash: the local administrator account, the session epochs, the personal access tokens, the OAuth grants and the push devices. Do not edit.\n" +
+	"# Stop dash, then delete this file to end every session, revoke every token and grant, forget every push device and reopen /setup.\n"
 
 // Admin is the local administrator account (auth.mode=local).
 type Admin struct {
@@ -87,6 +90,8 @@ type document struct {
 	PATs map[string]PAT `json:"pats,omitempty"`
 	// Grants are the OAuth grants by ID.
 	Grants map[string]Grant `json:"grants,omitempty"`
+	// Push holds the VAPID key and the push subscriptions.
+	Push *pushDoc `json:"push,omitempty"`
 }
 
 // Store is the open credential store. Its methods are safe for concurrent use.
@@ -109,6 +114,9 @@ type Store struct {
 	usedMu    sync.Mutex
 	used      map[string]time.Time
 	grantUsed map[string]time.Time
+
+	// pushKeys seals and opens the push data; nil until OpenPush.
+	pushKeys *secret.Keyring
 }
 
 // Open opens the store of dir. A writable dir gives a persistent store: it takes the flock
@@ -291,11 +299,21 @@ func decode(data []byte) (document, []byte, error) {
 			return document{}, nil, err
 		}
 	}
+	if doc.Push != nil {
+		for id, p := range doc.Push.Subscriptions {
+			if err := validPushSubscription(id, p); err != nil {
+				return document{}, nil, err
+			}
+		}
+	}
 	return doc, salt, nil
 }
 
 func encode(doc document) ([]byte, error) {
 	doc.SchemaVersion = writtenVersion(doc)
+	if !holdsPush(doc.Push) {
+		doc.Push = nil // a rollback reads no push: section that holds nothing
+	}
 	b, err := yaml.Marshal(doc)
 	if err != nil {
 		return nil, err
@@ -374,6 +392,7 @@ func (s *Store) update(keepOnFailure bool, change func(*document) bool) error {
 	}
 	next.PATs = clonePATs(s.doc.PATs)
 	next.Grants = cloneGrants(s.doc.Grants)
+	next.Push = clonePush(s.doc.Push)
 	if !change(&next) {
 		return nil
 	}
