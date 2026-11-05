@@ -78,8 +78,15 @@ export function FieldRow({
   ]
     .filter(Boolean)
     .join(" ");
+  const control = children({
+    id,
+    labelId: ids.label,
+    errorId: error ? ids.error : undefined,
+    "aria-describedby": describedBy,
+    ...(error ? { "aria-invalid": true as const } : {}),
+  });
   return (
-    <div className="space-y-1.5" data-path={leaf.path}>
+    <div className="min-w-0 space-y-1.5" data-path={leaf.path}>
       {labelFor ? (
         <Label id={ids.label} htmlFor={id} className="font-mono">
           {leaf.key}
@@ -89,27 +96,26 @@ export function FieldRow({
           {leaf.key}
         </span>
       )}
-      {children({
-        id,
-        labelId: ids.label,
-        errorId: error ? ids.error : undefined,
-        "aria-describedby": describedBy,
-        ...(error ? { "aria-invalid": true as const } : {}),
-      })}
-      {f?.locked && (leaf.kind === "boolean" || leaf.kind === "enum") && (
-        // A disabled switch or select takes no focus: the lock and its reason stay reachable here.
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <button
-              type="button"
-              aria-label={`Locked: ${lockText(f)}`}
-              className="inline-flex rounded-sm text-faint focus-visible:outline-2 focus-visible:outline-accent"
-            >
-              <Lock className="size-3.5" aria-hidden="true" />
-            </button>
-          </TooltipTrigger>
-          <TooltipContent>{lockText(f)}</TooltipContent>
-        </Tooltip>
+      {f?.locked && (leaf.kind === "boolean" || leaf.kind === "enum") ? (
+        // A disabled switch or select takes no focus: the lock and its reason stay reachable here,
+        // beside the control.
+        <div className="flex min-w-0 items-center gap-2">
+          {control}
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                type="button"
+                aria-label={lockText(f)}
+                className="inline-flex shrink-0 rounded-sm text-faint focus-visible:outline-2 focus-visible:outline-accent"
+              >
+                <Lock className="size-3.5" aria-hidden="true" />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent>{lockText(f)}</TooltipContent>
+          </Tooltip>
+        </div>
+      ) : (
+        control
       )}
       {error && (
         <p id={ids.error} className="text-xs text-destructive">
@@ -117,7 +123,10 @@ export function FieldRow({
         </p>
       )}
       {(info || f?.restart) && (
-        <p id={ids.info} className="text-xs text-muted">
+        <p
+          id={ids.info}
+          className={f?.locked ? "text-xs break-all text-muted" : "text-xs text-muted"}
+        >
           {[info, f?.restart && "applies after a restart"].filter(Boolean).join(" · ")}
         </p>
       )}
@@ -161,10 +170,20 @@ export function FieldRow({
 /** Docs longer than this show their first sentence, the rest behind "More". */
 const LONG_DOC = 160;
 
+/** The index of the mark that ends the first sentence of `text`, or -1: a `.`, `!` or `?` followed by
+ * a space and an upper-case letter, or by the end, and not closing an abbreviation such as "e.g.". */
+export function firstSentenceEnd(text: string): number {
+  for (const m of text.matchAll(/[.!?](?=\s+[A-Z]|\s*$)/g)) {
+    if (/(?:^|[\s(])(?:e\.g|i\.e|etc|vs)\.$/i.test(text.slice(0, m.index + 1))) continue;
+    return m.index;
+  }
+  return -1;
+}
+
 function Doc({ id, text, name }: { id: string; text: string; name: string }) {
   const [open, setOpen] = useState(false);
   const restId = `${id}-rest`;
-  const cut = text.length > LONG_DOC ? text.search(/[.!?](\s|$)/) : -1;
+  const cut = text.length > LONG_DOC ? firstSentenceEnd(text) : -1;
   if (cut < 0 || cut + 1 >= text.trimEnd().length) {
     return (
       <p id={id} className="text-xs text-muted">

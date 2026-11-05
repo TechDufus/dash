@@ -83,9 +83,9 @@ function PluginRow({ plugin, state, message, readonly, pending, onToggle }: Plug
   const toggle = (
     <Switch
       id={switchId}
-      // The server sends whether the instance runs when `enabled` is unset; the live state is the
-      // fallback when it sends no value.
-      checked={f.value === undefined ? state !== "disabled" : f.value === true}
+      // A set `enabled` shows its value; an unset one follows the live core.plugins state, which
+      // is fresher than the value of the last settings read.
+      checked={f.set ? f.value === true : state !== "disabled"}
       disabled={lock !== undefined || pending}
       aria-describedby={lock ? lockId : undefined}
       onCheckedChange={onToggle}

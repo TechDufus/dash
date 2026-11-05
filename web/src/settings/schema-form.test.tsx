@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import type { SettingsPluginView } from "@/api/types";
 import { renderApp, stubFetch } from "@/test/harness";
 import { settingsPaths } from "./api";
+import { firstSentenceEnd } from "./fields/field-row";
 import {
   envField,
   field,
@@ -151,11 +152,25 @@ describe("schema-driven form", () => {
     expect(sw).toBeDisabled();
     screen.getByLabelText("caFile").focus();
     await user.tab();
+    // The name says "Locked:" once.
     expect(
       screen.getByRole("button", {
-        name: /^Locked: .*DASH_PLUGINS_PROXMOX_TLS_INSECURESKIPVERIFY/,
+        name: "Locked: set by env DASH_PLUGINS_PROXMOX_TLS_INSECURESKIPVERIFY",
       }),
     ).toHaveFocus();
+  });
+
+  // Pins that a doc's first sentence does not end at an abbreviation.
+  it.each([
+    ["Holds {vmid} once, e.g. pve-{vmid}. The rest.", "Holds {vmid} once, e.g. pve-{vmid}."],
+    ["One, i.e. two, etc. and so on vs. three. Next.", "One, i.e. two, etc. and so on vs. three."],
+    ["Ends here! Then more.", "Ends here!"],
+    ["A version 1.2 note. More", "A version 1.2 note."],
+    ["No upper case after. this continues", ""],
+    ["Ends at the end.", "Ends at the end."],
+    ["No mark at all", ""],
+  ])("splits %j after its first sentence", (text, first) => {
+    expect(text.slice(0, firstSentenceEnd(text) + 1)).toBe(first);
   });
 
   // Pins that a long doc shows its first sentence and the rest behind a "More" disclosure.

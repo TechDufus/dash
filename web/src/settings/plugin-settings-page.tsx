@@ -9,12 +9,12 @@ import { usePluginsState } from "@/plugins/state";
 import { useSettingsPlugin } from "./api";
 import { SchemaForm } from "./schema-form";
 
-/** `view` with an `enabled` field that carries no value filled from the live state: an instance
- * runs unless core.plugins says it is disabled. The server sends the value; this is the fallback. */
+/** `view` with an unset `enabled` field's value taken from the live state: an instance runs
+ * unless core.plugins says it is disabled. A set `enabled` keeps its value. */
 function withLiveEnabled(view: SettingsPluginView, state: string | undefined): SettingsPluginView {
   const path = `plugins.${view.id}.enabled`;
   const f = view.fields.find((x) => x.path === path);
-  if (!f || f.value !== undefined || state === undefined) return view;
+  if (!f || f.set || state === undefined) return view;
   return {
     ...view,
     fields: view.fields.map((x) => (x === f ? { ...f, value: state !== "disabled" } : x)),
@@ -56,7 +56,7 @@ export function PluginSettingsPage({ id }: { id: string }) {
 
   return (
     <Page>
-      <div className="mx-auto max-w-3xl space-y-4">
+      <div className="max-w-3xl space-y-4">
         <div className="space-y-1">
           <Link href="/settings" className="text-xs text-muted hover:text-fg">
             ← Settings

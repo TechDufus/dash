@@ -208,7 +208,7 @@ export function SchemaForm({ view }: { view: SettingsPluginView }) {
       n.node === "leaf" ? (
         renderLeaf(n)
       ) : (
-        <fieldset key={n.rel} className="space-y-4 rounded-lg border border-line p-3">
+        <fieldset key={n.rel} className="min-w-0 space-y-4 rounded-lg border border-line p-3">
           <legend className="px-1 font-mono text-sm font-medium">{n.key}</legend>
           {n.doc && <p className="text-xs text-muted">{n.doc}</p>}
           {renderNodes(n.children)}

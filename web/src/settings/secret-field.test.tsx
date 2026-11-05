@@ -87,4 +87,18 @@ describe("secret field", () => {
     expect(stub.callsTo(DEL).map((c) => c.headers.get("If-Match"))).toEqual([`"${REVISION}"`]);
     expect(stub.callsTo(SECRET_PUT)).toHaveLength(0);
   });
+
+  // Pins that Escape on "Confirm clear" cancels like Cancel and hands focus back to Clear.
+  it("cancels a pending Clear with Escape on Confirm clear", async () => {
+    const stub = backend();
+    const DEL = `DELETE ${settingsPaths.secret("proxmox", "tokenSecret")}`;
+    renderApp(<PluginSettingsPage id="proxmox" />);
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole("button", { name: "Clear tokenSecret" }));
+    expect(screen.getByRole("button", { name: "Confirm clear tokenSecret" })).toHaveFocus();
+    await user.keyboard("{Escape}");
+    expect(screen.queryByRole("button", { name: "Confirm clear tokenSecret" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Clear tokenSecret" })).toHaveFocus();
+    expect(stub.callsTo(DEL)).toHaveLength(0);
+  });
 });

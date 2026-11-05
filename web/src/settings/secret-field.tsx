@@ -88,7 +88,7 @@ export function SecretField({
         <fieldset
           aria-labelledby={control.labelId}
           aria-describedby={control["aria-describedby"]}
-          className="space-y-2"
+          className="min-w-0 space-y-2"
         >
           <p className="text-sm">{secretStatus(f)}</p>
           {needsReentry && !open && !error && (
@@ -128,6 +128,9 @@ export function SecretField({
                         onClick={() => {
                           setConfirming(false);
                           onClear();
+                        }}
+                        onKeyDown={(e) => {
+                          if (e.key === "Escape") setConfirming(false);
                         }}
                       >
                         Confirm clear {leaf.key}

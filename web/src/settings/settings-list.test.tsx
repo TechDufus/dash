@@ -82,6 +82,22 @@ describe("SettingsPage plugin list", () => {
     expect(f.callsTo(`GET ${settingsPaths.view}`)).toHaveLength(1);
   });
 
+  // Pins that an unset `enabled` follows the live state, not the value of the last settings read:
+  // a background tab's read can say false while core.plugins already reports the instance running.
+  it("shows an unset enabled ON when its read value is false but the live state runs", async () => {
+    const stale = settingsPlugin("proxmox", {
+      name: "Proxmox VE",
+      enabled: field("plugins.proxmox.enabled", "boolean", { value: false }),
+    });
+    stubFetch(
+      settingsRoutes({ [`GET ${settingsPaths.view}`]: settingsView({ plugins: [stale] }) }),
+    );
+    const es = connect();
+    es.emit("core.plugins", pluginsEnvelope(LIVE));
+    renderApp(<SettingsPage />);
+    expect(await screen.findByRole("switch", { name: "Proxmox VE enabled" })).toBeChecked();
+  });
+
   it("toggles a plugin with the last read revision, then reads the settings again", async () => {
     const f = stubFetch(
       settingsRoutes({ [`PUT ${settingsPaths.plugin("hardware")}`]: patchResult() }),
