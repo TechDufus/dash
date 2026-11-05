@@ -255,9 +255,10 @@ DASH_SKIP_HOOKS=1 git push
 2. On `main` with CI green: `git tag vX.Y.Z && git push origin vX.Y.Z`.
 3. CI (`release` job, on a GitHub-hosted runner) waits for approval on the `release` environment,
    then publishes `ghcr.io/techdufus/dash:X.Y.Z` for linux/amd64 and linux/arm64 (also `X.Y` and
-   `latest`; no `X` tag while dash is 0.x), with build-provenance and SPDX SBOM attestations and
-   a keyless cosign signature, and pushes the chart to `oci://ghcr.io/techdufus/charts/dash` at
-   the same version. It prints `image: ghcr.io/techdufus/dash:X.Y.Z@sha256:<digest>` in the log
-   and the job summary. `X.Y.Z` is create-only for the image and the chart: a version can never
-   be pushed twice.
+   `latest`; no `X` tag while dash is 0.x) and the chart `oci://ghcr.io/techdufus/charts/dash` at
+   the same version, then signs the image digest with keyless cosign and, once the repository is
+   public, adds build-provenance and SPDX SBOM attestations (GitHub offers them to private
+   repositories only on Enterprise). It prints `image: ghcr.io/techdufus/dash:X.Y.Z@sha256:<digest>`
+   in the log and the job summary. `X.Y.Z` is create-only for the image and the chart: a version
+   can never be pushed twice, so a run that fails after the image push needs a new patch version.
 4. Deploy that tag and digest wherever dash runs.

@@ -93,8 +93,9 @@ It removes the project, its volume and the image afterwards; run it locally with
 
 ## Verify the image
 
-Each release image carries GitHub build-provenance and SPDX SBOM attestations (and BuildKit
-provenance and SBOM). Check where it was built:
+Each release image carries a keyless cosign signature and BuildKit provenance and SBOM; releases
+made since the repository went public also carry GitHub build-provenance and SPDX SBOM
+attestations. Check where it was built:
 
 ```sh
 gh attestation verify oci://ghcr.io/techdufus/dash:<version> --owner TechDufus
