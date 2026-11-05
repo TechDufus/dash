@@ -127,7 +127,7 @@ func (e *amEnv) post(path string, body any) *httptest.ResponseRecorder {
 
 func amSilenceBody(mod func(*model.SilenceRequest)) model.SilenceRequest {
 	r := model.SilenceRequest{
-		Matchers: []model.SilenceMatcher{{Name: "alertname", Value: "HighTemp"}, {Name: "instance", Value: "pve-730"}},
+		Matchers: []model.SilenceMatcher{{Name: "alertname", Value: "HighTemp"}, {Name: "instance", Value: "node-1"}},
 		Duration: "4h",
 		Comment:  "maintenance window",
 	}

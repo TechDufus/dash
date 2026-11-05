@@ -279,7 +279,7 @@ func TestRestartUnprotectedNamespaceIgnoresConfirm(t *testing.T) {
 }
 
 func TestRestartAPIErrorsKeepTheirStatus(t *testing.T) {
-	denial := "admission webhook \"guardrail\" denied the request: homelab guardrail: no restarts today " + restartSecret
+	denial := "admission webhook \"guardrail\" denied the request: admission policy: no restarts today " + restartSecret
 	for _, tc := range []struct {
 		code   int32
 		reason metav1.StatusReason
@@ -301,7 +301,7 @@ func TestRestartAPIErrorsKeepTheirStatus(t *testing.T) {
 			if ae.Status != int(tc.code) || ae.Code != tc.want {
 				t.Errorf("status %d code %q, want %d %q", ae.Status, ae.Code, tc.code, tc.want)
 			}
-			if !strings.Contains(ae.Message, "homelab guardrail: no restarts today") {
+			if !strings.Contains(ae.Message, "admission policy: no restarts today") {
 				t.Errorf("message %q lost the admission denial", ae.Message)
 			}
 			if strings.Contains(ae.Message, restartSecret) || !strings.Contains(ae.Message, "[redacted]") {

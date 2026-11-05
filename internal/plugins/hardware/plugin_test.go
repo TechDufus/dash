@@ -390,7 +390,7 @@ func TestVisibilityRuleAForBothTopics(t *testing.T) {
 
 	before := pluginconf.DefaultHardware() // nothing set: disabled
 	after := pluginconf.DefaultHardware()
-	after.Hosts = []pluginconf.HardwareHost{{Model: "Dell R730"}}
+	after.Hosts = []pluginconf.HardwareHost{{Model: "Example 2U server"}}
 	after.Machines = []pluginconf.HardwareMachine{{Name: "nas", NodeExporterNodename: "nas-1"}, {Name: "pi", GatusEndpoint: "pi SSH"}}
 	plugintest.AssertTopicsReachOpenStream(t, factory, plugin.InstanceConfig{Config: &before}, plugin.InstanceConfig{Config: &after})
 }

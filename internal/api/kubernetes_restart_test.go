@@ -241,7 +241,7 @@ func TestKubernetesRestartRunsTheCoreChain(t *testing.T) {
 // log, through the real plugin (the plugin's own scrubbing, with no core fallback to hide it).
 func TestKubernetesAdmissionMessageIsScrubbed(t *testing.T) {
 	const pat = "dash_pat_abcdefghij0123456789ABCDEFGHIJ0123456789abc"
-	msg := "homelab guardrail: denied; webhook echoed " + strings.Join(canaryForms(), " ") + " and " + pat
+	msg := "admission policy: denied; webhook echoed " + strings.Join(canaryForms(), " ") + " and " + pat
 	for _, tc := range []struct {
 		code    int32
 		want    string
@@ -258,7 +258,7 @@ func TestKubernetesAdmissionMessageIsScrubbed(t *testing.T) {
 			}, namespaceOf("media", nil), deployment("media", "app"))
 			w := e.restart(rolloutOf("media", "app"))
 			wantError(t, w, int(tc.code), tc.want)
-			if !strings.Contains(w.Body.String(), "homelab guardrail: denied") {
+			if !strings.Contains(w.Body.String(), "admission policy: denied") {
 				t.Errorf("the policy message must still reach the user: %s", w.Body)
 			}
 			everywhere := w.Body.String() + readAuditFile(t, e.dir) + e.logs.String()

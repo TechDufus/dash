@@ -132,7 +132,7 @@ func bodyWithoutRequestID(w *httptest.ResponseRecorder) string {
 // plugin (TestReconcileAPIErrorsAreMappedAndScrubbed).
 func TestPluginActionRefusalsAreScrubbedOnTheWayOut(t *testing.T) {
 	const pat = "dash_pat_abcdefghij0123456789ABCDEFGHIJ0123456789abc"
-	msg := "homelab guardrail: denied; webhook echoed " + strings.Join(canaryForms(), " ") + " and " + pat
+	msg := "admission policy: denied; webhook echoed " + strings.Join(canaryForms(), " ") + " and " + pat
 	for _, status := range []int{400, 403, 404, 409, 422} {
 		t.Run(fmt.Sprint(status), func(t *testing.T) {
 			h := newHarness(t)
@@ -142,7 +142,7 @@ func TestPluginActionRefusalsAreScrubbedOnTheWayOut(t *testing.T) {
 			if w.Code != status {
 				t.Fatalf("code = %d, want %d (%s)", w.Code, status, w.Body)
 			}
-			if !strings.Contains(w.Body.String(), "homelab guardrail: denied") {
+			if !strings.Contains(w.Body.String(), "admission policy: denied") {
 				t.Errorf("the policy message must still reach the user: %s", w.Body)
 			}
 			for _, leak := range append(canaryForms(), pat) {

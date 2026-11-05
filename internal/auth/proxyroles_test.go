@@ -10,14 +10,14 @@ func groupsIdentity() ProxyIdentity {
 }
 
 func TestAuthenticateMapsTheRoleFromTheRoleMap(t *testing.T) {
-	p := NewProxy(loopbackOnly, groupsIdentity(), RoleMap{AdminUsers: []string{"TechDufus"}, AdminGroups: []string{"ops"}})
+	p := NewProxy(loopbackOnly, groupsIdentity(), RoleMap{AdminUsers: []string{"Bob"}, AdminGroups: []string{"ops"}})
 	for _, tc := range []struct {
 		name string
 		kv   []string
 		want Role
 	}{
-		{"listed user", []string{"X-Forwarded-User", "TechDufus"}, RoleAdmin},
-		{"user match is case-sensitive", []string{"X-Forwarded-User", "techdufus"}, RoleViewer},
+		{"listed user", []string{"X-Forwarded-User", "Bob"}, RoleAdmin},
+		{"user match is case-sensitive", []string{"X-Forwarded-User", "bob"}, RoleViewer},
 		{"unlisted user", []string{"X-Forwarded-User", "dash-verify"}, RoleViewer},
 		{"admin group", []string{"X-Forwarded-User", "dash-verify", "X-Forwarded-Groups", "dev,ops"}, RoleAdmin},
 		{"group match is exact", []string{"X-Forwarded-User", "dash-verify", "X-Forwarded-Groups", "Ops,ops-team"}, RoleViewer},

@@ -76,7 +76,7 @@ func TestHeadlampKinds(t *testing.T) {
 		{"StatefulSet", "monitoring", "vmsingle", base + "statefulsets/monitoring/vmsingle"},
 		{"DaemonSet", "kube-system", "cilium", base + "daemonsets/kube-system/cilium"},
 		{"Job", "rustfs", "j", base + "jobs/rustfs/j"},
-		{"CronJob", "rustfs", "nas-backup", base + "cronjobs/rustfs/nas-backup"},
+		{"CronJob", "rustfs", "nightly-backup", base + "cronjobs/rustfs/nightly-backup"},
 		{"Node", "", "node-1", base + "nodes/node-1"},
 		{"Namespace", "", "monitoring", base + "namespaces/monitoring"},
 		{"PersistentVolumeClaim", "monitoring", "data", base + "storage/persistentvolumeclaims/monitoring/data"},

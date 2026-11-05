@@ -258,7 +258,7 @@ func TestRecordLineAppendsFields(t *testing.T) {
 		want  string
 	}{
 		{"plain message", nil, "audit"},
-		{"sorted fields", map[string]string{"user": "TechDufus", "action": "restart", "level": "INFO"}, "audit action=restart level=INFO user=TechDufus"},
+		{"sorted fields", map[string]string{"user": "alice", "action": "restart", "level": "INFO"}, "audit action=restart level=INFO user=alice"},
 		{"values with spaces are quoted", map[string]string{"error": "boom happened", "result": "error"}, `audit error="boom happened" result=error`},
 	}
 	for _, tc := range tests {

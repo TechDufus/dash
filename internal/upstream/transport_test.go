@@ -26,8 +26,8 @@ func TestRewriteSvcURL(t *testing.T) {
 		ok                  bool
 	}{
 		{"query preserved", "http://vmsingle-vm.monitoring.svc:8428/api/v1/query?query=up",
-			"https://10.0.20.20:6443",
-			"https://10.0.20.20:6443/api/v1/namespaces/monitoring/services/vmsingle-vm:8428/proxy/api/v1/query?query=up", true},
+			"https://192.0.2.20:6443",
+			"https://192.0.2.20:6443/api/v1/namespaces/monitoring/services/vmsingle-vm:8428/proxy/api/v1/query?query=up", true},
 		{"encoded query preserved", "http://vl-server.monitoring.svc:9428/select/logsql/query?query=_time%3A5m+%22x%22&limit=500",
 			"https://k:6443",
 			"https://k:6443/api/v1/namespaces/monitoring/services/vl-server:9428/proxy/select/logsql/query?query=_time%3A5m+%22x%22&limit=500", true},
@@ -40,7 +40,7 @@ func TestRewriteSvcURL(t *testing.T) {
 			"https://k:6443/api/v1/namespaces/apps/services/web:8080/proxy", true},
 		{"silence id path", "http://vmalertmanager-vm.monitoring.svc:9093/api/v2/silence/abc-123", "https://k:6443",
 			"https://k:6443/api/v1/namespaces/monitoring/services/vmalertmanager-vm:9093/proxy/api/v2/silence/abc-123", true},
-		{"public host", "https://proxmox.home.techdufus.com:8006/api2/json/x", "https://k:6443", "", false},
+		{"public host", "https://pve.example.com:8006/api2/json/x", "https://k:6443", "", false},
 		{"cluster.local is not .svc", "http://a.b.svc.cluster.local:80/", "https://k:6443", "", false},
 		{"too many labels", "http://a.b.c.svc:80/", "https://k:6443", "", false},
 		{"bare svc", "http://svc/", "https://k:6443", "", false},

@@ -18,7 +18,7 @@ func TestPromInstant(t *testing.T) {
 		b, _ := io.ReadAll(r.Body)
 		gotForm, gotMethod, gotPath = string(b), r.Method, r.URL.Path
 		io.WriteString(w, `{"status":"success","data":{"resultType":"vector","result":[
-			{"metric":{"__name__":"up","instance":"10.0.20.20:2381","job":"etcd","node":"talos-cp-1"},"value":[1793396394,"1"]},
+			{"metric":{"__name__":"up","instance":"192.0.2.20:2381","job":"etcd","node":"node-1"},"value":[1793396394,"1"]},
 			{"metric":{},"value":[1793396394.5,"0.25"]},
 			{"metric":{"job":"nan"},"value":[1793396394,"NaN"]},
 			{"metric":{"job":"inf"},"value":[1793396394,"+Inf"]}]}}`)
@@ -31,7 +31,7 @@ func TestPromInstant(t *testing.T) {
 		t.Fatalf("request: %s %s %q", gotMethod, gotPath, gotForm)
 	}
 	want := []Sample{
-		{Labels: map[string]string{"__name__": "up", "instance": "10.0.20.20:2381", "job": "etcd", "node": "talos-cp-1"}, Value: 1},
+		{Labels: map[string]string{"__name__": "up", "instance": "192.0.2.20:2381", "job": "etcd", "node": "node-1"}, Value: 1},
 		{Labels: map[string]string{}, Value: 0.25},
 	}
 	if !reflect.DeepEqual(got, want) {

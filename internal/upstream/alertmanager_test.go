@@ -15,7 +15,7 @@ import (
 const amAlertsJSON = `[
  {"annotations":{"description":"always firing","summary":"Watchdog"},"endsAt":"2026-10-30T21:41:17.226Z","fingerprint":"e2306103db8679b0","receivers":[{"name":"healthchecks"}],"startsAt":"2026-10-02T21:15:20.000Z","status":{"inhibitedBy":[],"mutedBy":[],"silencedBy":[],"state":"active"},"updatedAt":"2026-10-30T21:39:57.228Z","generatorURL":"http:/explore","labels":{"alertgroup":"general.rules","alertname":"Watchdog","severity":"none"}},
  {"annotations":{},"fingerprint":"1","startsAt":"2026-10-02T21:15:20.000Z","status":{"inhibitedBy":[],"silencedBy":[],"state":"active"},"labels":{"alertname":"InfoInhibitor","severity":"none"}},
- {"annotations":{"description":"DIMM B8 ECC","summary":"IPMI SEL"},"fingerprint":"abc123","startsAt":"2026-10-30T03:14:30.000Z","status":{"inhibitedBy":null,"silencedBy":["5b1c2d3e-aaaa-bbbb-cccc-0123456789ab"],"state":"suppressed"},"labels":{"alertname":"ProxmoxIpmiSelCriticalEntry","severity":"warning","instance":"pve-730"}}
+ {"annotations":{"description":"DIMM B8 ECC","summary":"IPMI SEL"},"fingerprint":"abc123","startsAt":"2026-10-30T03:14:30.000Z","status":{"inhibitedBy":null,"silencedBy":["5b1c2d3e-aaaa-bbbb-cccc-0123456789ab"],"state":"suppressed"},"labels":{"alertname":"ProxmoxIpmiSelCriticalEntry","severity":"warning","instance":"node-1"}}
 ]`
 
 func TestAlertmanagerAlerts(t *testing.T) {
@@ -40,7 +40,7 @@ func TestAlertmanagerAlerts(t *testing.T) {
 	a := got[0]
 	if a.Fingerprint != "abc123" || a.Name != "ProxmoxIpmiSelCriticalEntry" || a.Severity != "warning" ||
 		a.State != "suppressed" || a.Summary != "IPMI SEL" || a.Description != "DIMM B8 ECC" ||
-		a.Labels["instance"] != "pve-730" || !a.StartsAt.Equal(time.Date(2026, 10, 30, 3, 14, 30, 0, time.UTC)) ||
+		a.Labels["instance"] != "node-1" || !a.StartsAt.Equal(time.Date(2026, 10, 30, 3, 14, 30, 0, time.UTC)) ||
 		len(a.SilencedBy) != 1 || a.InhibitedBy == nil || len(a.InhibitedBy) != 0 {
 		t.Fatalf("alert: %+v", a)
 	}
@@ -130,7 +130,7 @@ func TestAlertmanagerCreateSilence(t *testing.T) {
 		Matchers:  []model.SilenceMatcher{{Name: "alertname", Value: "Foo"}, {Name: "namespace", Value: "gatus"}},
 		StartsAt:  start,
 		EndsAt:    start.Add(4 * time.Hour),
-		CreatedBy: "techdufus",
+		CreatedBy: "alice",
 		Comment:   "maintenance",
 	})
 	if err != nil || id != "abcdef12-3456" {
@@ -146,7 +146,7 @@ func TestAlertmanagerCreateSilence(t *testing.T) {
 		},
 		"startsAt":  "2026-10-31T03:00:00Z",
 		"endsAt":    "2026-10-31T07:00:00Z",
-		"createdBy": "techdufus",
+		"createdBy": "alice",
 		"comment":   "maintenance",
 	}
 	if !reflect.DeepEqual(body, want) {

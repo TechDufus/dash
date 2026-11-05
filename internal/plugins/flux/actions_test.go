@@ -128,7 +128,7 @@ func TestReconcileInputValidation(t *testing.T) {
 	}
 }
 
-// The body is the annotation and nothing else, as the legacy route sent it: the homelab guardrail
+// The body is the annotation and nothing else, as the legacy route sent it: the cluster's admission policy
 // denies any other field of a reconcile.
 func TestReconcilePatchBodyIsExactlyTheAnnotation(t *testing.T) {
 	r := newRig(t, rigOpts{actions: true})
@@ -212,7 +212,7 @@ func TestReconcileAPIErrorsAreMappedAndScrubbed(t *testing.T) {
 	reg.Add(secret.New(canary, ""))
 	r := newRig(t, rigOpts{actions: true, scrub: reg.Scrub})
 	r.waitState(model.PluginHealthy)
-	msg := "homelab guardrail: denied; the webhook echoed " + canary
+	msg := "admission policy: denied; the webhook echoed " + canary
 	for _, tc := range []struct {
 		code   int32
 		status int
@@ -226,7 +226,7 @@ func TestReconcileAPIErrorsAreMappedAndScrubbed(t *testing.T) {
 		t.Run(http.StatusText(int(tc.code)), func(t *testing.T) {
 			r.kc.SetPatchError(statusErr(tc.code, msg))
 			ae := wantActionError(t, r.reconcile(reconcileOf(model.FluxKindHelmRelease, "media", "app")), tc.status, tc.want)
-			if !strings.Contains(ae.Message, "homelab guardrail: denied") {
+			if !strings.Contains(ae.Message, "admission policy: denied") {
 				t.Errorf("the policy message must reach the user: %q", ae.Message)
 			}
 			if strings.Contains(ae.Message, canary) {

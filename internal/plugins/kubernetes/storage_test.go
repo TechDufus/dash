@@ -90,7 +90,7 @@ func TestEtcdQueriesAreTheOldOnes(t *testing.T) {
 	}
 }
 
-// The NAS-backup query needs its convention: with no backup job configured the series is not
+// The backup-job query needs its convention: with no backup job configured the series is not
 // requested; with one, it is.
 func TestNASQueryNeedsItsConvention(t *testing.T) {
 	run := func(cfg pluginconf.Kubernetes) []string {
@@ -108,8 +108,8 @@ func TestNASQueryNeedsItsConvention(t *testing.T) {
 		t.Errorf("no backup job set, yet the backup age was queried:\n%s", got)
 	}
 
-	got = strings.Join(run(pluginconf.Kubernetes{BackupJobs: []pluginconf.BackupJob{{Namespace: "backup", CronJob: "nas-backup"}}}), "\n")
-	want := `time() - kube_cronjob_status_last_successful_time{namespace="backup",cronjob=~"nas-backup(-.+)?"}`
+	got = strings.Join(run(pluginconf.Kubernetes{BackupJobs: []pluginconf.BackupJob{{Namespace: "backup", CronJob: "nightly-backup"}}}), "\n")
+	want := `time() - kube_cronjob_status_last_successful_time{namespace="backup",cronjob=~"nightly-backup(-.+)?"}`
 	if !strings.Contains(got, want) {
 		t.Errorf("a backup job set, yet %q was not queried:\n%s", want, got)
 	}

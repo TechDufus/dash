@@ -594,7 +594,7 @@ func TestServiceFollowsThePoll(t *testing.T) {
 	f := newFakeGatus(t)
 	f.answer(gatusJSON(now,
 		check{"apps", "Grafana", "Grafana.Example.com", []bool{true}},
-		check{"infrastructure", "rpi-control SSH", "192.0.2.50", []bool{true}},
+		check{"infrastructure", "node-1 SSH", "192.0.2.50", []bool{true}},
 	), 0)
 	c := config(f.URL)
 	c.CriticalGroups = []string{"infrastructure"}
@@ -607,7 +607,7 @@ func TestServiceFollowsThePoll(t *testing.T) {
 	if state, known := es.ByHost("grafana.example.com"); !known || state != model.HealthOK {
 		t.Errorf("ByHost = %s, %v", state, known)
 	}
-	if up, known := es.ByName("RPI-CONTROL ssh"); !known || !up {
+	if up, known := es.ByName("NODE-1 ssh"); !known || !up {
 		t.Errorf("ByName = %v, %v", up, known)
 	}
 	rev := es.Revision()
@@ -617,13 +617,13 @@ func TestServiceFollowsThePoll(t *testing.T) {
 
 	f.answer(gatusJSON(now,
 		check{"apps", "Grafana", "Grafana.Example.com", []bool{true, false}},
-		check{"infrastructure", "rpi-control SSH", "192.0.2.50", []bool{true}},
+		check{"infrastructure", "node-1 SSH", "192.0.2.50", []bool{true}},
 	), 0)
 	eventually(t, "Revision to move on a health flip", func() bool { return es.Revision() > rev })
 	if state, _ := es.ByHost("grafana.example.com"); state != model.HealthWarn {
 		t.Errorf("ByHost after the flip = %s", state)
 	}
-	if up, known := es.ByName("rpi-control ssh"); !known || !up {
+	if up, known := es.ByName("node-1 ssh"); !known || !up {
 		t.Errorf("ByName after the flip = %v, %v", up, known)
 	}
 }

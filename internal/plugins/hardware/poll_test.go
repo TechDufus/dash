@@ -18,7 +18,7 @@ const scrubPrefix = "node_zfs_scrub"
 // homelabShaped is a host configured the way a rack server is: a model, a 16-bay chassis and
 // fans that top out at 18000 RPM.
 func homelabShaped(c *pluginconf.Hardware) {
-	c.Hosts = []pluginconf.HardwareHost{{Model: "Dell R730", Bays: 16, FanMaxRPM: 18000}}
+	c.Hosts = []pluginconf.HardwareHost{{Model: "Example 2U server", Bays: 16, FanMaxRPM: 18000}}
 	c.ZFSScrubMetricPrefix = scrubPrefix
 }
 
@@ -42,7 +42,7 @@ func TestHostPublishesPolledValuesAndPluginFields(t *testing.T) {
 	r := hostRig(t, nil)
 	d, srcs := waitTopic(t, r.hub, "hardware.hosts", func(d model.HostData) bool { return d.PowerWatts > 0 })
 
-	if d.Name != node || d.Ref != "hardware:Host/"+node || d.Model != "Dell R730" {
+	if d.Name != node || d.Ref != "hardware:Host/"+node || d.Model != "Example 2U server" {
 		t.Errorf("name, ref, model = %q %q %q", d.Name, d.Ref, d.Model)
 	}
 	if d.PowerWatts != 214 || d.CPURatio != 0.25 || d.MemTotalBytes != 64<<30 || d.MemUsedBytes != 16<<30 || d.SELFreeBytes != 16384 {

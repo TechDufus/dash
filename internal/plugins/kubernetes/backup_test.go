@@ -23,8 +23,8 @@ func backupAnswer(ns, cronjob string, samples ...svc.Sample) map[string][]svc.Sa
 }
 
 func TestBackupJobLabelNamesTheRow(t *testing.T) {
-	cfg := pluginconf.Kubernetes{BackupJobs: []pluginconf.BackupJob{{Namespace: "backup", CronJob: "nas-backup", Label: "NAS"}}}
-	prom := storageProm(backupAnswer("backup", "nas-backup", sample(7200, "cronjob", "nas-backup")))
+	cfg := pluginconf.Kubernetes{BackupJobs: []pluginconf.BackupJob{{Namespace: "backup", CronJob: "nightly-backup", Label: "NAS"}}}
+	prom := storageProm(backupAnswer("backup", "nightly-backup", sample(7200, "cronjob", "nightly-backup")))
 	got, _, err := backupsOf(t, prom, cfg, storageSnap{})
 	if err != nil {
 		t.Fatal(err)

@@ -243,7 +243,7 @@ func (e *env) act(t *testing.T, action string, in any) (any, error) {
 
 func createIn(mod func(*silenceCreateInput)) *silenceCreateInput {
 	in := &silenceCreateInput{model.SilenceRequest{
-		Matchers: []model.SilenceMatcher{{Name: "alertname", Value: "HighTemp"}, {Name: "instance", Value: "pve-730"}},
+		Matchers: []model.SilenceMatcher{{Name: "alertname", Value: "HighTemp"}, {Name: "instance", Value: "node-1"}},
 		Duration: "4h",
 		Comment:  "maintenance window",
 	}}

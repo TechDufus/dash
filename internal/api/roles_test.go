@@ -49,13 +49,13 @@ func roleOnMe(t *testing.T, h http.Handler, user, groups string) string {
 }
 
 func TestRoleMapping(t *testing.T) {
-	m := auth.RoleMap{AdminUsers: []string{"TechDufus"}, AdminGroups: []string{"ops"}}
+	m := auth.RoleMap{AdminUsers: []string{"Bob"}, AdminGroups: []string{"ops"}}
 	h := d2Chain(newServer(withAuth(withGroupsProxy(m))))
 	for _, tc := range []struct {
 		name, user, groups, want string
 	}{
-		{"a listed user is admin", "TechDufus", "", "admin"},
-		{"user names are case-sensitive", "techdufus", "", "viewer"},
+		{"a listed user is admin", "Bob", "", "admin"},
+		{"user names are case-sensitive", "bob", "", "viewer"},
 		{"an unlisted user is a viewer", "dash-verify", "", "viewer"},
 		{"a member of an admin group is admin", "dash-verify", "dev, ops", "admin"},
 		{"group names are exact", "dash-verify", "Ops, operations", "viewer"},
@@ -92,7 +92,7 @@ func TestPrincipalCarriesGroups(t *testing.T) {
 func TestEmptyListsMakeEveryUserAViewer(t *testing.T) {
 	s := newServer(withAuth(authtest.Proxy()))
 	h := d2Chain(s)
-	for _, user := range []string{"alice", "TechDufus", "admin", "root"} {
+	for _, user := range []string{"alice", "carol", "admin", "root"} {
 		if got := roleOnMe(t, h, user, ""); got != "viewer" {
 			t.Errorf("%s: role = %q, want viewer with both lists empty", user, got)
 		}
