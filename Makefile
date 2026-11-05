@@ -45,7 +45,7 @@ check: generate
 	$(GO_LICENSES) check ./cmd/dash --disallowed_types=forbidden,restricted,unknown $(GO_LICENSES_LOG)
 	go vet ./...
 	go test ./...
-	cd web && npm ci && node scripts/licenses.mjs check && npm run check && npm test && npm run build && node scripts/check-chunks.mjs
+	cd web && npm ci --ignore-scripts && node scripts/licenses.mjs check && npm run check && npm test && npm run build && node scripts/check-chunks.mjs
 
 # Dev mode needs nothing outside this checkout: `DASH_DEMO=true make dev-api` serves fake data.
 # Against a real cluster, KUBECONFIG comes from your environment, dev/config.yaml (see

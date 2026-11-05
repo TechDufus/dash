@@ -134,7 +134,7 @@ fi
 
 if [ "$web_config" = 1 ] || [ "$web_ts" = 1 ] || [ "${#lint[@]}" -gt 0 ]; then
 	if [ ! -x web/node_modules/.bin/tsc ] || [ ! -x web/node_modules/.bin/biome ]; then
-		echo "pre-push: SKIP web checks: web/node_modules is missing; run 'cd web && npm ci'"
+		echo "pre-push: SKIP web checks: web/node_modules is missing; run 'cd web && npm ci --ignore-scripts'"
 	else
 		if [ "$web_ts" = 1 ]; then
 			step "tsc --noEmit" sh -c 'cd web && node_modules/.bin/tsc --noEmit'
@@ -150,7 +150,7 @@ fi
 if [ "$web_ts" = 1 ]; then
 	# Tests can break from any TypeScript change, so they run whenever web code or config changed.
 	if [ ! -x web/node_modules/.bin/vitest ]; then
-		echo "pre-push: SKIP vitest: web/node_modules has no vitest; run 'cd web && npm ci'"
+		echo "pre-push: SKIP vitest: web/node_modules has no vitest; run 'cd web && npm ci --ignore-scripts'"
 	else
 		step "vitest run" sh -c 'cd web && node_modules/.bin/vitest run'
 	fi
