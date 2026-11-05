@@ -4,10 +4,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"sync"
+	"syscall"
 	"testing"
 	"time"
 
@@ -132,9 +134,10 @@ func TestCheckSendsOneReadAndReturnsCategories(t *testing.T) {
 	}
 
 	t.Run("unreachable", func(t *testing.T) {
-		up := newCheckUpstream(t, 200, "")
-		up.Close()
-		got := only(t, (&Plugin{}).Check(context.Background(), checkConfig(up.URL, "tok"), checkEnv(nil)))
+		// A refused dial, simulated: a freed port of a closed test server can be taken by another
+		// package's listener while tests run in parallel, and then answers.
+		refused := errTransport{&net.OpError{Op: "dial", Net: "tcp", Err: syscall.ECONNREFUSED}}
+		got := only(t, (&Plugin{}).Check(context.Background(), checkConfig("http://192.0.2.1:8080", "tok"), checkEnv(refused)))
 		if got.OK || got.Category != "unreachable" || got.Message != plugin.CheckMessage("unreachable") {
 			t.Errorf("result = %+v, want unreachable", got)
 		}
