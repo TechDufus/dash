@@ -147,14 +147,15 @@ scrubs every secret it has read, in its encoded forms too, and credential-shaped
 A failing upstream is reported to viewers as one category only (`unreachable`, `timeout`, `tls`,
 `auth`, `http_<code>`, `invalid_response`); the detail, with URLs, is in dash's log.
 
-The data directory holds `ui-settings.yaml`, the layer reserved for values saved from the
-settings UI. The settings editor arrives with P4.7: this release has no settings page or API, so
-the layer only holds what was put there by hand. It is a sparse layer below the file and the
-environment: whatever they set wins, and removing it from them shows the saved value again.
-`server.*`, `settings.ui` and `dataDir` cannot be saved from the UI. dash
+The data directory holds `ui-settings.yaml`, the layer of values saved from the settings page
+(`/settings`, administrators only; [docs/settings.md](docs/settings.md) describes the page and
+its API). It is a sparse layer below the file and the environment: whatever they set wins, and
+removing it from them shows the saved value again. `server.*`, `auth.*`, `settings.ui`,
+`settings.secretNamespaces` and `dataDir` cannot be saved from the UI. dash
 locks the directory, so a second instance on it exits with a message. When the directory is
 missing or not writable, or `settings.ui` is `readonly`, the store is read-only: dash logs one
-INFO line and runs on the file and the environment alone. Demo mode uses no data directory.
+INFO line and runs on the file and the environment alone, and the settings page shows the
+values without saving any. Demo mode uses no data directory and has no settings page.
 
 Every 10 seconds dash checks the config file and every file a secret points at (`file:` and
 `..._FILE`, symlinks followed, so a Kubernetes ConfigMap or Secret update is seen) and reads the
@@ -199,7 +200,8 @@ file that still parses cannot be told apart from an edit and would run until the
 | `auth.oidc.issuer`, `.clientID`, `.clientSecret` | empty | the OpenID Connect provider (https unless loopback) and dash's client at it; the redirect URL is `server.publicURL` + `/auth/callback`, which must be https |
 | `auth.oidc.allowedUsers`, `.allowedGroups` | `[]` | who may sign in; one is required in the oidc mode (`["*"]` admits every account the provider signs in, with a WARN) |
 | `auth.oidc.adminUsers`, `.adminGroups`, `.adminRoles` | `[]`, `[]`, `["admin"]` | who is an administrator (`adminRoles` matches the values of `roleClaim`); apply on a reload. `scopes`, `userClaim` (`preferred_username`), `groupsClaim` (`groups`) and `roleClaim` are in [docs/auth.md](docs/auth.md) |
-| `settings.ui` | `editable` | `editable` or `readonly` (fully managed) |
+| `settings.ui` | `editable` | `editable` or `readonly` (fully managed: the settings page shows the values and saves nothing) |
+| `settings.secretNamespaces` | `[]` | Kubernetes namespaces, besides the one dash runs in, that a `k8s:` reference saved from the settings page may name (a JSON list in the environment); applies after a restart and cannot be set from the settings page |
 | `dataDir` (`DASH_DATA_DIR`) | `/data` | where dash keeps its state and looks for `config.yaml` |
 | `plugins.prometheus.url` | empty (source not configured) | VictoriaMetrics or Prometheus; a change of any `plugins.prometheus.*` setting applies without a restart |
 | `plugins.prometheus.timeout` | `5s` | how long one query may take before dash gives up on it |
@@ -324,7 +326,7 @@ until the clients report it.
 
 ### Secret key (secrets typed into the UI)
 
-Secrets saved through the settings editor (it arrives with P4.7) are stored in
+Secrets saved through the settings page are stored in
 `ui-settings.yaml` encrypted (XChaCha20-Poly1305, the field path bound in, so a value copied to
 another field does not decrypt). The key comes from the process environment only; there is no
 default and dash never generates one. Without a key, secrets can only be set through env and
@@ -352,14 +354,14 @@ To rotate the key:
    warning that the rekey is pending and keeps running on both keys.
 3. Once the log shows the rekey, remove `DASH_SECRET_KEY_PREVIOUS` and restart.
 
-When the settings editor replaces or clears a secret it also rewrites the retained
+When the settings page replaces or clears a secret dash also rewrites the retained
 `ui-settings.yaml.bak.N` copies without the old ciphertext, so restoring a backup cannot bring a
 cleared secret back.
 
 ### Audit log
 
-Every action, silence change and stored-secret change is logged as an `audit` record on
-stdout. When `dataDir` is writable dash also appends each record to `audit.jsonl` there: one
+Every action, settings change, silence change and stored-secret change is logged as an `audit`
+record on stdout. When `dataDir` is writable dash also appends each record to `audit.jsonl` there: one
 JSON line with the actor, what was done, the target and the result, never a secret or a changed
 value (only the field paths). Opening a pod log tail is recorded as `logs.tail` with the pod as
 the target. Refused requests (CSRF, unauthenticated, stream caps, a denied namespace) are recorded
@@ -368,12 +370,14 @@ one, so an edited, deleted or reordered line is detectable. At 10 MiB the file r
 `audit.jsonl.1` (newest) to `audit.jsonl.5` (oldest); older records are dropped.
 
 - **Without a writable data dir** (missing, read-only, or demo mode) the records go to stdout
-  only and dash logs one INFO line saying so.
+  and the latest 500 records, plus 200 refusals, are kept in memory and shown on the audit
+  page; dash logs one INFO line saying so.
 - **One writer per data dir.** dash locks `.audit.lock` in `dataDir`; a second instance on the
   same directory refuses to start, even when its settings are read-only.
-- **No record, no change.** An action, silence or secret change first records its intent in
-  the file. If that cannot be written the change is refused (actions and silences answer
-  `503 audit log unavailable`) and nothing changes. If `audit.jsonl` itself cannot be opened
+- **No record, no change.** An action, silence, settings or secret change first records its
+  intent in the file. If that cannot be written the change is refused (actions and silences
+  answer `503 audit log unavailable`, settings writes `503 audit_unavailable`) and nothing
+  changes. If `audit.jsonl` itself cannot be opened
   in a writable data dir, dash does not start.
 
 `dash audit verify [--dir DIR]` (default: the configured data directory) checks the chain
@@ -384,7 +388,7 @@ it on the next start. The chain cannot see an edit to the very last line or a tr
 
 ### HTTP API
 
-The public API is under `/api/v1` (`me`, `stream`, `series`, `topics/<topic>`, `plugins`), described
+The public API is under `/api/v1` (`me`, `stream`, `series`, `topics/<topic>`, `plugins`, `settings`), described
 by [docs/api/openapi.json](docs/api/openapi.json), an OpenAPI 3.1 document generated from the code
 (`dash api openapi`; `make generate` rewrites it and `make check` fails when it drifts or does
 not lint). The SPA uses the same paths. Before 1.0 a breaking change to them is called out in
@@ -433,12 +437,14 @@ a 401 `unauthenticated` from `/api` also carries `"details": {"mode": "proxy|loc
 <bool>, "oidc": {"issuer": "<host>"}}`, so a client knows how to sign in. Clients branch on `code`.
 These are sent today: `unauthenticated`, `forbidden`, `csrf_failed`, `not_found`, `invalid_input`,
 `invalid_token` (a `Bearer` credential, and a wrong or used setup token), `rate_limited` (the
-login backoff, and plugin actions), `conflict`, `too_many_streams`, `upstream_unavailable` (502,
-or 503 when the OIDC provider cannot be reached), `audit_unavailable`, `unknown_host`; `internal`
-comes from plugin action routes. `insufficient_scope`, `ambiguous_credentials`, `locked_field`,
-`readonly_settings`, `approval_required`, `approval_denied`, `approval_expired`,
-`precondition_failed` and `precondition_required` are reserved for the client, settings and
-approval work that follows, and the OpenAPI document lists them all. The sign-in routes
+login backoff, plugin actions and connection tests), `conflict`, `too_many_streams`,
+`upstream_unavailable` (502, or 503 when the OIDC provider cannot be reached),
+`audit_unavailable`, `unknown_host`, and from the settings API `locked_field` (409),
+`readonly_settings` (409), `precondition_failed` (412) and `precondition_required` (428);
+`internal` comes from plugin action routes and from a settings write that fails.
+`insufficient_scope`, `ambiguous_credentials`, `approval_required`, `approval_denied` and
+`approval_expired` are reserved for the client and approval work that follows, and the OpenAPI
+document lists them all. The sign-in routes
 (`POST /login`, `POST /setup`, `POST /auth/logout`, `GET /auth/oidc/start`, `GET /auth/callback`)
 are outside `/api` and not in the OpenAPI document; [docs/auth.md](docs/auth.md) describes them.
 
