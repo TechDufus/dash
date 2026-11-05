@@ -276,6 +276,13 @@ without the data and logs a WARN.
 `GET /readyz?verbose=1` adds one `<plugin> <state> [message]` line per plugin, but only for a
 loopback peer (`kubectl port-forward`, a shell in the pod); any other peer gets the plain body.
 
+`dash healthcheck` is for a container `HEALTHCHECK`: it reads `server.healthListen` from the
+environment and the config file as startup does (an unspecified host such as `0.0.0.0` or `::`
+becomes loopback), GETs `/readyz` with a 2 s timeout, and exits 0 on 200 or 1 with one line on
+stderr. It reads no secret and needs neither the cluster nor the data directory. It reads the
+config file as it is now, so an edit of `server.healthListen` (which needs a restart) points the
+probe at the new address before dash listens there: restart dash after changing it.
+
 The launcher is a list of `name`, `href`, `icon` and `description`; `icon` is a
 [dashboard-icons](https://github.com/homarr-labs/dashboard-icons) name (shown from
 `ui.iconBaseURL`; without it, a letter tile), a same-origin path, or an image URL under

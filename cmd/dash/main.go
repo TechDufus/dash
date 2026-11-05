@@ -59,13 +59,16 @@ func command(args []string, out io.Writer) error {
 	if len(args) >= 1 && args[0] == "hash-password" {
 		return hashPasswordCommand(args[1:], os.Stdin, out)
 	}
-	return fmt.Errorf("unknown command %q; usage: %s | %s | %s | %s", strings.Join(args, " "), configUsage, auditUsage, apiUsage, hashPasswordUsage)
+	if len(args) >= 1 && args[0] == "healthcheck" {
+		return healthcheckCommand(args[1:])
+	}
+	return fmt.Errorf("unknown command %q; usage: %s | %s | %s | %s | %s", strings.Join(args, " "), configUsage, auditUsage, apiUsage, hashPasswordUsage, healthcheckUsage)
 }
 
 // exitCode is the exit status of a subcommand that returned err: 1 when it ran and found a
-// problem (its report is on stdout), 2 for a usage error.
+// problem (its report is on stdout; healthcheck's one line on stderr), 2 for a usage error.
 func exitCode(err error) int {
-	if errors.Is(err, errAuditFailed) || errors.Is(err, errConfigInvalid) {
+	if errors.Is(err, errAuditFailed) || errors.Is(err, errConfigInvalid) || errors.Is(err, errUnhealthy) {
 		return 1
 	}
 	return 2

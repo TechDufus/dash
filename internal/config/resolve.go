@@ -173,6 +173,19 @@ func BootstrapOf(src Sources) (Bootstrap, error) {
 	return Bootstrap{DataDir: r.tree.DataDir, SettingsUI: r.tree.Settings.UI, Demo: demo}, nil
 }
 
+// HealthListenOf is server.healthListen as the file and the environment of src set it over the
+// defaults, ignoring src.UI: the UI may not set server.* (S.14), so this is the address dash
+// binds. Like BootstrapOf it reads no secret, validates nothing beyond what layering rejects and
+// stays silent; `dash healthcheck` reads it.
+func HealthListenOf(src Sources) (string, error) {
+	src.UI, src.Log = nil, slog.New(slog.DiscardHandler)
+	r, _, _, err := layer(src)
+	if err != nil {
+		return "", err
+	}
+	return r.tree.Server.HealthListen, nil
+}
+
 // layer applies defaults, the UI store, the file and the environment, in that order, to a tree
 // whose secret leaves still hold their raw references.
 func layer(src Sources) (r *resolver, dev, demo bool, err error) {

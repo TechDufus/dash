@@ -50,7 +50,7 @@ func TestUsageTextNamesTheCommandAndEachUsageOnce(t *testing.T) {
 		}
 	}
 	err := command([]string{"nope"}, &bytes.Buffer{})
-	for _, u := range []string{configUsage, auditUsage, apiUsage} {
+	for _, u := range []string{configUsage, auditUsage, apiUsage, hashPasswordUsage, healthcheckUsage} {
 		if err == nil || strings.Count(err.Error(), u) != 1 {
 			t.Errorf("usage %q is not in the top-level error exactly once: %v", u, err)
 		}
