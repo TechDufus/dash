@@ -6,7 +6,9 @@ the third-party software below, under the licences shown.
 `make generate` writes this file from tools/notices/header.md (this introduction and the vendored
 components, written by hand), go-licenses (the Go modules) and web/scripts/licenses.mjs (the npm
 packages); do not edit it directly. `make check` fails when it is out of date, and when a
-dependency's licence is outside the policy.
+dependency's licence is outside the policy. Versions are not listed: `go.sum` and
+`web/package-lock.json` pin them, and a version update changes this file only when a package, a
+licence or a licence text changes.
 
 ## Vendored components
 

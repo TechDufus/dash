@@ -6,7 +6,7 @@
 //                                               ALLOWED
 //
 // <go.tsv> is `go-licenses report --template tools/notices/go.tpl` output: one line per Go package
-// and licence (name, version, SPDX id, licence file in the module cache). The npm packages are the
+// and licence (name, SPDX id, licence file in the module cache). The npm packages are the
 // web UI's runtime dependencies (web/package.json `dependencies` and what they pull in, never
 // devDependencies), as license-checker-rseidelsohn reads them from node_modules: no network and no
 // install scripts are needed, so `npm ci --ignore-scripts` is enough.
@@ -115,13 +115,14 @@ function goLicenceText(file) {
   return files.map((f) => `==> ${f} <==\n\n${readText(join(dir, f))}`).join("\n\n");
 }
 
-// A package: { name, version, licences, text, notice, author }; text is null when the package has
-// no licence file.
+// A package: { name, licences, text, notice, author }; text is null when the package has no
+// licence file. Versions are left out of the notices (go.sum and web/package-lock.json pin them),
+// so a dependency update changes the file only when a package, a licence or a licence text does.
 function goEntries(tsv) {
   const entries = new Map();
   const lines = readFileSync(tsv, "utf8").split("\n").filter(Boolean).sort(byCodePoint);
   for (const line of lines) {
-    const [name, version, licence, path] = line.split("\t");
+    const [name, licence, path] = line.split("\t");
     const known = entries.get(name);
     if (known) {
       known.licences.push(licence);
@@ -131,7 +132,6 @@ function goEntries(tsv) {
     const noticeName = file && readdirSync(dirname(file)).find((f) => /^notice(\.\w+)?$/i.test(f));
     entries.set(name, {
       name,
-      version,
       licences: [licence],
       text: file && goLicenceText(file),
       notice: noticeName ? readText(join(dirname(file), noticeName)) : null,
@@ -151,11 +151,10 @@ function npmEntries(infos) {
     .sort(byCodePoint)
     .map((id) => {
       const info = infos[id];
-      const at = id.lastIndexOf("@");
+      const name = id.slice(0, id.lastIndexOf("@"));
       const file = info.licenseFile && isLicenceFile(info.licenseFile) ? info.licenseFile : null;
       return {
-        name: id.slice(0, at),
-        version: id.slice(at + 1),
+        name,
         licences: licenceList(info),
         text: file && readText(file),
         notice: info.noticeFile ? readText(info.noticeFile) : null,
@@ -164,7 +163,8 @@ function npmEntries(infos) {
     });
 }
 
-// Packages with the same licence text (and NOTICE) share one copy of it.
+// Packages with the same licence text (and NOTICE) share one copy of it. Installed versions of one
+// npm package that share a licence make one line.
 function section(title, intro, entries) {
   const groups = new Map();
   for (const entry of entries) {
@@ -174,11 +174,11 @@ function section(title, intro, entries) {
   const out = [`## ${title}`, "", ...intro];
   for (const group of groups.values()) {
     const [first] = group;
-    const more = group.length > 1 ? ` and ${group.length - 1} more` : "";
-    out.push("", `### ${first.name}${more}`, "");
-    for (const entry of group) {
-      out.push(`- ${entry.name} ${entry.version}: ${entry.licences.join(", ")}`);
-    }
+    const lines = [
+      ...new Set(group.map((entry) => `- ${entry.name}: ${entry.licences.join(", ")}`)),
+    ];
+    const more = lines.length > 1 ? ` and ${lines.length - 1} more` : "";
+    out.push("", `### ${first.name}${more}`, "", ...lines);
     out.push("");
     if (first.text === null) {
       const by = first.author ? ` Author: ${first.author}.` : "";

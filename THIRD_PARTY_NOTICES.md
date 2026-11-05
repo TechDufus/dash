@@ -6,7 +6,9 @@ the third-party software below, under the licences shown.
 `make generate` writes this file from tools/notices/header.md (this introduction and the vendored
 components, written by hand), go-licenses (the Go modules) and web/scripts/licenses.mjs (the npm
 packages); do not edit it directly. `make check` fails when it is out of date, and when a
-dependency's licence is outside the policy.
+dependency's licence is outside the policy. Versions are not listed: `go.sum` and
+`web/package-lock.json` pin them, and a version update changes this file only when a package, a
+licence or a licence text changes.
 
 ## Vendored components
 
@@ -154,7 +156,7 @@ The Go packages compiled into the `dash` binary (`./cmd/dash`, for linux), as
 
 ### github.com/beorn7/perks/quantile
 
-- github.com/beorn7/perks/quantile v1.0.1: MIT
+- github.com/beorn7/perks/quantile: MIT
 
 ```text
 Copyright (C) 2013 Blake Mizerany
@@ -181,7 +183,7 @@ WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 ### github.com/cespare/xxhash/v2
 
-- github.com/cespare/xxhash/v2 v2.3.0: MIT
+- github.com/cespare/xxhash/v2: MIT
 
 ```text
 Copyright (c) 2016 Caleb Spare
@@ -210,7 +212,7 @@ WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 ### github.com/coreos/go-oidc/v3/oidc
 
-- github.com/coreos/go-oidc/v3/oidc v3.21.0: Apache-2.0
+- github.com/coreos/go-oidc/v3/oidc: Apache-2.0
 
 ```text
 Apache License
@@ -428,7 +430,7 @@ This product includes software developed at CoreOS, Inc.
 
 ### github.com/davecgh/go-spew/spew
 
-- github.com/davecgh/go-spew/spew v1.1.2-0.20180830191138-d8f796af33cc: ISC
+- github.com/davecgh/go-spew/spew: ISC
 
 ```text
 ISC License
@@ -450,7 +452,7 @@ OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 
 ### github.com/emicklei/go-restful/v3
 
-- github.com/emicklei/go-restful/v3 v3.13.0: MIT
+- github.com/emicklei/go-restful/v3: MIT
 
 ```text
 Copyright (c) 2012,2013 Ernest Micklei
@@ -479,7 +481,7 @@ WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 ### github.com/fxamacker/cbor/v2
 
-- github.com/fxamacker/cbor/v2 v2.9.1: MIT
+- github.com/fxamacker/cbor/v2: MIT
 
 ```text
 MIT License
@@ -507,26 +509,26 @@ SOFTWARE.
 
 ### github.com/go-jose/go-jose/v4 and 19 more
 
-- github.com/go-jose/go-jose/v4 v4.1.6: Apache-2.0
-- github.com/go-openapi/swag v0.27.1: Apache-2.0
-- github.com/go-openapi/swag/cmdutils v0.27.1: Apache-2.0
-- github.com/go-openapi/swag/conv v0.27.1: Apache-2.0
-- github.com/go-openapi/swag/fileutils v0.27.1: Apache-2.0
-- github.com/go-openapi/swag/jsonutils v0.27.1: Apache-2.0
-- github.com/go-openapi/swag/loading v0.27.1: Apache-2.0
-- github.com/go-openapi/swag/mangling v0.27.1: Apache-2.0
-- github.com/go-openapi/swag/netutils v0.27.1: Apache-2.0
-- github.com/go-openapi/swag/pools v0.27.1: Apache-2.0
-- github.com/go-openapi/swag/stringutils v0.27.1: Apache-2.0
-- github.com/go-openapi/swag/typeutils v0.27.1: Apache-2.0
-- github.com/go-openapi/swag/yamlutils v0.27.1: Apache-2.0
-- github.com/google/gnostic-models v0.7.0: Apache-2.0
-- k8s.io/api v0.37.2: Apache-2.0
-- k8s.io/apimachinery/pkg v0.37.2: Apache-2.0
-- k8s.io/client-go v0.37.2: Apache-2.0
-- k8s.io/kube-openapi/pkg v0.0.0-20260721132016-d427ff9ee9ad: Apache-2.0
-- k8s.io/kube-openapi/pkg/validation/spec v0.0.0-20260721132016-d427ff9ee9ad: Apache-2.0
-- k8s.io/utils v0.0.0-20260626114624-be93311217bd: Apache-2.0
+- github.com/go-jose/go-jose/v4: Apache-2.0
+- github.com/go-openapi/swag: Apache-2.0
+- github.com/go-openapi/swag/cmdutils: Apache-2.0
+- github.com/go-openapi/swag/conv: Apache-2.0
+- github.com/go-openapi/swag/fileutils: Apache-2.0
+- github.com/go-openapi/swag/jsonutils: Apache-2.0
+- github.com/go-openapi/swag/loading: Apache-2.0
+- github.com/go-openapi/swag/mangling: Apache-2.0
+- github.com/go-openapi/swag/netutils: Apache-2.0
+- github.com/go-openapi/swag/pools: Apache-2.0
+- github.com/go-openapi/swag/stringutils: Apache-2.0
+- github.com/go-openapi/swag/typeutils: Apache-2.0
+- github.com/go-openapi/swag/yamlutils: Apache-2.0
+- github.com/google/gnostic-models: Apache-2.0
+- k8s.io/api: Apache-2.0
+- k8s.io/apimachinery/pkg: Apache-2.0
+- k8s.io/client-go: Apache-2.0
+- k8s.io/kube-openapi/pkg: Apache-2.0
+- k8s.io/kube-openapi/pkg/validation/spec: Apache-2.0
+- k8s.io/utils: Apache-2.0
 
 ```text
 
@@ -735,8 +737,8 @@ SOFTWARE.
 
 ### github.com/go-jose/go-jose/v4/json and 1 more
 
-- github.com/go-jose/go-jose/v4/json v4.1.6: BSD-3-Clause
-- k8s.io/utils/internal/third_party/forked/golang/net v0.0.0-20260626114624-be93311217bd: BSD-3-Clause
+- github.com/go-jose/go-jose/v4/json: BSD-3-Clause
+- k8s.io/utils/internal/third_party/forked/golang/net: BSD-3-Clause
 
 ```text
 Copyright (c) 2012 The Go Authors. All rights reserved.
@@ -770,8 +772,8 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 ### github.com/go-logr/logr and 1 more
 
-- github.com/go-logr/logr v1.4.3: Apache-2.0
-- sigs.k8s.io/structured-merge-diff/v6 v6.4.2: Apache-2.0
+- github.com/go-logr/logr: Apache-2.0
+- sigs.k8s.io/structured-merge-diff/v6: Apache-2.0
 
 ```text
                                  Apache License
@@ -979,7 +981,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 ### github.com/go-openapi/jsonpointer
 
-- github.com/go-openapi/jsonpointer v1.0.0: Apache-2.0
+- github.com/go-openapi/jsonpointer: Apache-2.0
 
 ```text
                                  Apache License
@@ -1231,7 +1233,7 @@ limitations under the License.
 
 ### github.com/go-openapi/jsonreference
 
-- github.com/go-openapi/jsonreference v1.0.0: Apache-2.0
+- github.com/go-openapi/jsonreference: Apache-2.0
 
 ```text
 
@@ -1484,7 +1486,7 @@ limitations under the License.
 
 ### github.com/google/uuid
 
-- github.com/google/uuid v1.6.0: BSD-3-Clause
+- github.com/google/uuid: BSD-3-Clause
 
 ```text
 Copyright (c) 2009,2014 Google Inc. All rights reserved.
@@ -1518,7 +1520,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 ### github.com/json-iterator/go
 
-- github.com/json-iterator/go v1.1.12: MIT
+- github.com/json-iterator/go: MIT
 
 ```text
 MIT License
@@ -1546,8 +1548,8 @@ SOFTWARE.
 
 ### github.com/modern-go/concurrent and 1 more
 
-- github.com/modern-go/concurrent v0.0.0-20180306012644-bacd9c7ef1dd: Apache-2.0
-- github.com/modern-go/reflect2 v1.0.3-0.20250322232337-35a7c28c31ee: Apache-2.0
+- github.com/modern-go/concurrent: Apache-2.0
+- github.com/modern-go/reflect2: Apache-2.0
 
 ```text
                                  Apache License
@@ -1755,7 +1757,7 @@ SOFTWARE.
 
 ### github.com/munnerz/goautoneg
 
-- github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822: BSD-3-Clause
+- github.com/munnerz/goautoneg: BSD-3-Clause
 
 ```text
 Copyright (c) 2011, Open Knowledge Foundation Ltd.
@@ -1793,7 +1795,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 ### github.com/pmezard/go-difflib/difflib
 
-- github.com/pmezard/go-difflib/difflib v1.0.1-0.20181226105442-5d4384ee4fb2: BSD-3-Clause
+- github.com/pmezard/go-difflib/difflib: BSD-3-Clause
 
 ```text
 Copyright (c) 2013, Patrick Mezard
@@ -1827,7 +1829,7 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 ### github.com/prometheus/client_golang/internal/github.com/golang/gddo/httputil
 
-- github.com/prometheus/client_golang/internal/github.com/golang/gddo/httputil v1.23.2: BSD-3-Clause
+- github.com/prometheus/client_golang/internal/github.com/golang/gddo/httputil: BSD-3-Clause
 
 ```text
 Copyright (c) 2013 The Go Authors. All rights reserved.
@@ -1861,7 +1863,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 ### github.com/prometheus/client_golang/prometheus
 
-- github.com/prometheus/client_golang/prometheus v1.23.2: Apache-2.0
+- github.com/prometheus/client_golang/prometheus: Apache-2.0
 
 ```text
                                  Apache License
@@ -2092,7 +2094,7 @@ See source code for license details.
 
 ### github.com/prometheus/client_model/go
 
-- github.com/prometheus/client_model/go v0.6.2: Apache-2.0
+- github.com/prometheus/client_model/go: Apache-2.0
 
 ```text
                                  Apache License
@@ -2310,7 +2312,7 @@ SoundCloud Ltd. (http://soundcloud.com/).
 
 ### github.com/prometheus/common
 
-- github.com/prometheus/common v0.66.1: Apache-2.0
+- github.com/prometheus/common: Apache-2.0
 
 ```text
                                  Apache License
@@ -2528,7 +2530,7 @@ SoundCloud Ltd. (http://soundcloud.com/).
 
 ### github.com/prometheus/procfs
 
-- github.com/prometheus/procfs v0.16.1: Apache-2.0
+- github.com/prometheus/procfs: Apache-2.0
 
 ```text
                                  Apache License
@@ -2748,7 +2750,7 @@ SoundCloud Ltd. (http://soundcloud.com/).
 
 ### github.com/spf13/pflag
 
-- github.com/spf13/pflag v1.0.10: BSD-3-Clause
+- github.com/spf13/pflag: BSD-3-Clause
 
 ```text
 Copyright (c) 2012 Alex Ogier. All rights reserved.
@@ -2783,7 +2785,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 ### github.com/x448/float16
 
-- github.com/x448/float16 v0.8.4: MIT
+- github.com/x448/float16: MIT
 
 ```text
 MIT License
@@ -2811,7 +2813,7 @@ SOFTWARE.
 
 ### go.yaml.in/yaml/v2
 
-- go.yaml.in/yaml/v2 v2.4.4: Apache-2.0 AND MIT
+- go.yaml.in/yaml/v2: Apache-2.0 AND MIT
 
 ```text
 ==> LICENSE <==
@@ -3073,7 +3075,7 @@ limitations under the License.
 
 ### go.yaml.in/yaml/v3
 
-- go.yaml.in/yaml/v3 v3.0.4: MIT AND Apache-2.0
+- go.yaml.in/yaml/v3: MIT AND Apache-2.0
 
 ```text
 
@@ -3148,13 +3150,13 @@ limitations under the License.
 
 ### golang.org/x/crypto and 6 more
 
-- golang.org/x/crypto v0.58.0: BSD-3-Clause
-- golang.org/x/net v0.62.0: BSD-3-Clause
-- golang.org/x/oauth2 v0.36.0: BSD-3-Clause
-- golang.org/x/sys v0.49.0: BSD-3-Clause
-- golang.org/x/term v0.47.0: BSD-3-Clause
-- golang.org/x/text v0.43.0: BSD-3-Clause
-- golang.org/x/time/rate v0.15.0: BSD-3-Clause
+- golang.org/x/crypto: BSD-3-Clause
+- golang.org/x/net: BSD-3-Clause
+- golang.org/x/oauth2: BSD-3-Clause
+- golang.org/x/sys: BSD-3-Clause
+- golang.org/x/term: BSD-3-Clause
+- golang.org/x/text: BSD-3-Clause
+- golang.org/x/time/rate: BSD-3-Clause
 
 ```text
 Copyright 2009 The Go Authors.
@@ -3188,7 +3190,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 ### google.golang.org/protobuf
 
-- google.golang.org/protobuf v1.36.12-0.20260120151049-f2248ac996af: BSD-3-Clause
+- google.golang.org/protobuf: BSD-3-Clause
 
 ```text
 Copyright (c) 2018 The Go Authors. All rights reserved.
@@ -3222,7 +3224,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 ### gopkg.in/evanphx/json-patch.v4
 
-- gopkg.in/evanphx/json-patch.v4 v4.13.0: BSD-3-Clause
+- gopkg.in/evanphx/json-patch.v4: BSD-3-Clause
 
 ```text
 Copyright (c) 2014, Evan Phoenix
@@ -3254,7 +3256,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 ### gopkg.in/inf.v0
 
-- gopkg.in/inf.v0 v0.9.1: BSD-3-Clause
+- gopkg.in/inf.v0: BSD-3-Clause
 
 ```text
 Copyright (c) 2012 Péter Surányi. Portions Copyright (c) 2009 The Go
@@ -3289,7 +3291,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 ### k8s.io/apimachinery/third_party/forked/golang
 
-- k8s.io/apimachinery/third_party/forked/golang v0.37.2: BSD-3-Clause
+- k8s.io/apimachinery/third_party/forked/golang: BSD-3-Clause
 
 ```text
 Copyright (c) 2009 The Go Authors. All rights reserved.
@@ -3323,7 +3325,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 ### k8s.io/klog/v2
 
-- k8s.io/klog/v2 v2.140.0: Apache-2.0
+- k8s.io/klog/v2: Apache-2.0
 
 ```text
 Apache License
@@ -3521,7 +3523,7 @@ third-party archives.
 
 ### k8s.io/kube-openapi/pkg/internal/third_party/go-json-experiment/json
 
-- k8s.io/kube-openapi/pkg/internal/third_party/go-json-experiment/json v0.0.0-20260721132016-d427ff9ee9ad: BSD-3-Clause
+- k8s.io/kube-openapi/pkg/internal/third_party/go-json-experiment/json: BSD-3-Clause
 
 ```text
 Copyright (c) 2020 The Go Authors. All rights reserved.
@@ -3555,7 +3557,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 ### sigs.k8s.io/json
 
-- sigs.k8s.io/json v0.0.0-20250730193827-2d320260d730: Apache-2.0, BSD-3-Clause
+- sigs.k8s.io/json: Apache-2.0, BSD-3-Clause
 
 ```text
 Files other than internal/golang/* licensed under:
@@ -3800,7 +3802,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 ### sigs.k8s.io/randfill
 
-- sigs.k8s.io/randfill v1.0.0: Apache-2.0
+- sigs.k8s.io/randfill: Apache-2.0
 
 ```text
                                  Apache License
@@ -4038,7 +4040,7 @@ Submitted on behalf of a third-party: @disconnect3d (Disconnect3d)
 
 ### sigs.k8s.io/yaml
 
-- sigs.k8s.io/yaml v1.6.0: Apache-2.0, BSD-3-Clause, MIT
+- sigs.k8s.io/yaml: Apache-2.0, BSD-3-Clause, MIT
 
 ```text
 The MIT License (MIT)
@@ -4358,10 +4360,10 @@ from them.
 
 ### @floating-ui/core and 3 more
 
-- @floating-ui/core 1.8.0: MIT
-- @floating-ui/dom 1.8.0: MIT
-- @floating-ui/react-dom 2.1.9: MIT
-- @floating-ui/utils 0.2.12: MIT
+- @floating-ui/core: MIT
+- @floating-ui/dom: MIT
+- @floating-ui/react-dom: MIT
+- @floating-ui/utils: MIT
 
 ```text
 MIT License
@@ -4388,7 +4390,7 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 ### @fontsource-variable/inter
 
-- @fontsource-variable/inter 5.3.0: OFL-1.1
+- @fontsource-variable/inter: OFL-1.1
 
 ```text
 Copyright 2016 The Inter Project Authors (https://github.com/rsms/inter) Inter-Italic[opsz,wght].ttf: Copyright 2016 The Inter Project Authors (https://github.com/rsms/inter)
@@ -4488,7 +4490,7 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
 
 ### @fontsource-variable/jetbrains-mono
 
-- @fontsource-variable/jetbrains-mono 5.3.0: OFL-1.1
+- @fontsource-variable/jetbrains-mono: OFL-1.1
 
 ```text
 Copyright 2020 The JetBrains Mono Project Authors (https://github.com/JetBrains/JetBrainsMono) JetBrainsMono-Italic[wght].ttf: Copyright 2020 The JetBrains Mono Project Authors (https://github.com/JetBrains/JetBrainsMono)
@@ -4588,67 +4590,67 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
 
 ### @radix-ui/number and 60 more
 
-- @radix-ui/number 1.1.3: MIT
-- @radix-ui/primitive 1.2.0: MIT
-- @radix-ui/react-accessible-icon 1.2.0: MIT
-- @radix-ui/react-accordion 1.3.1: MIT
-- @radix-ui/react-alert-dialog 1.2.1: MIT
-- @radix-ui/react-arrow 1.1.17: MIT
-- @radix-ui/react-aspect-ratio 1.2.0: MIT
-- @radix-ui/react-avatar 1.3.1: MIT
-- @radix-ui/react-checkbox 1.4.1: MIT
-- @radix-ui/react-collapsible 1.2.1: MIT
-- @radix-ui/react-collection 1.2.0: MIT
-- @radix-ui/react-compose-refs 1.1.5: MIT
-- @radix-ui/react-context-menu 2.4.1: MIT
-- @radix-ui/react-context 1.3.0: MIT
-- @radix-ui/react-dialog 1.3.1: MIT
-- @radix-ui/react-direction 1.2.0: MIT
-- @radix-ui/react-dismissable-layer 1.2.1: MIT
-- @radix-ui/react-dropdown-menu 2.2.1: MIT
-- @radix-ui/react-focus-guards 1.2.0: MIT
-- @radix-ui/react-focus-scope 1.3.1: MIT
-- @radix-ui/react-form 0.3.0: MIT
-- @radix-ui/react-hover-card 1.2.1: MIT
-- @radix-ui/react-id 1.1.4: MIT
-- @radix-ui/react-label 2.1.17: MIT
-- @radix-ui/react-menu 2.2.1: MIT
-- @radix-ui/react-menubar 1.2.1: MIT
-- @radix-ui/react-navigation-menu 1.4.1: MIT
-- @radix-ui/react-one-time-password-field 0.2.1: MIT
-- @radix-ui/react-password-toggle-field 0.2.1: MIT
-- @radix-ui/react-popover 1.3.1: MIT
-- @radix-ui/react-popper 1.4.0: MIT
-- @radix-ui/react-portal 1.2.0: MIT
-- @radix-ui/react-presence 1.1.11: MIT
-- @radix-ui/react-primitive 2.2.0: MIT
-- @radix-ui/react-progress 1.2.1: MIT
-- @radix-ui/react-radio-group 1.5.1: MIT
-- @radix-ui/react-roving-focus 1.2.1: MIT
-- @radix-ui/react-scroll-area 1.4.0: MIT
-- @radix-ui/react-select 2.4.1: MIT
-- @radix-ui/react-separator 1.2.0: MIT
-- @radix-ui/react-slider 1.6.1: MIT
-- @radix-ui/react-slot 1.5.0: MIT
-- @radix-ui/react-switch 1.4.1: MIT
-- @radix-ui/react-tabs 1.2.1: MIT
-- @radix-ui/react-toast 1.3.1: MIT
-- @radix-ui/react-toggle-group 1.2.1: MIT
-- @radix-ui/react-toggle 1.2.1: MIT
-- @radix-ui/react-toolbar 1.2.1: MIT
-- @radix-ui/react-tooltip 1.4.1: MIT
-- @radix-ui/react-use-callback-ref 1.1.5: MIT
-- @radix-ui/react-use-controllable-state 1.3.0: MIT
-- @radix-ui/react-use-effect-event 0.0.5: MIT
-- @radix-ui/react-use-escape-keydown 1.1.6: MIT
-- @radix-ui/react-use-is-hydrated 0.1.3: MIT
-- @radix-ui/react-use-layout-effect 1.1.4: MIT
-- @radix-ui/react-use-previous 1.1.4: MIT
-- @radix-ui/react-use-rect 1.1.4: MIT
-- @radix-ui/react-use-size 1.1.5: MIT
-- @radix-ui/react-visually-hidden 1.2.13: MIT
-- @radix-ui/rect 1.1.3: MIT
-- radix-ui 1.8.1: MIT
+- @radix-ui/number: MIT
+- @radix-ui/primitive: MIT
+- @radix-ui/react-accessible-icon: MIT
+- @radix-ui/react-accordion: MIT
+- @radix-ui/react-alert-dialog: MIT
+- @radix-ui/react-arrow: MIT
+- @radix-ui/react-aspect-ratio: MIT
+- @radix-ui/react-avatar: MIT
+- @radix-ui/react-checkbox: MIT
+- @radix-ui/react-collapsible: MIT
+- @radix-ui/react-collection: MIT
+- @radix-ui/react-compose-refs: MIT
+- @radix-ui/react-context-menu: MIT
+- @radix-ui/react-context: MIT
+- @radix-ui/react-dialog: MIT
+- @radix-ui/react-direction: MIT
+- @radix-ui/react-dismissable-layer: MIT
+- @radix-ui/react-dropdown-menu: MIT
+- @radix-ui/react-focus-guards: MIT
+- @radix-ui/react-focus-scope: MIT
+- @radix-ui/react-form: MIT
+- @radix-ui/react-hover-card: MIT
+- @radix-ui/react-id: MIT
+- @radix-ui/react-label: MIT
+- @radix-ui/react-menu: MIT
+- @radix-ui/react-menubar: MIT
+- @radix-ui/react-navigation-menu: MIT
+- @radix-ui/react-one-time-password-field: MIT
+- @radix-ui/react-password-toggle-field: MIT
+- @radix-ui/react-popover: MIT
+- @radix-ui/react-popper: MIT
+- @radix-ui/react-portal: MIT
+- @radix-ui/react-presence: MIT
+- @radix-ui/react-primitive: MIT
+- @radix-ui/react-progress: MIT
+- @radix-ui/react-radio-group: MIT
+- @radix-ui/react-roving-focus: MIT
+- @radix-ui/react-scroll-area: MIT
+- @radix-ui/react-select: MIT
+- @radix-ui/react-separator: MIT
+- @radix-ui/react-slider: MIT
+- @radix-ui/react-slot: MIT
+- @radix-ui/react-switch: MIT
+- @radix-ui/react-tabs: MIT
+- @radix-ui/react-toast: MIT
+- @radix-ui/react-toggle-group: MIT
+- @radix-ui/react-toggle: MIT
+- @radix-ui/react-toolbar: MIT
+- @radix-ui/react-tooltip: MIT
+- @radix-ui/react-use-callback-ref: MIT
+- @radix-ui/react-use-controllable-state: MIT
+- @radix-ui/react-use-effect-event: MIT
+- @radix-ui/react-use-escape-keydown: MIT
+- @radix-ui/react-use-is-hydrated: MIT
+- @radix-ui/react-use-layout-effect: MIT
+- @radix-ui/react-use-previous: MIT
+- @radix-ui/react-use-rect: MIT
+- @radix-ui/react-use-size: MIT
+- @radix-ui/react-visually-hidden: MIT
+- @radix-ui/rect: MIT
+- radix-ui: MIT
 
 ```text
 MIT License
@@ -4676,7 +4678,7 @@ SOFTWARE.
 
 ### @reduxjs/toolkit
 
-- @reduxjs/toolkit 2.13.0: MIT
+- @reduxjs/toolkit: MIT
 
 ```text
 MIT License
@@ -4704,7 +4706,7 @@ SOFTWARE.
 
 ### @standard-schema/spec
 
-- @standard-schema/spec 1.1.0: MIT
+- @standard-schema/spec: MIT
 
 ```text
 MIT License
@@ -4732,7 +4734,7 @@ SOFTWARE.
 
 ### @standard-schema/utils
 
-- @standard-schema/utils 0.3.0: MIT
+- @standard-schema/utils: MIT
 
 ```text
 MIT License
@@ -4760,8 +4762,8 @@ SOFTWARE.
 
 ### @tanstack/query-core and 1 more
 
-- @tanstack/query-core 5.105.0: MIT
-- @tanstack/react-query 5.105.0: MIT
+- @tanstack/query-core: MIT
+- @tanstack/react-query: MIT
 
 ```text
 MIT License
@@ -4789,18 +4791,18 @@ SOFTWARE.
 
 ### @types/d3-array and 11 more
 
-- @types/d3-array 3.2.2: MIT
-- @types/d3-color 3.1.3: MIT
-- @types/d3-ease 3.0.2: MIT
-- @types/d3-interpolate 3.0.4: MIT
-- @types/d3-path 3.1.1: MIT
-- @types/d3-scale 4.0.9: MIT
-- @types/d3-shape 3.2.0: MIT
-- @types/d3-time 3.0.4: MIT
-- @types/d3-timer 3.0.2: MIT
-- @types/react-dom 19.3.0: MIT
-- @types/react 19.3.0: MIT
-- @types/use-sync-external-store 0.0.6: MIT
+- @types/d3-array: MIT
+- @types/d3-color: MIT
+- @types/d3-ease: MIT
+- @types/d3-interpolate: MIT
+- @types/d3-path: MIT
+- @types/d3-scale: MIT
+- @types/d3-shape: MIT
+- @types/d3-time: MIT
+- @types/d3-timer: MIT
+- @types/react-dom: MIT
+- @types/react: MIT
+- @types/use-sync-external-store: MIT
 
 ```text
     MIT License
@@ -4828,11 +4830,11 @@ SOFTWARE.
 
 ### aria-hidden and 4 more
 
-- aria-hidden 1.2.6: MIT
-- react-remove-scroll 2.7.2: MIT
-- react-style-singleton 2.2.3: MIT
-- use-callback-ref 1.3.3: MIT
-- use-sidecar 1.1.3: MIT
+- aria-hidden: MIT
+- react-remove-scroll: MIT
+- react-style-singleton: MIT
+- use-callback-ref: MIT
+- use-sidecar: MIT
 
 ```text
 MIT License
@@ -4860,7 +4862,7 @@ SOFTWARE.
 
 ### class-variance-authority
 
-- class-variance-authority 0.7.1: Apache-2.0
+- class-variance-authority: Apache-2.0
 
 ```text
                                  Apache License
@@ -5057,7 +5059,7 @@ SOFTWARE.
 
 ### clsx
 
-- clsx 2.1.1: MIT
+- clsx: MIT
 
 ```text
 MIT License
@@ -5073,7 +5075,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 
 ### cmdk
 
-- cmdk 1.1.1: MIT
+- cmdk: MIT
 
 ```text
 MIT License
@@ -5101,7 +5103,7 @@ SOFTWARE.
 
 ### csstype
 
-- csstype 3.2.3: MIT
+- csstype: MIT
 
 ```text
 Copyright (c) 2017-2018 Fredrik Nicol
@@ -5127,7 +5129,7 @@ SOFTWARE.
 
 ### d3-array
 
-- d3-array 3.2.4: ISC
+- d3-array: ISC
 
 ```text
 Copyright 2010-2023 Mike Bostock
@@ -5147,9 +5149,9 @@ THIS SOFTWARE.
 
 ### d3-color and 2 more
 
-- d3-color 3.1.0: ISC
-- d3-shape 3.2.0: ISC
-- d3-time 3.1.0: ISC
+- d3-color: ISC
+- d3-shape: ISC
+- d3-time: ISC
 
 ```text
 Copyright 2010-2022 Mike Bostock
@@ -5169,7 +5171,7 @@ THIS SOFTWARE.
 
 ### d3-ease
 
-- d3-ease 3.0.1: BSD-3-Clause
+- d3-ease: BSD-3-Clause
 
 ```text
 Copyright 2010-2021 Mike Bostock
@@ -5204,7 +5206,7 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 ### d3-format
 
-- d3-format 3.1.2: ISC
+- d3-format: ISC
 
 ```text
 Copyright 2010-2026 Mike Bostock
@@ -5224,10 +5226,10 @@ THIS SOFTWARE.
 
 ### d3-interpolate and 3 more
 
-- d3-interpolate 3.0.1: ISC
-- d3-scale 4.0.2: ISC
-- d3-time-format 4.1.0: ISC
-- d3-timer 3.0.1: ISC
+- d3-interpolate: ISC
+- d3-scale: ISC
+- d3-time-format: ISC
+- d3-timer: ISC
 
 ```text
 Copyright 2010-2021 Mike Bostock
@@ -5247,7 +5249,7 @@ THIS SOFTWARE.
 
 ### d3-path
 
-- d3-path 3.1.0: ISC
+- d3-path: ISC
 
 ```text
 Copyright 2015-2022 Mike Bostock
@@ -5267,7 +5269,7 @@ THIS SOFTWARE.
 
 ### decimal.js-light
 
-- decimal.js-light 2.5.1: MIT
+- decimal.js-light: MIT
 
 ```text
 The MIT Expat Licence.
@@ -5296,7 +5298,7 @@ SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 ### detect-node-es
 
-- detect-node-es 1.1.0: MIT
+- detect-node-es: MIT
 
 ```text
 MIT License
@@ -5324,7 +5326,7 @@ SOFTWARE.
 
 ### es-toolkit
 
-- es-toolkit 1.53.1: MIT
+- es-toolkit: MIT
 
 ```text
 MIT License
@@ -5396,7 +5398,7 @@ WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 ### eventemitter3
 
-- eventemitter3 5.0.4: MIT
+- eventemitter3: MIT
 
 ```text
 The MIT License (MIT)
@@ -5424,7 +5426,7 @@ SOFTWARE.
 
 ### framer-motion
 
-- framer-motion 14.9.0: MIT
+- framer-motion: MIT
 
 ```text
 The MIT License (MIT)
@@ -5452,7 +5454,7 @@ SOFTWARE.
 
 ### get-nonce
 
-- get-nonce 1.0.1: MIT
+- get-nonce: MIT
 
 ```text
 MIT License
@@ -5478,10 +5480,9 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-### immer and 1 more
+### immer
 
-- immer 10.2.0: MIT
-- immer 11.2.9: MIT
+- immer: MIT
 
 ```text
 MIT License
@@ -5509,7 +5510,7 @@ SOFTWARE.
 
 ### internmap
 
-- internmap 2.0.3: ISC
+- internmap: ISC
 
 ```text
 Copyright 2021 Mike Bostock
@@ -5529,7 +5530,7 @@ THIS SOFTWARE.
 
 ### lucide-react
 
-- lucide-react 1.65.0: ISC
+- lucide-react: ISC
 
 ```text
 ISC License
@@ -5579,9 +5580,9 @@ SOFTWARE.
 
 ### motion-dom and 2 more
 
-- motion-dom 14.9.0: MIT
-- motion-utils 14.7.0: MIT
-- motion 14.9.0: MIT
+- motion-dom: MIT
+- motion-utils: MIT
+- motion: MIT
 
 ```text
 The MIT License (MIT)
@@ -5609,11 +5610,11 @@ SOFTWARE.
 
 ### react-dom and 4 more
 
-- react-dom 19.3.1: MIT
-- react-is 19.3.1: MIT
-- react 19.3.1: MIT
-- scheduler 0.28.0: MIT
-- use-sync-external-store 1.7.0: MIT
+- react-dom: MIT
+- react-is: MIT
+- react: MIT
+- scheduler: MIT
+- use-sync-external-store: MIT
 
 ```text
 MIT License
@@ -5641,9 +5642,9 @@ SOFTWARE.
 
 ### react-redux and 2 more
 
-- react-redux 9.3.1: MIT
-- redux-thunk 3.1.0: MIT
-- redux 5.0.1: MIT
+- react-redux: MIT
+- redux-thunk: MIT
+- redux: MIT
 
 ```text
 The MIT License (MIT)
@@ -5671,13 +5672,13 @@ SOFTWARE.
 
 ### react-remove-scroll-bar
 
-- react-remove-scroll-bar 2.3.8: MIT
+- react-remove-scroll-bar: MIT
 
 The package ships no licence file; its metadata declares the licence above. Author: Anton Korzunov.
 
 ### recharts
 
-- recharts 3.8.0: MIT
+- recharts: MIT
 
 ```text
 The MIT License (MIT)
@@ -5705,7 +5706,7 @@ SOFTWARE.
 
 ### regexparam
 
-- regexparam 3.0.0: MIT
+- regexparam: MIT
 
 ```text
 The MIT License (MIT)
@@ -5731,10 +5732,9 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 ```
 
-### reselect and 1 more
+### reselect
 
-- reselect 5.1.1: MIT
-- reselect 5.2.0: MIT
+- reselect: MIT
 
 ```text
 The MIT License (MIT)
@@ -5762,7 +5762,7 @@ SOFTWARE.
 
 ### sonner
 
-- sonner 2.0.8: MIT
+- sonner: MIT
 
 ```text
 MIT License
@@ -5790,7 +5790,7 @@ SOFTWARE.
 
 ### tailwind-merge
 
-- tailwind-merge 3.7.0: MIT
+- tailwind-merge: MIT
 
 ```text
 MIT License
@@ -5818,7 +5818,7 @@ SOFTWARE.
 
 ### tiny-invariant
 
-- tiny-invariant 1.3.3: MIT
+- tiny-invariant: MIT
 
 ```text
 MIT License
@@ -5846,7 +5846,7 @@ SOFTWARE.
 
 ### tslib
 
-- tslib 2.9.1: 0BSD
+- tslib: 0BSD
 
 ```text
 Copyright (c) Microsoft Corporation.
@@ -5865,7 +5865,7 @@ PERFORMANCE OF THIS SOFTWARE.
 
 ### tw-animate-css
 
-- tw-animate-css 1.4.0: MIT
+- tw-animate-css: MIT
 
 ```text
 MIT License
@@ -5893,7 +5893,7 @@ SOFTWARE.
 
 ### victory-vendor
 
-- victory-vendor 37.4.1: MIT AND ISC AND BSD-3-Clause
+- victory-vendor: MIT AND ISC AND BSD-3-Clause
 
 ```text
 The MIT License (MIT)
@@ -6050,6 +6050,6 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 ### wouter
 
-- wouter 3.13.0: Unlicense
+- wouter: Unlicense
 
 The package ships no licence file; its metadata declares the licence above. Author: Alexey Taktarov.
