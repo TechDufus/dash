@@ -1985,6 +1985,21 @@ R3 of G6: P6.3. A patch: the docs moved, nothing was removed, and no behaviour c
 
 **Correctness (`RevCode143`):** the generator is deterministic and drift-checked, with its hand-kept panel and RBAC tables tested against the web registry and the rendered chart. `make check`, `make scan` and the race suite pass. It found silent error paths in the generator, unprefixed error messages, `links.sh` without a bash-version guard, and a test race in the k8s reference test, all fixed.
 
+### G6 R4 deviations
+
+R4 (branch `ci/release-ghcr`: the release job, its docs and the allowlist cleanup) ships P6.7 and differs from it in these places.
+
+| Item | The plan said | Shipped | Why |
+|---|---|---|---|
+| Attestation actions | `attest-build-provenance` and `attest-sbom` | `actions/attest` v4 for both (no `sbom-path` gives SLSA provenance; `sbom-path` gives the SBOM attestation) | Since v4 both are wrappers of `actions/attest`, and `attest-sbom` is deprecated in its favour |
+| Action pins | Not covered | Every new action pinned by commit; `docker/login-action` v4.7.0 and `sigstore/cosign-installer` v4.1.2, not the releases of the last week | The same 7-day cooldown Dependabot keeps |
+| Create-only | The image's `X.Y.Z` | The image's `X.Y.Z` and the chart's version, both checked before the build | A re-run after a failed chart push must not move a published chart |
+| Builder | `setup-buildx-action` defaults | The BuildKit image pinned by digest as in `check`, and `cache-binary: false` | No Actions cache on tag runs (zizmor cache-poisoning), as `mise-action` already does |
+| Annotations | Labels from `metadata-action` | The Dockerfile keeps its OCI labels (`VERSION`, `REVISION`, `CREATED` build args); `metadata-action`'s annotations go on the manifests and the index | GHCR reads a multi-arch package's source and description from the index |
+| The other jobs | All on `ubuntu-24.04` | `check`, `scan`, `smoke` and `kind` stay on the self-hosted runner while the repository is private and switch by themselves at the flip; P6.9 deregisters the runner then | The owner's decision on 2026-11-05: no GitHub-hosted minutes before the flip |
+| Homelab pull (J.9) | GHCR directly, optionally through a Zot pull-through cache | GHCR directly; the owner makes the `dash` and `charts/dash` packages public after their first push (GHCR packages pushed from a private repository start private) | The owner's decision on 2026-11-05: no pull secret, and only the built image and chart become public before the source |
+| Pre-release tag on a fork | The proof that both architectures publish | The tag check accepts only `vX.Y.Z`, so the first release tag is the end-to-end proof | A pre-release form would loosen the check only for a test |
+
 ### P6.1 test: replace real-lab identifiers in fixtures and add a denylist test
 
 **Body:** rewrite the fixtures in:
