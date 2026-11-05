@@ -41,6 +41,9 @@ func testOAuth(t *testing.T, d *Deps) *oauth.Server {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if r, ok := d.Tokens.(*tokens.Resolver); ok {
+		r.SetOAuth(s)
+	}
 	return s
 }
 

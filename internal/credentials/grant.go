@@ -236,6 +236,25 @@ func (s *Store) GrantByID(id string) (Grant, bool) {
 	return g.clone(), ok
 }
 
+// RefreshGrant returns the grant a refresh token belongs to, current or rotated away (its
+// holder may still revoke it, RFC 7009), compared in constant time; false for any other token.
+func (s *Store) RefreshGrant(token string) (Grant, bool) {
+	id, ok := ParseRefreshToken(token)
+	if !ok {
+		return Grant{}, false
+	}
+	hash := []byte(HashToken(token))
+	g, found := s.GrantByID(id)
+	if !found {
+		return Grant{}, false
+	}
+	match := subtle.ConstantTimeCompare(hash, []byte(g.RefreshHash))
+	for _, h := range g.PrevRefresh {
+		match |= subtle.ConstantTimeCompare(hash, []byte(h))
+	}
+	return g, match == 1
+}
+
 // RotateRefresh exchanges the refresh token for one whose hash is next: the grant's current
 // token becomes a rotated one, and the grant is refreshed at now. The rotation is kept only
 // when it was written, so a client whose refresh failed may retry with the same token. A token

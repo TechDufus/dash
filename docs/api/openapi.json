@@ -261,6 +261,12 @@
       "AuditActor": {
         "additionalProperties": false,
         "properties": {
+          "clientId": {
+            "type": "string"
+          },
+          "grantId": {
+            "type": "string"
+          },
           "surface": {
             "type": "string"
           },

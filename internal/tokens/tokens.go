@@ -1,6 +1,7 @@
-// Package tokens resolves bearer credentials to principals (design M.1, M.4, M.5): the
-// personal access tokens of the credential store and the static tokens of auth.tokens. A token
-// is bound to one audience; presented at the other surface it is refused like an unknown one.
+// Package tokens resolves bearer credentials to principals (design M.1, M.4, M.5, M.6): the
+// personal access tokens of the credential store, the static tokens of auth.tokens and the
+// OAuth access tokens of internal/oauth. A token is bound to one audience; presented at the
+// other surface it is refused like an unknown one.
 package tokens
 
 import (
@@ -13,6 +14,7 @@ import (
 	"github.com/TechDufus/dash/internal/auth"
 	"github.com/TechDufus/dash/internal/config"
 	"github.com/TechDufus/dash/internal/credentials"
+	"github.com/TechDufus/dash/internal/oauth"
 )
 
 // ErrInvalid is every refusal: unknown, expired, revoked, for another audience, or an owner the
@@ -31,8 +33,8 @@ func (e *AudienceError) Error() string {
 func (e *AudienceError) Is(target error) bool { return target == ErrInvalid }
 
 // TokenPrefix starts every dash token: dash_pat_ (personal access tokens), dash_st_ (static
-// tokens, from dash token generate) and the OAuth tokens of a later release. A credential
-// without it is refused before any lookup.
+// tokens, from dash token generate), dash_at_ (OAuth access tokens) and dash_rt_ (OAuth refresh
+// tokens, which only /oauth/token takes). A credential without it is refused before any lookup.
 const TokenPrefix = "dash_"
 
 // StaticIDPrefix starts the TokenID of a static token's principal: static:<name>.
@@ -44,11 +46,20 @@ const StaticUserPrefix = "token:"
 // Resolver turns a bearer credential into a token principal. Its methods are safe for
 // concurrent use; SetStatic replaces the static tokens for the next request.
 type Resolver struct {
-	store  *credentials.Store // the personal access tokens; nil = none
+	store  *credentials.Store // the personal access tokens and OAuth grants; nil = none
 	roles  *auth.RoleHolder   // the live mapping a token owner's role is derived with
 	now    func() time.Time
 	static atomic.Pointer[map[string]config.StaticToken] // by hash
+	oauth  AccessOpener                                  // nil = no OAuth server
 }
+
+// AccessOpener opens OAuth access tokens: *oauth.Server.
+type AccessOpener interface {
+	OpenAccess(token string) (oauth.Access, error)
+}
+
+// SetOAuth makes the resolver accept the access tokens o seals. Call it before serving.
+func (r *Resolver) SetOAuth(o AccessOpener) { r.oauth = o }
 
 // New is a resolver over store's personal access tokens, deriving their owners' roles with
 // roles (the mode's live mapping), and the static tokens.
@@ -96,6 +107,9 @@ func (r *Resolver) Resolve(token, audience string) (auth.Principal, error) {
 	if r.store == nil {
 		return auth.Principal{}, ErrInvalid
 	}
+	if strings.HasPrefix(token, oauth.AccessPrefix) {
+		return r.resolveAccess(token, audience)
+	}
 	now := r.now()
 	p, err := r.store.LookupPAT(token, now)
 	if err != nil {
@@ -112,5 +126,40 @@ func (r *Resolver) Resolve(token, audience string) (auth.Principal, error) {
 	return auth.Principal{
 		Kind: auth.KindToken, User: p.User, Role: role, Via: "bearer", Groups: p.Groups, RoleClaim: p.RoleClaim,
 		TokenID: p.ID, Audience: p.Audience, Scopes: p.Scopes, ActionNamespaces: p.ActionNamespaces,
+	}, nil
+}
+
+// resolveAccess resolves an OAuth access token: sealed by the server, not expired, its grant
+// still there and active (a revoked grant ends its access tokens at once), at its audience. The
+// role is derived from the groups and role-claim value the grant recorded, against the current
+// mapping, and the token's scopes are narrowed to the grant's.
+func (r *Resolver) resolveAccess(token, audience string) (auth.Principal, error) {
+	if r.oauth == nil {
+		return auth.Principal{}, ErrInvalid
+	}
+	a, err := r.oauth.OpenAccess(token)
+	if err != nil {
+		return auth.Principal{}, ErrInvalid
+	}
+	g, ok := r.store.GrantByID(a.GrantID)
+	if !ok || !g.Active(r.now()) || g.Audience != a.Audience {
+		return auth.Principal{}, ErrInvalid
+	}
+	if g.Audience != audience {
+		return auth.Principal{}, &AudienceError{Audience: g.Audience}
+	}
+	role := r.roles.RoleForClaims(g.User, g.Groups, g.RoleClaim)
+	if role == "" {
+		return auth.Principal{}, ErrInvalid
+	}
+	var scopes []string
+	for _, sc := range a.Scopes {
+		if slices.Contains(g.Scopes, sc) {
+			scopes = append(scopes, sc)
+		}
+	}
+	return auth.Principal{
+		Kind: auth.KindToken, User: g.User, Role: role, Via: "bearer", Groups: g.Groups, RoleClaim: g.RoleClaim,
+		GrantID: g.ID, ClientID: g.ClientID, Audience: g.Audience, Scopes: scopes,
 	}, nil
 }

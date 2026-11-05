@@ -152,6 +152,7 @@ type Server struct {
 	actionLimit *rateLimiter   // framework actions per principal
 	tokenLimit  *tokenBucket   // requests per api token (design M.5)
 	createLimit *rateLimiter   // personal access tokens created per user
+	oauthLimit  *rateLimiter   // /oauth/token and /oauth/revoke per client_id and peer
 	testLimit   *rateLimiter   // settings connection tests per principal
 	openTarget  *rateLimiter   // stream-open audit records per user and target
 	openUser    *rateLimiter   // stream-open audit records per user
@@ -180,6 +181,7 @@ func New(d Deps) *Server {
 		actionLimit: newRateLimiter(actionRateLimit, actionRateWindow, maxRateKeys),
 		tokenLimit:  newTokenBucket(tokenRate, tokenBurst, maxRateKeys),
 		createLimit: newRateLimiter(tokenCreateLimit, tokenCreateWindow, maxRateKeys),
+		oauthLimit:  newRateLimiter(oauthTokenLimit, oauthTokenWindow, maxRateKeys),
 		testLimit:   newRateLimiter(settingsTestRateLimit, settingsTestRateWindow, maxRateKeys),
 		openTarget:  newRateLimiter(1, openRecordWindow, maxRateKeys),
 		openUser:    newRateLimiter(openRecordPerUser, openRecordWindow, maxRateKeys),

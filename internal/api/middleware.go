@@ -55,11 +55,12 @@ func (s *Server) hosts(next http.Handler) http.Handler {
 // a token principal's (design M.2, contract D3): a bearer token is never attached by a browser on
 // its own, so a forged request has nothing to ride on. The exemption keys on the principal authn
 // resolved, never on a header being present: in auth.mode=none a Bearer header resolves nothing
-// and the check applies.
+// and the check applies. /oauth/token and /oauth/revoke are exempt as well: they read no cookie
+// and no identity header, only the code, verifier or token in their form.
 func (s *Server) csrf(next http.Handler) http.Handler {
 	origin := s.d.Cfg.PublicOrigin()
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodGet && r.Method != http.MethodHead && principalFrom(r.Context()).Kind != auth.KindToken {
+		if r.Method != http.MethodGet && r.Method != http.MethodHead && principalFrom(r.Context()).Kind != auth.KindToken && !oauthFormEndpoint(r.URL.Path) {
 			if r.Header.Get("X-Dash-Csrf") != "1" || r.Header.Get("Origin") != origin {
 				s.deny(r, obs.AuthCSRF)
 				writeErr(w, http.StatusForbidden, model.ErrCodeCSRFFailed, "csrf check failed")

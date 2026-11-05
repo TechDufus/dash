@@ -22,6 +22,7 @@ type pending struct {
 	audience    string
 	scopes      []string // what the client asked for, validated for the client and the audience
 	user        string   // the person who first opened the consent, "" until then
+	busy        bool     // an approval is being written
 	expires     time.Time
 }
 

@@ -125,6 +125,7 @@ func startAuth(res *config.Resolved, env sessionEnv, log *slog.Logger) (processA
 			return processAuth{}, err
 		}
 		pa.oauth = srv
+		pa.tokens.SetOAuth(srv)
 	}
 	return pa, nil
 }

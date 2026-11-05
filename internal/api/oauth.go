@@ -1,28 +1,60 @@
 package api
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"log/slog"
+	"math"
+	"mime"
 	"net/http"
 	"slices"
+	"strconv"
 	"strings"
+	"time"
 
+	"github.com/TechDufus/dash/internal/audit"
+	"github.com/TechDufus/dash/internal/auth"
+	"github.com/TechDufus/dash/internal/credentials"
 	"github.com/TechDufus/dash/internal/model"
 	"github.com/TechDufus/dash/internal/oauth"
+	"github.com/TechDufus/dash/internal/obs"
+)
+
+// The audit actions of the OAuth grants.
+const (
+	auditGrantCreate = "oauth.grant.create"
+	auditGrantRevoke = "oauth.grant.revoke"
+)
+
+// The /oauth/token limit (contract G7-R3): per client_id and peer, so one client cannot starve
+// another behind the same ingress.
+const (
+	oauthTokenLimit  = 60
+	oauthTokenWindow = time.Minute
+	maxOAuthForm     = 16 << 10
 )
 
 // oauthRoutes are the authorization server's endpoints (design M.6, contract G7-R3), outside
-// /api: the metadata documents and /oauth/authorize. They are Infra rows, documented in
-// docs/api/README.md rather than the OpenAPI document. Without the server (auth.oauth.enabled
-// off, auth.mode=none, no writable data dir) each answers a JSON 404, as the catch-alls do.
+// /api: the metadata documents, /oauth/authorize, /oauth/token and /oauth/revoke. They are
+// Infra rows, documented in docs/api/README.md rather than the OpenAPI document. Without the
+// server (auth.oauth.enabled off, auth.mode=none, no writable data dir) each answers a JSON
+// 404, as the catch-alls do. Token and revoke take no ambient credential, so CSRF does not
+// apply to them (csrf).
 func (s *Server) oauthRoutes() []Route {
 	return []Route{
 		{Method: "GET", Path: "/.well-known/oauth-authorization-server", Infra: true, Handler: s.oauthMetadata},
 		{Method: "GET", Path: "/.well-known/oauth-protected-resource/{audience}", Infra: true, Handler: s.oauthResourceMetadata},
 		{Method: "GET", Path: "/oauth/authorize", Infra: true, Handler: s.oauthAuthorize},
+		{Method: "POST", Path: "/oauth/token", Infra: true, Handler: s.oauthToken},
+		{Method: "POST", Path: "/oauth/revoke", Infra: true, Handler: s.oauthRevoke},
 		{Path: "/oauth/", Infra: true, Handler: notFound},
 	}
 }
+
+// oauthFormEndpoint reports whether p is one of the form endpoints a client calls without a
+// session: no browser attaches a credential they read, so the CSRF check has nothing to guard.
+func oauthFormEndpoint(p string) bool { return p == "/oauth/token" || p == "/oauth/revoke" }
 
 func notFound(w http.ResponseWriter, _ *http.Request) {
 	writeErr(w, http.StatusNotFound, model.ErrCodeNotFound, "not found")
@@ -92,4 +124,116 @@ func (s *Server) oauthAuthorize(w http.ResponseWriter, r *http.Request) {
 	default:
 		http.Redirect(w, r, res.ConsentURL, http.StatusFound)
 	}
+}
+
+// oauthForm reads the form body of /oauth/token or /oauth/revoke (RFC 6749 3.2: POST,
+// application/x-www-form-urlencoded, at most 16 KiB; query parameters are not read). It
+// answers 400 itself and reports false on failure.
+func (s *Server) oauthForm(w http.ResponseWriter, r *http.Request) bool {
+	if mt, _, err := mime.ParseMediaType(r.Header.Get("Content-Type")); err != nil || mt != "application/x-www-form-urlencoded" {
+		writeJSON(w, http.StatusBadRequest, &oauth.Error{Code: "invalid_request", Description: "the body must be application/x-www-form-urlencoded"})
+		return false
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, maxOAuthForm)
+	if err := r.ParseForm(); err != nil {
+		writeJSON(w, http.StatusBadRequest, &oauth.Error{Code: "invalid_request", Description: "the form could not be read"})
+		return false
+	}
+	return true
+}
+
+// oauthLimitKey is the /oauth/token limit's key: the peer and a hash of the client_id, so a
+// long client_id cannot grow the table.
+func oauthLimitKey(r *http.Request, clientID string) string {
+	sum := sha256.Sum256([]byte(clientID))
+	return peerOf(r) + "|" + hex.EncodeToString(sum[:8])
+}
+
+// grantActor is the audit actor of a change a client made to its own grant at the token or
+// revoke endpoint: the grant's user through that client, on the grant's surface.
+func grantActor(g credentials.Grant) audit.Actor {
+	return audit.Actor{Type: string(auth.KindToken), User: g.User, GrantID: g.ID, ClientID: g.ClientID, Surface: g.Audience}
+}
+
+// grantTarget is the audit target of a grant: its user's, named by its ID.
+func grantTarget(g credentials.Grant) audit.Target {
+	return audit.Target{Kind: "grant", Namespace: g.User, Name: g.ID}
+}
+
+// oauthToken answers /oauth/token (RFC 6749 3.2): the code exchange with PKCE and the refresh
+// with rotation. Past 60 requests a minute for one client_id from one peer it is 429. A grant
+// revoked because a code or refresh token was used twice is recorded in the audit log.
+func (s *Server) oauthToken(w http.ResponseWriter, r *http.Request) {
+	if s.d.OAuth == nil {
+		notFound(w, r)
+		return
+	}
+	if !s.oauthForm(w, r) {
+		return
+	}
+	if ok, retry := s.oauthLimit.allow(oauthLimitKey(r, r.PostForm.Get("client_id")), s.now()); !ok {
+		s.deny(r, obs.AuthRateLimit)
+		w.Header().Set("Retry-After", strconv.Itoa(int(math.Ceil(retry.Seconds()))))
+		writeJSON(w, http.StatusTooManyRequests, &oauth.Error{Code: "temporarily_unavailable", Description: "too many token requests; try again later"})
+		return
+	}
+	w.Header().Set("Pragma", "no-cache")
+	res, ev, oe := s.d.OAuth.Token(r.PostForm)
+	if ev != nil {
+		rec := audit.Record{
+			Action: auditGrantRevoke, Target: grantTarget(ev.Grant), Peer: peerOf(r), AuthMode: s.authMode(auth.Principal{}),
+			RequestID: requestIDFrom(r.Context()), Actor: grantActor(ev.Grant), Reason: ev.Reason,
+		}
+		s.d.Audit.Event(rec)
+		slog.Warn("oauth: a grant was revoked because a token was used twice", "grant", ev.Grant.ID, "user", ev.Grant.User, "reason", ev.Reason)
+	}
+	if oe != nil {
+		status := http.StatusBadRequest
+		if oe.Code == "server_error" {
+			status = http.StatusInternalServerError
+		}
+		writeJSON(w, status, oe)
+		return
+	}
+	writeJSON(w, http.StatusOK, res)
+}
+
+// oauthRevoke answers /oauth/revoke (RFC 7009): a refresh token or an access token revokes its
+// grant, and every token of it, at once. A token dash does not know, or another client's, is
+// 200 and changes nothing. The revocation is audited before it happens: an audit outage is 503
+// and nothing changes.
+func (s *Server) oauthRevoke(w http.ResponseWriter, r *http.Request) {
+	if s.d.OAuth == nil {
+		notFound(w, r)
+		return
+	}
+	if !s.oauthForm(w, r) {
+		return
+	}
+	if ok, retry := s.oauthLimit.allow(oauthLimitKey(r, r.PostForm.Get("client_id")), s.now()); !ok {
+		s.deny(r, obs.AuthRateLimit)
+		w.Header().Set("Retry-After", strconv.Itoa(int(math.Ceil(retry.Seconds()))))
+		writeJSON(w, http.StatusTooManyRequests, &oauth.Error{Code: "temporarily_unavailable", Description: "too many requests; try again later"})
+		return
+	}
+	g, ok := s.d.OAuth.RevocationTarget(r.PostForm)
+	if !ok {
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+	rec := audit.Record{
+		Action: auditGrantRevoke, Target: grantTarget(g), Peer: peerOf(r), AuthMode: s.authMode(auth.Principal{}),
+		RequestID: requestIDFrom(r.Context()), Actor: grantActor(g),
+	}
+	pending, err := s.d.Audit.Intent(rec)
+	if err != nil {
+		writeJSON(w, http.StatusServiceUnavailable, &oauth.Error{Code: "temporarily_unavailable", Description: "audit log unavailable"})
+		return
+	}
+	_, _, err = s.d.Credentials.RevokeGrant(g.ID)
+	pending.Outcome(err)
+	if err != nil {
+		slog.Error("oauth revoke: credentials.yaml could not be written; the grant is revoked until dash restarts", "error", err, "requestId", requestIDFrom(r.Context()))
+	}
+	w.WriteHeader(http.StatusOK)
 }

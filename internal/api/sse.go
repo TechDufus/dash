@@ -106,7 +106,7 @@ func (s *Server) sessionAlive(r *http.Request) bool {
 			return false
 		}
 		p, err := s.d.Tokens.Resolve(token, opened.Audience)
-		return err == nil && p.TokenID == opened.TokenID
+		return err == nil && rateKey(p) == rateKey(opened)
 	}
 	return true
 }

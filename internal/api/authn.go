@@ -50,7 +50,7 @@ func (s *Server) authn(next http.Handler) http.Handler {
 			markTokenForCORS(r)
 		}
 		if p.Kind == auth.KindToken && p.Audience == "api" {
-			if ok, retry := s.tokenLimit.allow(p.TokenID, s.now()); !ok {
+			if ok, retry := s.tokenLimit.allow(rateKey(p), s.now()); !ok {
 				s.deny(r, obs.AuthRateLimit)
 				w.Header().Set("Retry-After", strconv.Itoa(int(math.Ceil(retry.Seconds()))))
 				writeErr(w, http.StatusTooManyRequests, model.ErrCodeRateLimited, "too many requests for this token; try again later")
@@ -64,6 +64,15 @@ func (s *Server) authn(next http.Handler) http.Handler {
 		}
 		next.ServeHTTP(w, r)
 	})
+}
+
+// rateKey names the credential of a token principal: its personal access token or static token
+// (TokenID), or its OAuth grant, whose access tokens share one limit.
+func rateKey(p auth.Principal) string {
+	if p.GrantID != "" {
+		return "grant:" + p.GrantID
+	}
+	return p.TokenID
 }
 
 // authenticate resolves a request's principal: a bearer credential first (bearer), then the

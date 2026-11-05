@@ -1419,13 +1419,17 @@ export interface AuditTarget {
 }
 /**
  * AuditActor is who acted. Surface is ui, api or mcp. TokenID names the personal access token
- * (its ID) or the static token (static:<name>) a token principal used; empty for a person.
+ * (its ID) or the static token (static:<name>) a token principal used; GrantID and ClientID
+ * name the OAuth grant and its client instead when the token was an OAuth access token. All
+ * three are empty for a person.
  */
 export interface AuditActor {
   type?: string;
   user?: string;
   surface?: string;
   tokenId?: string;
+  grantId?: string;
+  clientId?: string;
 }
 /**
  * AuditEntry is one audit record as the audit view shows it: field paths only, never values,
