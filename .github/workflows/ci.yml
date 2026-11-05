@@ -100,21 +100,35 @@ jobs:
         run: scripts/ci/compose-smoke.sh
       - name: Read-only run without a volume
         run: scripts/ci/readonly-smoke.sh
-  # The Helm chart and examples/kubernetes (docs/deploy/kubernetes.md). make check already lints
-  # and renders the chart's four value sets and fails when examples/kubernetes drifts from it;
-  # this job validates the rendered objects against the Kubernetes schemas, then installs both
-  # paths on a throwaway kind cluster with the image built from this checkout. The script
-  # deletes its cluster, network and image on exit; a cancelled job never reaches that trap, so
-  # the last step removes them by name whatever happened.
+  # The Helm chart and examples/kubernetes (docs/deploy/kubernetes.md) on the last three
+  # Kubernetes minors kind supports (design J.18), each node image pinned by digest from the kind
+  # release notes. make check already lints and renders the chart's four value sets and fails
+  # when examples/kubernetes drifts from it; each leg validates the rendered objects against its
+  # minor's schemas, then installs both paths on a throwaway kind cluster with the Gateway API and
+  # Flux CRDs and the image built from this checkout. The script deletes its cluster, network and
+  # image on exit; a cancelled job never reaches that trap, so the last step removes them by name
+  # (unique per leg) whatever happened.
   kind:
+    name: kind (Kubernetes ${{ matrix.kubernetes }})
     needs: check
     if: github.event_name != 'pull_request' || !github.event.repository.private
     runs-on: ${{ github.event.repository.private && fromJSON('["self-hosted","linux","x64","homelab","dash"]') || 'ubuntu-24.04' }}
     timeout-minutes: 20
     permissions:
       contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - kubernetes: 1.37.0
+            node: kindest/node:v1.37.0@sha256:a1ed56cfb0e7b93589bdf97c8cd566405a265939e3620fc4f5de89adff580ae5
+          - kubernetes: 1.36.4
+            node: kindest/node:v1.36.4@sha256:099e049362a1526b2db71494e1947aae99bd16290d7c895f2b7ea312e3cbfaed
+          - kubernetes: 1.35.8
+            node: kindest/node:v1.35.8@sha256:07b2536e30b803ed61d1677a79df6115f798ce64c80f9e22f6ed45afd09323c0
     env:
-      DASH_KIND_NAME: dash-kind-${{ github.run_id }}-${{ github.run_attempt }}
+      DASH_KIND_NAME: dash-kind-${{ github.run_id }}-${{ github.run_attempt }}-${{ strategy.job-index }}
+      KUBERNETES_VERSION: ${{ matrix.kubernetes }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -132,14 +146,14 @@ jobs:
           for set in default readonly actions sidecar; do
             echo "$set:"
             helm template dash charts/dash --namespace dash -f "charts/dash/ci/$set-values.yaml" |
-              kubeconform -strict -summary -kubernetes-version 1.37.0 -schema-location "$k8s" -schema-location "$crds" -
+              kubeconform -strict -summary -kubernetes-version "$KUBERNETES_VERSION" -schema-location "$k8s" -schema-location "$crds" -
           done
           echo "examples/kubernetes:"
           kubectl kustomize examples/kubernetes |
-            kubeconform -strict -summary -kubernetes-version 1.37.0 -schema-location "$k8s" -
+            kubeconform -strict -summary -kubernetes-version "$KUBERNETES_VERSION" -schema-location "$k8s" -
       - name: Install on kind (helm and kubectl apply -k)
         env:
-          KIND_NODE_IMAGE: kindest/node:v1.37.0@sha256:a1ed56cfb0e7b93589bdf97c8cd566405a265939e3620fc4f5de89adff580ae5
+          KIND_NODE_IMAGE: ${{ matrix.node }}
         run: scripts/ci/kind-smoke.sh
       - name: Remove the kind cluster, its network and the image
         if: always()
