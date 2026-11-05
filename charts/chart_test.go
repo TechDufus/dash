@@ -505,6 +505,12 @@ func TestRefusals(t *testing.T) {
 		{"routes.direct with config.server.listen", "direct", []string{"--set", "config.server.listen=0.0.0.0:8080"}, "config.server.listen is set by the chart"},
 		{"routes.direct with env DASH_SERVER_LISTEN", "direct", []string{"--set-json", `env=[{"name":"DASH_SERVER_LISTEN","value":"0.0.0.0:8080"}]`}, "env sets DASH_SERVER_LISTEN, which the chart sets"},
 		{"directURL and trustedProxies without routes.direct", "sidecar", []string{"--set", "config.server.directURL=https://dash-direct.example.com", "--set-json", `config.auth.proxy.trustedProxies=["127.0.0.1/32"]`}, ""},
+		// dash tells the direct route from the proxied one by the Host alone (G7-R3 B2).
+		{"routes.direct.host is an ingress host", "direct", []string{"--set-json", `ingress.hosts=[{"host":"Dash-Direct.example.com.","paths":[{"path":"/","pathType":"Prefix"}]}]`}, "routes.direct.host is an ingress.hosts host"},
+		{"routes.direct.host is an httpRoute hostname", "direct", []string{"--set-json", `httpRoute.hostnames=["dash.example.com","dash-direct.example.com"]`}, "routes.direct.host is an httpRoute.hostnames entry"},
+		{"routes.direct.host is the publicURL host", "direct", []string{"--set", "config.server.publicURL=https://DASH-DIRECT.example.com.:443"}, "routes.direct.host is the host of server.publicURL"},
+		{"routes.direct.host is the publicURL host from env", "direct", []string{"--set-json", `env=[{"name":"DASH_SERVER_PUBLIC_URL","value":"https://dash-direct.example.com"}]`}, "routes.direct.host is the host of server.publicURL"},
+		{"routes.direct.host in a disabled ingress", "direct", []string{"--set", "ingress.enabled=false", "--set-json", `ingress.hosts=[{"host":"dash-direct.example.com","paths":[{"path":"/","pathType":"Prefix"}]}]`}, ""},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()

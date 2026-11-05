@@ -280,6 +280,9 @@ routes:
   with `replicaCount` above 1.
 - It needs `auth.oauth2ProxySidecar.enabled` (without the sidecar the Service already leads
   straight to dash) and `routes.direct.host`, a DNS name, and `service.port` other than 8082.
+  The host must be its own: rendering refuses one equal to an `ingress.hosts` host, an
+  `httpRoute.hostnames` entry or the host of `config.server.publicURL` (case, port and a
+  trailing dot ignored), since dash tells the two routes apart by the Host alone.
   OAuth itself is off until `config.auth.oauth.enabled` is true.
 
 ## Ingress, HTTPRoute and NetworkPolicy

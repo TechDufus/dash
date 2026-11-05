@@ -84,6 +84,25 @@ pod IP and must believe identity headers from the loopback (the sidecar) only.
 {{- if not $direct.host }}
 {{- fail "routes.direct.enabled needs routes.direct.host: the host bearer clients reach dash on, past the identity proxy (it becomes server.directURL)" }}
 {{- end }}
+{{- /* dash tells the direct route from the proxied one by the Host alone. */}}
+{{- $directHost := include "dash.normHost" $direct.host }}
+{{- $taken := dict }}
+{{- if $v.ingress.enabled }}
+{{- range $v.ingress.hosts }}{{ $_ := set $taken (include "dash.normHost" .host) "an ingress.hosts host" }}{{ end }}
+{{- end }}
+{{- if $v.httpRoute.enabled }}
+{{- range $v.httpRoute.hostnames }}{{ $_ := set $taken (include "dash.normHost" .) "an httpRoute.hostnames entry" }}{{ end }}
+{{- end }}
+{{- $publicURL := dig "server" "publicURL" "" $v.config }}
+{{- range $v.env }}
+{{- if and (eq .name "DASH_SERVER_PUBLIC_URL") (hasKey . "value") }}{{ $publicURL = toString .value }}{{ end }}
+{{- end }}
+{{- if $publicURL }}
+{{- $_ := set $taken (include "dash.normHost" (urlParse (toString $publicURL)).host) "the host of server.publicURL" }}
+{{- end }}
+{{- if hasKey $taken $directHost }}
+{{- fail (printf "routes.direct.host is %s: the direct host must be its own, since it bypasses the identity proxy and dash tells the two routes apart by the host" (index $taken $directHost)) }}
+{{- end }}
 {{- if gt (int $v.replicaCount) 1 }}
 {{- fail "routes.direct.enabled needs replicaCount 1: tokens and OAuth grants live in each pod's credentials.yaml, so one created through a replica is unknown to the others" }}
 {{- end }}
@@ -197,6 +216,11 @@ Empty is unset; anything else must be an env:, file: or k8s: reference, exactly 
 {{- include "dash.secretWalk" (dict "root" $.root "schema" $s.items "value" $child "path" (printf "%s[%d]" $.path $i)) }}
 {{- end }}
 {{- end }}
+{{- end }}
+
+{{/* A host as dash compares it: lowercased, without a port, IPv6 brackets or a trailing dot. */}}
+{{- define "dash.normHost" -}}
+{{- regexReplaceAll "^(\\[[^\\]]*\\]|[^:]*)(:[0-9]*)?$" (lower (toString .)) "${1}" | trimAll "[]" | trimSuffix "." }}
 {{- end }}
 
 {{/* Fails on any string of config that is an absolute URL with a user name or password in it. */}}
