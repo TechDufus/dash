@@ -1,12 +1,16 @@
 package api
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"testing"
 
+	"github.com/TechDufus/dash/internal/audit"
 	"github.com/TechDufus/dash/internal/model"
 )
 
@@ -149,6 +153,40 @@ func TestMCPPreflightFromAListedOrigin(t *testing.T) {
 	got := e.post(withBearer(e.mcpTok, "Origin", "https://inspector.example.com"))
 	if got.Header().Get("Access-Control-Allow-Origin") != "https://inspector.example.com" {
 		t.Errorf("response headers: %v", got.Header())
+	}
+}
+
+// Every MCP call is audited (design N.7): surface mcp, the token, the tool, the SHA-256 of the
+// arguments and never the arguments, the outcome and the duration.
+func TestMCPCallsAreAudited(t *testing.T) {
+	a, err := audit.Open(t.TempDir(), audit.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = a.Close() })
+	e := newMCPEnv(t, func(d *Deps) { d.Audit = a })
+	const args = `{"query":"canary-words-7f3a"}`
+	body := `{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"dash_search","arguments":` + args + `}}`
+	w := req{method: http.MethodPost, path: "/mcp", body: body, raw: true, header: withBearer(e.mcpTok,
+		"Content-Type", "application/json", "Accept", "application/json, text/event-stream",
+		"MCP-Protocol-Version", "2025-11-25", "X-Dash-Csrf", "", "Origin", "")}.do(e.s.Handler())
+	if w.Code != http.StatusOK {
+		t.Fatalf("tools/call: %d %s", w.Code, w.Body)
+	}
+	recs, _, _ := a.Recent(20, "", audit.RingMain)
+	i := slices.IndexFunc(recs, func(r audit.Record) bool { return r.Action == "mcp tools/call" })
+	if i < 0 {
+		t.Fatalf("no record in %+v", recs)
+	}
+	rec := recs[i]
+	sum := sha256.Sum256([]byte(args))
+	if rec.Actor.Surface != "mcp" || rec.Actor.TokenID == "" || rec.Target.Kind != "tool" || rec.Target.Name != "dash_search" ||
+		rec.ArgsSHA256 != hex.EncodeToString(sum[:]) || rec.Result != audit.ResultOK || rec.Kind != audit.KindEvent {
+		t.Errorf("record = %+v", rec)
+	}
+	raw, _ := json.Marshal(recs)
+	if strings.Contains(string(raw), "canary-words") || strings.Contains(string(raw), e.mcpTok) {
+		t.Errorf("the arguments or the token reached the audit log: %s", raw)
 	}
 }
 

@@ -58,6 +58,12 @@ func (s *Server) readTopic(_ context.Context, req *sdk.ReadResourceRequest) (*sd
 	if err != nil {
 		return nil, err
 	}
+	if len(raw) > MaxResultBytes { // design N.6: cut, flagged; the JSON then does not parse
+		return &sdk.ReadResourceResult{Meta: sdk.Meta{"truncated": true}, Contents: []*sdk.ResourceContents{{
+			URI: req.Params.URI, MIMEType: "text/plain", Text: s.cut(string(raw), MaxResultBytes),
+			Meta: sdk.Meta{"truncated": true},
+		}}}, nil
+	}
 	return &sdk.ReadResourceResult{Contents: []*sdk.ResourceContents{{
 		URI: req.Params.URI, MIMEType: "application/json", Text: string(raw),
 	}}}, nil

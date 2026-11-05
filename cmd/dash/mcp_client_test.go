@@ -112,11 +112,19 @@ func TestMCPGoSDKClientAgainstDemoMode(t *testing.T) {
 			if len(tools.Tools) == 0 || tools.Tools[0].Name != "dash_overview" {
 				t.Fatalf("tools = %+v", tools.Tools)
 			}
-			var res *sdk.CallToolResult
+			// The overview is composed shortly after readiness. Wait for it over the REST API with
+			// an api token: polling the tool would spend the token's 120 calls a minute, and the
+			// client caches resources/list for its ttlMs.
 			waitFor(t, func() bool {
-				res, err = cs.CallTool(ctx, &sdk.CallToolParams{Name: "dash_overview"})
-				return err != nil || !res.IsError // the overview is composed shortly after readiness
+				r, _ := http.NewRequest(http.MethodGet, "http://"+addr+"/api/v1/topics/core.overview", nil)
+				resp, err := (&http.Client{Transport: bearerTransport{mcpAPIToken}}).Do(r)
+				if err != nil {
+					return false
+				}
+				_ = resp.Body.Close()
+				return resp.StatusCode == http.StatusOK
 			})
+			res, err := cs.CallTool(ctx, &sdk.CallToolParams{Name: "dash_overview"})
 			if err != nil || res.IsError {
 				t.Fatalf("dash_overview = %+v, %v", res, err)
 			}

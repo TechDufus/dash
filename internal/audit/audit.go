@@ -102,7 +102,12 @@ type Record struct {
 	AuthMode  string    `json:"authMode,omitempty"`
 	Plugin    string    `json:"plugin,omitempty"` // the plugin instance behind a framework action
 	Reason    string    `json:"reason,omitempty"`
-	Prev      string    `json:"prev"`
+	// The MCP fields of design N.7: the SHA-256 of a call's arguments (never the arguments), the
+	// client's name as it gave it, and how long the call took.
+	ArgsSHA256 string `json:"argsSha256,omitempty"`
+	Client     string `json:"client,omitempty"`
+	DurationMs int64  `json:"durationMs,omitempty"`
+	Prev       string `json:"prev"`
 }
 
 // Options configure Open. The zero value is production-ready.
@@ -398,7 +403,7 @@ func (l *Log) scrubbed(rec Record) Record {
 	s := l.opts.Scrub
 	rec.Action, rec.Error, rec.RequestID = s(rec.Action), s(rec.Error), s(rec.RequestID)
 	rec.Target.Kind, rec.Target.Namespace, rec.Target.Name = s(rec.Target.Kind), s(rec.Target.Namespace), s(rec.Target.Name)
-	rec.Actor.User, rec.Actor.ClientID = s(rec.Actor.User), s(rec.Actor.ClientID)
+	rec.Actor.User, rec.Actor.ClientID, rec.Client = s(rec.Actor.User), s(rec.Actor.ClientID), s(rec.Client)
 	return rec
 }
 

@@ -86,6 +86,12 @@ type Options struct {
 	Context context.Context
 	// Debounce is the least time between two updates of one resource (design N.3: 5 s).
 	Debounce time.Duration
+	// Audit records one call (design N.7); nil records nothing.
+	Audit func(r *http.Request, c Call)
+	// Cut shortens text to n bytes without leaving part of a secret (secret.Registry.Cut).
+	Cut func(text string, n int) (string, bool)
+	// Now is the clock of the rate limits; nil is time.Now.
+	Now func() time.Time
 }
 
 // Server is the MCP server.
@@ -94,6 +100,10 @@ type Server struct {
 	srv   *sdk.Server
 	tools []tool
 	h     http.Handler
+
+	slots    slots
+	calls    *window // calls a minute per token
+	logCalls *window // dash_logs calls a minute per token
 }
 
 // New builds the server and its tools.
@@ -110,7 +120,11 @@ func New(o Options) *Server {
 	if o.Debounce <= 0 {
 		o.Debounce = 5 * time.Second
 	}
-	s := &Server{o: o}
+	if o.Now == nil {
+		o.Now = time.Now
+	}
+	s := &Server{o: o, slots: slots{calls: map[string]int{}, listens: map[string]int{}},
+		calls: newWindow(callsPerMinute, o.Now), logCalls: newWindow(logsPerMinute, o.Now)}
 	s.srv = sdk.NewServer(&sdk.Implementation{Name: "dash", Title: "dash", Version: o.Version}, &sdk.ServerOptions{
 		Logger:                    quiet(o.Log),
 		SupportedProtocolVersions: ProtocolVersions,
@@ -134,7 +148,8 @@ func New(o Options) *Server {
 	for _, t := range s.tools {
 		s.srv.AddTool(t.sdkTool(), s.toolHandler(t))
 	}
-	s.srv.AddReceivingMiddleware(s.scopeFilter)
+	// The limits and the audit run outside the scope filter, so a refused call is audited too.
+	s.srv.AddReceivingMiddleware(s.limitAndAudit, s.scopeFilter)
 	s.srv.AddResourceTemplate(&sdk.ResourceTemplate{
 		Name: "topic", Title: "dash topic", URITemplate: topicURIPrefix + "{topic}", MIMEType: "application/json",
 		Description: "The current snapshot of one of dash's topics, the data behind a page.",
@@ -177,6 +192,11 @@ func (h warnHandler) WithGroup(n string) slog.Handler { return warnHandler{h.Han
 
 // Handler serves POST /mcp for p, the token principal dash resolved for r (audience mcp).
 func (s *Server) Handler(w http.ResponseWriter, r *http.Request, p auth.Principal) {
+	release, ok := s.admit(w, r, p)
+	if !ok {
+		return
+	}
+	defer release()
 	s.h.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), ctxKey{}, caller{p: p, r: r})))
 }
 
@@ -261,7 +281,8 @@ func (s *Server) toolHandler(t tool) sdk.ToolHandler {
 		} else {
 			text = s.o.Scrub(text)
 		}
-		return &sdk.CallToolResult{Content: []sdk.Content{&sdk.TextContent{Text: text}}, StructuredContent: tree}, nil
+		res := &sdk.CallToolResult{Content: []sdk.Content{&sdk.TextContent{Text: text}}, StructuredContent: tree}
+		return s.capResult(res, tree), nil
 	}
 }
 

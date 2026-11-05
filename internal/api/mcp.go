@@ -8,6 +8,7 @@ import (
 	"slices"
 	"time"
 
+	"github.com/TechDufus/dash/internal/audit"
 	"github.com/TechDufus/dash/internal/auth"
 	dashmcp "github.com/TechDufus/dash/internal/mcp"
 	"github.com/TechDufus/dash/internal/model"
@@ -53,9 +54,34 @@ func (s *Server) serveMCP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.mcpOnce.Do(func() {
-		s.mcp = dashmcp.New(dashmcp.Options{Backend: mcpBackend{s}, Version: s.d.Version, Scrub: s.d.Secrets.ScrubLogLine})
+		s.mcp = dashmcp.New(dashmcp.Options{
+			Backend: mcpBackend{s}, Version: s.d.Version, Scrub: s.d.Secrets.ScrubLogLine,
+			Cut: s.d.Secrets.Cut, Audit: s.auditMCP, Now: s.now,
+		})
 	})
 	s.mcp.Handler(w, r, p)
+}
+
+// mcpTargetKinds name what an audited MCP method acts on.
+var mcpTargetKinds = map[string]string{"tools/call": "tool", "resources/read": "resource", "prompts/get": "prompt"}
+
+// auditMCP records one MCP call (design N.7): surface mcp, the token or grant, the tool,
+// resource or prompt, the SHA-256 of the arguments, the client's name, the outcome and the
+// duration. A rate-limited call goes through the denial path, which keeps at most one record
+// per token and reason a minute; the calls themselves are bounded by the per-token rate.
+func (s *Server) auditMCP(r *http.Request, c dashmcp.Call) {
+	rec := s.auditRecord(r, "mcp "+c.Method, audit.Target{Kind: mcpTargetKinds[c.Method], Name: s.clip(c.Tool, maxAuditAction)})
+	rec.ArgsSHA256, rec.Client, rec.DurationMs = c.ArgsSHA256, s.clip(c.Client, maxAuditAction), c.Duration.Milliseconds()
+	if c.Result == "rate_limited" {
+		s.d.Metrics.AuthFailure(obs.AuthRateLimit)
+		s.d.Audit.Denial(peerOf(r), obs.AuthRateLimit.String(), rec)
+		return
+	}
+	rec.Result = audit.ResultOK
+	if c.Result != "ok" {
+		rec.Result, rec.Error = audit.ResultError, c.Code
+	}
+	s.d.Audit.Event(rec)
 }
 
 // mcpBackend is what the MCP tools read, answered by the API's own code under its policies.
