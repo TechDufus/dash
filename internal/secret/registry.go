@@ -97,43 +97,61 @@ func (r *Registry) scrub(s string, re *regexp.Regexp) string {
 	if s == "" {
 		return s
 	}
-	spans := shapeSpans(s, re)
-	if r != nil {
-		for _, f := range r.literals() {
-			// Every occurrence, overlapping ones included: the next search starts one byte on.
-			for i := 0; i < len(s); {
-				j := strings.Index(s[i:], f)
-				if j < 0 {
-					break
-				}
-				spans = append(spans, span{i + j, i + j + len(f)})
-				i += j + 1
-			}
-		}
-	}
+	spans := spansOf(s, re, r.formList())
 	if len(spans) == 0 {
 		return s
 	}
+	return redact(s, spans, len(s))
+}
+
+// spansOf returns, sorted by start, the spans of every shape match and of every occurrence of
+// every form in s.
+func spansOf(s string, re *regexp.Regexp, forms []string) []span {
+	spans := shapeSpans(s, re)
+	for _, f := range forms {
+		// Every occurrence, overlapping ones included: the next search starts one byte on.
+		for i := 0; i < len(s); {
+			j := strings.Index(s[i:], f)
+			if j < 0 {
+				break
+			}
+			spans = append(spans, span{i + j, i + j + len(f)})
+			i += j + 1
+		}
+	}
 	sort.Slice(spans, func(i, j int) bool { return spans[i].start < spans[j].start })
+	return spans
+}
+
+// redact returns s[:end] with the spans (sorted by start) merged where they overlap or touch and
+// each merged span that starts before end written as one "[redacted]". A merged span that reaches
+// end or runs past it ends the text right after its marker.
+func redact(s string, spans []span, end int) string {
 	var b strings.Builder
-	b.Grow(len(s))
-	cur, done := spans[0], 0
-	flush := func() {
+	b.Grow(end)
+	done := 0
+	for i := 0; i < len(spans) && spans[i].start < end; {
+		cur := spans[i]
+		for i++; i < len(spans) && spans[i].start <= cur.end; i++ {
+			cur.end = max(cur.end, spans[i].end)
+		}
 		b.WriteString(s[done:cur.start])
 		b.WriteString(redacted)
 		done = cur.end
-	}
-	for _, sp := range spans[1:] {
-		if sp.start <= cur.end {
-			cur.end = max(cur.end, sp.end)
-			continue
+		if done >= end {
+			return b.String()
 		}
-		flush()
-		cur = sp
 	}
-	flush()
-	b.WriteString(s[done:])
+	b.WriteString(s[done:end])
 	return b.String()
+}
+
+// formList is literals for a registry, nil for a nil one (which only matches shapes).
+func (r *Registry) formList() []string {
+	if r == nil {
+		return nil
+	}
+	return r.literals()
 }
 
 // shapeAttempt, when not nil, is called for every anchored shape match scrub tries (a test

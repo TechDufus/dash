@@ -187,13 +187,27 @@ func TestClaimValues(t *testing.T) {
 }
 
 func TestFailureTextIsBounded(t *testing.T) {
+	p := &Provider{} // no registry: the token shapes only
 	long := errors.New(strings.Repeat("x", 5000))
-	if got := truncated(long).Error(); len(got) > maxErrorDetail+len("…") {
-		t.Errorf("truncated to %d bytes", len(got))
+	if got := p.truncated(long).Error(); got != strings.Repeat("x", maxErrorDetail)+"…" {
+		t.Errorf("truncated to %q", got)
 	}
 	short := errors.New("short")
-	if truncated(short) != short {
+	if p.truncated(short) != short {
 		t.Error("a short error was rewritten")
+	}
+	// The cut runs after the IdP's text: a registered secret or a token that straddles it is
+	// redacted whole, not cut in half where the log's scrubber would no longer match it.
+	const sec = "client-secret-canary-55aa-0123456789"
+	reg := secret.NewRegistry()
+	reg.Add(secret.New(sec, ""))
+	p = &Provider{cfg: Config{Secrets: reg}}
+	for name, span := range map[string]string{"registered secret": sec, "token": "dash_pat_AbC123-xyz_0123456789"} {
+		pad := strings.Repeat("x", maxErrorDetail-8)
+		got := p.truncated(errors.New(pad + span + " and more")).Error()
+		if got != pad+"[redacted]…" {
+			t.Errorf("%s: truncated to %q", name, got)
+		}
 	}
 	for in, want := range map[string]string{
 		"invalid_grant": "invalid_grant", "": "(unreadable error code)", "a b": "(unreadable error code)",
@@ -206,5 +220,56 @@ func TestFailureTextIsBounded(t *testing.T) {
 	f := &Failure{Stage: "verify", Err: short}
 	if f.Error() != "oidc callback refused: verify: short" || !errors.Is(f, short) {
 		t.Errorf("Failure = %q", f.Error())
+	}
+}
+
+// An IdP that answers discovery with an error page carries the body into the error dash logs.
+// The client secret registered with the configured registry, starting before the cut and ending
+// after it, is redacted whole; plain text is cut as before.
+func TestDiscoveryErrorKeepsNoPartOfASecret(t *testing.T) {
+	const sec = "client-secret-canary-55aa-0123456789"
+	const status = "500 Internal Server Error: "
+	var (
+		mu   sync.Mutex
+		body string
+	)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		mu.Lock()
+		b := body
+		mu.Unlock()
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte(b))
+	}))
+	t.Cleanup(srv.Close)
+	reg := secret.NewRegistry()
+	reg.Add(secret.New(sec, ""))
+	start := func(page string) string {
+		t.Helper()
+		mu.Lock()
+		body = page
+		mu.Unlock()
+		cfg := validConfig(srv.URL)
+		cfg.ClientSecret, cfg.Secrets = secret.New(sec, ""), reg
+		state, err := session.NewCodec(sessiontest.Key())
+		if err != nil {
+			t.Fatal(err)
+		}
+		p, err := New(cfg, sessiontest.Manager(epochs{}, time.Now), state)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, _, err = p.Start(t.Context(), "/")
+		if !errors.Is(err, ErrUnavailable) {
+			t.Fatalf("Start = %v, want ErrUnavailable", err)
+		}
+		return err.Error()
+	}
+
+	pad := strings.Repeat("x", maxErrorDetail-len(status)-8)
+	if got := start(pad + sec + " in the error page"); !strings.HasSuffix(got, status+pad+"[redacted]…") || strings.Contains(got, sec[:8]) {
+		t.Errorf("straddling secret: %q", got)
+	}
+	if got := start(strings.Repeat("y", 300)); !strings.HasSuffix(got, ": "+status+strings.Repeat("y", maxErrorDetail-len(status))+"…") {
+		t.Errorf("plain body: %q", got)
 	}
 }

@@ -64,10 +64,7 @@ func (s *Server) serveRoute(w http.ResponseWriter, r *http.Request, mr plugin.Mo
 // itself, as the records of the plugin's actions do.
 func (s *Server) denyRoute(r *http.Request, reason obs.AuthReason, id plugin.ID) {
 	s.d.Metrics.AuthFailure(reason)
-	line := r.Method + " /api/v1/plugins/" + string(id) + r.URL.Path
-	if len(line) > maxAuditAction {
-		line = line[:maxAuditAction]
-	}
+	line, _ := s.d.Secrets.Cut(r.Method+" /api/v1/plugins/"+string(id)+r.URL.Path, maxAuditAction)
 	rec := s.auditRecord(r, line, audit.Target{})
 	rec.Plugin = string(id)
 	s.d.Audit.Denial(peerOf(r), reason.String(), rec)
@@ -100,12 +97,14 @@ func streamAuditAction(spec *plugin.StreamSpec) string {
 // maxAuditTarget caps each text of a stream's audit target: it comes from the client.
 const maxAuditTarget = maxAuditAction
 
-// clip cuts s to at most n bytes without splitting a character.
-func clip(s string, n int) string {
-	if len(s) <= n {
-		return s
+// clip cuts text to at most n bytes, or up to one redaction marker past it, without splitting a
+// character and without leaving part of a secret that straddles the cut (secret.Registry.Cut).
+func (s *Server) clip(text string, n int) string {
+	out, cut := s.d.Secrets.Cut(text, n)
+	if !cut {
+		return out
 	}
-	return strings.ToValidUTF8(s[:n], "")
+	return strings.ToValidUTF8(out, "")
 }
 
 // auditStreamOpen records that user opened the stream of mr, once per user and target a minute and
@@ -116,7 +115,7 @@ func (s *Server) auditStreamOpen(r *http.Request, mr plugin.MountedRoute) {
 	var target audit.Target
 	if spec.Target != nil {
 		kind, ns, name := spec.Target(r)
-		target = audit.Target{Kind: clip(kind, maxAuditTarget), Namespace: clip(ns, maxAuditTarget), Name: clip(name, maxAuditTarget)}
+		target = audit.Target{Kind: s.clip(kind, maxAuditTarget), Namespace: s.clip(ns, maxAuditTarget), Name: s.clip(name, maxAuditTarget)}
 	}
 	user, now := userFrom(r.Context()), s.now()
 	if s.openTarget != nil {

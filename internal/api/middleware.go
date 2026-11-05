@@ -41,10 +41,7 @@ func (s *Server) hosts(next http.Handler) http.Handler {
 		if !allowed(r.Host) {
 			now, last := s.now().UnixNano(), s.hostWarn.Load()
 			if now-last >= int64(hostWarnEvery) && s.hostWarn.CompareAndSwap(last, now) {
-				host := r.Host
-				if len(host) > 100 {
-					host = host[:100]
-				}
+				host, _ := s.d.Secrets.Cut(r.Host, 100)
 				slog.Warn("rejected request for unknown host", "host", host, "requestId", requestIDFrom(r.Context()))
 			}
 			writeErr(w, http.StatusMisdirectedRequest, model.ErrCodeUnknownHost, "unknown host; set server.publicURL or server.allowedHosts")

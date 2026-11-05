@@ -129,6 +129,9 @@ type Config struct {
 	// HTTPClient talks to the IdP; nil = a client with DiscoveryTimeout.
 	HTTPClient *http.Client
 	Now        func() time.Time // nil = time.Now
+	// Secrets cuts an upstream error's text to maxErrorDetail without leaving part of a secret
+	// that straddles the cut (secret.Registry.Cut); nil matches the token shapes only.
+	Secrets *secret.Registry
 }
 
 // Provider is the OIDC login of one configured IdP. Safe for concurrent use.
@@ -285,7 +288,7 @@ func (p *Provider) Callback(r *http.Request) (Login, error) {
 	ctx = oidc.ClientContext(ctx, p.client)
 	tok, err := p.oauth(d).Exchange(ctx, code, oauth2.VerifierOption(st.Verifier))
 	if err != nil {
-		return Login{}, fail("exchange", exchangeError(err))
+		return Login{}, fail("exchange", p.exchangeError(err))
 	}
 	raw, _ := tok.Extra("id_token").(string)
 	if raw == "" {
@@ -293,7 +296,7 @@ func (p *Provider) Callback(r *http.Request) (Login, error) {
 	}
 	idt, err := d.verifier.Verify(ctx, raw)
 	if err != nil {
-		return Login{}, fail("verify", truncated(err))
+		return Login{}, fail("verify", p.truncated(err))
 	}
 	if idt.Nonce == "" || subtle.ConstantTimeCompare([]byte(idt.Nonce), []byte(st.Nonce)) != 1 {
 		return Login{}, fail("nonce_mismatch", nil)
@@ -353,7 +356,7 @@ func (p *Provider) runDiscovery(ctx context.Context, f *flight) {
 			verifier: op.Verifier(&oidc.Config{ClientID: p.cfg.ClientID, Now: p.now}),
 		}
 	} else {
-		f.err = truncated(err)
+		f.err = p.truncated(err)
 	}
 	p.mu.Lock()
 	if f.err == nil {
@@ -479,7 +482,7 @@ func (p *Provider) keep() session.Keep {
 
 // exchangeError is the token endpoint's refusal without its body (the status and the OAuth error
 // code only), or the transport error, which names the token URL and no credential.
-func exchangeError(err error) error {
+func (p *Provider) exchangeError(err error) error {
 	var re *oauth2.RetrieveError
 	if errors.As(err, &re) {
 		status := 0
@@ -488,7 +491,7 @@ func exchangeError(err error) error {
 		}
 		return fmt.Errorf("the token endpoint answered %d %s", status, safeCode(re.ErrorCode))
 	}
-	return truncated(err)
+	return p.truncated(err)
 }
 
 // safeCode is an OAuth error code fit for a log line: [A-Za-z0-9_.-], at most 64 bytes.
@@ -501,11 +504,12 @@ func safeCode(s string) string {
 	return s
 }
 
-// truncated bounds an upstream error's text (discovery puts the response body in it).
-func truncated(err error) error {
-	s := err.Error()
-	if len(s) <= maxErrorDetail {
+// truncated bounds an upstream error's text (discovery puts the response body in it). A secret
+// that straddles the cut is redacted whole: the log's scrubber would not match its first half.
+func (p *Provider) truncated(err error) error {
+	s, cut := p.cfg.Secrets.Cut(err.Error(), maxErrorDetail)
+	if !cut {
 		return err
 	}
-	return errors.New(strings.ToValidUTF8(s[:maxErrorDetail], "") + "…")
+	return errors.New(strings.ToValidUTF8(s, "") + "…")
 }

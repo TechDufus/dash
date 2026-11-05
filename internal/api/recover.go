@@ -45,10 +45,9 @@ func (s *Server) answerPanic(w http.ResponseWriter, started *startedWriter, r *h
 // refuse records a refused request in the audit log without counting it as an auth failure
 // (deny does both); the log keeps at most one record per peer and reason a minute.
 func (s *Server) refuse(r *http.Request, reason string) {
-	line := r.Method + " " + r.URL.Path
-	if len(line) > maxAuditAction {
-		line = line[:maxAuditAction]
-	}
+	// Cut, not sliced: a secret that straddles the cut would be left half, which no scrubber
+	// matches afterwards.
+	line, _ := s.d.Secrets.Cut(r.Method+" "+r.URL.Path, maxAuditAction)
 	s.d.Audit.Denial(peerOf(r), reason, s.auditRecord(r, line, audit.Target{}))
 }
 

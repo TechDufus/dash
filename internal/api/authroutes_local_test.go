@@ -19,6 +19,7 @@ import (
 	"github.com/TechDufus/dash/internal/credentials"
 	"github.com/TechDufus/dash/internal/localauth"
 	"github.com/TechDufus/dash/internal/model"
+	"github.com/TechDufus/dash/internal/secret"
 	"github.com/TechDufus/dash/internal/session"
 )
 
@@ -96,6 +97,7 @@ type localOpts struct {
 	storedAs string            // an account stored before the start under this name ("" none)
 	setup    bool              // a setup token for this start
 	hasher   *localauth.Hasher // nil: a non-blocking recordingHasher
+	secrets  *secret.Registry  // Deps.Secrets
 }
 
 // localEnv is a local-mode server tested through the handlers' own mux behind s.authn and
@@ -143,6 +145,9 @@ func newLocalEnv(t *testing.T, o localOpts) *localEnv {
 	s := newServer(func(d *Deps) {
 		opt(d)
 		d.Local, d.Audit = e.local, al
+		if o.secrets != nil {
+			d.Secrets = o.secrets
+		}
 	})
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /login", s.login)

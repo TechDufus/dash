@@ -52,6 +52,7 @@ type sessionEnv struct {
 	adminHash string           // DASH_ADMIN_PASSWORD_HASH[_FILE]; "" when unset
 	stderr    io.Writer        // where the setup line is written (os.Stderr)
 	now       func() time.Time // nil = time.Now
+	secrets   *secret.Registry // cuts the IdP's error text (oidcauth.Config.Secrets); nil = shapes only
 }
 
 // startAuth builds the authenticator auth.mode selects. Dev and demo outrank the mode
@@ -210,7 +211,7 @@ func (s *sessionAuth) buildOIDC(res *config.Resolved, env sessionEnv, log *slog.
 		Issuer: o.Issuer, ClientID: o.ClientID, ClientSecret: o.ClientSecret, Scopes: slices.Clone(o.Scopes),
 		UserClaim: o.UserClaim, GroupsClaim: o.GroupsClaim, RoleClaim: o.RoleClaim,
 		AllowedUsers: cleanNames(o.AllowedUsers), AllowedGroups: cleanNames(o.AllowedGroups), Roles: s.roles,
-		RedirectURL: publicURL + oidcauth.CallbackPath, Secure: httpsURL(publicURL), Now: env.now,
+		RedirectURL: publicURL + oidcauth.CallbackPath, Secure: httpsURL(publicURL), Now: env.now, Secrets: env.secrets,
 	}, s.sessions, state)
 	if err != nil {
 		return err

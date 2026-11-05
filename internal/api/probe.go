@@ -31,6 +31,7 @@ type principalProbe struct {
 // host; p.Via is what carried the identity.
 func (pr *principalProbe) see(p auth.Principal, peer string) {
 	name := p.User
+	// Never applies: every principal name is at most 128 bytes already (auth/proxy.go cleanValue).
 	if len(name) > maxProbeUser {
 		name = strings.ToValidUTF8(name[:maxProbeUser], "")
 	}

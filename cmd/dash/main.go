@@ -94,7 +94,7 @@ func run(reg *secret.Registry, onBound func(api, health net.Addr)) error {
 	if err != nil {
 		return err
 	}
-	pa, err := startAuth(res, sessionEnv{adminHash: adminHash, stderr: os.Stderr}, slog.Default())
+	pa, err := startAuth(res, processSessionEnv(adminHash, reg), slog.Default())
 	if err != nil {
 		return err
 	}
@@ -162,4 +162,10 @@ func run(reg *secret.Registry, onBound func(api, health net.Addr)) error {
 	defer cancelStreams()
 	apiSrv, healthSrv := newServers(cfg, handler, srv.HealthHandler(), baseCtx, cancelStreams)
 	return serve(ctx, apiSrv, healthSrv, srv.MarkServing, cancelStreams, onBound)
+}
+
+// processSessionEnv is the sessionEnv run starts the auth modes with: the admin hash it read,
+// stderr for the setup line, and reg, which cuts the IdP's error text (oidcauth.Config.Secrets).
+func processSessionEnv(adminHash string, reg *secret.Registry) sessionEnv {
+	return sessionEnv{adminHash: adminHash, stderr: os.Stderr, secrets: reg}
 }

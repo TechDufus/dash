@@ -296,6 +296,42 @@ func oidcIn(dataDir string, keys *secret.Keyring, allowed ...string) *config.Res
 	})
 }
 
+// The OIDC provider cuts an IdP's error text with the process registry: a registered secret that
+// straddles the cut (200 bytes of the error) is redacted whole, not left half for the log. The
+// sessionEnv is the one run builds (processSessionEnv), so the registry run holds is the one used.
+func TestOIDCErrorTextIsCutWithTheRegistry(t *testing.T) {
+	const sec = "client-secret-canary-55aa-0123456789"
+	const status = "500 Internal Server Error: "
+	pad := strings.Repeat("x", 200-len(status)-8)
+	idp := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte(pad + sec + " in the error page"))
+	}))
+	t.Cleanup(idp.Close)
+	res := localResolved(t.TempDir(), testKeyring(t), func(a *config.AuthConfig) {
+		a.Mode = config.AuthModeOIDC
+		a.OIDC.Issuer, a.OIDC.ClientID = idp.URL, "dash"
+		a.OIDC.ClientSecret = secret.New(sec, "")
+		a.OIDC.AllowedUsers = []string{"*"}
+	})
+	reg := secret.NewRegistry()
+	reg.Add(secret.New(sec, ""))
+	env := processSessionEnv("", reg)
+	if env.secrets != reg || env.stderr != os.Stderr {
+		t.Fatalf("processSessionEnv = %+v, want the registry and stderr", env)
+	}
+	var logs logCapture
+	pa, err := startAuth(res, env, logs.logger())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(pa.close)
+	_, _, err = pa.sess.oidc.Start(t.Context(), "/")
+	if err == nil || !strings.HasSuffix(err.Error(), status+pad+"[redacted]…") || strings.Contains(err.Error(), sec[:8]) {
+		t.Errorf("discovery error = %v", err)
+	}
+}
+
 // A session never survives a switch between the session modes on one data dir and one
 // DASH_SECRET_KEY: the session key is bound to the mode. Otherwise an IdP account named like the
 // local admin would be the local admin after oidc → local, and the local admin's cookie would

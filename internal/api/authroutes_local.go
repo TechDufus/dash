@@ -247,7 +247,7 @@ func (s *Server) loginDenial(r *http.Request, reason obs.AuthReason, action, att
 	s.d.Metrics.AuthFailure(reason)
 	rec := s.localRecord(r, action, auth.Principal{})
 	if attempted != "" {
-		rec.Target = audit.Target{Kind: "user", Name: clipName(attempted)}
+		rec.Target = audit.Target{Kind: "user", Name: s.clipName(attempted)}
 	}
 	s.d.Audit.Denial(peerOf(r), reason.String(), rec)
 }
@@ -262,8 +262,10 @@ func (s *Server) localRecord(r *http.Request, action string, p auth.Principal) a
 	}
 }
 
-// clipName bounds a client-supplied name to maxAuditName bytes of valid UTF-8.
-func clipName(name string) string {
+// clipName bounds a client-supplied name to at most maxAuditName bytes of valid UTF-8, or up to
+// one redaction marker past it, without leaving part of a secret that straddles the cut
+// (secret.Registry.Cut).
+func (s *Server) clipName(name string) string {
 	name = strings.ToValidUTF8(name, "\uFFFD")
 	if len(name) <= maxAuditName {
 		return name
@@ -272,7 +274,8 @@ func clipName(name string) string {
 	for cut > 0 && !utf8.RuneStart(name[cut]) {
 		cut--
 	}
-	return name[:cut]
+	out, _ := s.d.Secrets.Cut(name, cut)
+	return out
 }
 
 // tooManyAttempts answers 429 rate_limited with Retry-After in whole seconds, at least 1.
