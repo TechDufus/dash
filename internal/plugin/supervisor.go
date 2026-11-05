@@ -33,6 +33,11 @@ type Options struct {
 	// guard and the credentials, so what it records (the upstream metrics) is the real request.
 	// nil leaves the transport as it is.
 	Transport func(id ID, rt http.RoundTripper) http.RoundTripper
+	// CheckTransport is Transport for the clients of a connection check (Supervisor.Check). A
+	// check is not the running plugin's traffic, so it gets its own wrapper: cmd/dash routes it
+	// as the plugin's (the API server proxy) but leaves it out of the upstream metrics, so a
+	// failing test raises no error counter of the plugin. nil leaves the transport as it is.
+	CheckTransport func(id ID, rt http.RoundTripper) http.RoundTripper
 	// ScrubLog is Host.ScrubLog: it removes every secret the core knows from a log line. nil
 	// returns the line unchanged.
 	ScrubLog func(string) string

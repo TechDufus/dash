@@ -18,7 +18,6 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/TechDufus/dash/internal/audit"
 	"github.com/TechDufus/dash/internal/config"
 	"github.com/TechDufus/dash/internal/model"
 	"github.com/TechDufus/dash/internal/plugin"
@@ -58,9 +57,6 @@ type Options struct {
 	Checker Checker
 	// Namespace is what Namespace answers ("" outside a cluster).
 	Namespace string
-	// Audit records the secret writes; nil is a log without a file (its in-memory rings).
-	// Pass the same log as api.Deps.Audit.
-	Audit *audit.Log
 	// Registry learns every secret; nil is a new one. Pass the same one as api.Deps.Secrets.
 	Registry *secret.Registry
 	// Log receives the resolver's and the reloader's messages; nil discards them.
@@ -95,9 +91,7 @@ type Fake struct {
 	ConfigPath string // config.yaml in Dir: WriteConfig replaces it, the next Reload reads it
 	St         *settings.Store
 	Rel        *config.Reloader
-	Writer     config.SecretWriter
 	Registry   *secret.Registry
-	Audit      *audit.Log
 	Refs       *secret.K8sRefs
 
 	// BeforeReload, when set, runs inside Reload before the real reload; an error is Reload's
@@ -117,7 +111,7 @@ type Fake struct {
 func New(t testing.TB, o Options) *Fake {
 	t.Helper()
 	root := t.TempDir()
-	f := &Fake{Dir: root, opts: o, Registry: o.Registry, Audit: o.Audit}
+	f := &Fake{Dir: root, opts: o, Registry: o.Registry}
 	if o.NoDataDir {
 		f.Dir = filepath.Join(root, "absent")
 	}
@@ -128,13 +122,6 @@ func New(t testing.TB, o Options) *Fake {
 	log := o.Log
 	if log == nil {
 		log = slog.New(slog.DiscardHandler)
-	}
-	if f.Audit == nil {
-		a, err := audit.Open("", audit.Options{Logger: log})
-		if err != nil {
-			t.Fatal(err)
-		}
-		f.Audit = a
 	}
 	env := []string{"DASH_DATA_DIR=" + f.Dir, "DASH_SERVER_PUBLIC_URL=" + PublicURL, "DASH_AUTH_MODE=proxy"}
 	if o.SecretKey {
@@ -193,7 +180,6 @@ func New(t testing.TB, o Options) *Fake {
 		live = func(section string) bool { return section == "auth" || strings.HasPrefix(section, "plugins.") }
 	}
 	f.Rel = config.NewReloader(res, f.St, config.ReloadOptions{Log: log, Live: live})
-	f.Writer = config.SecretWriter{Store: f.St, Keys: res.Keys, Audit: f.Audit, Registry: f.Registry}
 
 	f.info = model.SettingsStore{
 		Readonly: f.St.ReadOnly(), DataDir: boot.DataDir, Writable: !o.NoDataDir, SecretKey: res.Keys != nil,
@@ -234,8 +220,10 @@ func Encrypt(t testing.TB, path, plaintext string) string {
 	return sealed
 }
 
-// Unlocked lists, in call order, the methods that must run inside WithLock (Candidate, Reload,
-// Apply, Revert, ReplaceSecret, ClearSecret) and were called outside it. Empty is the rule.
+// Unlocked lists, in call order, the methods that must run inside WithLock (Revision, Candidate,
+// Reload, Apply, Revert) and were called outside it. Empty is the rule. Revision is among them
+// because a revision read outside the lock can be another write's: an answer or a view must
+// carry the revision of what it shows. A test reads St.Revision().
 func (f *Fake) Unlocked() []string {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -293,8 +281,11 @@ func (f *Fake) Reload() error {
 // Store implements api.SettingsBackend.
 func (f *Fake) Store() model.SettingsStore { return f.info }
 
-// Revision implements api.SettingsBackend.
-func (f *Fake) Revision() uint64 { return f.St.Revision() }
+// Revision implements api.SettingsBackend; it must run inside WithLock (see Unlocked).
+func (f *Fake) Revision() uint64 {
+	f.mustHoldLock("Revision")
+	return f.St.Revision()
+}
 
 // Stored implements api.SettingsBackend.
 func (f *Fake) Stored() map[string]any { return f.St.Values() }
@@ -309,18 +300,6 @@ func (f *Fake) Apply(sets map[string]any, deletes, scrub []string) (settings.Sna
 func (f *Fake) Revert(prev settings.Snapshot) error {
 	f.mustHoldLock("Revert")
 	return f.St.Revert(prev)
-}
-
-// ReplaceSecret implements api.SettingsBackend.
-func (f *Fake) ReplaceSecret(path, plaintext string, actor audit.Actor) error {
-	f.mustHoldLock("ReplaceSecret")
-	return f.Writer.Replace(path, plaintext, actor)
-}
-
-// ClearSecret implements api.SettingsBackend.
-func (f *Fake) ClearSecret(path string, actor audit.Actor) error {
-	f.mustHoldLock("ClearSecret")
-	return f.Writer.Clear(path, actor)
 }
 
 // PluginConfig implements api.SettingsBackend as cmd/dash does: the section's value, which is

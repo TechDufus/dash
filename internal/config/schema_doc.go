@@ -3,6 +3,8 @@ package config
 import (
 	"encoding/json"
 	"io"
+	"reflect"
+	"strings"
 
 	"github.com/TechDufus/dash/internal/jsonschema"
 )
@@ -25,6 +27,23 @@ func SchemaDocument() (jsonschema.Schema, error) {
 	doc["title"] = "dash configuration"
 	doc["description"] = "The dash config file. The environment overrides it, setting by setting: DASH_ plus the path in UPPER_SNAKE case."
 	return doc, nil
+}
+
+// PluginSchemaDocument is the JSON Schema 2020-12 of the section plugins.<id> alone: the
+// document the settings form renders (SettingsPluginView.Schema), with its nested types as $ref
+// into its own $defs and the built-in values as defaults. It describes what the tree schema
+// describes at plugins.<id>. ok is false for an id that has no section.
+func PluginSchemaDocument(id string) (doc jsonschema.Schema, ok bool, err error) {
+	pt := reflect.TypeFor[PluginsConfig]()
+	for i := range pt.NumField() {
+		if name, _, _ := strings.Cut(pt.Field(i).Tag.Get("json"), ","); name != id {
+			continue
+		}
+		def := reflect.ValueOf(DefaultTree().Plugins).Field(i).Interface()
+		doc, err := jsonschema.Document(def, jsonschema.WithRefPrefix("#/$defs/"), jsonschema.WithDefaults(def))
+		return doc, true, err
+	}
+	return nil, false, nil
 }
 
 // WriteSchema writes SchemaDocument as indented JSON, the form `dash config schema` prints and

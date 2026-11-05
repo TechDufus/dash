@@ -11,82 +11,27 @@ import (
 	"github.com/TechDufus/dash/internal/settings"
 )
 
-// ErrNotUISecret is returned for a path that is not a secret field the UI may set.
-var ErrNotUISecret = errors.New("not a secret field that can be set from the UI")
+// ActionSecretRekey is the audit action of a startup rekey. The record names the field paths,
+// never a value.
+const ActionSecretRekey = "secrets.rekey"
 
-// Audit actions of the secret write path. The record names the field path, never a value.
-const (
-	ActionSecretReplace = "settings.secret.replace"
-	ActionSecretClear   = "settings.secret.clear"
-	ActionSecretRekey   = "secrets.rekey"
-)
-
-// SecretWriter stores the secrets an admin types into the UI (design C.4): encrypted with the
-// current key into the settings store, with the field path as the associated data. The
-// settings API (P4.7) calls it; it maps secret.ErrNoKey (no DASH_SECRET_KEY) and
-// settings.ErrReadOnly to 409.
-type SecretWriter struct {
-	Store *settings.Store
-	Keys  *secret.Keyring
-	Audit *audit.Log
-	// Registry learns each new plaintext so it is scrubbed from logs and API output at once.
-	Registry *secret.Registry
-}
-
-// uiSecretLeaf checks that path is a secret leaf of the tree whose value may come from the UI.
-func uiSecretLeaf(path string) error {
-	if l := schema.byPath[path]; l == nil || !l.secret || uiIneligible(path) {
-		return fmt.Errorf("%s: %w", path, ErrNotUISecret)
+// OperatorK8sRef reports whether a secret field that the file or the environment sets is a k8s:
+// reference to the same Secret key as ref (namespace, name and key; the spelling is not
+// compared). The settings API refuses such a reference from the UI.
+func OperatorK8sRef(res *Resolved, ref secret.K8sRef) bool {
+	for _, l := range schema.leaves {
+		if !l.secret {
+			continue
+		}
+		if src := res.Provenance[l.path].Source; src != SourceEnv && src != SourceFile {
+			continue
+		}
+		r, err := secret.ParseK8sRef(l.field(&res.Tree).Interface().(secret.Value).Ref())
+		if err == nil && r.Namespace == ref.Namespace && r.Name == ref.Name && r.Key == ref.Key {
+			return true
+		}
 	}
-	return nil
-}
-
-// Replace encrypts plaintext for path and stores it. Nothing is written when the path is not a
-// UI secret field, the store is read-only, there is no key (the error names DASH_SECRET_KEY) or
-// the audit intent cannot be recorded. Every retained backup of the store is rewritten without
-// the old ciphertext, so a restore cannot bring the old secret back (design K.24).
-func (w SecretWriter) Replace(path, plaintext string, actor audit.Actor) error {
-	if err := uiSecretLeaf(path); err != nil {
-		return err
-	}
-	if plaintext == "" {
-		return fmt.Errorf("%s: a secret cannot be empty; clear it instead", path)
-	}
-	if w.Store.ReadOnly() {
-		return settings.ErrReadOnly
-	}
-	sealed, err := w.Keys.Encrypt(path, plaintext)
-	if err != nil {
-		return fmt.Errorf("%s: %w", path, err)
-	}
-	pending, err := w.Audit.Intent(audit.Record{Action: ActionSecretReplace, Fields: []string{path}, Source: "ui", Actor: actor})
-	if err != nil {
-		return err
-	}
-	if w.Registry != nil {
-		w.Registry.AddString(plaintext)
-	}
-	err = w.Store.SetScrubbed(path, sealed)
-	pending.Outcome(err)
-	return err
-}
-
-// Clear removes the stored secret of path, and its old ciphertext from every retained backup.
-// It needs no key.
-func (w SecretWriter) Clear(path string, actor audit.Actor) error {
-	if err := uiSecretLeaf(path); err != nil {
-		return err
-	}
-	if w.Store.ReadOnly() {
-		return settings.ErrReadOnly
-	}
-	pending, err := w.Audit.Intent(audit.Record{Action: ActionSecretClear, Fields: []string{path}, Source: "ui", Actor: actor})
-	if err != nil {
-		return err
-	}
-	err = w.Store.DeleteScrubbed(path)
-	pending.Outcome(err)
-	return err
+	return false
 }
 
 // RekeyStore re-encrypts, with the current key, every stored secret that the previous key

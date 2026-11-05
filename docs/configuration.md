@@ -106,6 +106,7 @@ The settings store behind the settings page.
 | Setting | Variable | Type | Default | Description |
 |---|---|---|---|---|
 | `settings.ui` | `DASH_SETTINGS_UI` | string | `editable` | Whether the settings page may save values: editable, or readonly (fully managed, GitOps). A data directory that is missing or not writable is read-only either way. _Restart-only._ |
+| `settings.secretNamespaces` | `DASH_SETTINGS_SECRET_NAMESPACES` | list of strings (JSON) | - | Kubernetes namespaces, besides the one dash runs in, that a k8s:<namespace>/<name>#<key> secret reference saved from the settings page may name. Empty: only dash's own namespace. References in the config file or the environment are the operator's and may name any namespace. It cannot be set from the settings page. A JSON list in the environment. _Restart-only._ |
 
 ## Top level
 

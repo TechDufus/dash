@@ -52,8 +52,8 @@ type PluginsAPI interface {
 // directory, with hooks for tests.
 //
 // Every write runs inside WithLock and calls Reload before fn returns: the If-Match check,
-// Candidate, Apply (or a secret write) and Reload all happen under the one reloader lock, so
-// neither another write nor the reloader's tick can interleave (design D14b, D15).
+// Candidate, Apply and Reload all happen under the one reloader lock, so neither another write
+// nor the reloader's tick can interleave (design D14b, D15).
 type SettingsBackend interface {
 	// Resolved is the running configuration with the provenance of every value. It is shared:
 	// never modify it.
@@ -73,7 +73,8 @@ type SettingsBackend interface {
 
 	// Store describes the UI settings store; it does not change while dash runs.
 	Store() model.SettingsStore
-	// Revision is the store's revision: the If-Match of a write.
+	// Revision is the store's revision: the If-Match of a write. Read it inside WithLock, with
+	// what it is the revision of: read apart, it can be another write's.
 	Revision() uint64
 	// Stored is a deep copy of the store's values: the sparse, nested UI layer.
 	Stored() map[string]any
@@ -83,10 +84,6 @@ type SettingsBackend interface {
 	Apply(sets map[string]any, deletes, scrub []string) (prev settings.Snapshot, err error)
 	// Revert writes prev's values back as a new revision (settings.Store.Revert).
 	Revert(prev settings.Snapshot) error
-	// ReplaceSecret and ClearSecret are config.SecretWriter's Replace and Clear: they audit
-	// their own intent and outcome and scrub the backups.
-	ReplaceSecret(path, plaintext string, actor audit.Actor) error
-	ClearSecret(path string, actor audit.Actor) error
 
 	// PluginConfig is the configuration of plugin id in res as the plugin receives it: the
 	// candidate Check takes, and whether a URL of the section comes from the UI (the dial guard
@@ -257,8 +254,9 @@ func (s *Server) me(w http.ResponseWriter, r *http.Request) {
 	}
 	me := model.Me{
 		User: p.User, Role: string(p.Role), AuthMode: s.authMode(p), Audience: "api", Version: s.d.Version,
-		Scopes:   scopes,
-		UI:       model.MeUI{IconBaseURL: s.d.Cfg.IconBaseURL},
+		Scopes: scopes,
+		// Every principal reads /me: a URL's userinfo (credentials) is never in it.
+		UI:       model.MeUI{IconBaseURL: config.RedactURLs(s.d.Cfg.IconBaseURL).(string)},
 		Warnings: []string{},
 	}
 	// Standing warnings of the authenticator, for the SPA's banners. admin_wildcard and auth_none

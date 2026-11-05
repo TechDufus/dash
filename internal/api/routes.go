@@ -27,9 +27,14 @@ type Route struct {
 	PathParams []plugin.Param
 	Query      []plugin.Param
 	Request    any // zero value of the JSON body; nil = none
+	// RequestDoc describes the request body in the document; empty is a generic sentence.
+	RequestDoc string
 	Response   any // zero value of the success body; nil = no body
-	Status     int // success status; 0 = 200
-	SSE        bool
+	// Text is the media type of a success body that is not JSON (the settings export,
+	// text/yaml): a string in the document.
+	Text   string
+	Status int // success status; 0 = 200
+	SSE    bool
 	// SSEDoc replaces the generic description of a stream's 200 response (the streams of plugins).
 	SSEDoc string
 	// TopicEnvelope marks the topic snapshot: its response is the envelope of whichever topic

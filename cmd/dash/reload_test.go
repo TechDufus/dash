@@ -126,7 +126,7 @@ func TestReloadedSecretReachesTheProxmoxPluginWhileReadinessHolds(t *testing.T) 
 	// (server.readyRequires = [kubernetes]; here it has no cluster and is unavailable), not the
 	// reloader.
 	cfg := res.Config
-	fw := newFramework(res, store, config.ReloadOptions{Interval: time.Millisecond}, nil, nil, nil, false)
+	fw := newFramework(res, store, config.ReloadOptions{Interval: time.Millisecond}, nil, nil, nil, nil, false)
 	sup, reloader := fw.sup, fw.reloader
 	ov := overview.New(overview.Deps{Hosts: sup, Contributors: sup.Contributors})
 	ctx, cancel := context.WithCancel(context.Background())

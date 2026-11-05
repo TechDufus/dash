@@ -20,8 +20,6 @@ import (
 
 const tokenPath = "plugins.proxmox.tokenSecret"
 
-var alice = audit.Actor{Type: "proxy", User: "alice", Surface: "ui"}
-
 // keyText is a deterministic 32-byte key in the form `openssl rand -base64 32` prints.
 func keyText(n byte) string { return base64.StdEncoding.EncodeToString(bytes.Repeat([]byte{n}, 32)) }
 
@@ -61,8 +59,17 @@ func newSecretRig(t *testing.T) *secretRig {
 	return &secretRig{dir: dir, store: st, alog: alog}
 }
 
-func (g *secretRig) writer(keys *secret.Keyring, reg *secret.Registry) SecretWriter {
-	return SecretWriter{Store: g.store, Keys: keys, Audit: g.alog, Registry: reg}
+// seal stores plaintext at the token path as the settings API does: sealed with keys, the path
+// as the associated data, old copies scrubbed from the backups.
+func (g *secretRig) seal(t *testing.T, keys *secret.Keyring, plaintext string) {
+	t.Helper()
+	sealed, err := keys.Encrypt(tokenPath, plaintext)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := g.store.Apply(map[string]any{tokenPath: sealed}, nil, []string{tokenPath}); err != nil {
+		t.Fatal(err)
+	}
 }
 
 // stored is the raw value the store holds at the token path.
@@ -123,15 +130,9 @@ func (g *secretRig) resolve(t *testing.T, keys *secret.Keyring) (*Resolved, stri
 func TestUISecretRoundTripsThroughResolve(t *testing.T) {
 	g := newSecretRig(t)
 	keys := keyring(t, 1)
-	reg := secret.NewRegistry()
-	if err := g.writer(keys, reg).Replace(tokenPath, canary, alice); err != nil {
-		t.Fatal(err)
-	}
+	g.seal(t, keys, canary)
 	if got := g.stored(t); !secret.IsEncrypted(got) || strings.Contains(got, canary) {
 		t.Fatalf("the store must hold a sealed value, got %q", got)
-	}
-	if !strings.Contains(reg.Scrub("the token was "+canary), "[redacted]") {
-		t.Error("a replaced secret is scrubbed from logs at once")
 	}
 
 	res, log, err := g.resolve(t, keys)
@@ -184,9 +185,7 @@ func TestCiphertextMovedToAnotherFieldFailsStartup(t *testing.T) {
 // of them touches the stored value (P1.5).
 func TestStoredSecretWithMissingOrWrongKeyFailsStartup(t *testing.T) {
 	g := newSecretRig(t)
-	if err := g.writer(keyring(t, 1), nil).Replace(tokenPath, canary, alice); err != nil {
-		t.Fatal(err)
-	}
+	g.seal(t, keyring(t, 1), canary)
 	before := g.stored(t)
 	for name, tc := range map[string]struct {
 		keys *secret.Keyring
@@ -227,144 +226,17 @@ func TestStoredSecretWithMissingOrWrongKeyFailsStartup(t *testing.T) {
 	}
 }
 
-// Without a key nothing can be stored, the error names the key, and nothing else is affected:
-// no write, no audit record, and the other ways of setting a secret still work (P1.5).
-func TestReplaceWithoutKeyNamesTheKeyAndChangesNothing(t *testing.T) {
-	g := newSecretRig(t)
-	if err := g.store.Set("plugins.grafana.url", "https://grafana.example.com"); err != nil {
-		t.Fatal(err)
-	}
-	rev := g.store.Revision()
-	err := g.writer(nil, nil).Replace(tokenPath, canary, alice)
-	if !errors.Is(err, secret.ErrNoKey) || !strings.Contains(err.Error(), "DASH_SECRET_KEY") {
+// Without a key nothing can be sealed and the error names the key; dash itself runs, and env
+// and file references work, without a key (P1.5).
+func TestNoKeyRefusesToSealButFileRefsResolve(t *testing.T) {
+	var none *secret.Keyring
+	if _, err := none.Encrypt(tokenPath, canary); !errors.Is(err, secret.ErrNoKey) || !strings.Contains(err.Error(), "DASH_SECRET_KEY") {
 		t.Fatalf("want an error naming DASH_SECRET_KEY, got %v", err)
 	}
-	if g.store.Revision() != rev || g.stored(t) != "" {
-		t.Error("nothing may be written")
-	}
-	if n := len(g.records(t)); n != 0 {
-		t.Errorf("%d audit records for a refused write", n)
-	}
-
-	// dash itself runs, and env and file references work, without a key.
 	file := writeSecretFile(t, canary)
-	res, _, err := resolveWith(t, Sources{Environ: append([]string{"DASH_PLUGINS_PROXMOX_TOKEN_SECRET_FILE=" + file}, pveBase...), UI: g.store.Values()})
+	res, _, err := resolveWith(t, Sources{Environ: append([]string{"DASH_PLUGINS_PROXMOX_TOKEN_SECRET_FILE=" + file}, pveBase...)})
 	if err != nil || res.Tree.Plugins.Proxmox.TokenSecret.Reveal() != canary {
 		t.Errorf("a keyless dash must still resolve file refs: %v", err)
-	}
-}
-
-func TestReplaceAndClearRefuseWhatIsNotAUISecretField(t *testing.T) {
-	g := newSecretRig(t)
-	w := g.writer(keyring(t, 1), nil)
-	for _, path := range []string{"plugins.grafana.url", "server.publicURL", "auth", "plugins.nope.token", ""} {
-		if err := w.Replace(path, canary, alice); !errors.Is(err, ErrNotUISecret) {
-			t.Errorf("Replace(%q) = %v", path, err)
-		}
-		if err := w.Clear(path, alice); !errors.Is(err, ErrNotUISecret) {
-			t.Errorf("Clear(%q) = %v", path, err)
-		}
-	}
-	if err := w.Replace(tokenPath, "", alice); err == nil {
-		t.Error("an empty secret is a Clear")
-	}
-	if g.store.Revision() != 0 || len(g.records(t)) != 0 {
-		t.Error("refused writes must leave no trace")
-	}
-}
-
-// Replace and Clear are bracketed by an intent and an outcome that name the field, never the
-// value; an intent that cannot be written stops the change (P1.8 contract, P1.5).
-func TestSecretWritesAreAuditedAndFailClosed(t *testing.T) {
-	g := newSecretRig(t)
-	w := g.writer(keyring(t, 1), nil)
-	if err := w.Replace(tokenPath, canary, alice); err != nil {
-		t.Fatal(err)
-	}
-	if err := w.Clear(tokenPath, alice); err != nil {
-		t.Fatal(err)
-	}
-	recs := g.records(t)
-	want := []struct {
-		kind   audit.Kind
-		action string
-	}{
-		{audit.KindIntent, ActionSecretReplace}, {audit.KindOutcome, ActionSecretReplace},
-		{audit.KindIntent, ActionSecretClear}, {audit.KindOutcome, ActionSecretClear},
-	}
-	if len(recs) != len(want) {
-		t.Fatalf("%d audit records, want %d: %+v", len(recs), len(want), recs)
-	}
-	for i, r := range recs {
-		if r.Kind != want[i].kind || r.Action != want[i].action || len(r.Fields) != 1 || r.Fields[0] != tokenPath || r.Actor.User != "alice" {
-			t.Errorf("record %d = %+v", i, r)
-		}
-		if r.Kind == audit.KindOutcome && (r.Result != audit.ResultOK || r.ID != recs[i-1].ID) {
-			t.Errorf("outcome %d = %+v", i, r)
-		}
-	}
-	raw, _ := os.ReadFile(filepath.Join(g.dir, audit.FileName))
-	if strings.Contains(string(raw), canary) || strings.Contains(string(raw), "enc:v1:") {
-		t.Error("the audit log must hold paths only")
-	}
-
-	// A closed log cannot record the intent: the write must not happen.
-	g.alog.Close()
-	rev := g.store.Revision()
-	if err := w.Replace(tokenPath, canary, alice); err == nil {
-		t.Error("Replace must fail when the intent cannot be recorded")
-	}
-	if g.store.Revision() != rev || g.stored(t) != "" {
-		t.Error("a failed intent must write nothing")
-	}
-}
-
-// After Replace or Clear no retained backup holds the old ciphertext, so a restore cannot
-// bring a cleared secret back (P1.5, design K.24).
-func TestReplaceAndClearLeaveNoOldCiphertextInBackups(t *testing.T) {
-	g := newSecretRig(t)
-	w := g.writer(keyring(t, 1), nil)
-	// Other saves make sure there are backups to scrub.
-	for _, kv := range [][2]string{{"plugins.grafana.url", "https://a.example.com"}, {"plugins.grafana.url", "https://b.example.com"}} {
-		if err := g.store.Set(kv[0], kv[1]); err != nil {
-			t.Fatal(err)
-		}
-	}
-	if err := w.Replace(tokenPath, canary, alice); err != nil {
-		t.Fatal(err)
-	}
-	first := g.stored(t)
-	if err := g.store.Set("plugins.grafana.url", "https://c.example.com"); err != nil { // the sealed value is now in .bak.1
-		t.Fatal(err)
-	}
-	if !strings.Contains(g.backups(t), first) {
-		t.Fatal("test setup: the old ciphertext should be in a backup before the replace")
-	}
-	if err := w.Replace(tokenPath, canary+"-2", alice); err != nil {
-		t.Fatal(err)
-	}
-	second := g.stored(t)
-	if first == second {
-		t.Fatal("a replace seals again")
-	}
-	if strings.Contains(g.backups(t), first) {
-		t.Error("a backup still holds the replaced ciphertext")
-	}
-
-	if err := g.store.Set("plugins.grafana.url", "https://d.example.com"); err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(g.backups(t), second) {
-		t.Fatal("test setup: the sealed value should be in a backup before the clear")
-	}
-	if err := w.Clear(tokenPath, alice); err != nil {
-		t.Fatal(err)
-	}
-	if b := g.backups(t); strings.Contains(b, second) || strings.Contains(b, first) {
-		t.Error("a backup still holds the cleared ciphertext")
-	}
-	if g.stored(t) != "" {
-		t.Error("the secret is cleared")
 	}
 }
 
@@ -372,9 +244,7 @@ func TestReplaceAndClearLeaveNoOldCiphertextInBackups(t *testing.T) {
 // startup, written through the scrubbing path and audited as secrets.rekey (P1.5).
 func TestRekeyReencryptsEveryValueAndAuditsIt(t *testing.T) {
 	g := newSecretRig(t)
-	if err := g.writer(keyring(t, 1), nil).Replace(tokenPath, canary, alice); err != nil {
-		t.Fatal(err)
-	}
+	g.seal(t, keyring(t, 1), canary)
 	old := g.stored(t)
 	if err := g.store.Set("plugins.grafana.url", "https://a.example.com"); err != nil { // the old ciphertext lands in a backup
 		t.Fatal(err)
@@ -421,9 +291,7 @@ func TestRekeyReencryptsEveryValueAndAuditsIt(t *testing.T) {
 // as they are and still decrypt (P1.5).
 func TestRekeyOnAReadOnlyStoreWarnsOnce(t *testing.T) {
 	g := newSecretRig(t)
-	if err := g.writer(keyring(t, 1), nil).Replace(tokenPath, canary, alice); err != nil {
-		t.Fatal(err)
-	}
+	g.seal(t, keyring(t, 1), canary)
 	old := g.stored(t)
 	g.store.Close()
 	ro, err := settings.Open(g.dir, settings.Options{ReadOnly: true})
@@ -450,9 +318,7 @@ func TestRekeyOnAReadOnlyStoreWarnsOnce(t *testing.T) {
 // decrypt with the previous key (P1.5, P1.8 contract).
 func TestRekeySkippedWhenTheIntentCannotBeRecorded(t *testing.T) {
 	g := newSecretRig(t)
-	if err := g.writer(keyring(t, 1), nil).Replace(tokenPath, canary, alice); err != nil {
-		t.Fatal(err)
-	}
+	g.seal(t, keyring(t, 1), canary)
 	old := g.stored(t)
 	g.alog.Close()
 

@@ -30,7 +30,7 @@ func startDemo(t *testing.T, env ...string) (*framework, config.Config) {
 	if store != nil {
 		t.Cleanup(func() { _ = store.Close() })
 	}
-	fw := newFramework(res, store, config.ReloadOptions{Interval: time.Millisecond}, nil, nil, nil, true)
+	fw := newFramework(res, store, config.ReloadOptions{Interval: time.Millisecond}, nil, nil, nil, nil, true)
 	ctx, cancel := context.WithCancel(context.Background())
 	ov := overview.New(overview.Deps{Hosts: fw.sup, Contributors: fw.sup.Contributors})
 	if err := fw.start(ctx, registry(nil), func() { ov.Run(ctx) }); err != nil {

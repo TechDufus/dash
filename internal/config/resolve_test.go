@@ -96,7 +96,7 @@ func TestFileRejectsBadInput(t *testing.T) {
 	}{
 		{"unknown key names its full path", "plugins:\n  proxmox:\n    urll: x\n", []string{"plugins.proxmox.urll: unknown field", "/etc/dash/config.yaml"}},
 		{"unknown section", "plugin: {}\n", []string{"plugin: unknown field"}},
-		{"unknown key in a list entry", "plugins:\n  hardware:\n    hosts: [{nodenam: x}]\n", []string{"plugins.hardware.hosts", `unknown field "nodenam"`}},
+		{"unknown key in a list entry", "plugins:\n  hardware:\n    hosts: [{nodename: a}, {nodenam: x}]\n", []string{"plugins.hardware.hosts: entry 2 has a field this setting does not know"}},
 		{"every problem is reported", "server: {lisen: a}\nplugins: {proxmoxx: {}}\n", []string{"server.lisen: unknown field", "plugins.proxmoxx: unknown field"}},
 		{"wrong scalar type", "server:\n  listen: 8080\n", []string{"server.listen: expected a string, got number"}},
 		{"section is not a map", "server: nope\n", []string{"server: expected a section"}},
@@ -393,5 +393,22 @@ func TestIneligibleLeafGivenAMapKeepsItsPath(t *testing.T) {
 	}
 	if strings.Contains(buf.String(), canary) || !strings.Contains(buf.String(), "path=auth.oidc.clientSecret") {
 		t.Errorf("the warning should name auth.oidc.clientSecret and nothing under it:\n%s", buf.String())
+	}
+}
+
+// A value of the wrong type is named by its kind, never repeated (design D16): an overflowing
+// number and malformed JSON from the UI layer included.
+func TestDecodeErrorsNeverEchoTheValue(t *testing.T) {
+	const canary = "98765432109876543210987"
+	l := schema.byPath["server.limits.streams"]
+	// The UI layer and the environment reach decodeLeaf as JSON: an overflowing number is an
+	// UnmarshalTypeError whose Value carries the literal.
+	_, derr := decodeLeaf(l, []byte(canary))
+	if msg := describeDecode(l, derr); msg != "expected a whole number, got number" {
+		t.Errorf("overflow message = %q", msg)
+	}
+	_, derr = decodeLeaf(l, []byte(`Q`+canary))
+	if msg := describeDecode(l, derr); msg != "invalid JSON" {
+		t.Errorf("syntax error message = %q", msg)
 	}
 }

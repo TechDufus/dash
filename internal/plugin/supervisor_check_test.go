@@ -164,8 +164,9 @@ func TestSupervisorCheckRefusesWhatItCannotCheck(t *testing.T) {
 	}
 }
 
-// The check's client is the plugin's: the dial guard (with loopback refused for a candidate
-// from the UI) and Options.Transport, under the plugin's id.
+// The check's client is the plugin's dial guard (with loopback refused for a candidate from the
+// UI) under Options.CheckTransport with the plugin's id, never Options.Transport: that one carries
+// the running plugin's upstream metrics, which a test connection must not move.
 func TestSupervisorCheckEnvGuardsLikeTheHost(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { _, _ = io.WriteString(w, "ok") }))
 	defer srv.Close()
@@ -183,10 +184,14 @@ func TestSupervisorCheckEnvGuardsLikeTheHost(t *testing.T) {
 		getErr = err
 		return plugin.CheckReport{}
 	}}
-	var wrapped atomic.Value
+	var wrapped, running atomic.Value
 	e := newEnv(t, func(o *plugin.Options) {
-		o.Transport = func(id plugin.ID, rt http.RoundTripper) http.RoundTripper {
+		o.CheckTransport = func(id plugin.ID, rt http.RoundTripper) http.RoundTripper {
 			wrapped.Store(id)
+			return rt
+		}
+		o.Transport = func(id plugin.ID, rt http.RoundTripper) http.RoundTripper {
+			running.Store(id)
 			return rt
 		}
 	}, f.factory).run(t)
@@ -195,7 +200,10 @@ func TestSupervisorCheckEnvGuardsLikeTheHost(t *testing.T) {
 		t.Fatalf("a loopback URL from the file or env: Check err = %v, GET err = %v", err, getErr)
 	}
 	if id, _ := wrapped.Load().(plugin.ID); id != "ck" {
-		t.Errorf("Options.Transport wrapped the check's client for %q, want ck", id)
+		t.Errorf("Options.CheckTransport wrapped the check's client for %q, want ck", id)
+	}
+	if id, ok := running.Load().(plugin.ID); ok {
+		t.Errorf("Options.Transport wrapped the check's client (for %q): a check would count as the plugin's traffic", id)
 	}
 	if _, err := e.sup.Check(context.Background(), "ck", &checkCfg{URL: srv.URL}, true); err != nil {
 		t.Fatal(err)

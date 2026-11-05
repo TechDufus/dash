@@ -373,8 +373,8 @@ func TestReloadFlagsChangedSettingsAsRestartRequired(t *testing.T) {
 	}
 }
 
-// A secret that appears after startup is a restart, not a live change: the plugin that reads it
-// is off until then. It is registered for scrubbing all the same.
+// A secret that appears after startup is a restart when its section is not live: the plugin
+// that reads it is off until then. It is registered for scrubbing all the same.
 func TestReloadFlagsASecretThatAppearsAfterStartup(t *testing.T) {
 	dir := t.TempDir()
 	cfgPath, tokenPath := filepath.Join(dir, "config.yaml"), filepath.Join(dir, "token")
@@ -415,6 +415,29 @@ func TestReloadFlagsASecretThatAppearsAfterStartup(t *testing.T) {
 	rl.poll()
 	if len(got) != 2 {
 		t.Errorf("a file referenced only after startup must be watched: %+v", got)
+	}
+}
+
+// In a live section (the supervisor restarts the plugin in-process, as for every shipped plugin)
+// a secret that appears after startup, such as one saved from the settings page, needs no
+// restart: the section's Change brings the plugin up with it.
+func TestASecretAppearingInALiveSectionNeedsNoRestart(t *testing.T) {
+	g := newStoreRig(t, headlampConfig("https://hl-a.example.com"), nil)
+	g.rl.live = func(section string) bool { return section == "plugins.proxmox" }
+	if _, err := g.store.Apply(map[string]any{
+		"plugins.proxmox.url": "https://pve.example.com:8006", "plugins.proxmox.tokenID": "u@pve!t",
+		"plugins.proxmox.tokenSecret": "k8s:dash/pve#token",
+	}, nil, nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := g.rl.Reload(); err != nil {
+		t.Fatal(err)
+	}
+	if r := g.rl.RestartRequired(); len(r) != 0 {
+		t.Errorf("restart required = %v, want none in a live section", r)
+	}
+	if len(g.changes) != 1 || g.changes[0].Section != "plugins.proxmox" {
+		t.Errorf("changes = %+v", g.changes)
 	}
 }
 

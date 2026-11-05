@@ -33,7 +33,7 @@ func TestAdminUsersReloadAppliesOnTheNextRequest(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	fw := newFramework(res, store, config.ReloadOptions{Interval: time.Millisecond}, nil, nil, nil, false)
+	fw := newFramework(res, store, config.ReloadOptions{Interval: time.Millisecond}, nil, nil, nil, nil, false)
 	fw.reloadAuth(proxy)
 	// Subscribers run in the order they were added, so once this one has seen the change the
 	// authenticator has applied it.
@@ -99,7 +99,7 @@ func TestOtherAuthKeysNeedARestart(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	fw := newFramework(res, store, config.ReloadOptions{Interval: time.Millisecond}, nil, nil, nil, false)
+	fw := newFramework(res, store, config.ReloadOptions{Interval: time.Millisecond}, nil, nil, nil, nil, false)
 	fw.reloadAuth(proxy)
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})

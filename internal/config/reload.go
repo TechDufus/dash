@@ -335,8 +335,10 @@ func (r *Reloader) apply(next *Resolved) []Change {
 		start := l.field(&r.startup.Tree)
 		if l.secret {
 			ov, nv, running := was.Interface().(secret.Value), now.Interface().(secret.Value), start.Interface().(secret.Value)
-			if running.Present() != nv.Present() {
-				restart[l.path] = true // the plugin that reads it is on or off until restart
+			if running.Present() != nv.Present() && (l.restart || !r.isLive(sectionOf(l.path))) {
+				// The plugin that reads it is on or off until restart, unless its section is
+				// live: the supervisor then restarts the plugin in-process with the new value.
+				restart[l.path] = true
 			}
 			same := ov.Reveal() == nv.Reveal()
 			if same && (k8sRef(ov) || k8sRef(nv)) {

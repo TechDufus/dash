@@ -32,8 +32,8 @@ func (s *Supervisor) Testable(id ID) bool {
 // the running instance or the configuration: it runs the Checker of a fresh plugin from the
 // factory, which is never started, within CheckTimeout. candidate must be a pointer of the
 // type the plugin's Manifest.Config returns and pass its Validate. The clients the check builds
-// are those of Host.HTTPClient (the dial guard, Options.Transport), and with fromUI they also
-// refuse loopback, as for a URL saved from the UI.
+// have the dial guard of Host.HTTPClient and Options.CheckTransport (not Transport), and with
+// fromUI they also refuse loopback, as for a URL saved from the UI.
 //
 // The error is ErrNotCheckable (see there), or a configuration the plugin refuses; a check that
 // ran answers its report and a nil error, whatever the upstream said.
@@ -78,14 +78,15 @@ type checkEnv struct {
 }
 
 // HTTPClient builds the client as Host.HTTPClient does, with FromUI forced on for a candidate
-// from the UI. It logs nothing: a check reports, it does not warn.
+// from the UI and Options.CheckTransport in place of Transport. It logs nothing: a check
+// reports, it does not warn.
 func (e checkEnv) HTTPClient(c HTTPConfig) (*http.Client, error) {
 	c.FromUI = c.FromUI || e.fromUI
 	cl, err := newHTTPClient(c)
 	if err != nil {
 		return nil, err
 	}
-	if t := e.s.opt.Transport; t != nil {
+	if t := e.s.opt.CheckTransport; t != nil {
 		cl.Transport = t(e.id, cl.Transport)
 	}
 	return cl, nil

@@ -165,7 +165,7 @@ func loadFramework(t *testing.T) (*framework, *config.Resolved) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = store.Close() })
-	return newFramework(res, store, config.ReloadOptions{Interval: time.Millisecond}, nil, nil, nil, false), res
+	return newFramework(res, store, config.ReloadOptions{Interval: time.Millisecond}, nil, nil, nil, nil, false), res
 }
 
 // The framework as run starts it: Supervisor.Run returns before the overview publisher runs, so

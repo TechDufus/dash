@@ -3,13 +3,11 @@ package main
 import (
 	"bytes"
 	"encoding/base64"
-	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
-	"github.com/TechDufus/dash/internal/audit"
 	"github.com/TechDufus/dash/internal/config"
 	"github.com/TechDufus/dash/internal/secret"
 	"github.com/TechDufus/dash/internal/settings"
@@ -19,11 +17,15 @@ const tokenSecretPath = "plugins.proxmox.tokenSecret"
 
 func testKey(n byte) string { return base64.StdEncoding.EncodeToString(bytes.Repeat([]byte{n}, 32)) }
 
-// storeWithSecret saves a secret into the data directory the way the settings API will, sealed
-// with the key.
+// storeWithSecret saves a secret into the data directory as the settings API does: sealed with
+// the key, the field path as the associated data.
 func storeWithSecret(t *testing.T, dir, key, value string) {
 	t.Helper()
 	keys, err := config.SecretKeys([]string{"DASH_SECRET_KEY=" + key}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sealed, err := keys.Encrypt(tokenSecretPath, value)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -32,12 +34,7 @@ func storeWithSecret(t *testing.T, dir, key, value string) {
 		t.Fatal(err)
 	}
 	defer st.Close()
-	alog, err := audit.Open(dir, audit.Options{Logger: slog.New(slog.DiscardHandler)})
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer alog.Close()
-	if err := (config.SecretWriter{Store: st, Keys: keys, Audit: alog}).Replace(tokenSecretPath, value, audit.Actor{Type: "proxy", User: "alice"}); err != nil {
+	if _, err := st.Apply(map[string]any{tokenSecretPath: sealed}, nil, []string{tokenSecretPath}); err != nil {
 		t.Fatal(err)
 	}
 }

@@ -510,8 +510,8 @@ func TestIntentFailsWhenWriteFailsOnWritableDir(t *testing.T) {
 	l.f.Close() // every later write on the active file fails
 
 	p, err := l.Intent(restart("alice"))
-	if err == nil {
-		t.Fatal("Intent returned nil error although the write failed")
+	if !errors.Is(err, ErrIntent) {
+		t.Fatalf("Intent error = %v, want one that wraps ErrIntent although the write failed", err)
 	}
 	if !strings.Contains(buf.String(), `"level":"ERROR"`) {
 		t.Errorf("failed intent not logged at ERROR: %s", buf.String())

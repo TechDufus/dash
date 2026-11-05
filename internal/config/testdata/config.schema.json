@@ -1226,6 +1226,14 @@
     "SettingsConfig": {
       "additionalProperties": false,
       "properties": {
+        "secretNamespaces": {
+          "description": "Kubernetes namespaces, besides the one dash runs in, that a k8s:<namespace>/<name>#<key> secret reference saved from the settings page may name. Empty: only dash's own namespace. References in the config file or the environment are the operator's and may name any namespace. It cannot be set from the settings page. A JSON list in the environment.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array",
+          "x-dash-restart": true
+        },
         "ui": {
           "default": "editable",
           "description": "Whether the settings page may save values: editable, or readonly (fully managed, GitOps). A data directory that is missing or not writable is read-only either way.",

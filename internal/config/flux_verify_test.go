@@ -28,7 +28,7 @@ func TestFluxVerifySourcesAreDecodedStrictly(t *testing.T) {
 			if err == nil {
 				t.Fatal("want a load error for the unknown field")
 			}
-			for _, w := range []string{"plugins.flux.verify.sources", `unknown field "nme"`} {
+			for _, w := range []string{"plugins.flux.verify.sources", "has a field this setting does not know"} {
 				if !strings.Contains(err.Error(), w) {
 					t.Errorf("error %q does not contain %q", err, w)
 				}

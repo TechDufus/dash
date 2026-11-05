@@ -100,12 +100,11 @@ func openSettings(boot config.Bootstrap) (*settings.Store, error) {
 	return store, nil
 }
 
-// settingsBackend is the api.SettingsBackend of a running dash: the reloader, the settings store,
-// the secret writer over both, and the supervisor's connection checks (design D14, D15).
+// settingsBackend is the api.SettingsBackend of a running dash: the reloader, the settings store
+// and the supervisor's connection checks (design D14, D15).
 type settingsBackend struct {
 	rel       *config.Reloader
 	store     *settings.Store
-	writer    config.SecretWriter
 	sup       *plugin.Supervisor
 	info      model.SettingsStore
 	namespace string
@@ -117,7 +116,7 @@ var _ api.SettingsBackend = (*settingsBackend)(nil)
 // and the data directory do not change while dash runs. The data directory counts as writable
 // when the audit log file is open there. store must not be nil (demo mode has no settings API).
 func newSettingsBackend(res *config.Resolved, store *settings.Store, rel *config.Reloader, sup *plugin.Supervisor,
-	alog *audit.Log, reg *secret.Registry) *settingsBackend {
+	alog *audit.Log) *settingsBackend {
 	info := model.SettingsStore{
 		Readonly: store.ReadOnly(), DataDir: res.Config.DataDir, Writable: alog.Enabled(), SecretKey: res.Keys != nil,
 	}
@@ -130,7 +129,6 @@ func newSettingsBackend(res *config.Resolved, store *settings.Store, rel *config
 	}
 	return &settingsBackend{
 		rel: rel, store: store, sup: sup, info: info, namespace: ownNamespace(os.Getenv, os.ReadFile),
-		writer: config.SecretWriter{Store: store, Keys: res.Keys, Audit: alog, Registry: reg},
 	}
 }
 
@@ -164,14 +162,6 @@ func (b *settingsBackend) Namespace() string                   { return b.namesp
 
 func (b *settingsBackend) Apply(sets map[string]any, deletes, scrub []string) (settings.Snapshot, error) {
 	return b.store.Apply(sets, deletes, scrub)
-}
-
-func (b *settingsBackend) ReplaceSecret(path, plaintext string, actor audit.Actor) error {
-	return b.writer.Replace(path, plaintext, actor)
-}
-
-func (b *settingsBackend) ClearSecret(path string, actor audit.Actor) error {
-	return b.writer.Clear(path, actor)
 }
 
 // PluginConfig is the configuration the supervisor would give plugin id under res: what

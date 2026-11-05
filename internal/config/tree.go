@@ -65,6 +65,8 @@ const (
 type SettingsConfig struct {
 	// UI is SettingsEditable or SettingsReadOnly (fully managed, GitOps).
 	UI string `json:"ui" dash:"restart,enum=editable|readonly" doc:"Whether the settings page may save values: editable, or readonly (fully managed, GitOps). A data directory that is missing or not writable is read-only either way."`
+	// SecretNamespaces widens where a k8s: reference saved from the UI may point (design D16).
+	SecretNamespaces []string `json:"secretNamespaces" dash:"restart" doc:"Kubernetes namespaces, besides the one dash runs in, that a k8s:<namespace>/<name>#<key> secret reference saved from the settings page may name. Empty: only dash's own namespace. References in the config file or the environment are the operator's and may name any namespace. It cannot be set from the settings page. A JSON list in the environment."`
 }
 
 // PluginsConfig holds one section per plugin, each embedding PluginBase (plugins.<id>.type and

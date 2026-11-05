@@ -266,10 +266,14 @@ type Pending struct {
 	once *sync.Once
 }
 
+// ErrIntent is the error of an Intent that could not be recorded, whoever passes it on: the
+// caller answers 503 audit_unavailable and changes nothing. Test it with errors.Is.
+var ErrIntent = errors.New("audit intent")
+
 // Intent records that an action or change is about to happen. The error is non-nil
-// only when the file is enabled and the record could not be durably written; the
-// caller must then fail closed (503) and change nothing. Without a file it always
-// succeeds and the returned Pending still produces the slog record.
+// only when the file is enabled and the record could not be durably written; it wraps
+// ErrIntent, and the caller must then fail closed (503) and change nothing. Without a file
+// it always succeeds and the returned Pending still produces the slog record.
 func (l *Log) Intent(rec Record) (Pending, error) {
 	rec.Kind = KindIntent
 	rec.ID = newID()
@@ -277,7 +281,7 @@ func (l *Log) Intent(rec Record) (Pending, error) {
 	rec.Time = l.now()
 	if err := l.append(l.scrubbed(rec)); err != nil {
 		l.logger().Error("audit write failed", "kind", string(KindIntent), "action", rec.Action, "error", err.Error())
-		return Pending{}, fmt.Errorf("audit intent: %w", err)
+		return Pending{}, fmt.Errorf("%w: %w", ErrIntent, err)
 	}
 	return Pending{l: l, rec: rec, once: new(sync.Once)}, nil
 }

@@ -224,8 +224,8 @@ func TestSettingsBackendDescribesTheStore(t *testing.T) {
 				t.Fatal(err)
 			}
 			t.Cleanup(func() { _ = alog.Close(); _ = store.Close() })
-			fw := newFramework(res, store, config.ReloadOptions{}, reg, nil, nil, false)
-			b := newSettingsBackend(res, store, fw.reloader, fw.sup, alog, reg)
+			fw := newFramework(res, store, config.ReloadOptions{}, reg, nil, nil, nil, false)
+			b := newSettingsBackend(res, store, fw.reloader, fw.sup, alog)
 			tc.want.DataDir = dir
 			if got := b.Store(); got != tc.want {
 				t.Errorf("store = %+v, want %+v", got, tc.want)
@@ -250,11 +250,11 @@ func TestSettingsBackendPluginConfigIsWhatTheSupervisorChecks(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = alog.Close(); _ = store.Close() })
-	fw := newFramework(res, store, config.ReloadOptions{}, reg, nil, nil, false)
+	fw := newFramework(res, store, config.ReloadOptions{}, reg, nil, nil, nil, false)
 	if err := fw.sup.Add(prometheus.New); err != nil {
 		t.Fatal(err)
 	}
-	b := newSettingsBackend(res, store, fw.reloader, fw.sup, alog, reg)
+	b := newSettingsBackend(res, store, fw.reloader, fw.sup, alog)
 
 	cfg, fromUI, ok := b.PluginConfig(b.Resolved(), "prometheus")
 	if p, isProm := cfg.(*pluginconf.Prometheus); !ok || fromUI || !isProm || p.URL != up.URL {

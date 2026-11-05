@@ -28,6 +28,8 @@ type leaf struct {
 	// dest: the leaf decides where or how a request is sent (design D16): changing it while
 	// the section has a set secret needs every set secret re-entered.
 	dest bool
+	enum []string // the dash tag's enum=a|b, for the settings view
+	doc  string   // the doc tag
 }
 
 // field returns the leaf's value inside t.
@@ -82,7 +84,7 @@ func (s *schemaT) walk(n *node, t reflect.Type, index []int, prefix string) {
 		if f.Type.Kind() == reflect.Struct && f.Type != secretType {
 			s.walk(child, f.Type, idx, path+".")
 		} else {
-			l := &leaf{path: path, env: envName(path), index: idx, typ: f.Type}
+			l := &leaf{path: path, env: envName(path), index: idx, typ: f.Type, doc: f.Tag.Get("doc")}
 			for _, opt := range strings.Split(f.Tag.Get("dash"), ",") {
 				switch opt {
 				case "secret":
@@ -97,7 +99,11 @@ func (s *schemaT) walk(n *node, t reflect.Type, index []int, prefix string) {
 				case "required":
 					// Only the JSON Schema reflector reads these (internal/jsonschema).
 				default:
-					if strings.HasPrefix(opt, "format=") || strings.HasPrefix(opt, "enum=") {
+					if e, ok := strings.CutPrefix(opt, "enum="); ok {
+						l.enum = strings.Split(e, "|")
+						continue
+					}
+					if strings.HasPrefix(opt, "format=") {
 						continue
 					}
 					panic(fmt.Sprintf("config: %s: unknown dash tag option %q", path, opt))
@@ -144,9 +150,13 @@ func endsAcronym(r []rune, i int) bool {
 	return !(r[i+1] == 's' && (i+2 == len(r) || unicode.IsUpper(r[i+2])))
 }
 
-// uiIneligible reports whether a path can never come from the UI layer (design B.2, S.14).
+// ineligiblePaths can never come from the UI layer (design B.2, S.14, D16): the operator's
+// settings, which decide who signs in, where dash keeps its state and what a UI admin may reach.
+var ineligiblePaths = []string{"server", "auth", "settings.ui", "settings.secretNamespaces", "dataDir"}
+
+// uiIneligible reports whether a path can never come from the UI layer.
 func uiIneligible(path string) bool {
-	for _, p := range []string{"server", "auth", "settings.ui", "dataDir"} {
+	for _, p := range ineligiblePaths {
 		if path == p || strings.HasPrefix(path, p+".") {
 			return true
 		}

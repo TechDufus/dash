@@ -187,6 +187,34 @@ func TestPluginConfigSchemaMatchesTreeSubschema(t *testing.T) {
 	}
 }
 
+// PluginSchemaDocument, the schema the settings form renders, describes what the tree schema
+// describes at plugins.<id>, defaults included.
+func TestPluginSchemaDocumentIsTheTreeSubschema(t *testing.T) {
+	tree, err := SchemaDocument()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, sec := range DefaultTree().PluginSections() {
+		doc, ok, err := PluginSchemaDocument(sec.Name)
+		if !ok || err != nil {
+			t.Fatalf("%s: %v %v", sec.Name, ok, err)
+		}
+		if doc["$schema"] != jsonschema.Draft {
+			t.Errorf("%s: $schema %v", sec.Name, doc["$schema"])
+		}
+		sub := resolved(tree, at(t, tree, "plugins."+sec.Name))
+		delete(sub, "description") // the tree's text of the property, not of the type
+		if got := resolved(doc, doc); !reflect.DeepEqual(got, sub) {
+			g, _ := json.MarshalIndent(got, "", " ")
+			w, _ := json.MarshalIndent(sub, "", " ")
+			t.Errorf("%s: the plugin document differs from the tree:\n%s\nvs\n%s", sec.Name, g, w)
+		}
+	}
+	if _, ok, _ := PluginSchemaDocument("nope"); ok {
+		t.Error("an unknown id has a document")
+	}
+}
+
 // resolved is s with its $ref and every nested $ref replaced by the definition in doc, so two
 // documents with different $defs compare by meaning. $schema and $defs are dropped.
 func resolved(doc, s jsonschema.Schema) jsonschema.Schema {

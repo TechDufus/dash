@@ -6,7 +6,6 @@ import (
 	"slices"
 	"testing"
 
-	"github.com/TechDufus/dash/internal/audit"
 	"github.com/TechDufus/dash/internal/config"
 	"github.com/TechDufus/dash/internal/model"
 	"github.com/TechDufus/dash/internal/plugin"
@@ -36,18 +35,20 @@ func TestFakeResolvesLayersAndAppliesUnderTheLock(t *testing.T) {
 		t.Errorf("store = %+v, want writable without a key", s)
 	}
 
-	rev := f.Revision()
+	rev := f.St.Revision()
+	var inside uint64
 	err := f.WithLock(func() error {
 		if _, err := f.Apply(map[string]any{"plugins.proxmox.node": "pve2"}, nil, nil); err != nil {
 			return err
 		}
+		inside = f.Revision()
 		return f.Reload()
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := f.Resolved().Tree.Plugins.Proxmox.Node; got != "pve2" || f.Revision() != rev+1 {
-		t.Errorf("after the write: node %q, revision %d (was %d)", got, f.Revision(), rev)
+	if got := f.Resolved().Tree.Plugins.Proxmox.Node; got != "pve2" || f.St.Revision() != rev+1 || inside != rev+1 {
+		t.Errorf("after the write: node %q, revision %d (was %d, read inside the lock %d)", got, f.St.Revision(), rev, inside)
 	}
 	if u := f.Unlocked(); len(u) != 0 {
 		t.Errorf("unlocked calls %v, want none", u)
@@ -58,8 +59,9 @@ func TestFakeResolvesLayersAndAppliesUnderTheLock(t *testing.T) {
 	if _, err := f.Apply(nil, []string{"plugins.proxmox.node"}, nil); err != nil {
 		t.Fatal(err)
 	}
-	if u := f.Unlocked(); !slices.Equal(u, []string{"Reload", "Apply"}) {
-		t.Errorf("unlocked calls %v, want [Reload Apply]", u)
+	_ = f.Revision() // a revision read outside the lock can be another write's
+	if u := f.Unlocked(); !slices.Equal(u, []string{"Reload", "Apply", "Revision"}) {
+		t.Errorf("unlocked calls %v, want [Reload Apply Revision]", u)
 	}
 }
 
@@ -93,23 +95,19 @@ func TestFakeStoreDescription(t *testing.T) {
 	}
 }
 
-// A stored secret written with Encrypt opens with the fake's key, and ReplaceSecret goes through
-// the real secret writer, which audits the field path.
+// A stored secret written with Encrypt opens with the fake's key, and a sealed value applied and
+// reloaded under the lock is the running secret.
 func TestFakeSecrets(t *testing.T) {
 	const path = "plugins.proxmox.tokenSecret"
-	a, err := audit.Open("", audit.Options{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	f := New(t, Options{SecretKey: true, Audit: a, Stored: map[string]any{
+	f := New(t, Options{SecretKey: true, Stored: map[string]any{
 		"plugins.proxmox.url": "https://pve.example.com:8006", "plugins.proxmox.tokenID": "u@pve!t",
 		path: Encrypt(t, path, "first-secret-0123456789"),
 	}})
 	if got := f.Resolved().Tree.Plugins.Proxmox.TokenSecret.Reveal(); got != "first-secret-0123456789" {
 		t.Fatalf("stored secret = %q", got)
 	}
-	err = f.WithLock(func() error {
-		if err := f.ReplaceSecret(path, "second-secret-9876543210", audit.Actor{User: "alice"}); err != nil {
+	err := f.WithLock(func() error {
+		if _, err := f.Apply(map[string]any{path: Encrypt(t, path, "second-secret-9876543210")}, nil, []string{path}); err != nil {
 			return err
 		}
 		return f.Reload()
@@ -119,10 +117,6 @@ func TestFakeSecrets(t *testing.T) {
 	}
 	if got := f.Resolved().Tree.Plugins.Proxmox.TokenSecret.Reveal(); got != "second-secret-9876543210" {
 		t.Errorf("replaced secret = %q", got)
-	}
-	recs, _, _ := a.Recent(10, "", audit.RingMain)
-	if len(recs) != 2 || recs[0].Action != config.ActionSecretReplace || !slices.Equal(recs[0].Fields, []string{path}) {
-		t.Errorf("audit = %+v", recs)
 	}
 }
 

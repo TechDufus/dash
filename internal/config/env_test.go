@@ -353,7 +353,7 @@ func TestEnvBadValuesNameTheVariable(t *testing.T) {
 	for _, tc := range []struct{ env, want string }{
 		{`DASH_PLUGINS_HARDWARE_HOSTS=[{"nodename":`, "DASH_PLUGINS_HARDWARE_HOSTS: plugins.hardware.hosts"},
 		{`DASH_PLUGINS_HARDWARE_HOSTS={"nodename":"x"}`, "expected a list of objects"},
-		{`DASH_PLUGINS_HARDWARE_HOSTS=[{"nodenam":"x"}]`, `unknown field "nodenam"`},
+		{`DASH_PLUGINS_HARDWARE_HOSTS=[{"nodenam":"x"}]`, "has a field this setting does not know"},
 		{`DASH_SERVER_ALLOWED_HOSTS=a.example.com`, "DASH_SERVER_ALLOWED_HOSTS"},
 		{`DASH_PLUGINS_HARDWARE_HOSTS=[] []`, "unexpected data"},
 	} {

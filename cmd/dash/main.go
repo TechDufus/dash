@@ -108,18 +108,23 @@ func run(reg *secret.Registry, onBound func(api, health net.Addr)) error {
 	// before the audit log and the store close.
 	// metrics and supervisor are set below, before any plugin starts, and read by the transport
 	// hook when a plugin builds its HTTP client: the hook is what puts the upstream metrics (and,
-	// on a laptop, the API server proxy for in-cluster services) under every plugin's client.
+	// on a laptop, the API server proxy for in-cluster services) under every plugin's client. A
+	// connection check from the settings page gets the proxy but not the metrics: it is not the
+	// running plugin's traffic, and a failing test must not raise its error counters.
 	var (
 		metrics *obs.Metrics
 		sup     *plugin.Supervisor
 	)
-	transport := func(id plugin.ID, rt http.RoundTripper) http.RoundTripper {
+	route := func(id plugin.ID, rt http.RoundTripper) http.RoundTripper {
 		if id != "kubernetes" { // the plugin's own client talks to the API server directly
 			rt = viaAPIServer{next: rt, service: func(id plugin.ID) (any, bool) { return sup.Service(id) }}
 		}
-		return metrics.Upstream(string(id), rt)
+		return rt
 	}
-	fw := newFramework(res, store, config.ReloadOptions{}, reg, refs, transport, cfg.Demo)
+	transport := func(id plugin.ID, rt http.RoundTripper) http.RoundTripper {
+		return metrics.Upstream(string(id), route(id, rt))
+	}
+	fw := newFramework(res, store, config.ReloadOptions{}, reg, refs, transport, route, cfg.Demo)
 	h, sup, reloader := fw.hub, fw.sup, fw.reloader
 	fw.reloadAuth(pa.proxy)
 	if pa.sess != nil {
@@ -151,7 +156,7 @@ func run(reg *secret.Registry, onBound func(api, health net.Addr)) error {
 		Health: sup, Metrics: metrics, Secrets: reg, Audit: alog,
 	}
 	if store != nil { // demo mode has no store and no settings API
-		deps.Settings = newSettingsBackend(res, store, reloader, sup, alog, reg)
+		deps.Settings = newSettingsBackend(res, store, reloader, sup, alog)
 	}
 	pa.deps(&deps)
 	srv := api.New(deps)

@@ -73,7 +73,8 @@ func echoValues(typ reflect.Type, isSecret bool) []any {
 			}
 			out[i] = obj
 		}
-		return out
+		// And one whose key is the canary: an unknown field must not be named either.
+		return append(out, map[string]any{echoText: "x"})
 	}
 	panic(fmt.Sprintf("echo canary: no values for %s", typ))
 }

@@ -255,6 +255,85 @@
         },
         "type": "object"
       },
+      "AuditActor": {
+        "additionalProperties": false,
+        "properties": {
+          "surface": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string"
+          },
+          "user": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "AuditEntry": {
+        "additionalProperties": false,
+        "properties": {
+          "action": {
+            "type": "string"
+          },
+          "actor": {
+            "$ref": "#/components/schemas/AuditActor"
+          },
+          "error": {
+            "type": "string"
+          },
+          "fields": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "id": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "peer": {
+            "type": "string"
+          },
+          "plugin": {
+            "type": "string"
+          },
+          "reason": {
+            "type": "string"
+          },
+          "requestId": {
+            "type": "string"
+          },
+          "result": {
+            "type": "string"
+          },
+          "target": {
+            "$ref": "#/components/schemas/AuditTarget"
+          },
+          "time": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "AuditTarget": {
+        "additionalProperties": false,
+        "properties": {
+          "kind": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "namespace": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
       "BackupJob": {
         "additionalProperties": false,
         "properties": {
@@ -364,6 +443,18 @@
         },
         "type": "object"
       },
+      "CheckReport": {
+        "additionalProperties": false,
+        "properties": {
+          "checks": {
+            "items": {
+              "$ref": "#/components/schemas/ConnectionCheck"
+            },
+            "type": "array"
+          }
+        },
+        "type": "object"
+      },
       "CheckResult": {
         "additionalProperties": false,
         "properties": {
@@ -436,6 +527,27 @@
           },
           "type": {
             "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "ConnectionCheck": {
+        "additionalProperties": false,
+        "properties": {
+          "category": {
+            "type": "string"
+          },
+          "latencyMs": {
+            "type": "integer"
+          },
+          "message": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "ok": {
+            "type": "boolean"
           }
         },
         "type": "object"
@@ -2060,6 +2172,222 @@
         },
         "type": "object"
       },
+      "SettingField": {
+        "additionalProperties": false,
+        "properties": {
+          "doc": {
+            "type": "string"
+          },
+          "enum": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "locked": {
+            "type": "boolean"
+          },
+          "lockedBy": {
+            "type": "string"
+          },
+          "path": {
+            "type": "string"
+          },
+          "ref": {
+            "type": "string"
+          },
+          "restart": {
+            "type": "boolean"
+          },
+          "secret": {
+            "type": "boolean"
+          },
+          "set": {
+            "type": "boolean"
+          },
+          "shadowed": {
+            "type": "boolean"
+          },
+          "source": {
+            "type": "string"
+          },
+          "stored": {
+            "type": "boolean"
+          },
+          "type": {
+            "type": "string"
+          },
+          "value": {}
+        },
+        "type": "object"
+      },
+      "SettingsAudit": {
+        "additionalProperties": false,
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          },
+          "next": {
+            "type": "string"
+          },
+          "records": {
+            "items": {
+              "$ref": "#/components/schemas/AuditEntry"
+            },
+            "type": "array"
+          },
+          "ring": {
+            "type": "string"
+          },
+          "source": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "SettingsPatchResult": {
+        "additionalProperties": false,
+        "properties": {
+          "restartRequired": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "revision": {
+            "type": "integer"
+          }
+        },
+        "type": "object"
+      },
+      "SettingsPlugin": {
+        "additionalProperties": false,
+        "properties": {
+          "configurable": {
+            "type": "boolean"
+          },
+          "enabled": {
+            "$ref": "#/components/schemas/SettingField"
+          },
+          "id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string"
+          },
+          "testable": {
+            "type": "boolean"
+          }
+        },
+        "type": "object"
+      },
+      "SettingsPluginView": {
+        "additionalProperties": false,
+        "properties": {
+          "fields": {
+            "items": {
+              "$ref": "#/components/schemas/SettingField"
+            },
+            "type": "array"
+          },
+          "id": {
+            "type": "string"
+          },
+          "revision": {
+            "type": "integer"
+          },
+          "schema": {},
+          "testable": {
+            "type": "boolean"
+          }
+        },
+        "type": "object"
+      },
+      "SettingsSecretWrite": {
+        "additionalProperties": false,
+        "properties": {
+          "ref": {
+            "type": "string"
+          },
+          "value": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "SettingsStore": {
+        "additionalProperties": false,
+        "properties": {
+          "dataDir": {
+            "type": "string"
+          },
+          "readonly": {
+            "type": "boolean"
+          },
+          "reason": {
+            "type": "string"
+          },
+          "secretKey": {
+            "type": "boolean"
+          },
+          "writable": {
+            "type": "boolean"
+          }
+        },
+        "type": "object"
+      },
+      "SettingsTestRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "patch": {
+            "additionalProperties": {},
+            "type": "object"
+          },
+          "secrets": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object"
+          }
+        },
+        "type": "object"
+      },
+      "SettingsView": {
+        "additionalProperties": false,
+        "properties": {
+          "general": {
+            "items": {
+              "$ref": "#/components/schemas/SettingField"
+            },
+            "type": "array"
+          },
+          "plugins": {
+            "items": {
+              "$ref": "#/components/schemas/SettingsPlugin"
+            },
+            "type": "array"
+          },
+          "restartRequired": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "revision": {
+            "type": "integer"
+          },
+          "store": {
+            "$ref": "#/components/schemas/SettingsStore"
+          }
+        },
+        "type": "object"
+      },
       "Silence": {
         "additionalProperties": false,
         "properties": {
@@ -3251,6 +3579,502 @@
         "x-dash-scope": "read"
       }
     },
+    "/api/v1/settings": {
+      "get": {
+        "operationId": "getSettings",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SettingsView"
+                }
+              }
+            },
+            "description": "Every setting with its effective value, where it comes from and whether the UI may write it, and the plugin list",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/XRequestId"
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "summary": "Every setting with its effective value, where it comes from and whether the UI may write it, and the plugin list",
+        "tags": [
+          "Settings"
+        ],
+        "x-dash-min-role": "admin"
+      }
+    },
+    "/api/v1/settings/audit": {
+      "get": {
+        "operationId": "getSettingsAudit",
+        "parameters": [
+          {
+            "description": "main (default: actions, settings changes, events) or unauth (refusals).",
+            "in": "query",
+            "name": "ring",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "At most this many records: 1 to 500, default 100.",
+            "in": "query",
+            "name": "limit",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The next of the previous page of the same ring.",
+            "in": "query",
+            "name": "before",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SettingsAudit"
+                }
+              }
+            },
+            "description": "One page of the audit log, newest first",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/XRequestId"
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "summary": "One page of the audit log, newest first",
+        "tags": [
+          "Settings"
+        ],
+        "x-dash-min-role": "admin"
+      }
+    },
+    "/api/v1/settings/export": {
+      "get": {
+        "operationId": "exportSettings",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "content": {
+              "text/yaml": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "description": "The values the UI store holds, as a config.yaml snippet (text/yaml); a stored secret is a comment, never its value",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/XRequestId"
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "summary": "The values the UI store holds, as a config.yaml snippet (text/yaml); a stored secret is a comment, never its value",
+        "tags": [
+          "Settings"
+        ],
+        "x-dash-min-role": "admin"
+      }
+    },
+    "/api/v1/settings/general": {
+      "put": {
+        "operationId": "putSettingsGeneral",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": {},
+                "type": "object"
+              }
+            }
+          },
+          "description": "A JSON merge patch (RFC 7396) relative to the root of the configuration.",
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SettingsPatchResult"
+                }
+              }
+            },
+            "description": "Write settings outside plugins.* (only ui.* may come from the UI): a JSON merge patch relative to the root; If-Match: \"<revision>\" is required. Field errors can come in two rounds: a value of the wrong type stops the resolution before the remaining checks run",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/XRequestId"
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "summary": "Write settings outside plugins.* (only ui.* may come from the UI): a JSON merge patch relative to the root; If-Match: \"<revision>\" is required. Field errors can come in two rounds: a value of the wrong type stops the resolution before the remaining checks run",
+        "tags": [
+          "Settings"
+        ],
+        "x-dash-min-role": "admin"
+      }
+    },
+    "/api/v1/settings/plugins/{id}": {
+      "get": {
+        "operationId": "getSettingsPlugin",
+        "parameters": [
+          {
+            "description": "The plugin, e.g. proxmox.",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SettingsPluginView"
+                }
+              }
+            },
+            "description": "A plugin's settings: its schema and every field with its provenance",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/XRequestId"
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "summary": "A plugin's settings: its schema and every field with its provenance",
+        "tags": [
+          "Settings"
+        ],
+        "x-dash-min-role": "admin"
+      },
+      "put": {
+        "operationId": "putSettingsPlugin",
+        "parameters": [
+          {
+            "description": "The plugin, e.g. proxmox.",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "additionalProperties": {},
+                "type": "object"
+              }
+            }
+          },
+          "description": "A JSON merge patch (RFC 7396) relative to plugins.<id>.",
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SettingsPatchResult"
+                }
+              }
+            },
+            "description": "Write a plugin's settings: a JSON merge patch relative to plugins.<id> (null resets a field to its default); If-Match: \"<revision>\" is required. A change of where requests go needs every set secret in the same patch. Field errors can come in two rounds: a value of the wrong type stops the resolution before the remaining checks run",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/XRequestId"
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "summary": "Write a plugin's settings: a JSON merge patch relative to plugins.<id> (null resets a field to its default); If-Match: \"<revision>\" is required. A change of where requests go needs every set secret in the same patch. Field errors can come in two rounds: a value of the wrong type stops the resolution before the remaining checks run",
+        "tags": [
+          "Settings"
+        ],
+        "x-dash-min-role": "admin"
+      }
+    },
+    "/api/v1/settings/plugins/{id}/secrets/{field}": {
+      "delete": {
+        "operationId": "deleteSettingsSecret",
+        "parameters": [
+          {
+            "description": "The plugin, e.g. proxmox.",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The dotted path inside plugins.<id>, e.g. tokenSecret or auth.bearerToken, as one segment.",
+            "in": "path",
+            "name": "field",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SettingsPatchResult"
+                }
+              }
+            },
+            "description": "Clear a secret saved from the UI; If-Match is optional",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/XRequestId"
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "summary": "Clear a secret saved from the UI; If-Match is optional",
+        "tags": [
+          "Settings"
+        ],
+        "x-dash-min-role": "admin"
+      },
+      "put": {
+        "operationId": "putSettingsSecret",
+        "parameters": [
+          {
+            "description": "The plugin, e.g. proxmox.",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The dotted path inside plugins.<id>, e.g. tokenSecret or auth.bearerToken, as one segment.",
+            "in": "path",
+            "name": "field",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SettingsSecretWrite"
+              }
+            }
+          },
+          "description": "Exactly one of value (the secret) or ref (a k8s: reference).",
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SettingsPatchResult"
+                }
+              }
+            },
+            "description": "Replace a secret: a value (stored encrypted, at most 8 KiB) or a k8s: reference; If-Match is optional",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/XRequestId"
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "summary": "Replace a secret: a value (stored encrypted, at most 8 KiB) or a k8s: reference; If-Match is optional",
+        "tags": [
+          "Settings"
+        ],
+        "x-dash-min-role": "admin"
+      }
+    },
+    "/api/v1/settings/plugins/{id}/stored/{field}": {
+      "delete": {
+        "operationId": "deleteSettingsStored",
+        "parameters": [
+          {
+            "description": "The plugin, e.g. proxmox.",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "The dotted path inside plugins.<id>, e.g. tokenSecret or auth.bearerToken, as one segment.",
+            "in": "path",
+            "name": "field",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SettingsPatchResult"
+                }
+              }
+            },
+            "description": "Remove the value the UI store holds for a field, also one the file or the environment overrides; If-Match is optional",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/XRequestId"
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "summary": "Remove the value the UI store holds for a field, also one the file or the environment overrides; If-Match is optional",
+        "tags": [
+          "Settings"
+        ],
+        "x-dash-min-role": "admin"
+      }
+    },
+    "/api/v1/settings/plugins/{id}/test": {
+      "post": {
+        "operationId": "testSettingsPlugin",
+        "parameters": [
+          {
+            "description": "The plugin, e.g. proxmox.",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SettingsTestRequest"
+              }
+            }
+          },
+          "description": "The form's pending changes: a merge patch relative to plugins.<id> and the secrets typed into it.",
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CheckReport"
+                }
+              }
+            },
+            "description": "Test a plugin's connection with the pending changes, without saving them (10 a minute)",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/XRequestId"
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "summary": "Test a plugin's connection with the pending changes, without saving them (10 a minute)",
+        "tags": [
+          "Settings"
+        ],
+        "x-dash-min-role": "admin"
+      }
+    },
+    "/api/v1/settings/schema": {
+      "get": {
+        "operationId": "getSettingsSchema",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {},
+                  "type": "object"
+                }
+              }
+            },
+            "description": "The JSON Schema 2020-12 of the configuration (the config file and the UI layer)",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/XRequestId"
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "summary": "The JSON Schema 2020-12 of the configuration (the config file and the UI layer)",
+        "tags": [
+          "Settings"
+        ],
+        "x-dash-min-role": "admin"
+      }
+    },
     "/api/v1/stream": {
       "get": {
         "operationId": "streamEvents",
@@ -3424,6 +4248,10 @@
     {
       "description": "Who is calling.",
       "name": "Session"
+    },
+    {
+      "description": "The effective configuration with its provenance, and the UI settings store: administrators only, from a browser session.",
+      "name": "Settings"
     },
     {
       "description": "Live state: one envelope per topic, as a snapshot or a stream.",

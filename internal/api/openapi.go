@@ -169,7 +169,10 @@ func (b *specBuilder) operation(r Route) object {
 	}
 	op["parameters"] = params(r.Path, r.PathParams, r.Query)
 	if r.Request != nil {
-		op["requestBody"] = object{"required": true, "content": jsonContent(b.typeSchema(r.Request))}
+		op["requestBody"] = object{
+			"required": true, "description": cmp.Or(r.RequestDoc, "The JSON body of the request."),
+			"content": jsonContent(b.typeSchema(r.Request)),
+		}
 	}
 
 	status := fmt.Sprint(cmp.Or(r.Status, http.StatusOK))
@@ -190,6 +193,8 @@ func (b *specBuilder) operation(r Route) object {
 		responses["304"] = object{"description": "The envelope still has the ETag in If-None-Match.", "headers": okHeaders()}
 	case r.Response != nil:
 		ok["content"] = jsonContent(b.typeSchema(r.Response))
+	case r.Text != "":
+		ok["content"] = object{r.Text: object{"schema": object{"type": "string"}}}
 	}
 	responses[status] = ok
 	op["responses"] = responses

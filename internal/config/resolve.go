@@ -85,8 +85,8 @@ type Resolved struct {
 	Provenance map[string]Provenance
 	// Config is the flat view of Tree.
 	Config Config
-	// Keys is the keyring the resolution decrypted with, for writing and re-encrypting
-	// secrets (SecretWriter, RekeyStore).
+	// Keys is the keyring the resolution decrypted with, for sealing secrets saved from the UI
+	// and re-encrypting them (RekeyStore).
 	Keys *secret.Keyring
 
 	src Sources // what produced this resolution, for the reloader
@@ -308,7 +308,10 @@ func (r *resolver) ineligible(path string, v any) []error {
 		}
 		return errs
 	}
-	const reason = "server, auth, settings.ui and dataDir cannot be set from the UI"
+	reason := "server, auth, settings.ui and dataDir cannot be set from the UI"
+	if path == "settings.secretNamespaces" || strings.HasPrefix(path, "settings.secretNamespaces.") {
+		reason = "settings.secretNamespaces cannot be set from the UI"
+	}
 	if r.strictChanged(path, v) {
 		return []error{&FieldError{Path: path, Message: reason}}
 	}
@@ -357,12 +360,40 @@ func (r *resolver) set(l *leaf, data []byte, p Provenance) error {
 	}
 	v, err := decodeLeaf(l, data)
 	if err != nil {
-		return fmt.Errorf("%s: %s", l.path, describeDecode(l, err))
+		msg := describeDecode(l, err)
+		if i := unknownFieldEntry(l, data); i > 0 {
+			msg = fmt.Sprintf("entry %d %s", i, msg)
+		}
+		return fmt.Errorf("%s: %s", l.path, msg)
 	}
 	l.field(&r.tree).Set(v)
 	r.prov[l.path] = p
 	return nil
 }
+
+// unknownFieldEntry is the position (from 1) of the first entry of a list-of-objects leaf that
+// has a field the entry's type does not know, or 0. The key itself is never named (it can come
+// from the UI), so the position is what lets an operator find it in the file.
+func unknownFieldEntry(l *leaf, data []byte) int {
+	if l.typ.Kind() != reflect.Slice || l.typ.Elem().Kind() != reflect.Struct {
+		return 0
+	}
+	var entries []json.RawMessage
+	if json.Unmarshal(data, &entries) != nil {
+		return 0
+	}
+	for i, raw := range entries {
+		dec := json.NewDecoder(bytes.NewReader(raw))
+		dec.DisallowUnknownFields()
+		if err := dec.Decode(reflect.New(l.typ.Elem()).Interface()); err != nil && strings.HasPrefix(err.Error(), "json: unknown field ") {
+			return i + 1
+		}
+	}
+	return 0
+}
+
+// errTrailingData is decodeLeaf's error for data after the JSON value.
+var errTrailingData = errors.New("unexpected data after the value")
 
 // decodeLeaf reads one JSON value of the leaf's type, strictly: unknown fields and trailing data
 // are errors.
@@ -373,7 +404,7 @@ func decodeLeaf(l *leaf, data []byte) (reflect.Value, error) {
 	err := dec.Decode(v.Interface())
 	if err == nil {
 		if _, e := dec.Token(); e != io.EOF {
-			err = errors.New("unexpected data after the value")
+			err = errTrailingData
 		}
 	}
 	return v.Elem(), err
@@ -467,17 +498,33 @@ func (r *resolver) resolveSecrets(reg *secret.Registry) error {
 	return errors.Join(errs...)
 }
 
-// describeDecode turns a encoding/json error into one an operator can act on.
+// describeDecode turns a encoding/json error into one an operator can act on. Every text is
+// fixed: an unknown field's error names the key, another decoder's error can quote the value,
+// and a key or value from the UI is never repeated (design D16).
 func describeDecode(l *leaf, err error) string {
 	var te *json.UnmarshalTypeError
 	var se *json.SyntaxError
 	switch {
 	case errors.As(err, &te):
-		return fmt.Sprintf("expected %s, got %s", humanType(l.typ), te.Value)
+		// Value is the JSON kind, sometimes followed by the literal ("number 99999999999999999999"):
+		// only the kind is named, never what was sent.
+		kind, _, _ := strings.Cut(te.Value, " ")
+		return fmt.Sprintf("expected %s, got %s", humanType(l.typ), kind)
 	case errors.As(err, &se):
-		return "invalid JSON: " + se.Error()
+		return "invalid JSON"
+	case strings.HasPrefix(err.Error(), "json: unknown field "):
+		return "has a field this setting does not know"
+	case errors.Is(err, errTrailingData), fixedDecodeTexts[err.Error()]:
+		return err.Error()
 	}
-	return strings.TrimPrefix(err.Error(), "json: ")
+	return "is not valid for this setting"
+}
+
+// fixedDecodeTexts are the errors of the tree's own decoders whose text is fixed (never the
+// value): pluginconf.Duration's. describeDecode passes them on; any other is replaced.
+var fixedDecodeTexts = map[string]bool{
+	`expected a duration string such as "30s"`:   true,
+	"is not a duration such as 30s, 5m or 1h30m": true,
 }
 
 func humanType(t reflect.Type) string {

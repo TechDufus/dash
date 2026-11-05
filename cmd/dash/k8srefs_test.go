@@ -71,7 +71,7 @@ func startK8sProcess(t *testing.T, cfgBody string, env ...string) *k8sProcess {
 		t.Cleanup(func() { _ = store.Close() })
 	}
 	p.cfg = res.Config
-	p.fw = newFramework(res, store, config.ReloadOptions{Interval: time.Millisecond}, p.reg, p.refs, nil, p.cfg.Demo)
+	p.fw = newFramework(res, store, config.ReloadOptions{Interval: time.Millisecond}, p.reg, p.refs, nil, nil, p.cfg.Demo)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	p.cancel = cancel

@@ -116,9 +116,10 @@ type framework struct {
 // reloader. The caller runs the reloader's loop and shuts the supervisor down.
 //
 // reg scrubs the log lines plugins publish (nil scrubs by shape only), transport wraps the
-// client of every plugin (nil leaves it alone) and demo runs the plugins' demo twins.
+// client of every plugin and checkTransport the client of a connection check (nil leaves either
+// alone), and demo runs the plugins' demo twins.
 func newFramework(res *config.Resolved, store *settings.Store, opts config.ReloadOptions, reg *secret.Registry,
-	refs *secret.K8sRefs, transport func(plugin.ID, http.RoundTripper) http.RoundTripper, demo bool) *framework {
+	refs *secret.K8sRefs, transport, checkTransport func(plugin.ID, http.RoundTripper) http.RoundTripper, demo bool) *framework {
 	f := &framework{hub: hub.New()}
 	// f.sup is set before the reloader's loop can start, so the hook never sees nil. The auth
 	// section is live: its admin lists are applied in-process (reloadAuth).
@@ -130,7 +131,8 @@ func newFramework(res *config.Resolved, store *settings.Store, opts config.Reloa
 	}
 	f.sup = plugin.NewSupervisor(plugin.Options{
 		Publisher: f.hub, Settings: resolvedSettings{f.reloader.Resolved}, ReadyRequires: ready, ReadyTimeout: res.Config.ReadyTimeout,
-		Transport: transport, ScrubLog: reg.ScrubLogLine, CutLog: reg.CutRunes, Demo: demo, IconBase: res.Config.IconBaseURL,
+		Transport: transport, CheckTransport: checkTransport, ScrubLog: reg.ScrubLogLine, CutLog: reg.CutRunes, Demo: demo,
+		IconBase: res.Config.IconBaseURL,
 	})
 	f.hub.SetOrder(f.sup.TopicOrder)
 	f.reloader.Subscribe(func(c config.Change) {
