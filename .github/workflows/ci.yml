@@ -52,6 +52,8 @@ jobs:
           PROMETHEUS_IMAGE: prom/prometheus:v3.7.3@sha256:49214755b6153f90a597adcbff0252cc61069f8ab69ce8411285cd4a560e8038
           ALERTMANAGER_IMAGE: prom/alertmanager:v0.29.0@sha256:88743b63b3e09ea6e31e140ced5bf45f4a8e82c617c2a963f78841f4995ad1d7
         run: scripts/ci/compose-smoke.sh
+      - name: Read-only run without a volume
+        run: scripts/ci/readonly-smoke.sh
   release:
     if: startsWith(github.ref, 'refs/tags/v')
     needs: [check, smoke]

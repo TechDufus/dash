@@ -825,6 +825,7 @@ The example pins images by tag in docs and by digest in the CI smoke test (P5.3)
   - Local auth then needs `DASH_ADMIN_PASSWORD_HASH`, and sessions need `DASH_SECRET_KEY` so logins survive restarts.
   - Use `auth.mode: oidc` or the platform's identity proxy (`proxy` mode with the platform's header and CIDRs).
 - Only one replica should hold the volume. dash keeps its hub in memory and its settings on one disk, so scaling out means read-only replicas at best (a non-goal; see Goal).
+- **As shipped (v0.14.0): `DASH_SECRET_KEY` alone does not keep sign-ins across restarts.** The bullet above saying sessions need `DASH_SECRET_KEY` to survive restarts is incomplete: sessions survive a restart only with the key **and** a writable data directory, because the per-user session epochs live in `credentials.yaml` there (`cmd/dash/authsession.go`). Without a writable data dir every restart ends every sign-in, key or not, and dash logs so at start. No code changed; `docs/deploy/paas.md` says this and recommends `oidc`, `proxy` or a small volume. The banner text is the shipped one ("There is no writable data directory (DASH_DATA_DIR) to store settings in."), on the settings page only, with `store.reason: data_dir` in `GET /api/v1/settings`; CI's `scripts/ci/readonly-smoke.sh` runs the image `--read-only` with no volume and checks it.
 
 ### D.4 Kubernetes
 
