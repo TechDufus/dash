@@ -16,9 +16,30 @@ function display(f: SettingField): string {
   if (f.secret) return f.set ? "set" : "not set";
   const v = f.value;
   if (v === undefined || v === null || v === "") return "(empty)";
+  if (f.path === "auth.tokens" && Array.isArray(v)) return staticTokens(v);
   if (Array.isArray(v)) return v.length === 0 ? "(none)" : v.map(String).join(", ");
   if (typeof v === "object") return JSON.stringify(v);
   return String(v);
+}
+
+/**
+ * auth.tokens as a summary per entry, "ci (viewer, api, read)": what each static token may do,
+ * never its hash.
+ */
+export function staticTokens(entries: unknown[]): string {
+  if (entries.length === 0) return "(none)";
+  return entries
+    .map((e) => {
+      const t = (e ?? {}) as {
+        name?: unknown;
+        role?: unknown;
+        audience?: unknown;
+        scopes?: unknown;
+      };
+      const scopes = Array.isArray(t.scopes) ? t.scopes.map(String).join(" ") : "";
+      return `${String(t.name ?? "?")} (${[t.role, t.audience, scopes].map((x) => String(x ?? "")).join(", ")})`;
+    })
+    .join("; ");
 }
 
 /**

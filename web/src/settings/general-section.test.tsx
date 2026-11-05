@@ -6,6 +6,7 @@ import { renderApp, stubFetch } from "@/test/harness";
 import { settingsPaths } from "./api";
 import {
   envField,
+  field,
   generalFields,
   invalidFields,
   patchResult,
@@ -111,5 +112,23 @@ describe("GeneralSection", () => {
     expect(screen.queryByRole("textbox")).toBeNull();
     expect(screen.getByText(ICON)).toBeInTheDocument();
     expect(screen.getByText(/env DASH_UI_ICON_BASE_URL/)).toBeInTheDocument();
+  });
+
+  it("shows auth.tokens as a summary per entry, never a hash", () => {
+    stubFetch(settingsRoutes());
+    const hash = `sha256:${"ab".repeat(32)}`;
+    const tokens = field("auth.tokens", "array", {
+      set: true,
+      source: "file",
+      value: [
+        { name: "ci", role: "viewer", audience: "api", scopes: ["read", "logs"], hash },
+        { name: "agent", role: "admin", audience: "mcp", scopes: ["read"], hash },
+      ],
+    });
+    renderApp(<GeneralSection view={settingsView({ general: [...generalFields(), tokens] })} />);
+    expect(
+      screen.getByText("ci (viewer, api, read logs); agent (admin, mcp, read)"),
+    ).toBeInTheDocument();
+    expect(document.body.textContent).not.toContain("sha256:");
   });
 });

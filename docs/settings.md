@@ -45,9 +45,15 @@ Writes are refused in two more cases:
   settings changes, events) and `unauth` (refused requests). **Load older** fetches the next
   page; the kind filter applies to the records already loaded. A line says where the records
   come from (`file` or `memory`).
+- **`/settings/tokens`**, open to every signed-in user, lists their personal access tokens,
+  creates one (shown once, with a copy button) and revokes one after a confirmation. An
+  administrator also lists one user's or everyone's tokens and may grant `actions:<plugin>`.
+  Without a writable data directory the page explains why tokens can't be created.
 
-The navigation entry is shown to administrators only. A viewer who opens a settings URL sees
-"Not authorised" and the page sends no settings request.
+A viewer gets the navigation entry for the one settings page a viewer may use, **Tokens**
+(personal access tokens): `/settings` shows them only that link. Any other settings URL shows
+a viewer "Not authorised", and the page sends no settings request. The anonymous viewer of the
+`local` mode and every user of the `none` mode have no tokens, so no entry at all.
 
 Two notices sit above every page for administrators: **Restart required** lists the settings
 that changed since dash started and apply only after a restart (it reads the settings every

@@ -1,6 +1,7 @@
-import { LogIn, LogOut, UserRound } from "lucide-react";
+import { KeyRound, LogIn, LogOut, UserRound } from "lucide-react";
 import { type JSX, useState } from "react";
 import { toast } from "sonner";
+import { Link } from "wouter";
 import type { Me } from "@/api/types";
 import { Button } from "@/components/ui/button";
 import {
@@ -15,11 +16,11 @@ import { browserNav, safeNext } from "./handle401";
 import { AuthRequestError, logout } from "./session";
 
 /**
- * The topbar's account menu in the session modes (local, oidc): who is signed in, "Log out" (this
- * session) and, for an administrator, "Log out everywhere" (every session of every user). Nothing in
- * the other modes, where dash has no session to end. After a logout the browser loads /login; a 401
- * means the session was gone already, which is the same outcome. The anonymous viewer gets a
- * "Sign in" link instead.
+ * The topbar's account menu in the session modes (local, oidc): who is signed in, their "Tokens"
+ * page, "Log out" (this session) and, for an administrator, "Log out everywhere" (every session of
+ * every user). Nothing in the other modes, where dash has no session to end. After a logout the
+ * browser loads /login; a 401 means the session was gone already, which is the same outcome. The
+ * anonymous viewer gets a "Sign in" link instead.
  */
 export function UserMenu({ me }: { me: Me }): JSX.Element | null {
   const [pending, setPending] = useState(false);
@@ -70,6 +71,12 @@ export function UserMenu({ me }: { me: Me }): JSX.Element | null {
           <span className="block text-xs font-normal text-muted">{me.role}</span>
         </DropdownMenuLabel>
         <DropdownMenuSeparator />
+        <DropdownMenuItem asChild>
+          <Link href="/settings/tokens">
+            <KeyRound aria-hidden="true" />
+            Tokens
+          </Link>
+        </DropdownMenuItem>
         <DropdownMenuItem disabled={pending} onSelect={() => void out("this")}>
           <LogOut aria-hidden="true" />
           Log out

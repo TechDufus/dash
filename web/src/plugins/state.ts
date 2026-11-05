@@ -100,17 +100,17 @@ function canRender(
 }
 
 /**
- * The rail, mobile sheet and palette entries: the core pages (an adminOnly one only for an
- * administrator), plus every nav entry of a visible plugin that a module can render. A backend
+ * The rail, mobile sheet and palette entries: the core pages /me may see (`visibleTo`), plus
+ * every nav entry of a visible plugin that a module can render. A backend
  * entry with no module is a build mismatch, not a user error: it is dropped with one console
  * warning.
  */
 export function useNavEntries(): { ready: boolean; entries: NavEntry[] } {
   const { ready, plugins } = usePluginsState();
   const { parser } = useRouter();
-  const admin = useMe().data?.role === "admin";
+  const me = useMe().data;
   const entries = useMemo(() => {
-    const out: NavEntry[] = CORE_PAGES.filter((c) => admin || !c.adminOnly).map((c) => ({
+    const out: NavEntry[] = CORE_PAGES.filter((c) => c.visibleTo?.(me) ?? true).map((c) => ({
       key: c.key,
       path: c.path,
       label: c.label,
@@ -146,7 +146,7 @@ export function useNavEntries(): { ready: boolean; entries: NavEntry[] } {
       }
     }
     return out.sort((a, b) => a.order - b.order);
-  }, [plugins, parser, admin]);
+  }, [plugins, parser, me]);
   return { ready, entries };
 }
 

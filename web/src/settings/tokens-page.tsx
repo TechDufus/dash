@@ -4,8 +4,8 @@ import { type FormEvent, type JSX, useState } from "react";
 import { toast } from "sonner";
 import { Link } from "wouter";
 import { errorMessage } from "@/api/client";
-import { useMe } from "@/api/queries";
-import type { TokenInfo } from "@/api/types";
+import { canManageTokens, tokensAvailable, useMe } from "@/api/queries";
+import type { Me, TokenInfo } from "@/api/types";
 import { Page } from "@/components/page";
 import { Empty, Panel, PanelHeader, PanelSkeleton } from "@/components/panel";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -33,13 +33,7 @@ import {
 import { formatDateTime } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { TokenCreateDialog } from "./token-create-dialog";
-import {
-  canManageTokens,
-  invalidateTokens,
-  revokeToken,
-  type TokenOwner,
-  useTokens,
-} from "./tokens-api";
+import { invalidateTokens, revokeToken, type TokenOwner, useTokens } from "./tokens-api";
 
 const TH = "h-9 px-3 text-xs font-medium text-muted";
 const TD = "px-3 py-2 align-top";
@@ -55,18 +49,23 @@ const OWNERS: { value: OwnerKind; label: string }[] = [
 /**
  * /settings/tokens: the caller's personal access tokens, a create dialog and revocation. An
  * administrator also lists one user's or everyone's tokens and may put actions:<plugin> scopes on
- * a new token. Open to every interactive user (D8); in the none mode there are no tokens.
+ * a new token. Open to every interactive user (D8). Where tokens do not exist (the none mode, the
+ * anonymous viewer) or nothing would keep them (no writable data dir, capabilities.tokens false),
+ * the page says so and reads nothing.
  */
 export function TokensPage(): JSX.Element {
   const me = useMe();
   const admin = me.data?.role === "admin";
   const allowed = canManageTokens(me.data);
+  const available = tokensAvailable(me.data);
   const [owner, setOwner] = useState<TokenOwner>({ kind: "own" });
   const [creating, setCreating] = useState(false);
   const [revoking, setRevoking] = useState<TokenInfo | null>(null);
   // A viewer only ever lists their own tokens, whatever the state says.
   const effective: TokenOwner = admin ? owner : { kind: "own" };
-  const tokens = useTokens(effective, allowed);
+  // "One user" before a name was typed lists nobody's tokens.
+  const awaitingName = effective.kind === "user" && effective.name === "";
+  const tokens = useTokens(effective, available && !awaitingName);
 
   if (me.isPending) {
     return (
@@ -75,16 +74,14 @@ export function TokensPage(): JSX.Element {
       </Page>
     );
   }
-  if (!allowed) {
+  if (!allowed || !available) {
     return (
       <Page>
+        <h1 className="text-lg font-semibold text-fg">Tokens</h1>
         <Panel>
           <Empty>
             <div role="status" className="space-y-3">
-              <p>Personal access tokens are not available: this dash has no user accounts.</p>
-              <Link href="/" className="text-accent underline-offset-4 hover:underline">
-                Back to Overview
-              </Link>
+              <Unavailable me={me.data} />
             </div>
           </Empty>
         </Panel>
@@ -92,26 +89,26 @@ export function TokensPage(): JSX.Element {
     );
   }
 
-  const canCreate = me.data?.capabilities.tokens === true;
   const showUser = effective.kind !== "own";
   const now = Date.now();
   const list = tokens.data?.tokens ?? [];
+  const inMemory = me.data?.authMode === "demo" || me.data?.authMode === "dev";
 
   return (
     <Page>
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h1 className="text-lg font-semibold text-fg">Tokens</h1>
-        <Button size="sm" disabled={!canCreate} onClick={() => setCreating(true)}>
+        <Button size="sm" onClick={() => setCreating(true)}>
           <Plus aria-hidden="true" />
           New token
         </Button>
       </div>
-      {!canCreate ? (
+      {inMemory ? (
         <Alert role="status">
-          <AlertTitle>Tokens cannot be created here</AlertTitle>
+          <AlertTitle>Tokens are kept in memory</AlertTitle>
           <AlertDescription>
-            A personal access token must outlive a restart, so dash needs a writable data directory
-            (dataDir) to keep it. Existing tokens can still be revoked.
+            In {me.data?.authMode} mode dash keeps tokens in memory only: they are lost when dash
+            stops.
           </AlertDescription>
         </Alert>
       ) : null}
@@ -119,7 +116,9 @@ export function TokensPage(): JSX.Element {
         <PanelHeader title="Personal access tokens" icon={<KeyRound />}>
           {admin ? <OwnerFilter owner={owner} onChange={setOwner} /> : null}
         </PanelHeader>
-        {tokens.isPending ? (
+        {awaitingName ? (
+          <Empty>Type a user name, then Show.</Empty>
+        ) : tokens.isPending ? (
           <PanelSkeleton lines={3} className="border-0 shadow-none" />
         ) : tokens.isError ? (
           <Empty>Could not read the tokens: {errorMessage(tokens.error)}</Empty>
@@ -130,6 +129,7 @@ export function TokensPage(): JSX.Element {
             <TableHeader>
               <TableRow className="border-line hover:bg-transparent">
                 <TableHead className={TH}>Name</TableHead>
+                <TableHead className={TH}>ID</TableHead>
                 {showUser ? <TableHead className={TH}>User</TableHead> : null}
                 <TableHead className={TH}>Audience</TableHead>
                 <TableHead className={TH}>Scopes</TableHead>
@@ -148,6 +148,7 @@ export function TokensPage(): JSX.Element {
                 return (
                   <TableRow key={t.id} className="border-line" data-token={t.id}>
                     <TableCell className={`${TD} font-medium text-fg`}>{t.name}</TableCell>
+                    <TableCell className={`${TD} num text-muted`}>{t.id}</TableCell>
                     {showUser ? <TableCell className={TD}>{t.user}</TableCell> : null}
                     <TableCell className={`${TD} num text-muted`}>{t.audience}</TableCell>
                     <TableCell className={`${TD} num whitespace-normal`}>
@@ -188,9 +189,35 @@ export function TokensPage(): JSX.Element {
           </Table>
         )}
       </Panel>
-      <TokenCreateDialog open={creating && canCreate} onOpenChange={setCreating} />
+      <TokenCreateDialog open={creating} onOpenChange={setCreating} />
       <RevokeDialog token={revoking} onClose={() => setRevoking(null)} />
     </Page>
+  );
+}
+
+/** Why this dash offers no tokens to `me`. */
+function Unavailable({ me }: { me: Me | undefined }): JSX.Element {
+  if (me?.authMode === "local" && me.role === "viewer") {
+    return (
+      <>
+        <p>Sign in to manage your tokens.</p>
+        <Link href="/login" className="text-accent underline-offset-4 hover:underline">
+          Sign in
+        </Link>
+      </>
+    );
+  }
+  return (
+    <>
+      <p>
+        {canManageTokens(me)
+          ? "Personal access tokens are not available here: dash needs a writable data directory (dataDir) to keep them, or they would be lost at the next restart."
+          : "Personal access tokens are not available: this dash has no user accounts."}
+      </p>
+      <Link href="/" className="text-accent underline-offset-4 hover:underline">
+        Back to Overview
+      </Link>
+    </>
   );
 }
 
@@ -208,7 +235,7 @@ function OwnerFilter({
   function pick(k: OwnerKind) {
     setKind(k);
     if (k === "own" || k === "all") onChange({ kind: k });
-    else if (name.trim() !== "") onChange({ kind: "user", name: name.trim() });
+    else onChange({ kind: "user", name: name.trim() });
   }
 
   function submit(e: FormEvent) {
@@ -264,7 +291,9 @@ function RevokeDialog({
     <AlertDialog open={!!token} onOpenChange={(o) => !o && !busy && onClose()}>
       <AlertDialogContent>
         <AlertDialogHeader>
-          <AlertDialogTitle>Revoke {token?.name}?</AlertDialogTitle>
+          <AlertDialogTitle>
+            Revoke {token?.name} ({token?.id})?
+          </AlertDialogTitle>
           <AlertDialogDescription>
             Every client using this token is refused from its next request. This cannot be undone.
           </AlertDialogDescription>

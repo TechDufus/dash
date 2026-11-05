@@ -3,6 +3,7 @@ import { Copy, Loader2, TriangleAlert } from "lucide-react";
 import { type FormEvent, type JSX, useState } from "react";
 import { toast } from "sonner";
 import { errorMessage } from "@/api/client";
+import { useMe } from "@/api/queries";
 import {
   TokenAudienceAPI,
   TokenAudienceMCP,
@@ -28,12 +29,13 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { cn } from "@/lib/utils";
 import { fieldErrors } from "./api";
 import { createToken, invalidateTokens, useActionScopes } from "./tokens-api";
 
 const AUDIENCES = [
   { value: TokenAudienceAPI, label: "api", note: "the REST API (/api/v1)" },
-  { value: TokenAudienceMCP, label: "mcp", note: "agents (/mcp)" },
+  { value: TokenAudienceMCP, label: "mcp", note: "MCP server (later release)" },
 ];
 
 const BASE_SCOPES = [
@@ -59,14 +61,26 @@ export interface TokenCreateDialogProps {
 /**
  * The create dialog: name, audience, scopes, action namespaces and expiry, then the new token,
  * shown this once. The form and the secret live in a body that mounts with the open dialog, so
- * closing it drops the secret from memory; nothing else ever holds it.
+ * closing it drops the secret from memory; nothing else ever holds it. While the token is shown,
+ * Escape and a click outside do nothing: only Done or the close button end it, so a stray key
+ * cannot lose a token nobody copied yet.
  */
 export function TokenCreateDialog({ open, onOpenChange }: TokenCreateDialogProps): JSX.Element {
   const [busy, setBusy] = useState(false);
+  const [shown, setShown] = useState(false);
+  const close = () => {
+    setShown(false);
+    onOpenChange(false);
+  };
+  const keep = (e: Event) => {
+    if (shown) e.preventDefault();
+  };
   return (
-    <Dialog open={open} onOpenChange={(o) => !busy && onOpenChange(o)}>
-      <DialogContent className="sm:max-w-lg">
-        {open ? <CreateBody onBusy={setBusy} onClose={() => onOpenChange(false)} /> : null}
+    <Dialog open={open} onOpenChange={(o) => !busy && (o ? onOpenChange(true) : close())}>
+      <DialogContent className="sm:max-w-lg" onEscapeKeyDown={keep} onInteractOutside={keep}>
+        {open ? (
+          <CreateBody onBusy={setBusy} onShown={() => setShown(true)} onClose={close} />
+        ) : null}
       </DialogContent>
     </Dialog>
   );
@@ -74,14 +88,25 @@ export function TokenCreateDialog({ open, onOpenChange }: TokenCreateDialogProps
 
 function CreateBody({
   onBusy,
+  onShown,
   onClose,
 }: {
   onBusy: (busy: boolean) => void;
+  onShown: () => void;
   onClose: () => void;
 }): JSX.Element {
   const [created, setCreated] = useState<TokenCreated | null>(null);
   if (created) return <ShownOnce created={created} onClose={onClose} />;
-  return <CreateForm onBusy={onBusy} onCreated={setCreated} onCancel={onClose} />;
+  return (
+    <CreateForm
+      onBusy={onBusy}
+      onCreated={(c) => {
+        onShown();
+        setCreated(c);
+      }}
+      onCancel={onClose}
+    />
+  );
 }
 
 function CreateForm({
@@ -95,6 +120,7 @@ function CreateForm({
 }): JSX.Element {
   const queryClient = useQueryClient();
   const actionScopes = useActionScopes();
+  const mcp = useMe().data?.capabilities.mcp === true;
   const [name, setName] = useState("");
   const [audience, setAudience] = useState<string>(TokenAudienceAPI);
   const [scopes, setScopes] = useState<ReadonlySet<string>>(new Set([TokenScopeRead]));
@@ -194,20 +220,31 @@ function CreateForm({
         aria-describedby={describe("audience")}
       >
         <legend className="mb-1 text-xs font-medium text-muted">Audience</legend>
-        {AUDIENCES.map((a) => (
-          <label key={a.value} className="flex cursor-pointer items-center gap-2 text-sm">
-            <input
-              type="radio"
-              name="token-audience"
-              value={a.value}
-              checked={audience === a.value}
-              onChange={() => setAudience(a.value)}
-              className="accent-accent"
-            />
-            <span className="num text-fg">{a.label}</span>
-            <span className="text-muted">{a.note}</span>
-          </label>
-        ))}
+        {AUDIENCES.map((a) => {
+          // The mcp audience is for the MCP server, which arrives in a later release.
+          const off = a.value === TokenAudienceMCP && !mcp;
+          return (
+            <label
+              key={a.value}
+              className={cn(
+                "flex items-center gap-2 text-sm",
+                off ? "cursor-not-allowed opacity-60" : "cursor-pointer",
+              )}
+            >
+              <input
+                type="radio"
+                name="token-audience"
+                value={a.value}
+                checked={audience === a.value}
+                disabled={off}
+                onChange={() => setAudience(a.value)}
+                className="accent-accent"
+              />
+              <span className="num text-fg">{a.label}</span>
+              <span className="text-muted">{a.note}</span>
+            </label>
+          );
+        })}
         <FieldError id="token-audience-error" message={errors.get("audience")} />
       </fieldset>
 

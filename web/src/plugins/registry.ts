@@ -1,4 +1,6 @@
 import { Database, LayoutDashboard, LayoutGrid, type LucideIcon, Settings } from "lucide-react";
+import { tokensAvailable } from "@/api/queries";
+import type { Me } from "@/api/types";
 import alertmanager from "./modules/alertmanager";
 import cnpg from "./modules/cnpg";
 import flux from "./modules/flux";
@@ -49,8 +51,11 @@ export interface CorePage {
   title: string;
   icon: LucideIcon;
   order: number;
-  /** Listed in the navigation for administrators only (me.role === "admin"): Settings. */
-  adminOnly?: boolean;
+  /**
+   * Whether the navigation lists the page for this /me (undefined while it loads); absent means
+   * always. Settings: an administrator, or anyone with a page of their own there (Tokens).
+   */
+  visibleTo?: (me: Me | undefined) => boolean;
 }
 
 export const CORE_PAGES: readonly CorePage[] = [
@@ -78,6 +83,6 @@ export const CORE_PAGES: readonly CorePage[] = [
     title: "Settings",
     icon: Settings,
     order: 900,
-    adminOnly: true,
+    visibleTo: (me) => me?.role === "admin" || tokensAvailable(me),
   },
 ];

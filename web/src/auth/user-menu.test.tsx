@@ -81,6 +81,14 @@ describe("UserMenu", () => {
     expect(screen.queryByRole("link", { name: "Sign in" })).toBeNull();
   });
 
+  it.each(["admin", "viewer"] as const)("links a signed-in %s to their tokens", async (role) => {
+    await openMenu(me({ authMode: "oidc", role }));
+    expect(screen.getByRole("menuitem", { name: "Tokens" })).toHaveAttribute(
+      "href",
+      "/settings/tokens",
+    );
+  });
+
   it("offers Log out everywhere to an administrator only", async () => {
     await openMenu(me({ role: "admin" }));
     expect(screen.getByRole("menuitem", { name: "Log out everywhere" })).toBeInTheDocument();

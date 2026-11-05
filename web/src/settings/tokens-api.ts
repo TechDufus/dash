@@ -2,7 +2,6 @@ import { type QueryClient, useQuery } from "@tanstack/react-query";
 import { api } from "@/api/client";
 import { useMe } from "@/api/queries";
 import {
-  type Me,
   type TokenCreated,
   type TokenCreateRequest,
   type TokenList,
@@ -33,16 +32,6 @@ export const tokensKeys = {
   all: ["tokens"] as const,
   list: (user: string | undefined) => ["tokens", "list", user ?? ""] as const,
 };
-
-/**
- * Whether the principal may manage personal access tokens: an interactive user in a mode with a
- * credential store. `none` has no token routes (they answer 404), and the anonymous viewer of the
- * local mode is nobody a token could belong to.
- */
-export function canManageTokens(me: Me | undefined): boolean {
-  if (!me || me.authMode === "none") return false;
-  return !(me.authMode === "local" && me.role === "viewer");
-}
 
 /** GET /api/v1/tokens, for `owner`; never requested while `enabled` is false. */
 export function useTokens(owner: TokenOwner, enabled: boolean) {

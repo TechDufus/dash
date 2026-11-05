@@ -1,6 +1,6 @@
 import { Component, type ErrorInfo, lazy, type ReactNode, Suspense } from "react";
 import { Link, Route, Switch } from "wouter";
-import { useMe } from "@/api/queries";
+import { settingsAvailable, tokensAvailable, useMe } from "@/api/queries";
 import type { PluginInfo } from "@/api/types";
 import { Page } from "@/components/page";
 import { Empty, Panel, PanelSkeleton } from "@/components/panel";
@@ -13,7 +13,8 @@ import { MODULES } from "./registry";
 import { isVisible, usePluginsState } from "./state";
 import type { ModuleRoute as ModuleRouteDecl, PluginModule } from "./types";
 
-// The settings pages are their own chunks: only an administrator ever loads them.
+// The settings pages are their own chunks: an administrator loads them, anyone else at most their
+// own settings landing and the tokens page.
 const SettingsPage = lazy(() =>
   import("@/settings/settings-page").then((m) => ({ default: m.SettingsPage })),
 );
@@ -25,6 +26,9 @@ const AuditPage = lazy(() =>
 );
 const TokensPage = lazy(() =>
   import("@/settings/tokens-page").then((m) => ({ default: m.TokensPage })),
+);
+const UserSettingsPage = lazy(() =>
+  import("@/settings/settings-nav").then((m) => ({ default: m.UserSettingsPage })),
 );
 
 export function PageLoading() {
@@ -150,20 +154,29 @@ function ModuleRoute({
 }
 
 /**
- * The gate of every /settings page: an administrator gets the page, anyone else (a viewer, the
- * anonymous viewer) "Not authorised", and the page, which reads the settings API, never mounts.
- * The API refuses them anyway; this keeps the request from being made at all.
+ * The gate of an administrator's /settings page: an administrator gets the page; a user with a
+ * settings page of their own (Tokens, D8) gets `user` when the route has one; anyone else (the
+ * anonymous viewer, every user in the none mode) "Not authorised", and the page, which reads the
+ * settings API, never mounts. The API refuses them anyway; this keeps the request from being made.
+ * Demo mode has no settings API at all (every settings route is 404): its administrator gets
+ * `user` too, or a notice that says so.
  */
-export function AdminOnly({ children }: { children: ReactNode }) {
+export function AdminOnly({ children, user }: { children: ReactNode; user?: ReactNode }) {
   const me = useMe();
   if (me.isPending) return <PageLoading />;
-  if (me.data?.role !== "admin") {
+  if (!settingsAvailable(me.data)) {
+    if (user && tokensAvailable(me.data)) return <RouteBoundary>{user}</RouteBoundary>;
+    const demo = me.data?.authMode === "demo";
     return (
       <Page>
         <Panel className="space-y-3 p-2">
           <Empty>
             <div role="status" className="space-y-3">
-              <p>Not authorised: the settings are for administrators.</p>
+              <p>
+                {demo
+                  ? "Settings are not available in demo mode."
+                  : "Not authorised: the settings are for administrators."}
+              </p>
               <Link href="/" className="text-accent underline-offset-4 hover:underline">
                 Back to Overview
               </Link>
@@ -189,7 +202,7 @@ export function PluginRoutes() {
         <AppsPage />
       </Route>
       <Route path="/settings">
-        <AdminOnly>
+        <AdminOnly user={<UserSettingsPage />}>
           <SettingsPage />
         </AdminOnly>
       </Route>

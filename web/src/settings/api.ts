@@ -1,6 +1,6 @@
 import { type QueryClient, useQuery } from "@tanstack/react-query";
 import { ApiError, api } from "@/api/client";
-import { useMe } from "@/api/queries";
+import { settingsAvailable, useMe } from "@/api/queries";
 import type {
   SettingsErrorDetails,
   SettingsFieldError,
@@ -34,9 +34,11 @@ export const settingsKeys = {
   audit: (ring: string) => ["settings", "audit", ring] as const,
 };
 
-/** Whether the signed-in user is an administrator: the only role that may read settings. */
-export function useIsAdmin(): boolean {
-  return useMe().data?.role === "admin";
+/**
+ * Whether the settings API may be read: an administrator, outside demo mode (settingsAvailable).
+ */
+export function useSettingsAvailable(): boolean {
+  return settingsAvailable(useMe().data);
 }
 
 export interface SettingsViewOptions {
@@ -46,27 +48,28 @@ export interface SettingsViewOptions {
 }
 
 /**
- * GET /api/v1/settings. It is never requested unless the user is an administrator, so a viewer
- * who opens a settings page makes no settings request (the page shows "Not authorised").
+ * GET /api/v1/settings. It is never requested unless the settings API serves the user (an
+ * administrator, not in demo mode), so a viewer who opens a settings page, and every page of the
+ * demo, makes no settings request.
  */
 export function useSettingsView(opts: SettingsViewOptions = {}) {
-  const admin = useIsAdmin();
+  const available = useSettingsAvailable();
   return useQuery({
     queryKey: settingsKeys.view,
     queryFn: () => api.get<SettingsView>(settingsPaths.view),
-    enabled: admin,
-    refetchInterval: admin ? opts.refetchInterval : false,
+    enabled: available,
+    refetchInterval: available ? opts.refetchInterval : false,
     refetchOnWindowFocus: opts.refetchOnWindowFocus,
   });
 }
 
-/** GET /api/v1/settings/plugins/{id}, for administrators only like useSettingsView. */
+/** GET /api/v1/settings/plugins/{id}, under the same rule as useSettingsView. */
 export function useSettingsPlugin(id: string) {
-  const admin = useIsAdmin();
+  const available = useSettingsAvailable();
   return useQuery({
     queryKey: settingsKeys.plugin(id),
     queryFn: () => api.get<SettingsPluginView>(settingsPaths.plugin(id)),
-    enabled: admin && id !== "",
+    enabled: available && id !== "",
   });
 }
 

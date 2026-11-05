@@ -58,6 +58,34 @@ export function useMe() {
   });
 }
 
+/**
+ * Whether the principal may manage personal access tokens (D8): an interactive user in a mode
+ * with a credential store. `none` has no token routes (they answer 404), and the anonymous viewer
+ * of the local mode is nobody a token could belong to.
+ */
+export function canManageTokens(me: Me | undefined): boolean {
+  if (!me || me.authMode === "none") return false;
+  return !(me.authMode === "local" && me.role === "viewer");
+}
+
+/**
+ * Whether the principal can use personal access tokens here: one who may own them
+ * (canManageTokens) on a dash that keeps them (capabilities.tokens: a writable data dir, or the
+ * in-memory store of dev and demo). Without it nothing requests /api/v1/tokens.
+ */
+export function tokensAvailable(me: Me | undefined): boolean {
+  return canManageTokens(me) && me?.capabilities?.tokens === true;
+}
+
+/**
+ * Whether this dash serves the administrator's settings API (/api/v1/settings/**) to the
+ * principal: an administrator, in every mode but demo, which has no settings store and answers
+ * every settings route 404. Nothing reads that API unless this is true.
+ */
+export function settingsAvailable(me: Me | undefined): boolean {
+  return me?.role === "admin" && me.authMode !== "demo";
+}
+
 /** Detail fetched on open. */
 export function useVMDetail(vmid: string | number | undefined) {
   return useQuery({

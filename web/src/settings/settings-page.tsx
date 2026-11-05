@@ -1,5 +1,4 @@
 import type { JSX } from "react";
-import { Link } from "wouter";
 import { errorMessage } from "@/api/client";
 import { Page } from "@/components/page";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -8,11 +7,12 @@ import { ExportButton } from "./export-button";
 import { GeneralSection } from "./general-section";
 import { readonlyReason } from "./list-locked";
 import { PluginList } from "./plugin-list";
+import { SettingsLinks } from "./settings-nav";
 
 /**
  * /settings: the plugins with their live state and enable toggles, the general settings with
  * their provenance, the read-only banner and the export. It assumes an administrator: the route's
- * gate shows a viewer "Not authorised" before this page mounts.
+ * gate shows anyone else their own settings page (or "Not authorised") before this page mounts.
  */
 export function SettingsPage(): JSX.Element {
   const view = useSettingsView();
@@ -22,18 +22,7 @@ export function SettingsPage(): JSX.Element {
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h1 className="text-lg font-semibold text-fg">Settings</h1>
         <div className="flex items-center gap-3">
-          <Link
-            href="/settings/audit"
-            className="text-sm text-accent underline-offset-4 hover:underline"
-          >
-            Audit log
-          </Link>
-          <Link
-            href="/settings/tokens"
-            className="text-sm text-accent underline-offset-4 hover:underline"
-          >
-            Tokens
-          </Link>
+          <SettingsLinks />
           <ExportButton />
         </div>
       </div>

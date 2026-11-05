@@ -122,7 +122,7 @@ describe("TokensPage", () => {
     renderApp(<TokensPage />);
     await user.click(await screen.findByRole("button", { name: "Revoke ci" }));
     const confirm = await screen.findByRole("alertdialog");
-    expect(within(confirm).getByText("Revoke ci?")).toBeInTheDocument();
+    expect(within(confirm).getByText("Revoke ci (ABCDEFGHIJ)?")).toBeInTheDocument();
     expect(stub.callsTo("DELETE /api/v1/tokens/ABCDEFGHIJ")).toHaveLength(0);
 
     await user.click(within(confirm).getByRole("button", { name: "Keep" }));
@@ -169,6 +169,10 @@ describe("TokensPage", () => {
     expect(await screen.findByRole("columnheader", { name: "User" })).toBeInTheDocument();
 
     await user.click(within(filter).getByRole("button", { name: "One user" }));
+    // No name yet: nobody's tokens are asked for.
+    const before = stub.callsTo(LIST).length;
+    expect(await screen.findByText("Type a user name, then Show.")).toBeInTheDocument();
+    expect(stub.callsTo(LIST)).toHaveLength(before);
     await user.type(screen.getByLabelText("User name"), "bob");
     await user.click(screen.getByRole("button", { name: "Show" }));
     await waitFor(() => expect(stub.callsTo(LIST).at(-1)?.query.get("user")).toBe("bob"));
@@ -178,30 +182,105 @@ describe("TokensPage", () => {
 
     const dialog = await openCreate(user);
     expect(within(dialog).queryByLabelText("Action namespaces")).toBeNull();
+    // The MCP server is a later release: its audience cannot be picked yet.
+    expect(within(dialog).getByLabelText(/^mcp/)).toBeDisabled();
+    expect(within(dialog).getByText("MCP server (later release)")).toBeInTheDocument();
     await user.click(within(dialog).getByRole("checkbox", { name: "actions:kubernetes" }));
     await user.type(within(dialog).getByLabelText("Action namespaces"), "media, apps-*");
     await user.type(within(dialog).getByLabelText("Name"), "agent");
-    await user.click(within(dialog).getByLabelText(/^mcp/));
     await user.click(within(dialog).getByRole("button", { name: "Create token" }));
     await screen.findByDisplayValue(SECRET);
     expect(stub.callsTo(CREATE)[0]?.body).toEqual({
       name: "agent",
-      audience: "mcp",
+      audience: "api",
       scopes: ["read", "actions:kubernetes"],
       actionNamespaces: ["media", "apps-*"],
       expiresInDays: 30,
     });
   });
 
-  it("explains and disables creation without a store that keeps tokens", async () => {
-    const stub = stubFetch(routes(me("viewer")));
+  it("never sends action namespaces once the action scope is unticked", async () => {
+    const user = userEvent.setup();
+    const stub = stubFetch(routes(meWith("admin")));
     renderApp(<TokensPage />);
-    expect(await screen.findByText("Tokens cannot be created here")).toBeInTheDocument();
-    expect(screen.getByText(/writable data/)).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "New token" })).toBeDisabled();
-    // The list and revocation still work.
-    expect(await screen.findByText("ci")).toBeInTheDocument();
-    expect(stub.callsTo(LIST)).toHaveLength(1);
+    const dialog = await openCreate(user);
+    const actions = within(dialog).getByRole("checkbox", { name: "actions:kubernetes" });
+    await user.click(actions);
+    await user.type(within(dialog).getByLabelText("Action namespaces"), "media");
+    await user.click(actions);
+    await user.type(within(dialog).getByLabelText("Name"), "reader");
+    await user.click(within(dialog).getByRole("button", { name: "Create token" }));
+    await screen.findByDisplayValue(SECRET);
+    expect(stub.callsTo(CREATE)[0]?.body).toEqual({
+      name: "reader",
+      audience: "api",
+      scopes: ["read"],
+      expiresInDays: 30,
+    });
+  });
+
+  it("offers the mcp audience once dash serves MCP", async () => {
+    const user = userEvent.setup();
+    const base = meWith("viewer");
+    stubFetch(routes({ ...base, capabilities: { ...base.capabilities, mcp: true } }));
+    renderApp(<TokensPage />);
+    const dialog = await openCreate(user);
+    expect(within(dialog).getByLabelText(/^mcp/)).toBeEnabled();
+  });
+
+  it("keeps the shown token through Escape and a click outside; Done closes it", async () => {
+    // The overlay makes the page inert (pointer-events: none); the click outside still reaches it.
+    const user = userEvent.setup({ pointerEventsCheck: 0 });
+    stubFetch(routes(meWith("viewer")));
+    renderApp(<TokensPage />);
+    const dialog = await openCreate(user);
+    await user.type(within(dialog).getByLabelText("Name"), "laptop");
+    await user.click(within(dialog).getByRole("button", { name: "Create token" }));
+    expect(await screen.findByDisplayValue(SECRET)).toBeInTheDocument();
+
+    await user.keyboard("{Escape}");
+    await user.click(document.body);
+    expect(screen.getByDisplayValue(SECRET)).toBeInTheDocument();
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Done" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    // The form, before a token exists, still closes on Escape.
+    await openCreate(user);
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+  });
+
+  it("shows the token ID in the list", async () => {
+    stubFetch(routes(meWith("viewer")));
+    renderApp(<TokensPage />);
+    const [, row] = await screen.findAllByRole("row");
+    expect(within(row as HTMLElement).getByText("ABCDEFGHIJ")).toBeInTheDocument();
+  });
+
+  it("says once that tokens are not available without a store that keeps them, and reads none", async () => {
+    const stub = stubFetch(routes(me("admin")));
+    renderApp(<TokensPage />);
+    expect(await screen.findByText(/not available here/)).toBeInTheDocument();
+    expect(screen.getByText(/writable data directory/)).toBeInTheDocument();
+    expect(screen.queryByText(/revoked/)).toBeNull();
+    expect(screen.queryByRole("button", { name: "New token" })).toBeNull();
+    expect(screen.queryByRole("group", { name: "Whose tokens" })).toBeNull();
+    expect(stub.callsTo(LIST)).toHaveLength(0);
+  });
+
+  it("asks the anonymous viewer to sign in", async () => {
+    const stub = stubFetch(routes(meWith("viewer", { authMode: "local", user: "anonymous" })));
+    renderApp(<TokensPage />);
+    expect(await screen.findByText("Sign in to manage your tokens.")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Sign in" })).toHaveAttribute("href", "/login");
+    expect(stub.callsTo(LIST)).toHaveLength(0);
+  });
+
+  it("says that demo mode loses its tokens when dash stops", async () => {
+    stubFetch(routes(meWith("admin", { authMode: "demo" })));
+    renderApp(<TokensPage />);
+    expect(await screen.findByText(/lost when dash stops/)).toBeInTheDocument();
   });
 
   it("puts the server's field errors on their inputs", async () => {

@@ -7,7 +7,7 @@ import type { AuditKind, AuditRing, SettingsAudit } from "@/api/types";
 import { Page } from "@/components/page";
 import { Empty, Panel, PanelHeader, PanelSkeleton } from "@/components/panel";
 import { Button } from "@/components/ui/button";
-import { settingsKeys, settingsPaths, useIsAdmin } from "./api";
+import { settingsKeys, settingsPaths, useSettingsAvailable } from "./api";
 import { AuditTable } from "./audit-table";
 
 const RINGS: { value: AuditRing; label: string }[] = [
@@ -75,7 +75,7 @@ function Choice<T extends string>({
  */
 export function AuditPage() {
   const me = useMe();
-  const admin = useIsAdmin();
+  const admin = useSettingsAvailable();
   const [ring, setRing] = useState<AuditRing>("main");
   const [kind, setKind] = useState<AuditKind | "all">("all");
   const audit = useAuditRing(ring, admin);
