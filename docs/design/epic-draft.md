@@ -1910,6 +1910,51 @@ R1 of G6: P6.1, P6.2, P6.4 (without a code of conduct or contributing guide) and
 
 **Docs (`RevG5Docs`):** the README Develop steps ran verbatim on a fresh clone without the homelab checkout: `make check`, a clean `make generate`, demo `dev-api`, `dev-web`, and the busy-ports recipe with a write through the Vite proxy. The review found a reserved dropdown value, three missing MIT texts and SECURITY.md inaccuracies, all fixed, and that a code of conduct's Report contact would not reach the maintainer of a personal account, which fed the owner's decision above.
 
+### G6 R2 deviations (v0.14.3)
+
+R2 (branch `feat/g6-ci`: the PR workflow with its scans, the kind matrix, Dependabot, the demo clock and the screenshots, the review fixes, then this docs commit) ships P6.6 and P6.8, and differs from them in these places.
+
+| Item | The plan said | Shipped | Why |
+|---|---|---|---|
+| PR CI on hosted runners (P6.6) | Replace the self-hosted `runs-on` with `ubuntu-24.04` and add a `pull_request` trigger | Both, with a private-skip rule: `runs-on` switches to `ubuntu-24.04` when the repository turns public, and until then push and tag jobs stay on the self-hosted runner and pull request jobs are skipped. The acceptance items "a branch PR runs check and scan on hosted runners" and "matrix jobs run on PRs" can only be shown after the flip | Actions minutes on a private repository are the owner's call (the no-cost default), and design G.8 |
+| `release` | Self-hosted and tag-only until P6.7 | As planned | P6.7 replaces it |
+| golang.org/x/net | Not planned | v0.62.0 (from v0.57.0), with the other `golang.org/x` modules | govulncheck found five reachable HTTP/2 advisories on v0.57.0 |
+| Third-party notices | Generated (P6.5) | `THIRD_PARTY_NOTICES.md` lists no versions | So dependency bumps don't churn it |
+| mise-action cache | Not covered | Off | zizmor flags cache poisoning on tag runs: a cache another run wrote could reach what a tag builds |
+| Scanner binaries | Pinned by sha256 | Pinned, and re-verified on every run: the cached archive is hashed again and the binary unpacked into a directory of the run; CI keeps them in `runner.temp` | A cached file that changed after the first check never runs, and CI never reuses a copy a self-hosted runner kept |
+| kind matrix | The last three Kubernetes minors with current Flux v2 and Gateway API v1 CRDs | Kubernetes 1.37, 1.36 and 1.35, with the Gateway API v1.7.0 standard CRDs and only the CRDs from Flux v2.10.0's `install.yaml` (no controllers) | The admission dry runs need nothing more |
+| Dependabot | GitHub Actions, Go modules, npm and Docker | Those, monthly, grouped, with a 7-day cooldown. It cannot update the pins in `ci.yml`, `scripts/ci/*` and `mise.toml`; those are bumped by hand | Batched updates; the cooldown keeps a release from being proposed on its first day |
+| Demo clock (P6.8) | A fixed demo clock | `DASH_DEMO_CLOCK`, a process variable (only with `DASH_DEMO=true`); durations and timeouts use a separate wall clock | Timeouts keep measuring wall time |
+| Banner | Not covered | Rendered from an HTML template (`web/scripts/screenshots/banner.html`) with the bundled fonts and the overview capture of the same run | It is made by `make screenshots` like the pages |
+| Fonts | Not covered | A glyph-level check that every glyph drawn comes from a bundled font, instead of hiding the system fonts | Chromium crashed without system fonts |
+| Reproducibility | Not covered | The images are byte-identical between runs on one machine | Fixed viewport, browser clock, time zone, locale, motion and fonts |
+| Screenshots in CI | Not covered | Not in CI: `make screenshots` runs by hand after a UI change, and the images are committed with it | Not part of P6.8's acceptance |
+| Demo `server.publicURL` | Not planned; found by review | Demo mode without dev mode defaults `server.publicURL` to its listen address (`http://127.0.0.1:8080` by default) | Otherwise the quick start's writes failed the Origin check (`csrf_failed`) |
+| Hardware test race | Not planned; found by review | `TestFailedQueryKeepsTheLastGoodValues` waits on the data and the sources together | It could read one before the other was published |
+
+#### v0.14.3 release notes
+
+R2 of G6: P6.6 and P6.8. A patch: CI ready for a public repository, five HTTP/2 advisories fixed in a dependency, and the screenshots regenerated reproducibly from demo mode. Image only; nothing to change in the deployment.
+
+- **Security:** golang.org/x/net v0.62.0 fixes five HTTP/2 advisories that govulncheck reported as reachable in v0.57.0 (GO-2026-6603, GO-2026-6610, GO-2026-6611, GO-2026-6612, GO-2026-6617). The other `golang.org/x` modules moved with it.
+- **`make scan`:** gitleaks and trufflehog over the full git history, govulncheck, actionlint, and zizmor over the workflows. gitleaks, trufflehog and zizmor are pinned release binaries checked against their published checksums; govulncheck and actionlint are pinned Go tools. The allowlists name exact test-fixture values, each with a reason.
+- **CI:** runs on pull requests once the repository is public, on GitHub-hosted runners; while it is private, pull request jobs are skipped. Every job has least-privilege permissions and checks out without persisted credentials. A new `scan` job runs `make scan`. The `kind` job is a matrix over the last three Kubernetes minors; each leg installs the Gateway API and Flux CRDs and dry-runs dash's Flux reconcile through the guardrail policy.
+- **Dependabot:** monthly, grouped updates for GitHub Actions, Go modules, npm and Docker. `THIRD_PARTY_NOTICES.md` no longer lists versions, so routine bumps need no regeneration.
+- **`DASH_DEMO_CLOCK`** (with `DASH_DEMO=true`) fixes the demo's clock to an RFC 3339 instant, so demo data is the same on every run. Timeouts keep measuring wall time.
+- **`make screenshots`** captures the README images from demo mode with Playwright: a fixed viewport, browser clock, time zone and locale, bundled fonts only, and byte-identical output between runs. All images are regenerated.
+- **`npm ci --ignore-scripts`** everywhere, so dependencies run no install scripts.
+- **Fix:** demo mode without dev mode defaults `server.publicURL` to its listen address (`http://127.0.0.1:8080` by default), so writes from the embedded UI (restart, reconcile, silences) pass the Origin check. Open the demo at that address. Dev mode keeps `http://localhost:5173`, and an explicit `DASH_SERVER_PUBLIC_URL` still wins.
+- **Upgrade:** nothing to change. If you serve demo mode under another address, set `DASH_SERVER_PUBLIC_URL` to it.
+- **Rollback:** revert the image.
+
+**Evidence:** `make check` on every commit, each signed.
+
+**Security requirement verification (two rounds):** the runners and permissions were computed for every event, private and public: no pull request job reaches the self-hosted runner while the repository is private. A tampered scanner download, or a swapped cached archive or binary, fails the run or is ignored. The allowlists catch every near-miss. govulncheck reports five advisories on v0.57.0 and none on v0.62.0. `DASH_DEMO_CLOCK` is refused outside demo mode and inert there. The CRD pins are checked before use. OCR of the eleven images finds no private names. CSRF, Origin and Host decisions are identical to v0.14.2 in every mode but demo (342 requests per mode).
+
+**Correctness (two rounds):** the workflow expressions, the `needs` graph and the per-leg cleanup; the notices are deterministic offline; the demo clock was traced to every displayed stamp; the screenshots reproduce byte for byte. The review found a wall-time leak test that would have failed on a future date (now in `testing/synctest`), demo listen forms that would have refused to start (now falling back), `scan.sh` on bash before 4.4, and a hardware test race; all fixed.
+
+**Docs (two rounds):** the quick start ran verbatim with a write; `make screenshots` reproduced the committed images; all eleven images were inspected. The review found that the quick start's writes failed with `csrf_failed`, fixed by the new default.
+
 ### P6.1 test: replace real-lab identifiers in fixtures and add a denylist test
 
 **Body:** rewrite the fixtures in:
