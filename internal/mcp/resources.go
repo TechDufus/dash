@@ -39,8 +39,15 @@ func (s *Server) listTopics(c caller) *sdk.ListResourcesResult {
 }
 
 // readTopic answers resources/read of dash://topics/<topic>: the envelope as the caller reads it
-// (its own copy of a user-scoped topic), every string scrubbed. It needs the read scope.
-func (s *Server) readTopic(_ context.Context, req *sdk.ReadResourceRequest) (*sdk.ReadResourceResult, error) {
+// (its own copy of a user-scoped topic), every string scrubbed. It needs the read scope. A panic
+// is answered as an internal error.
+func (s *Server) readTopic(_ context.Context, req *sdk.ReadResourceRequest) (res *sdk.ReadResourceResult, err error) {
+	defer func() {
+		if rec := recover(); rec != nil {
+			s.recovered("resources/read", rec)
+			res, err = nil, errInternal
+		}
+	}()
 	c, ok := callerOf(req.Extra)
 	topic, named := topicOf(req.Params.URI)
 	if !ok || !named || !c.p.HasScope("read") {

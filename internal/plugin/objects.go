@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"reflect"
+	"runtime/debug"
 	"slices"
 	"sort"
 	"strconv"
@@ -360,7 +361,7 @@ type guardedObjects struct {
 }
 
 func (g guardedObjects) recovered(method string, rec any) {
-	g.s.log().Error("panic in "+method, "plugin", g.id, "panic", fmt.Sprint(rec))
+	g.s.log().Error("panic in "+method, "plugin", g.id, "panic", fmt.Sprint(rec), "stack", string(debug.Stack()))
 }
 
 func (g guardedObjects) Search(query string, limit int) (out []model.SearchHit) {

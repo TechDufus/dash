@@ -5,7 +5,9 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"net/http"
+	"runtime/debug"
 	"sync"
 	"time"
 	"unicode/utf8"
@@ -164,11 +166,12 @@ func (s *Server) audit(r *http.Request, c Call) {
 var counted = map[string]bool{"tools/call": true, "resources/read": true, "prompts/get": true, "subscriptions/listen": true}
 
 // limitAndAudit is the outermost middleware: the per-token rates (120 calls and 30 dash_logs a
-// minute), then one audit record per counted call with its outcome and duration.
+// minute), then one audit record per counted call with its outcome and duration. A panic below
+// it is answered as an internal error (guard).
 func (s *Server) limitAndAudit(next sdk.MethodHandler) sdk.MethodHandler {
 	return func(ctx context.Context, method string, req sdk.Request) (sdk.Result, error) {
 		if !counted[method] {
-			return next(ctx, method, req)
+			return s.guard(ctx, method, req, next)
 		}
 		c, ok := callerOf(req.GetExtra())
 		if !ok {
@@ -186,7 +189,7 @@ func (s *Server) limitAndAudit(next sdk.MethodHandler) sdk.MethodHandler {
 			}
 			return nil, &jsonrpc.Error{Code: codeRateLimited, Message: "rate_limited: too many calls for this token; try again in a minute"}
 		}
-		res, err := next(ctx, method, req)
+		res, err := s.guard(ctx, method, req, next)
 		call.Duration, call.Result = time.Since(start), "ok"
 		switch {
 		case err != nil:
@@ -197,6 +200,31 @@ func (s *Server) limitAndAudit(next sdk.MethodHandler) sdk.MethodHandler {
 		s.audit(c.r, call)
 		return res, err
 	}
+}
+
+// guard runs next and answers a panic as an internal error, logged with its stack. The SDK runs
+// a handler in a goroutine of its own, outside net/http's recovery, so an unrecovered panic
+// would end the process.
+func (s *Server) guard(ctx context.Context, method string, req sdk.Request, next sdk.MethodHandler) (res sdk.Result, err error) {
+	defer func() {
+		if rec := recover(); rec != nil {
+			s.recovered(method, rec)
+			if method == "tools/call" {
+				res, err = errorResult(model.ErrCodeInternal, "internal error"), nil
+			} else {
+				res, err = nil, errInternal
+			}
+		}
+	}()
+	return next(ctx, method, req)
+}
+
+// errInternal answers a request whose handler panicked.
+var errInternal = &jsonrpc.Error{Code: jsonrpc.CodeInternalError, Message: "internal error"}
+
+// recovered logs a recovered panic with the stack it unwound.
+func (s *Server) recovered(where string, rec any) {
+	s.o.Log.Error("panic in mcp handler", "method", where, "panic", s.o.Scrub(fmt.Sprint(rec)), "stack", string(debug.Stack()))
 }
 
 // describe is the audit view of a request: the tool, resource or prompt it names, the hash of
@@ -253,14 +281,7 @@ func (s *Server) capResult(res *sdk.CallToolResult, tree any) *sdk.CallToolResul
 		return res
 	}
 	const note = "\nThe result was larger than 64 KiB and is truncated."
-	// The framing (sentence, fences, note) is small; leave it the room it needs.
-	budget := MaxResultBytes - len(bundle.Untrusted) - len(note) - 64
-	cut := s.cut(text, budget)
-	text = bundle.UntrustedBlock(cut) + note
-	for len(text) > MaxResultBytes { // a fence grown by the cut's own backticks
-		budget -= len(text) - MaxResultBytes
-		text = bundle.UntrustedBlock(s.cut(cut, budget)) + note
-	}
+	text = s.frameCut(text, note)
 	return &sdk.CallToolResult{
 		Meta:              sdk.Meta{"truncated": true},
 		Content:           []sdk.Content{&sdk.TextContent{Text: text}},
@@ -268,9 +289,28 @@ func (s *Server) capResult(res *sdk.CallToolResult, tree any) *sdk.CallToolResul
 	}
 }
 
+// frameCut is text cut to fit, with note, within MaxResultBytes as an untrusted block. The fence
+// grows with the longest backtick run in what is kept, so a cut that leaves the fences too long
+// is cut again with the room they leave; when the fences alone do not fit, nothing is kept.
+func (s *Server) frameCut(text, note string) string {
+	frame := func(t string) string { return bundle.UntrustedBlock(t) + note }
+	kept := s.cut(text, MaxResultBytes-len(frame("")))
+	for {
+		out := frame(kept)
+		if len(out) <= MaxResultBytes {
+			return out
+		}
+		// The framing kept needs; each round keeps strictly less, and "" always fits.
+		kept = s.cut(kept, MaxResultBytes-(len(out)-len(kept)))
+	}
+}
+
 // cut shortens text to at most n bytes without splitting a character or leaving part of a
-// secret (Options.Cut, secret.Registry.Cut).
+// secret (Options.Cut, secret.Registry.Cut); n <= 0 is "".
 func (s *Server) cut(text string, n int) string {
+	if n <= 0 {
+		return ""
+	}
 	if s.o.Cut != nil {
 		out, _ := s.o.Cut(text, n)
 		if len(out) <= n {
