@@ -414,8 +414,10 @@ path. There is no dynamic client registration.
   (`com.example.app:/callback`). dash fetches only from global addresses, unless
   `auth.oauth.cimdAllowPrivate` is true, which adds private (RFC 1918, CGNAT, ULA) and loopback
   addresses; link-local addresses, where cloud metadata services live, stay refused. A document
-  whose `client_name` is, ignoring case and surrounding spaces, the name or ID of `dash-android`
-  or of an `auth.oauth.clients` entry is refused, so it cannot pass for one of them;
+  whose `client_name` is the name or ID of `dash-android` or of an `auth.oauth.clients` entry is
+  refused, so it cannot pass for one of them. The names are compared after Unicode NFKC, with
+  every run of spaces (any Unicode space) made one space, surrounding spaces and trailing
+  punctuation dropped, and case ignored;
 - `auth.oauth.clients` from the config (`DASH_AUTH_OAUTH_CLIENTS` as JSON):
   `[{clientID, name, redirectURIs, audiences}]`, with the same redirect rules.
 

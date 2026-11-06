@@ -432,6 +432,10 @@ func TestClientIDMetadataDocument(t *testing.T) {
 		{"the built-in app's ID", "name of an app this dash knows", namedDocument("dash-android")},
 		{"a config client's name", "name of an app this dash knows", namedDocument("inspector ")},
 		{"a config client's ID", "name of an app this dash knows", namedDocument("MCP-ONLY")},
+		{"a no-break space in a reserved name", "name of an app this dash knows", namedDocument(`Dash\u00a0for Android`)},
+		{"a double space in a reserved name", "name of an app this dash knows", namedDocument("Dash  for Android")},
+		{"a trailing dot after a reserved name", "name of an app this dash knows", namedDocument("Inspector.")},
+		{"a fullwidth reserved name", "name of an app this dash knows", namedDocument(`\uff29\uff4e\uff53\uff50\uff45\uff43\uff54\uff4f\uff52`)},
 		{"a bidi override in client_name", "client_name", namedDocument(`Agent\u202egnp.exe`)},
 		{"a newline in client_name", "client_name", namedDocument(`Agent\nApproved by your admin`)},
 	} {

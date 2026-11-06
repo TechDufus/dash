@@ -17,6 +17,7 @@ import (
 	"github.com/TechDufus/dash/internal/config"
 	"github.com/TechDufus/dash/internal/model"
 	"github.com/TechDufus/dash/internal/netguard"
+	"golang.org/x/text/unicode/norm"
 )
 
 // The client ID metadata document fetch (design M.6).
@@ -163,8 +164,25 @@ func (c *cimdCache) reserve(names ...string) {
 	}
 }
 
-// nameKey is how client names are compared: trimmed and case-folded.
-func nameKey(name string) string { return strings.ToLower(strings.TrimSpace(name)) }
+// nameKey is how client names are compared (contract G7-R3 fix E3): NFKC, every Unicode space
+// one ASCII space, runs of them collapsed, trimmed, trailing punctuation stripped, lowercased.
+// Confusables across scripts stay apart; the consent screen's kind badge covers those.
+func nameKey(name string) string {
+	var b strings.Builder
+	space := false
+	for _, r := range norm.NFKC.String(name) {
+		if unicode.IsSpace(r) {
+			space = true
+			continue
+		}
+		if space && b.Len() > 0 {
+			b.WriteByte(' ')
+		}
+		space = false
+		b.WriteRune(r)
+	}
+	return strings.ToLower(strings.TrimRightFunc(b.String(), func(r rune) bool { return unicode.IsPunct(r) || r == ' ' }))
+}
 
 // cached reports whether a valid document of id is in the cache.
 func (c *cimdCache) cached(id string) bool {
