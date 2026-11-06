@@ -1,5 +1,6 @@
 import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { toast } from "sonner";
 import type * as Uqr from "uqr";
 import { encode } from "uqr";
 import { afterEach, beforeEach, describe, expect, it, type Mock, vi } from "vitest";
@@ -16,6 +17,8 @@ vi.mock("uqr", async (importOriginal) => {
   const real = await importOriginal<typeof Uqr>();
   return { ...real, encode: vi.fn(real.encode) };
 });
+
+vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
 
 const VAPID =
   "BNcRdreALRFXTkOOUHK1EtK2wtaz5Ry4YfYCA_0QTpQtUbVlUls0VJXg7A8u-Ts1XbjhazAkj7I99e8QcYP7DkM";
@@ -106,6 +109,8 @@ beforeEach(() => {
   pushManager.getSubscription.mockClear();
   pushManager.subscribe.mockClear();
   requestPermission.mockClear();
+  vi.mocked(toast.success).mockClear();
+  vi.mocked(toast.error).mockClear();
   container = Object.assign(new EventTarget(), { ready: Promise.resolve({ pushManager }) });
   Object.defineProperty(navigator, "serviceWorker", { value: container, configurable: true });
   vi.stubGlobal("isSecureContext", true);
@@ -276,7 +281,7 @@ describe("DevicesPage", () => {
     expect(pushManager.subscribe).not.toHaveBeenCalled();
   });
 
-  it("sends a test push to a verified device", async () => {
+  it("sends a test push to a verified device, and says it is queued", async () => {
     const user = userEvent.setup();
     const stub = stubFetch(routes(meWith(true), { [LIST]: { subscriptions: [sub()] } }));
     renderApp(<DevicesPage />);
@@ -284,6 +289,73 @@ describe("DevicesPage", () => {
     await waitFor(() =>
       expect(stub.callsTo(`POST /api/v1/push/subscriptions/${ID}/test`)).toHaveLength(1),
     );
+    // 202: dash queued it; the push service has not taken it yet.
+    await waitFor(() =>
+      expect(toast.success).toHaveBeenCalledWith(
+        expect.stringMatching(/^Test push queued for Laptop/),
+      ),
+    );
+    expect(toast.success).not.toHaveBeenCalledWith(expect.stringMatching(/sent/));
+  });
+
+  it("says this browser is subscribed, and offers no Subscribe button then", async () => {
+    localStorage.setItem("dash.push.subscription", ID);
+    held = fakeSubscription(base64urlBytes(VAPID));
+    stubFetch(routes(meWith(true), { [LIST]: { subscriptions: [sub()] } }));
+    renderApp(<DevicesPage />);
+    expect(await screen.findByText(/This browser is subscribed as/)).toHaveTextContent(
+      "This browser is subscribed as Laptop. Remove it below to stop its notifications.",
+    );
+    expect(screen.queryByRole("button", { name: /Subscribe/ })).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Device name")).not.toBeInTheDocument();
+  });
+
+  it("says a pending browser waits for its code", async () => {
+    localStorage.setItem("dash.push.subscription", ID);
+    stubFetch(
+      routes(meWith(true), {
+        [LIST]: { subscriptions: [sub({ state: "pending", verifiedAt: null })] },
+      }),
+    );
+    renderApp(<DevicesPage />);
+    expect(await screen.findByText(/This browser is subscribed as/)).toHaveTextContent(
+      "This browser is subscribed as Laptop: waiting for the code dash pushed to it.",
+    );
+    expect(screen.queryByRole("button", { name: /Subscribe/ })).not.toBeInTheDocument();
+  });
+
+  it("offers only Subscribe again on this browser's stale row, which re-registers with the new key", async () => {
+    const user = userEvent.setup();
+    localStorage.setItem("dash.push.subscription", ID);
+    // The browser's subscription was made with dash's previous key.
+    const old = fakeSubscription(new Uint8Array([4, 1, 2, 3]));
+    held = old;
+    const stub = stubFetch(
+      routes(meWith(true), {
+        [LIST]: { subscriptions: [sub({ state: "stale" })] },
+      }),
+    );
+    renderApp(<DevicesPage />);
+    const row = (await screen.findByText("this browser")).closest("li") as HTMLElement;
+    expect(within(row).getByText("stale")).toBeInTheDocument();
+    // No notify editor: a change would re-register the old-key subscription, and its code
+    // could never arrive.
+    expect(within(row).queryByRole("switch")).not.toBeInTheDocument();
+    expect(within(row).queryByRole("group", { name: "Attention" })).not.toBeInTheDocument();
+    expect(within(row).queryByRole("button", { name: "Warnings" })).not.toBeInTheDocument();
+    expect(within(row).queryByRole("button", { name: "Send test push" })).not.toBeInTheDocument();
+    expect(within(row).getByText(/Subscribe this browser again above/)).toBeInTheDocument();
+    expect(screen.queryByText(/This browser is subscribed as/)).not.toBeInTheDocument();
+
+    const again = screen.getByRole("button", { name: "Subscribe again" });
+    await waitFor(() => expect(again).toBeEnabled());
+    await user.click(again);
+    await waitFor(() => expect(stub.callsTo(REGISTER)).toHaveLength(1));
+    expect(old.unsubscribe).toHaveBeenCalledTimes(1);
+    expect(pushManager.subscribe).toHaveBeenCalledExactlyOnceWith({
+      userVisibleOnly: true,
+      applicationServerKey: base64urlBytes(VAPID),
+    });
   });
 
   it("asks before removing a device, and deletes only after the confirmation", async () => {
@@ -359,6 +431,13 @@ describe("DevicesPage", () => {
     ).toBeInTheDocument();
   });
 
+  it("says the Android app is not released yet under the QR code", async () => {
+    stubFetch(routes(meWith(true)));
+    renderApp(<DevicesPage />);
+    await qrOf(SERVER_URL);
+    expect(screen.getByText(/The dash Android app is not released yet/)).toBeInTheDocument();
+  });
+
   it("says so where this browser cannot receive push, and still lists the devices", async () => {
     vi.stubGlobal("PushManager", undefined);
     Reflect.deleteProperty(window, "PushManager");
@@ -381,7 +460,9 @@ describe("DevicesPage", () => {
     renderApp(<DevicesPage />);
     expect(
       await screen.findByText(/Push notifications are not available on this dash/),
-    ).toBeInTheDocument();
+    ).toHaveTextContent(
+      /writable data directory \(dataDir\), DASH_SECRET_KEY and a contact address for the push services \(push\.contact, or an https server\.publicURL\), in the local, oidc or proxy mode\./,
+    );
     expect(stub.calls.filter((c) => c.path.startsWith("/api/v1/push"))).toEqual([]);
 
     const settings = CORE_PAGES.find((p) => p.key === "core:settings");

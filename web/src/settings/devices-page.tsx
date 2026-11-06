@@ -162,8 +162,7 @@ export function DevicesPage(): JSX.Element {
         supported={supported}
         publicKey={vapid.data?.publicKey}
         keyError={vapid.isError ? errorMessage(vapid.error) : null}
-        notify={mineRow?.notify ?? DEFAULT_NOTIFY}
-        stale={mineRow?.state === PushStateStale}
+        mineRow={mineRow}
         onRegistered={registered}
       />
       <Panel>
@@ -220,7 +219,8 @@ function Unavailable({ me }: { me: Me | undefined }): JSX.Element {
     <>
       <p>
         Push notifications are not available on this dash: they need a writable data directory
-        (dataDir) and DASH_SECRET_KEY, in the local, oidc or proxy mode.
+        (dataDir), DASH_SECRET_KEY and a contact address for the push services (push.contact, or an
+        https server.publicURL), in the local, oidc or proxy mode.
       </p>
       <Link href="/" className="text-accent underline-offset-4 hover:underline">
         Back to Overview
@@ -239,22 +239,26 @@ function IOSHint(): JSX.Element {
   );
 }
 
-/** Subscribing this browser: a device name, then the button. */
+/**
+ * Subscribing this browser: a device name, then the button. Once the browser is subscribed the
+ * panel says so instead; only a stale subscription (dash's push key changed) offers the button
+ * again, as "Subscribe again".
+ */
 function SubscribePanel({
   supported,
   publicKey,
   keyError,
-  notify,
-  stale,
+  mineRow,
   onRegistered,
 }: {
   supported: boolean;
   publicKey: string | undefined;
   keyError: string | null;
-  notify: PushNotify;
-  stale: boolean;
+  mineRow: PushSubscriptionInfo | undefined;
   onRegistered: (info: PushSubscriptionInfo) => void;
 }): JSX.Element {
+  const stale = mineRow?.state === PushStateStale;
+  const notify = mineRow?.notify ?? DEFAULT_NOTIFY;
   const queryClient = useQueryClient();
   const [name, setName] = useState(() => defaultDeviceName(navigator.userAgent));
   const [busy, setBusy] = useState(false);
@@ -297,6 +301,12 @@ function SubscribePanel({
           <p role="status" className="text-sm text-fg">
             This browser cannot receive push notifications here.
           </p>
+        ) : mineRow && !stale ? (
+          <p role="status" className="text-sm text-fg">
+            This browser is subscribed as <span className="font-medium">{mineRow.deviceName}</span>
+            {mineRow.state === PushStatePending ? ": waiting for the code dash pushed to it." : "."}{" "}
+            Remove it below to stop its notifications.
+          </p>
         ) : (
           <form onSubmit={subscribe} className="flex flex-wrap items-end gap-2">
             <div className="grid gap-1">
@@ -319,7 +329,7 @@ function SubscribePanel({
         {keyError ? (
           <p className="text-sm text-crit">Could not read dash's push key: {keyError}</p>
         ) : null}
-        <IOSHint />
+        {mineRow && !stale ? null : <IOSHint />}
       </div>
     </Panel>
   );
@@ -343,7 +353,7 @@ function DeviceRow({
     setTesting(true);
     try {
       await sendTestPush(sub.id);
-      toast.success(`Test push sent to ${sub.deviceName}`);
+      toast.success(`Test push queued for ${sub.deviceName}: it shows there shortly`);
     } catch (err) {
       toast.error(`The test push failed: ${errorMessage(err)}`);
     } finally {
@@ -386,7 +396,17 @@ function DeviceRow({
         </p>
       ) : null}
       {sub.state === PushStatePending ? <CodeForm sub={sub} onVerify={onVerify} /> : null}
-      {mine ? <NotifyEditor sub={sub} /> : <NotifySummary notify={sub.notify} />}
+      {sub.state === PushStateStale ? (
+        // A stale subscription was made with dash's old key: a change would re-register it with
+        // that key, and the new code could never reach it. Subscribing again is the way back.
+        mine ? null : (
+          <NotifySummary notify={sub.notify} />
+        )
+      ) : mine ? (
+        <NotifyEditor sub={sub} />
+      ) : (
+        <NotifySummary notify={sub.notify} />
+      )}
     </li>
   );
 }
@@ -521,6 +541,9 @@ function AppPanel({ url }: { url: string }): JSX.Element {
         <QrCode value={url} className="size-44 rounded-sm" />
         <div className="space-y-1 text-sm">
           <p className="text-fg">Scan this code in the dash app to fill in the server address.</p>
+          <p className="text-muted">
+            The dash Android app is not released yet: it comes in a later release.
+          </p>
           <p className="num text-muted">{url}</p>
           <p className="text-muted">It holds the address only, never a credential.</p>
         </div>
