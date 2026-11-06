@@ -120,6 +120,15 @@ A new plugin starts from the contract in `internal/plugin/plugin.go`; `internal/
 is the small example. Fixtures, docs and commits use neutral names (`example.com`, `192.0.2.0/24`,
 alice and bob): `make check` fails on a lab identifier through the denylist in `internal/hygiene`.
 
+### npm overrides
+
+`web/package.json` overrides `glob` (`^14.0.3`) and `minimatch` (`^11.0.4`) under
+`license-checker-rseidelsohn` and `shadcn` only, for GHSA-3g3m-2fjr-6pw4 and GHSA-g3hv-75wg-m249.
+Both are dev tools; nothing of them ships in `web/dist`. Their releases still pin older majors
+(through `@npmcli/arborist`, `@npmcli/package-json` and `ts-morph`), so `npm update` cannot reach
+the fixes. Remove each override once a release of its parent allows the patched major, then run
+`npm install` so the lockfile follows.
+
 ## Layout
 
 | Path | What |
