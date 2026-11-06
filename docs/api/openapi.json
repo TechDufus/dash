@@ -1834,6 +1834,12 @@
               "type": "string"
             },
             "type": "array"
+          },
+          "withheld": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
           }
         },
         "required": [
@@ -1843,7 +1849,8 @@
           "expiresAt",
           "id",
           "redirectUri",
-          "scopes"
+          "scopes",
+          "withheld"
         ],
         "type": "object"
       },

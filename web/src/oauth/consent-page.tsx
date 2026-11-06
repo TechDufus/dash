@@ -237,6 +237,13 @@ function ConsentForm({ consent, me }: { consent: OAuthConsent; me: Me }): JSX.El
                 );
               })}
             </div>
+            {consent.withheld.length > 0 ? (
+              <p className="text-xs text-muted">
+                Your role ({me.role}) cannot grant{" "}
+                <span className="num text-fg">{consent.withheld.join(", ")}</span>, so{" "}
+                {consent.withheld.length === 1 ? "it is" : "they are"} not offered.
+              </p>
+            ) : null}
             {ticked.size === 0 ? (
               <p className="text-xs text-faint">Tick at least one scope to approve.</p>
             ) : null}

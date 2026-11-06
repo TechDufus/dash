@@ -45,6 +45,9 @@ type OAuthConsent struct {
 	// actions:<plugin> (administrators, for a plugin whose actions are enabled) and, for
 	// dash-android only, approvals and push. Never empty.
 	Scopes []string `json:"scopes" dash:"required"`
+	// Withheld are the scopes the client asked for that the user's role cannot grant
+	// (actions:<plugin> for a viewer), which the screen names; empty when there are none.
+	Withheld []string `json:"withheld" dash:"required"`
 	// DefaultScopes are the ones the screen ticks before the user does anything: read, when it
 	// is offered, and nothing else.
 	DefaultScopes []string  `json:"defaultScopes" dash:"required"`

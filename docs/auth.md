@@ -437,7 +437,8 @@ Agent from agent.example.com?").
    meanwhile, and fetches a client's metadata document only for a signed-in person. For a signed-in
    person dash keeps the request for 10 minutes (at most 20 per person; the oldest goes) and sends
    the browser to `/consent/<id>`, which only that person sees. The page ticks only `read`; `logs`
-   and `actions:<plugin>` carry warnings, and only an administrator is offered `actions:<plugin>`.
+   and `actions:<plugin>` carry warnings, and only an administrator is offered `actions:<plugin>`
+   (a viewer's page names the requested scopes their role cannot grant).
 3. Approving sends the browser back to the client with `code`, `state` and `iss` (RFC 9207);
    denying with `error=access_denied`.
 4. The client exchanges the code (60 seconds, once) with its `code_verifier` at `/oauth/token`

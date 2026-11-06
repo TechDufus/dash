@@ -59,13 +59,19 @@ func (s *Server) Consent(id string, p auth.Principal) (model.OAuthConsent, error
 	if len(scopes) == 0 {
 		return model.OAuthConsent{}, ErrNothingToGrant
 	}
+	withheld := []string{}
+	for _, sc := range pr.scopes {
+		if !slices.Contains(scopes, sc) {
+			withheld = append(withheld, sc)
+		}
+	}
 	defaults := []string{}
 	if slices.Contains(scopes, model.TokenScopeRead) {
 		defaults = append(defaults, model.TokenScopeRead)
 	}
 	return model.OAuthConsent{
 		ID: pr.id, Client: pr.client.info(), RedirectURI: pr.redirectURI, Audience: pr.audience,
-		Scopes: scopes, DefaultScopes: defaults, ExpiresAt: pr.expires,
+		Scopes: scopes, Withheld: withheld, DefaultScopes: defaults, ExpiresAt: pr.expires,
 	}, nil
 }
 

@@ -19,6 +19,7 @@ function consent(over: Partial<OAuthConsent> = {}): OAuthConsent {
     redirectUri: "http://127.0.0.1:43117/callback",
     audience: "mcp",
     scopes: ["read", "logs", "actions:flux"],
+    withheld: [],
     defaultScopes: ["read"],
     expiresAt: "2026-11-05T10:10:00Z",
     ...over,
@@ -68,6 +69,22 @@ describe("ConsentPage", () => {
     // Only the built-in app is ever offered these.
     expect(screen.queryByRole("checkbox", { name: "approvals" })).toBeNull();
     expect(screen.queryByRole("checkbox", { name: "push" })).toBeNull();
+    expect(screen.queryByText(/cannot grant/)).toBeNull();
+  });
+
+  it("names the scopes a viewer's role cannot grant", async () => {
+    stubFetch(
+      routes({
+        "GET /api/v1/me": meWith({ role: "viewer" }),
+        [GET]: consent({ scopes: ["read", "logs"], withheld: ["actions:flux"] }),
+      }),
+    );
+    renderApp(<ConsentPage id="abc" />);
+    const line = await screen.findByText(/cannot grant/);
+    expect(line).toHaveTextContent(
+      "Your role (viewer) cannot grant actions:flux, so it is not offered.",
+    );
+    expect(screen.queryByRole("checkbox", { name: "actions:flux" })).toBeNull();
   });
 
   it("offers approvals and push when the backend offers them (the built-in app)", async () => {

@@ -993,6 +993,11 @@ export interface OAuthConsent {
    */
   scopes: string[];
   /**
+   * Withheld are the scopes the client asked for that the user's role cannot grant
+   * (actions:<plugin> for a viewer), which the screen names; empty when there are none.
+   */
+  withheld: string[];
+  /**
    * DefaultScopes are the ones the screen ticks before the user does anything: read, when it
    * is offered, and nothing else.
    */

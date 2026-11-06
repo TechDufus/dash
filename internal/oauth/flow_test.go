@@ -78,7 +78,7 @@ func TestConsent(t *testing.T) {
 		t.Errorf("another person: %v, want not found", err)
 	}
 	c, _ := s.Consent(id, vera)
-	if !slices.Equal(c.Scopes, []string{"read", "logs"}) || !slices.Equal(c.DefaultScopes, []string{"read"}) ||
+	if !slices.Equal(c.Scopes, []string{"read", "logs"}) || !slices.Equal(c.Withheld, []string{"actions:kubernetes"}) || !slices.Equal(c.DefaultScopes, []string{"read"}) ||
 		c.Client.ID != "inspector" || c.Client.Kind != "config" || c.Audience != "api" || c.RedirectURI != "http://127.0.0.1:4711/callback" {
 		t.Errorf("viewer's consent = %+v", c)
 	}
@@ -89,7 +89,7 @@ func TestConsent(t *testing.T) {
 		t.Errorf("no scope: %v", err)
 	}
 	id = consentID(t, s, func(q url.Values) { q.Set("scope", "read logs actions:kubernetes") }, "kubernetes")
-	if c, _ := s.Consent(id, alice); !slices.Equal(c.Scopes, []string{"read", "logs", "actions:kubernetes"}) || !slices.Equal(c.DefaultScopes, []string{"read"}) {
+	if c, _ := s.Consent(id, alice); !slices.Equal(c.Scopes, []string{"read", "logs", "actions:kubernetes"}) || c.Withheld == nil || len(c.Withheld) != 0 || !slices.Equal(c.DefaultScopes, []string{"read"}) {
 		t.Errorf("admin's consent = %+v", c)
 	}
 	id = consentIDOf(t, s, vera, func(q url.Values) { q.Set("scope", "actions:kubernetes") }, "kubernetes")
