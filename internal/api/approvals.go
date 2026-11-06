@@ -83,6 +83,9 @@ func (s *Server) publishApprovals(user string) {
 	for i := range pending {
 		pending[i].Input = nil
 	}
+	if s.approvalsPublishGap != nil {
+		s.approvalsPublishGap(user)
+	}
 	if _, err := s.d.Hub.PublishFor(user, model.TopicApprovals, model.ApprovalsData{Pending: pending}, nil); err != nil {
 		slog.Error("core.approvals publish failed", "error", err)
 	}

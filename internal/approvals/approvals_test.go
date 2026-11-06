@@ -348,3 +348,20 @@ func TestWait(t *testing.T) {
 		t.Error("Wait on an expired request = false")
 	}
 }
+
+// Pending hides a request past its expiry before any sweep has run (Pending sweeps nothing
+// itself, so it may run inside a Changed callback); a claimed one, being decided, stays.
+func TestPendingHidesAnUnsweptExpiredRequest(t *testing.T) {
+	c := newClock()
+	s := New(Options{Now: c.now})
+	stale, _, _ := s.Create(request("alice", "t1", `{"stale":1}`))
+	claimed, _, _ := s.Create(request("alice", "t1", `{"claimed":1}`))
+	if _, err := s.Claim(claimed.ID, "alice"); err != nil {
+		t.Fatal(err)
+	}
+	c.add(10 * time.Minute)
+	got := s.Pending("alice")
+	if len(got) != 1 || got[0].ID != claimed.ID {
+		t.Errorf("Pending = %+v, want only the claimed request (not %s)", got, stale.ID)
+	}
+}

@@ -839,3 +839,41 @@ func TestApprovalThatRanIsNeverRunAgain(t *testing.T) {
 		t.Errorf("Act ran %d times, want once", n)
 	}
 }
+
+// Two publishes for one user at once end with the latest state: a create's publish holds the list
+// it read (one request) when a decision empties it; the decision's publish must come after, so
+// core.approvals ends empty, not with the stale request.
+func TestCoreApprovalsPublishOrder(t *testing.T) {
+	e := newApprovalEnv(t, nil)
+	info := e.mustAsk(t, e.agent(t, "alice", "actions:aa"), "restart", okRestart)
+	reached, release := make(chan struct{}), make(chan struct{})
+	var once sync.Once
+	e.approvalsPublishGap = func(string) {
+		first := false
+		once.Do(func() { first = true })
+		if first {
+			close(reached)
+			<-release
+		}
+	}
+	stale := make(chan struct{})
+	go func() { defer close(stale); e.publishApprovals("alice") }() // the create's publish, holding [info]
+	<-reached
+	decided := make(chan struct{})
+	go func() {
+		defer close(decided)
+		approvalOf(t, e.decide("alice", info.ID, model.ApprovalDecision{Approve: false}))
+	}()
+	// Unordered, the decision publishes its empty list now, before the stale one; ordered, it
+	// waits for the create's publish to finish.
+	select {
+	case <-decided:
+	case <-time.After(300 * time.Millisecond):
+	}
+	close(release)
+	<-stale
+	<-decided
+	if got := e.pendingFor(t, "alice"); len(got) != 0 {
+		t.Errorf("core.approvals ends with %d requests, want none", len(got))
+	}
+}

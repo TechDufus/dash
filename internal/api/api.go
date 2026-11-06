@@ -183,6 +183,9 @@ type Server struct {
 	mcpOn             atomic.Bool     // the MCP state last logged (LogMCPState)
 	approvals         *approvals.Store
 	approvalsPub      sync.Map // user -> *sync.Mutex: one user's core.approvals publishes in order
+	// approvalsPublishGap, when set (tests only), runs between reading a user's pending list and
+	// publishing it: where two unordered publishes would interleave.
+	approvalsPublishGap func(user string)
 }
 
 // New builds a Server serving the embedded SPA.
