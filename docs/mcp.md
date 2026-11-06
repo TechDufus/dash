@@ -69,10 +69,10 @@ with a `code`.
 | Tool | Gives | Needs |
 |---|---|---|
 | `dash_overview` | the status, the key figures and at most 50 attention items | `read` |
-| `dash_search {query, kinds?, limit≤25}` | objects whose ref or name holds every word, with the ref the other tools take | `read` |
+| `dash_search {query, kinds?, limit≤25}` | objects whose ref or name holds every word, with the ref the other tools take; `more: true` when there are more | `read` |
 | `dash_get {ref}` | one object; a pod as its detail with at most 20 events | `read` |
 | `dash_topic {topic, pointer?}` | a topic snapshot, or the part an RFC 6901 JSON Pointer selects | `read` |
-| `dash_series {name, range, args}` | per line the minimum, maximum, average and last value, and at most 60 points; named series only | `read` |
+| `dash_series {name, range, args}` | per line the minimum, maximum, average and last value, and at most 60 points; named series only (an unknown name is answered with the names) | `read` |
 | `dash_logs {namespace, pod, container?, since≤1h, query?, limit≤200}` | the newest log lines of a pod | `logs` |
 | `dash_context {ref, include[]}` | the context bundle of an object, as Markdown | `read` |
 

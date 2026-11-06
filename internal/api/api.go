@@ -46,6 +46,8 @@ type PluginsAPI interface {
 	// Links resolves deep links through the running link providers.
 	Links() plugin.LinkResolver
 	Series(name string) (plugin.SeriesSpec, plugin.ID, bool)
+	// SeriesNames are the names of the series the running instances define.
+	SeriesNames() []string
 	// Objects is the plugin.Objects of a running instance; ObjectInstances lists them.
 	Objects(id plugin.ID) (plugin.Objects, bool)
 	ObjectInstances() []plugin.ID

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"regexp"
 	"slices"
 	"strconv"
@@ -45,19 +46,24 @@ type overviewResult struct {
 type searchInput struct {
 	Query string   `json:"query" doc:"Words that the object's ref or name must all contain, ignoring case; empty matches everything."`
 	Kinds []string `json:"kinds" doc:"Only these kinds, e.g. [\"Pod\", \"VM\"]; empty means every kind."`
-	Limit int      `json:"limit" dash:"min=0,max=25" doc:"At most this many hits (1-25, default 10)."`
+	Limit int      `json:"limit" dash:"min=1,max=25" doc:"At most this many hits (1-25, default 10)."`
 }
 
 type searchResult struct {
 	Hits []model.SearchHit `json:"hits"`
+	// More says that more objects match than the hits hold: narrow the query or the kinds.
+	More bool `json:"more"`
 }
 
+// refExample shows an agent what a ref looks like.
+const refExample = "kubernetes:Pod/ns/name"
+
 type refInput struct {
-	Ref string `json:"ref" doc:"The object's ref, as dash_search or another tool returned it: <plugin>:<Kind>/<id>."`
+	Ref string `json:"ref" dash:"required" doc:"The object's ref, as dash_search or another tool returned it: <plugin>:<Kind>/<id>."`
 }
 
 type topicInput struct {
-	Topic   string `json:"topic" doc:"The topic, e.g. kubernetes.cluster or core.overview."`
+	Topic   string `json:"topic" dash:"required" doc:"The topic, e.g. kubernetes.cluster or core.overview; resources/list lists them."`
 	Pointer string `json:"pointer" doc:"An RFC 6901 JSON Pointer into the topic's data, e.g. /pods/0; empty returns all of it."`
 }
 
@@ -70,8 +76,8 @@ type topicResult struct {
 }
 
 type seriesInput struct {
-	Name  string            `json:"name" doc:"A named series, e.g. pod.cpu, node.mem, vm.cpu or host.power."`
-	Range string            `json:"range" dash:"enum=15m|1h|6h|24h|7d" doc:"How far back: 15m, 1h, 6h, 24h or 7d."`
+	Name  string            `json:"name" dash:"required" doc:"A named series, e.g. pod.cpu, node.mem, vm.cpu or host.power."`
+	Range string            `json:"range" dash:"required,enum=15m|1h|6h|24h|7d" doc:"How far back: 15m, 1h, 6h, 24h or 7d."`
 	Args  map[string]string `json:"args" doc:"The series' parameters: vmid for vm.*, namespace and pod for pod.*, node for node.*."`
 }
 
@@ -90,12 +96,12 @@ type seriesLine struct {
 }
 
 type logsInput struct {
-	Namespace string `json:"namespace" doc:"The pod's namespace."`
-	Pod       string `json:"pod" doc:"The pod's name."`
+	Namespace string `json:"namespace" dash:"required" doc:"The pod's namespace."`
+	Pod       string `json:"pod" dash:"required" doc:"The pod's name."`
 	Container string `json:"container" doc:"Only this container; empty means every container."`
 	Since     string `json:"since" dash:"enum=5m|15m|1h" doc:"How far back: 5m, 15m (default) or 1h."`
 	Query     string `json:"query" doc:"Text a line must contain."`
-	Limit     int    `json:"limit" dash:"min=0,max=200" doc:"At most this many of the newest lines (1-200, default 100)."`
+	Limit     int    `json:"limit" dash:"min=1,max=200" doc:"At most this many of the newest lines (1-200, default 100)."`
 }
 
 type logsResult struct {
@@ -103,7 +109,7 @@ type logsResult struct {
 }
 
 type contextInput struct {
-	Ref     string   `json:"ref" doc:"The object's ref: <plugin>:<Kind>/<id>."`
+	Ref     string   `json:"ref" dash:"required" doc:"The object's ref: <plugin>:<Kind>/<id>."`
 	Include []string `json:"include" doc:"Parts to include: events, related, attention, series, logs; empty means all. Log lines need the logs scope."`
 }
 
@@ -129,8 +135,8 @@ func (s *Server) toolTable() []tool {
 		},
 		{
 			name: "dash_search", title: "Find objects", scope: "read", input: &searchInput{},
-			desc: "Find objects (pods, workloads, nodes, VMs, alerts, endpoints, Flux objects, databases, disks) by " +
-				"words in their ref or name. Each hit has the ref the other tools take.",
+			desc: "Find objects by words in their ref or name. Each hit has the ref the other tools take. The kinds: " +
+				searchKinds + ".",
 			run: func(_ context.Context, _ caller, in any) (any, string, error) {
 				q := in.(*searchInput)
 				limit := q.Limit
@@ -140,20 +146,13 @@ func (s *Server) toolTable() []tool {
 				if limit < 1 || limit > maxSearchHits {
 					return nil, "", refuse(model.ErrCodeInvalidInput, "limit must be 1-%d", maxSearchHits)
 				}
-				ask := limit
-				if len(q.Kinds) > 0 {
-					ask = 1000 // the kinds filter runs after the plugins answer
+				// One hit more than asked tells whether the answer is cut.
+				hits := b().Search(q.Query, q.Kinds, limit+1)
+				res := searchResult{Hits: hits, More: len(hits) > limit}
+				if res.More {
+					res.Hits = hits[:limit]
 				}
-				hits := []model.SearchHit{}
-				for _, h := range b().Search(q.Query, ask) {
-					if len(q.Kinds) == 0 || slices.ContainsFunc(q.Kinds, func(k string) bool { return strings.EqualFold(k, h.Kind) }) {
-						hits = append(hits, h)
-					}
-					if len(hits) == limit {
-						break
-					}
-				}
-				return searchResult{Hits: hits}, "", nil
+				return res, "", nil
 			},
 		},
 		{
@@ -161,8 +160,12 @@ func (s *Server) toolTable() []tool {
 			desc: "One object by its ref, as the plugin that owns it describes it (a pod's detail has its containers, " +
 				"conditions and at most 20 events). Secrets and ConfigMaps are never returned.",
 			run: func(ctx context.Context, _ caller, in any) (any, string, error) {
-				v, err := b().Get(ctx, in.(*refInput).Ref)
-				return v, "", err
+				ref := in.(*refInput).Ref
+				if err := checkRefArg(ref); err != nil {
+					return nil, "", err
+				}
+				v, err := b().Get(ctx, ref)
+				return v, "", findable(err)
 			},
 		},
 		{
@@ -172,11 +175,11 @@ func (s *Server) toolTable() []tool {
 			run: func(_ context.Context, c caller, in any) (any, string, error) {
 				q := in.(*topicInput)
 				if !topicRE.MatchString(q.Topic) {
-					return nil, "", refuse(model.ErrCodeInvalidInput, "invalid topic")
+					return nil, "", refuse(model.ErrCodeInvalidInput, "invalid topic: %s", topicsHint)
 				}
 				env, ok := b().Topic(c.p.User, q.Topic)
 				if !ok {
-					return nil, "", refuse(model.ErrCodeNotFound, "unknown topic")
+					return nil, "", refuse(model.ErrCodeNotFound, "unknown topic: %s", topicsHint)
 				}
 				var data any
 				dec := json.NewDecoder(bytes.NewReader(env.Data))
@@ -194,11 +197,15 @@ func (s *Server) toolTable() []tool {
 		{
 			name: "dash_series", title: "Read a metric series", scope: "read", input: &seriesInput{},
 			desc: "A named metric series: per line its minimum, maximum, average and last value, and at most 60 " +
-				"points. Only the named series dash defines.",
+				"points. Only the series dash defines, e.g. pod.cpu, pod.mem, node.cpu, node.mem, vm.cpu, vm.mem, " +
+				"host.cpu, host.mem and host.power; an unknown name is answered with every name dash serves now.",
 			run: func(ctx context.Context, _ caller, in any) (any, string, error) {
 				q := in.(*seriesInput)
 				if !slices.Contains(seriesRanges, q.Range) {
 					return nil, "", refuse(model.ErrCodeInvalidInput, "range must be one of %s", strings.Join(seriesRanges, ", "))
+				}
+				if names := b().SeriesNames(); !slices.Contains(names, q.Name) {
+					return nil, "", refuse(model.ErrCodeInvalidInput, "unknown series %q; the series are: %s", q.Name, strings.Join(names, ", "))
 				}
 				lines, step, err := b().Series(ctx, q.Name, q.Range, q.Args)
 				if err != nil {
@@ -254,14 +261,41 @@ func (s *Server) toolTable() []tool {
 					}
 					o.Include = append(o.Include, model.ContextInclude(p))
 				}
+				if err := checkRefArg(q.Ref); err != nil {
+					return nil, "", err
+				}
 				bun, err := b().Context(c.r, q.Ref, o)
 				if err != nil {
-					return nil, "", err
+					return nil, "", findable(err)
 				}
 				return bun, bundle.Markdown(bun), nil
 			},
 		},
 	}
+}
+
+// searchKinds are the kinds of the objects dash's plugins answer for, by plugin.
+const searchKinds = "Pod, Workload, Node, Namespace, PVC, App, BackupJob, Certificate, ExternalSecret (kubernetes); " +
+	"VM, Storage (proxmox); Alert, Silence (alertmanager); Cluster (cnpg); GitRepository, HelmRelease, " +
+	"HelmRepository, Kustomization, OCIRepository (flux); Endpoint (gatus); Disk, Host, Machine, Pool (hardware)"
+
+// topicsHint says where the topic names are.
+const topicsHint = "resources/list lists the topics this token may read, as dash://topics/<topic>"
+
+// checkRefArg refuses a ref that is not one, naming the format.
+func checkRefArg(ref string) error {
+	if _, _, _, ok := model.ParseRef(ref); !ok {
+		return refuse(model.ErrCodeInvalidInput, "invalid ref: a ref is <plugin>:<Kind>/<id>, e.g. %s", refExample)
+	}
+	return nil
+}
+
+// findable makes an unknown-object refusal say where refs come from.
+func findable(err error) error {
+	if te, ok := errors.AsType[*Error](err); ok && te.Code == model.ErrCodeNotFound {
+		return refuse(te.Code, "%s; find refs with dash_search", te.Message)
+	}
+	return err
 }
 
 func orEmpty[T any](s []T) []T {

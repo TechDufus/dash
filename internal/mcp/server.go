@@ -42,8 +42,9 @@ const maxRequestBody = 1 << 20
 type Backend interface {
 	// Overview is the current core.overview payload.
 	Overview() (model.OverviewData, bool)
-	// Search asks every running plugin with objects, in registry order, for at most limit hits.
-	Search(query string, limit int) []model.SearchHit
+	// Search asks every running plugin with objects, in registry order, for at most limit hits,
+	// of kinds when it is not empty.
+	Search(query string, kinds []string, limit int) []model.SearchHit
 	// Get is one object by ref; Secret and ConfigMap objects are never returned.
 	Get(ctx context.Context, ref string) (any, error)
 	// Topic is the current envelope of topic as user reads it (their own copy of a scoped
@@ -52,6 +53,8 @@ type Backend interface {
 	// Series reads a named series over rng with its query parameters (vmid, namespace, pod,
 	// node), with the step it was read at in seconds.
 	Series(ctx context.Context, name, rng string, args map[string]string) ([]model.SeriesLine, int, error)
+	// SeriesNames are the names Series serves now: what an unknown name is answered with.
+	SeriesNames() []string
 	// Logs reads at most limit of the newest log lines, oldest first, as r's principal through
 	// the victorialogs route (its scope and deny lists apply).
 	Logs(r *http.Request, ref model.LogsRef, since, query string, limit int) ([]model.LogLine, error)

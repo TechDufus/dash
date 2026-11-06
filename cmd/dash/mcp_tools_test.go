@@ -163,3 +163,41 @@ func TestMCPContextWithoutTheLogsScope(t *testing.T) {
 		t.Errorf("bundle logs %d, note %q", len(b.Logs), b.LogsNote)
 	}
 }
+
+// dash_search's description names every kind the demo's plugins answer with, dash_series
+// answers an unknown name with the names it serves, and a bad namespace in dash_logs is the
+// caller's mistake, not an outage.
+func TestMCPToolsDescribeAndRefuseWithTheRealNames(t *testing.T) {
+	fw, _ := startDemo(t)
+	awaitDemoTopics(t, fw)
+	kinds := map[string]bool{}
+	for _, id := range fw.sup.ObjectInstances() {
+		o, _ := fw.sup.Objects(id)
+		for _, h := range o.Search("", nil, 100000) {
+			kinds[h.Kind] = true
+		}
+	}
+	series := fw.sup.SeriesNames()
+
+	addr := startMCPDemo(t)
+	cs := mcpSession(t, addr, mcpLogsToken, "2026-07-28")
+	res, err := cs.ListTools(context.Background(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	i := slices.IndexFunc(res.Tools, func(tl *sdk.Tool) bool { return tl.Name == "dash_search" })
+	desc := res.Tools[i].Description
+	for k := range kinds {
+		if !strings.Contains(desc, " "+k+",") && !strings.Contains(desc, " "+k+" (") {
+			t.Errorf("the dash_search description lacks the kind %s: %s", k, desc)
+		}
+	}
+	text, isErr := callTool(t, cs, "dash_series", map[string]any{"name": "nope.cpu", "range": "1h"}, nil)
+	if !isErr || !strings.Contains(text, "invalid_input") || !strings.Contains(text, strings.Join(series, ", ")) {
+		t.Errorf("unknown series: %s (want the names %v)", text, series)
+	}
+	text, isErr = callTool(t, cs, "dash_logs", map[string]any{"namespace": "Not_A_Namespace", "pod": "x"}, nil)
+	if !isErr || !strings.HasPrefix(text, "invalid_input: invalid namespace") {
+		t.Errorf("a bad namespace: %s", text)
+	}
+}

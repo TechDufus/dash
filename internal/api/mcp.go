@@ -105,7 +105,7 @@ type mcpBackend struct{ s *Server }
 
 func (b mcpBackend) Overview() (model.OverviewData, bool) { return b.s.overview() }
 
-func (b mcpBackend) Search(query string, limit int) []model.SearchHit {
+func (b mcpBackend) Search(query string, kinds []string, limit int) []model.SearchHit {
 	out := []model.SearchHit{}
 	if b.s.d.Plugins == nil {
 		return out
@@ -115,10 +115,17 @@ func (b mcpBackend) Search(query string, limit int) []model.SearchHit {
 			break
 		}
 		if o, ok := b.s.d.Plugins.Objects(id); ok {
-			out = append(out, o.Search(query, limit-len(out))...)
+			out = append(out, o.Search(query, kinds, limit-len(out))...)
 		}
 	}
 	return out
+}
+
+func (b mcpBackend) SeriesNames() []string {
+	if b.s.d.Plugins == nil {
+		return []string{}
+	}
+	return b.s.d.Plugins.SeriesNames()
 }
 
 func (b mcpBackend) Get(ctx context.Context, ref string) (any, error) {
@@ -165,6 +172,12 @@ func (b mcpBackend) Series(ctx context.Context, name, rng string, args map[strin
 func (b mcpBackend) Logs(r *http.Request, ref model.LogsRef, since, query string, limit int) ([]model.LogLine, error) {
 	if !mayReadLogs(principalFrom(r.Context())) {
 		return nil, &dashmcp.Error{Code: model.ErrCodeInsufficientScope, Message: "this token lacks the logs scope"}
+	}
+	// A name the logs route would refuse is the caller's mistake, not an outage.
+	for _, f := range [...]struct{ what, v string }{{"namespace", ref.Namespace}, {"pod", ref.Pod}, {"container", ref.Container}} {
+		if f.v != "" && !queries.ValidDNS(f.v) {
+			return nil, &dashmcp.Error{Code: model.ErrCodeInvalidInput, Message: "invalid " + f.what + ": lowercase letters, digits, '-' and '.', as Kubernetes names it"}
+		}
 	}
 	lines, note := b.s.readLogs(r, ref, since, query, limit)
 	switch note {

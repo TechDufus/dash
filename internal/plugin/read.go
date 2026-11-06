@@ -221,6 +221,29 @@ func (s *Supervisor) RouteInfos(instance ID) []RouteInfo {
 // that was started, which after a reload is a new one, and which in demo mode is the twin. The
 // plugin is called outside every supervisor lock.
 func (s *Supervisor) Series(name string) (SeriesSpec, ID, bool) {
+	var found SeriesSpec
+	var owner ID
+	s.eachSeries(func(id ID, sp SeriesSpec) bool {
+		if sp.Name != name {
+			return true
+		}
+		found, owner = sp, id
+		return false
+	})
+	return found, owner, owner != ""
+}
+
+// SeriesNames are the names of the series the running instances define, in registry order: what
+// Series finds.
+func (s *Supervisor) SeriesNames() []string {
+	out := []string{}
+	s.eachSeries(func(_ ID, sp SeriesSpec) bool { out = append(out, sp.Name); return true })
+	return out
+}
+
+// eachSeries calls fn with every series of every running instance, from the Manifest of the
+// plugin that runs, until fn returns false.
+func (s *Supervisor) eachSeries(fn func(ID, SeriesSpec) bool) {
 	for _, in := range s.registry() {
 		in.mu.RLock()
 		running, p := in.running, in.p
@@ -233,11 +256,12 @@ func (s *Supervisor) Series(name string) (SeriesSpec, ID, bool) {
 			s.log().Error("panic in Manifest", "plugin", in.id, "panic", fmt.Sprint(rec))
 			continue
 		}
-		if i := slices.IndexFunc(series, func(sp SeriesSpec) bool { return sp.Name == name }); i >= 0 {
-			return series[i], in.id, true
+		for _, sp := range series {
+			if !fn(in.id, sp) {
+				return
+			}
 		}
 	}
-	return SeriesSpec{}, "", false
 }
 
 // Ready reports the plugin half of /readyz: every instance's Start has returned, and every

@@ -61,18 +61,27 @@ var refArg = &sdk.PromptArgument{Name: "ref", Title: "Object ref", Required: tru
 
 func noArgs(map[string]string) (promptArgs, error) { return promptArgs{}, nil }
 
-// checkRef accepts a well-formed ref, of kind when kind is not empty.
+// checkRef accepts a well-formed ref, of kind when kind is not empty; a refusal shows a ref.
 func checkRef(kind string) func(map[string]string) (promptArgs, error) {
+	example := refExample
+	if kind == "Alert" {
+		example = "alertmanager:Alert/<fingerprint>"
+	}
 	return func(a map[string]string) (promptArgs, error) {
-		_, k, _, ok := model.ParseRef(a["ref"])
-		if !ok || (kind != "" && k != kind) {
-			want := "a ref"
-			if kind != "" {
-				want = "the ref of an " + kind
-			}
-			return promptArgs{}, &jsonrpc.Error{Code: jsonrpc.CodeInvalidParams, Message: "ref must be " + want}
+		ref := a["ref"]
+		_, k, _, ok := model.ParseRef(ref)
+		var msg string
+		switch {
+		case ref == "":
+			msg = "ref is required, e.g. " + example
+		case !ok:
+			msg = "ref must be <plugin>:<Kind>/<id>, e.g. " + example
+		case kind != "" && k != kind:
+			msg = "ref must be the ref of an " + kind + ", e.g. " + example + "; find one with dash_search"
+		default:
+			return promptArgs{Ref: ref}, nil
 		}
-		return promptArgs{Ref: a["ref"]}, nil
+		return promptArgs{}, &jsonrpc.Error{Code: jsonrpc.CodeInvalidParams, Message: msg}
 	}
 }
 

@@ -28,7 +28,7 @@ func TestDemoObjectsSearchGetAndContext(t *testing.T) {
 		if !ok {
 			t.Fatalf("%s: no Objects", id)
 		}
-		hits := o.Search("", 25)
+		hits := o.Search("", nil, 25)
 		if len(hits) == 0 {
 			t.Errorf("%s: Search found nothing", id)
 			continue
@@ -59,7 +59,7 @@ func TestDemoPodGetAndContext(t *testing.T) {
 	fw, _ := startDemo(t)
 	awaitDemoTopics(t, fw)
 	o, _ := fw.sup.Objects("kubernetes")
-	pods := o.Search("Pod", 25)
+	pods := o.Search("", []string{"Pod"}, 25)
 	i := slices.IndexFunc(pods, func(h model.SearchHit) bool { return h.Kind == "Pod" })
 	if i < 0 {
 		t.Fatal("no demo pod")
@@ -106,7 +106,7 @@ func TestDemoContextPartsNameTheirSeriesAndRelatedObjects(t *testing.T) {
 	first := func(id plugin.ID, kind string) model.ContextPart {
 		t.Helper()
 		o, _ := fw.sup.Objects(id)
-		hits := o.Search("", 1000)
+		hits := o.Search("", []string{kind}, 1)
 		i := slices.IndexFunc(hits, func(h model.SearchHit) bool { return h.Kind == kind })
 		if i < 0 {
 			t.Fatalf("no %s %s", id, kind)

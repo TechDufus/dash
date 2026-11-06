@@ -20,8 +20,9 @@ import (
 // GET /api/v1/context. Every ref it takes and returns is one of its own (<plugin>:<Kind>/<id>).
 type Objects interface {
 	// Search returns at most limit objects whose ref or title holds every word of query
-	// (ignoring case); an empty query matches every object. The order is the plugin's and stable.
-	Search(query string, limit int) []model.SearchHit
+	// (ignoring case) and, when kinds is not empty, whose kind is one of them (ignoring case); an
+	// empty query matches every object. The order is the plugin's and stable.
+	Search(query string, kinds []string, limit int) []model.SearchHit
 	// Get returns one object. A ref the plugin does not know is ErrNotFound (NotFound).
 	Get(ctx context.Context, ref string) (any, error)
 	// Context returns the plugin's part of the object's context bundle.
@@ -153,7 +154,7 @@ func (s *ObjectStore) Find(ref string) (any, bool) {
 }
 
 // Search implements Objects.Search over the published objects.
-func (s *ObjectStore) Search(query string, limit int) []model.SearchHit {
+func (s *ObjectStore) Search(query string, kinds []string, limit int) []model.SearchHit {
 	words := strings.Fields(strings.ToLower(query))
 	out := []model.SearchHit{}
 	if limit <= 0 {
@@ -161,6 +162,9 @@ func (s *ObjectStore) Search(query string, limit int) []model.SearchHit {
 	}
 	for _, v := range s.objects() {
 		h := hitOf(v)
+		if len(kinds) > 0 && !slices.ContainsFunc(kinds, func(k string) bool { return strings.EqualFold(k, h.Kind) }) {
+			continue
+		}
 		hay := strings.ToLower(h.Ref + " " + h.Title)
 		if !slices.ContainsFunc(words, func(w string) bool { return !strings.Contains(hay, w) }) {
 			out = append(out, h)
@@ -364,14 +368,14 @@ func (g guardedObjects) recovered(method string, rec any) {
 	g.s.log().Error("panic in "+method, "plugin", g.id, "panic", fmt.Sprint(rec), "stack", string(debug.Stack()))
 }
 
-func (g guardedObjects) Search(query string, limit int) (out []model.SearchHit) {
+func (g guardedObjects) Search(query string, kinds []string, limit int) (out []model.SearchHit) {
 	defer func() {
 		if r := recover(); r != nil {
 			g.recovered("Search", r)
 			out = []model.SearchHit{}
 		}
 	}()
-	return g.o.Search(query, limit)
+	return g.o.Search(query, kinds, limit)
 }
 
 func (g guardedObjects) Get(ctx context.Context, ref string) (out any, err error) {

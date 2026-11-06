@@ -62,23 +62,28 @@ func TestObjectStoreSearchesThePublishedObjects(t *testing.T) {
 	s := storeWith(t)
 	for _, tc := range []struct {
 		query string
+		kinds []string
 		limit int
 		want  string
 	}{
-		{"", 25, "[kubernetes:Pod/media/web-1 kubernetes:Pod/media/db-0 kubernetes:Pod/ops/web-2 kubernetes:Node/cp-1]"},
-		{"", 2, "[kubernetes:Pod/media/web-1 kubernetes:Pod/media/db-0]"},
-		{"WEB", 25, "[kubernetes:Pod/media/web-1 kubernetes:Pod/ops/web-2]"},
-		{"web media", 25, "[kubernetes:Pod/media/web-1]"},
-		{"node", 25, "[kubernetes:Node/cp-1]"},
-		{"token", 25, "[]"},
-		{"secret", 25, "[]"},
-		{"", 0, "[]"},
+		{"", nil, 25, "[kubernetes:Pod/media/web-1 kubernetes:Pod/media/db-0 kubernetes:Pod/ops/web-2 kubernetes:Node/cp-1]"},
+		{"", nil, 2, "[kubernetes:Pod/media/web-1 kubernetes:Pod/media/db-0]"},
+		{"WEB", nil, 25, "[kubernetes:Pod/media/web-1 kubernetes:Pod/ops/web-2]"},
+		{"web media", nil, 25, "[kubernetes:Pod/media/web-1]"},
+		{"node", nil, 25, "[kubernetes:Node/cp-1]"},
+		{"token", nil, 25, "[]"},
+		{"secret", nil, 25, "[]"},
+		{"", nil, 0, "[]"},
+		// The kinds filter runs before the limit: the one node is found past three pods.
+		{"", []string{"node"}, 1, "[kubernetes:Node/cp-1]"},
+		{"", []string{"Pod", "VM"}, 25, "[kubernetes:Pod/media/web-1 kubernetes:Pod/media/db-0 kubernetes:Pod/ops/web-2]"},
+		{"web", []string{"Node"}, 25, "[]"},
 	} {
-		if got := fmt.Sprint(refsOf(s.Search(tc.query, tc.limit))); got != tc.want {
-			t.Errorf("Search(%q, %d) = %s, want %s", tc.query, tc.limit, got, tc.want)
+		if got := fmt.Sprint(refsOf(s.Search(tc.query, tc.kinds, tc.limit))); got != tc.want {
+			t.Errorf("Search(%q, %v, %d) = %s, want %s", tc.query, tc.kinds, tc.limit, got, tc.want)
 		}
 	}
-	hit := s.Search("db-0", 1)[0]
+	hit := s.Search("db-0", nil, 1)[0]
 	if hit.Kind != "Pod" || hit.Title != "db-0" || hit.Summary != "health crit, phase Pending" {
 		t.Errorf("hit = %+v", hit)
 	}
@@ -103,7 +108,7 @@ func TestObjectStoreGetsAnObjectAndRefusesSecrets(t *testing.T) {
 func TestObjectStoreKeepsOnlyTheLatestPayload(t *testing.T) {
 	s := storeWith(t)
 	s.Wrap(&pubHost{}).Publish("cluster", storePayload{Pods: []model.Pod{{Ref: "kubernetes:Pod/a/b", Name: "b"}}}, nil)
-	if got := fmt.Sprint(refsOf(s.Search("", 25))); got != "[kubernetes:Pod/a/b kubernetes:Node/cp-1]" {
+	if got := fmt.Sprint(refsOf(s.Search("", nil, 25))); got != "[kubernetes:Pod/a/b kubernetes:Node/cp-1]" {
 		t.Errorf("after a second publish: %s", got)
 	}
 }

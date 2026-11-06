@@ -361,7 +361,7 @@ A new optional plugin interface (A.3), implemented by kubernetes, flux, proxmox,
 
 ```go
 type Objects interface {
-	Search(query string, limit int) []model.SearchHit
+	Search(query string, kinds []string, limit int) []model.SearchHit
 	Get(ctx context.Context, ref string) (any, error)
 	Context(ctx context.Context, ref string, o model.ContextOptions) (model.ContextPart, error)
 }
