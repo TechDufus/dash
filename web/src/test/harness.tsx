@@ -237,6 +237,7 @@ export function pluginInfo(partial: Partial<PluginInfo> = {}): PluginInfo {
     actions: [],
     nav: [],
     configurable: false,
+    objects: false,
     ...partial,
   };
 }

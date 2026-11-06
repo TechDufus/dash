@@ -67,6 +67,8 @@ func (s *Supervisor) info(in *instance) model.PluginInfo {
 		}
 		pi.Nav = append(pi.Nav, model.NavItem{Path: "/x/" + string(in.id), Label: m.Name, Title: m.Name, Icon: icon})
 	}
+	_, pi.Objects = p.(Objects)
+	pi.Objects = pi.Objects && running // as objectsOf: only a running instance answers
 	if running && enabled {
 		if _, ok := p.(Actor); ok {
 			for _, a := range m.Actions {

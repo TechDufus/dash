@@ -91,6 +91,8 @@ type PluginInfo struct {
 	Nav          []NavItem     `json:"nav"`
 	Generic      []GenericView `json:"generic"` // views the SPA renders for this plugin; empty when it has a module of its own
 	Configurable bool          `json:"configurable"`
+	// Objects reports whether the plugin implements plugin.Objects: its refs can be searched, read and bundled (dash_get, GET /api/v1/context).
+	Objects bool `json:"objects"`
 }
 
 // PluginsData is the payload of core.plugins.

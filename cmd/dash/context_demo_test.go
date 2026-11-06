@@ -164,3 +164,42 @@ func TestDemoContextBundleRefusals(t *testing.T) {
 		}
 	}
 }
+
+// GET /api/v1/plugins says which plugins answer for their objects (objects: true), so the web
+// UI offers "Copy context for AI" only for their refs: exactly the instances the context route
+// asks.
+func TestDemoPluginsSayWhichHaveObjects(t *testing.T) {
+	fw, cfg := startDemo(t)
+	awaitDemoTopics(t, fw)
+	h := api.New(api.Deps{Cfg: cfg, Hub: fw.hub, Plugins: fw.sup, Health: fw.sup, Auth: auth.Fixed(demoAdmin)}).Handler()
+	r := httptest.NewRequest(http.MethodGet, cfg.PublicURL+"/api/v1/plugins", nil)
+	r.RemoteAddr = "127.0.0.1:41000"
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, r)
+	var infos []model.PluginInfo
+	if err := json.Unmarshal(w.Body.Bytes(), &infos); err != nil || w.Code != http.StatusOK {
+		t.Fatalf("%d %s", w.Code, w.Body)
+	}
+	answering := map[string]bool{}
+	for _, id := range fw.sup.ObjectInstances() {
+		answering[string(id)] = true
+	}
+	with, without := 0, 0
+	for _, pi := range infos {
+		if pi.Objects != answering[pi.ID] {
+			t.Errorf("%s: objects %v, answers for objects %v", pi.ID, pi.Objects, answering[pi.ID])
+		}
+		if pi.Objects {
+			with++
+		} else {
+			without++
+		}
+	}
+	byID := map[string]bool{}
+	for _, pi := range infos {
+		byID[pi.ID] = pi.Objects
+	}
+	if !byID["kubernetes"] || !byID["alertmanager"] || byID["launcher"] || with == 0 || without == 0 {
+		t.Errorf("objects by plugin: %v", byID)
+	}
+}

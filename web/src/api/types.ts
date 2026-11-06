@@ -1316,6 +1316,10 @@ export interface PluginInfo {
   nav: NavItem[];
   generic: GenericView[]; // views the SPA renders for this plugin; empty when it has a module of its own
   configurable: boolean;
+  /**
+   * Objects reports whether the plugin implements plugin.Objects: its refs can be searched, read and bundled (dash_get, GET /api/v1/context).
+   */
+  objects: boolean;
 }
 /**
  * PluginsData is the payload of core.plugins.
