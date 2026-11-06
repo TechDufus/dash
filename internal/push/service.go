@@ -301,8 +301,8 @@ func (s *Service) Attention(id string, m model.PushMessage, crit bool) {
 // job is one delivery on its way: queued, in flight or waiting out a retry.
 type job struct {
 	id, host, user string // host: the push service's, for perHost; user: the owner's, for perUser
-	d        delivery
-	attempt  int
+	d              delivery
+	attempt        int
 	// Set by the first attempt.
 	prepared bool
 	t        credentials.PushTarget

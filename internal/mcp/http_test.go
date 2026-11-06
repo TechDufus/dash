@@ -94,7 +94,7 @@ func rpc(t *testing.T, url, method string, params any) rpcReply {
 	r.Header.Set("Content-Type", "application/json")
 	r.Header.Set("Accept", "application/json, text/event-stream")
 	r.Header.Set("Mcp-Protocol-Version", "2025-11-25")
-	r.Header.Set("Authorization", "Bearer t") // dash resolved the principal; the SDK only wants a header
+	r.Header.Set("Authorization", "Bearer t")                    // dash resolved the principal; the SDK only wants a header
 	resp, err := (&http.Client{Timeout: 10 * time.Second}).Do(r) // a stream left open fails, not hangs
 	if err != nil {
 		t.Fatalf("%s: %v", method, err)
