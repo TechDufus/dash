@@ -5,7 +5,6 @@ import (
 	"embed"
 	"slices"
 	"strings"
-	"text/template"
 
 	"github.com/modelcontextprotocol/go-sdk/jsonrpc"
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
@@ -19,8 +18,36 @@ var promptFiles embed.FS
 // digestSinces are the periods dash_daily_digest takes.
 var digestSinces = []string{"6h", "24h", "7d"}
 
-// promptArgs are what a prompt's template reads, validated before it is rendered.
+// promptArgs are what a prompt's text reads, validated before it is rendered.
 type promptArgs struct{ Ref, Since string }
+
+// render fills in text's placeholders: `{{.Ref}}` (with its backticks) becomes the ref in a code
+// span it cannot close, {{.Since}} the period. A plain replacer, not text/template: that
+// package's reflect.MethodByName turns off the linker's dead-code elimination (about 27 MB of
+// binary; internal/hygiene keeps both template packages out).
+func (a promptArgs) render(text string) string {
+	return strings.NewReplacer("`{{.Ref}}`", codeSpan(a.Ref), "{{.Since}}", a.Since).Replace(text)
+}
+
+// codeSpan is s as a Markdown code span: delimited by a backtick run longer than any in s, and
+// padded with a space when s starts or ends with a backtick (CommonMark 6.1), so the client's
+// text cannot end the span and become prose.
+func codeSpan(s string) string {
+	longest, run := 0, 0
+	for i := range len(s) {
+		if s[i] == '`' {
+			run++
+			longest = max(longest, run)
+		} else {
+			run = 0
+		}
+	}
+	fence := strings.Repeat("`", longest+1)
+	if strings.HasPrefix(s, "`") || strings.HasSuffix(s, "`") {
+		s = " " + s + " "
+	}
+	return fence + s + fence
+}
 
 type prompt struct {
 	name, title, desc string
@@ -73,23 +100,19 @@ var prompts = []prompt{
 // addPrompts registers the prompts, each rendered from internal/mcp/prompts/<name>.md.
 func (s *Server) addPrompts() {
 	for _, p := range prompts {
-		text, err := promptFiles.ReadFile("prompts/" + p.name + ".md")
+		raw, err := promptFiles.ReadFile("prompts/" + p.name + ".md")
 		if err != nil {
 			panic(err) // the files are embedded: only a renamed file gets here, and a test catches it
 		}
-		tmpl := template.Must(template.New(p.name).Option("missingkey=error").Parse(string(text)))
+		text := string(raw)
 		s.srv.AddPrompt(&sdk.Prompt{Name: p.name, Title: p.title, Description: p.desc, Arguments: p.args},
 			func(_ context.Context, req *sdk.GetPromptRequest) (*sdk.GetPromptResult, error) {
 				args, err := p.check(req.Params.Arguments)
 				if err != nil {
 					return nil, err
 				}
-				var b strings.Builder
-				if err := tmpl.Execute(&b, args); err != nil {
-					return nil, err
-				}
 				return &sdk.GetPromptResult{Description: p.desc, Messages: []*sdk.PromptMessage{
-					{Role: "user", Content: &sdk.TextContent{Text: b.String()}},
+					{Role: "user", Content: &sdk.TextContent{Text: args.render(text)}},
 				}}, nil
 			})
 	}
