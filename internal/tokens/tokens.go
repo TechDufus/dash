@@ -166,3 +166,69 @@ func (r *Resolver) resolveAccess(token, audience string) (auth.Principal, error)
 		GrantID: g.ID, ClientID: g.ClientID, Audience: g.Audience, Scopes: scopes,
 	}, nil
 }
+
+// Revive is p, a personal access token's or an OAuth grant's principal resolved earlier, as its
+// credential stands now (contract D52): an approval runs as the requester at the moment it is
+// approved. The token or grant must still exist, be unexpired (a grant active) and be for the
+// same audience, and its owner must still have a role. A token's scopes and actionNamespaces
+// are the token's now; a grant's scopes are p's that the grant still holds. A static token
+// never revives: it has no owner to approve for it. Every refusal is ErrInvalid.
+func (r *Resolver) Revive(p auth.Principal) (auth.Principal, error) {
+	if r.store == nil || p.Kind != auth.KindToken || strings.HasPrefix(p.TokenID, StaticIDPrefix) {
+		return auth.Principal{}, ErrInvalid
+	}
+	now := r.now()
+	switch {
+	case p.TokenID != "":
+		t, ok := r.store.PATByID(p.TokenID)
+		if !ok || !now.Before(t.ExpiresAt) || t.Audience != p.Audience || t.User != p.User {
+			return auth.Principal{}, ErrInvalid
+		}
+		role := r.roles.RoleForClaims(t.User, t.Groups, t.RoleClaim)
+		if role == "" {
+			return auth.Principal{}, ErrInvalid
+		}
+		return auth.Principal{
+			Kind: auth.KindToken, User: t.User, Role: role, Via: "bearer", Groups: t.Groups, RoleClaim: t.RoleClaim,
+			TokenID: t.ID, Audience: t.Audience, Scopes: slices.Clone(t.Scopes), ActionNamespaces: slices.Clone(t.ActionNamespaces),
+		}, nil
+	case p.GrantID != "":
+		g, ok := r.store.GrantByID(p.GrantID)
+		if !ok || !g.Active(now) || g.Audience != p.Audience || g.User != p.User {
+			return auth.Principal{}, ErrInvalid
+		}
+		role := r.roles.RoleForClaims(g.User, g.Groups, g.RoleClaim)
+		if role == "" {
+			return auth.Principal{}, ErrInvalid
+		}
+		var scopes []string
+		for _, sc := range p.Scopes {
+			if slices.Contains(g.Scopes, sc) {
+				scopes = append(scopes, sc)
+			}
+		}
+		return auth.Principal{
+			Kind: auth.KindToken, User: g.User, Role: role, Via: "bearer", Groups: g.Groups, RoleClaim: g.RoleClaim,
+			GrantID: g.ID, ClientID: g.ClientID, Audience: g.Audience, Scopes: scopes,
+		}, nil
+	}
+	return auth.Principal{}, ErrInvalid
+}
+
+// CredentialName is the name a person knows p's credential by: a personal access token's name,
+// an OAuth grant's client name, a static token's name; "" when there is none.
+func (r *Resolver) CredentialName(p auth.Principal) string {
+	switch {
+	case strings.HasPrefix(p.TokenID, StaticIDPrefix):
+		return strings.TrimPrefix(p.TokenID, StaticIDPrefix)
+	case r.store == nil:
+		return ""
+	case p.TokenID != "":
+		t, _ := r.store.PATByID(p.TokenID)
+		return t.Name
+	case p.GrantID != "":
+		g, _ := r.store.GrantByID(p.GrantID)
+		return g.ClientName
+	}
+	return ""
+}

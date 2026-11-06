@@ -15,6 +15,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/TechDufus/dash/internal/approvals"
 	"github.com/TechDufus/dash/internal/audit"
 	"github.com/TechDufus/dash/internal/auth"
 	"github.com/TechDufus/dash/internal/config"
@@ -180,6 +181,7 @@ type Server struct {
 	mcpOnce           sync.Once
 	mcp               *dashmcp.Server // built at the first /mcp request
 	mcpOn             atomic.Bool     // the MCP state last logged (LogMCPState)
+	approvals         *approvals.Store
 }
 
 // New builds a Server serving the embedded SPA.
@@ -209,6 +211,7 @@ func New(d Deps) *Server {
 		openTarget:        newRateLimiter(1, openRecordWindow, maxRateKeys),
 		openUser:          newRateLimiter(openRecordPerUser, openRecordWindow, maxRateKeys),
 	}
+	s.approvals = s.newApprovals()
 	if d.OAuth != nil {
 		d.OAuth.OnGrantExpired(s.auditGrantExpired)
 		// The mcp resource, its metadata and its consent follow /mcp itself: mcp.enabled, live.

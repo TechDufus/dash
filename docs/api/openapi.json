@@ -208,6 +208,22 @@
         },
         "type": "object"
       },
+      "ApprovalDecision": {
+        "additionalProperties": false,
+        "properties": {
+          "approve": {
+            "type": "boolean"
+          },
+          "confirm": {
+            "maxLength": 253,
+            "type": "string"
+          }
+        },
+        "required": [
+          "approve"
+        ],
+        "type": "object"
+      },
       "ApprovalInfo": {
         "additionalProperties": false,
         "properties": {
@@ -3824,6 +3840,103 @@
   },
   "openapi": "3.1.0",
   "paths": {
+    "/api/v1/approvals/{id}": {
+      "get": {
+        "description": "One of the caller's approval requests, with the action's outcome once approved. 403 forbidden for another user's; 404 for an id that is not one; 410 approval_expired for one that expired or that dash does not know (requests do not survive a restart).",
+        "operationId": "getApproval",
+        "parameters": [
+          {
+            "description": "The request's ID, appr_<26 base32>.",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApprovalInfo"
+                }
+              }
+            },
+            "description": "Read an approval request",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/XRequestId"
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "summary": "Read an approval request",
+        "tags": [
+          "Approvals"
+        ],
+        "x-dash-min-role": "viewer",
+        "x-dash-scope": "approvals"
+      }
+    },
+    "/api/v1/approvals/{id}/decision": {
+      "post": {
+        "description": "Approving runs the action at once, as the agent's credential stands now, and answers the request with its outcome; when that credential lost what the action needs, the request is denied with the reason. 400 invalid_input when the request needs the target's name typed and confirm is not it; 403 forbidden for another user's; 404 for an id that is not one; 409 conflict when it is no longer pending; 410 approval_expired; 503 audit_unavailable (nothing ran).",
+        "operationId": "decideApproval",
+        "parameters": [
+          {
+            "description": "The request's ID, appr_<26 base32>.",
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApprovalDecision"
+              }
+            }
+          },
+          "description": "The JSON body of the request.",
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApprovalInfo"
+                }
+              }
+            },
+            "description": "Approve or deny an approval request",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/XRequestId"
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "summary": "Approve or deny an approval request",
+        "tags": [
+          "Approvals"
+        ],
+        "x-dash-min-role": "viewer",
+        "x-dash-scope": "approvals"
+      }
+    },
     "/api/v1/context": {
       "get": {
         "description": "The context bundle of one object (design N.4): the owning plugin's summary, facts, conditions, at most 20 events, related refs, links, series and logs; the overview's attention items for the ref; a summary of each series over 1h; and at most 100 of the newest log lines, only for a caller with the logs scope and never for a namespace victorialogs denies. format=markdown answers text/markdown in which every lab-sourced text sits in a fenced block after the untrusted-data sentence; the title names only the plugin and the Kind. logsNote is not_applicable for an object without logs. 400 for a malformed ref, format or include, 404 for an object no running plugin knows.",
@@ -5945,6 +6058,10 @@
     }
   ],
   "tags": [
+    {
+      "description": "An AI agent's action waiting for its owner's decision: read it and approve or deny it, from a browser or with the approvals scope.",
+      "name": "Approvals"
+    },
     {
       "name": "OAuth"
     },

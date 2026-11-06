@@ -33,7 +33,7 @@ func (s *Server) guard(rt Route, next http.HandlerFunc) http.HandlerFunc {
 			writeErr(w, http.StatusForbidden, model.ErrCodeForbidden, "this route needs a signed-in user, not a token")
 			return
 		}
-		if !p.Role.AtLeast(rt.Role) || (rt.Interactive && !p.Interactive()) || (p.Kind == auth.KindAnonymous && (rt.Scope == "logs" || rt.Scope == model.OAuthScopePush)) {
+		if !p.Role.AtLeast(rt.Role) || (rt.Interactive && !p.Interactive()) || (p.Kind == auth.KindAnonymous && (rt.Scope == "logs" || rt.Scope == model.OAuthScopePush || rt.Scope == model.OAuthScopeApprovals)) {
 			s.deny(r, obs.AuthForbidden)
 			writeErr(w, http.StatusForbidden, model.ErrCodeForbidden, "forbidden")
 			return

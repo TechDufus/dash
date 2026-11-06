@@ -195,6 +195,7 @@ func run(reg *secret.Registry, onBound func(api, health net.Addr)) error {
 		deps.Push = svc
 	}
 	srv := api.New(deps)
+	go srv.RunApprovals(ctx)
 	srv.LogMCPState()
 	reloader.Subscribe(func(c config.Change) {
 		if c.Section == "mcp" { // mcp.enabled is live

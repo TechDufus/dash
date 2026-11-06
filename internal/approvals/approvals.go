@@ -18,6 +18,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/TechDufus/dash/internal/auth"
 	"github.com/TechDufus/dash/internal/model"
 )
 
@@ -61,6 +62,9 @@ type Request struct {
 	Confirm        model.Confirm
 	CreatedAt      time.Time
 	ExpiresAt      time.Time
+	// Requester is the agent's principal when it asked. The API never runs the action as it:
+	// it resolves the credential again when the request is approved (contract D52).
+	Requester auth.Principal
 
 	state     string
 	claimed   bool // its owner's decision is under way: nobody else can decide it

@@ -107,6 +107,10 @@ type Record struct {
 	ArgsSHA256 string `json:"argsSha256,omitempty"`
 	Client     string `json:"client,omitempty"`
 	DurationMs int64  `json:"durationMs,omitempty"`
+	// The approval fields of design O.3: the approval request a record is about, and who
+	// approved the action an executed approval ran (the actor is then the requester).
+	Approval   string `json:"approval,omitempty"`
+	ApprovedBy string `json:"approvedBy,omitempty"`
 	Prev       string `json:"prev"`
 }
 
@@ -393,9 +397,10 @@ func (l *Log) bestEffort(rec Record) {
 // scrubbed is rec as the file and the rings keep it, and as the chain hashes it: every text that
 // can come from a request or another outside party goes through Scrub. That is the error, the
 // action (a denial's is the client's request line), the target (an attempted login name, the
-// object a stream names), the request id a proxy sent, and the actor's user and client ids. Kind,
-// ID and the values the Log or the server sets themselves (result, source, auth mode, reason,
-// peer address, plugin instance, changed config paths) are kept as they are.
+// object a stream names), the request id a proxy sent, the actor's user and client ids, and the
+// approver's name. Kind, ID and the values the Log or the server sets themselves (result,
+// source, auth mode, reason, peer address, plugin instance, approval id, changed config paths)
+// are kept as they are.
 func (l *Log) scrubbed(rec Record) Record {
 	if l == nil || l.opts.Scrub == nil {
 		return rec
@@ -404,6 +409,7 @@ func (l *Log) scrubbed(rec Record) Record {
 	rec.Action, rec.Error, rec.RequestID = s(rec.Action), s(rec.Error), s(rec.RequestID)
 	rec.Target.Kind, rec.Target.Namespace, rec.Target.Name = s(rec.Target.Kind), s(rec.Target.Namespace), s(rec.Target.Name)
 	rec.Actor.User, rec.Actor.ClientID, rec.Client = s(rec.Actor.User), s(rec.Actor.ClientID), s(rec.Client)
+	rec.ApprovedBy = s(rec.ApprovedBy)
 	return rec
 }
 
@@ -424,6 +430,7 @@ func (l *Log) emit(rec Record, denialReason string) {
 	for _, kv := range [...]struct{ k, v string }{
 		{"plugin", rec.Plugin}, {"requestId", rec.RequestID}, {"surface", surface},
 		{"tokenID", rec.Actor.TokenID}, {"argsSha256", rec.ArgsSHA256}, {"client", rec.Client},
+		{"approval", rec.Approval}, {"approvedBy", rec.ApprovedBy},
 	} {
 		if kv.v != "" {
 			attrs = append(attrs, kv.k, kv.v)
