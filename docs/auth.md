@@ -115,8 +115,9 @@ mode (a session of the local mode never opens in the oidc mode, or the other way
 
 "Log out" ends your sessions on every device (a copied cookie stops working too). "Log out
 everywhere" does the same and revokes your [connected apps](#oauth) too; "Sign out all users"
-(administrators) ends every session of every user and revokes every connected app. Each asks
-first. No logout revokes a personal access token: revoke those in Settings → Tokens. An event
+(administrators) ends every session of every user and revokes every connected app. "Log out
+everywhere" and "Sign out all users" ask first. No logout revokes a personal access token: revoke
+those in Settings → Tokens. An event
 stream or log tail that is already open ends at its next heartbeat, within 15 seconds, and the
 page goes to sign in again. `credentials.yaml` is mode 0600, written atomically, never backed up
 (`.bak`), and locked (`.credentials.lock`) so that a second dash on the same data dir refuses to
@@ -369,13 +370,15 @@ same-origin.
 A bearer client has no identity proxy session, so the proxy in front of dash turns it away (or
 strips its `Authorization`). Bearer clients need a second host that reaches dash without the
 proxy, named by `server.directURL` (restart-only): an origin only (`https://dash-direct.example.com`,
-no path), not `server.publicURL`'s, https unless the host is loopback, and refused in
-`auth.mode=none`. With it set:
+no path), never on `server.publicURL`'s host, at any port, https unless the host is loopback, and
+refused in `auth.mode=none`. With it set:
 
 - dash answers that host (no need to list it in `server.allowedHosts`);
 - the start no longer warns that dash listens on a non-loopback address while only loopback
   proxies are trusted: that is the point of the direct host;
-- the 401 challenge points at `<directURL>/.well-known/oauth-protected-resource/<api|mcp>`, and
+- identity headers on that host are refused whatever the peer (401, recorded in the audit log
+  and counted with reason `direct_host`);
+- the 401 challenge points at `<directURL>/.well-known/oauth-protected-resource/api`, and
   [OAuth](#oauth) uses it as the issuer and the base of its token, revoke and discovery endpoints.
 
 The Helm chart's `routes.direct` sets all of this up for the oauth2-proxy sidecar
@@ -471,7 +474,7 @@ interactively, so offboarding includes revoking them. "Log out everywhere" revok
 "Sign out all users" everyone's; the proxy mode, which has no logout, offers "Revoke all my
 connected apps" on the Mine tab instead. In every mode an administrator's "All users" tab has
 "Revoke every user's connected apps" (`DELETE /api/v1/oauth/grants?user=*`; a viewer gets 403),
-the step to take before rolling back to v0.14.6. The last two ask first. Approving a consent and
+the step to take before rolling back to v0.14.6. Each of these asks first. Approving a consent and
 revoking a grant are audited before they happen: when the audit log cannot be written the answer
 is 503 `audit_unavailable` and nothing changes.
 
@@ -487,8 +490,9 @@ which knows the person; the client reaches everything else on the direct host. W
 `server.directURL` set (see [API tokens in the proxy mode](#api-tokens-in-the-proxy-mode)), the
 issuer, the resource (`<directURL>/api`), the token and revoke endpoints and
 the discovery documents are on the direct URL, while the metadata's `authorization_endpoint`
-stays `<publicURL>/oauth/authorize`. On the direct host `/oauth/authorize` and `/consent` answer
-404, since that host bypasses the proxy:
+stays `<publicURL>/oauth/authorize`. The identity proxy's skip-auth rules (oauth2-proxy
+`--skip-auth-route` or `--skip-auth-regex`) must not cover `/oauth/authorize` or `/consent`. On
+the direct host `/oauth/authorize` and `/consent` answer 404, since that host bypasses the proxy:
 
 1. the client calls `https://dash-direct.example.com/api/v1/...` without a token and reads the
    `resource_metadata` of the 401, then `/.well-known/oauth-authorization-server` there;

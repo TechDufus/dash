@@ -322,9 +322,10 @@ routes:
 - `config` sets `server.listen`, `server.healthListen`, `settings.ui` or `dataDir`, or `env` or
   `secretEnv` sets a variable the chart sets;
 - `routes.direct.enabled` is true without the sidecar or `routes.direct.host`, with
-  `replicaCount` above 1, `auth.mode: none` or `service.port` 8082, or with
+  `replicaCount` above 1, `auth.mode: none` or `service.port` 8082, with
   `config.server.directURL`, `config.auth.proxy.trustedProxies` or `allowAnyPeer` set (in
-  `config`, `env` or `secretEnv`);
+  `config`, `env` or `secretEnv`), or with `routes.direct.host` equal to an `ingress.hosts` host,
+  an `httpRoute.hostnames` entry or the host of `config.server.publicURL`;
 - `serviceAccount.create` is false without `serviceAccount.name`;
 - an `rbac.secretRefs` entry has no namespace, no names or a name that is not a non-blank string,
   or a namespace is listed twice;

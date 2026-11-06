@@ -223,7 +223,7 @@
           "x-dash-restart": true
         },
         "enabled": {
-          "description": "Serve dash's OAuth 2.1 authorization server, so MCP clients and the Android app sign in through dash and receive tokens (/oauth/authorize, /oauth/token, /oauth/revoke and the /.well-known/oauth-* documents). Off by default: it adds an endpoint that needs no sign-in (/oauth/token). It only runs in auth.mode local, oidc and proxy with a writable data dir; otherwise those paths answer 404. Behind an identity proxy, set server.directURL so clients can reach the token endpoint.",
+          "description": "Serve dash's OAuth 2.1 authorization server (/oauth/authorize, /oauth/token, /oauth/revoke and the /.well-known/oauth-* documents). Off by default: it adds an endpoint that needs no sign-in (/oauth/token). It only runs in auth.mode local, oidc and proxy with a writable data dir; otherwise those paths answer 404. Behind an identity proxy, set server.directURL so clients can reach the token endpoint.",
           "type": "boolean",
           "x-dash-restart": true
         }
