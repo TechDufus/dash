@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"maps"
 	"slices"
 	"strings"
 	"testing"
@@ -168,35 +169,59 @@ func TestMCPContextWithoutTheLogsScope(t *testing.T) {
 	}
 }
 
-// dash_search's description names every kind the demo's plugins answer with, dash_series
-// answers an unknown name with the names it serves, and a bad namespace in dash_logs is the
-// caller's mistake, not an outage.
+// dash_search names exactly the kinds the demo's plugins answer with, by plugin, in its
+// description and when it refuses an unknown kind (its list is kept by hand: a kind added or
+// gone fails here); dash_series answers an unknown name with the names it serves, and a bad
+// namespace in dash_logs is the caller's mistake, not an outage.
 func TestMCPToolsDescribeAndRefuseWithTheRealNames(t *testing.T) {
 	fw, _ := startDemo(t)
 	awaitDemoTopics(t, fw)
-	kinds := map[string]bool{}
+	demo := map[string]map[string]bool{} // plugin -> kinds
 	for _, id := range fw.sup.ObjectInstances() {
 		o, _ := fw.sup.Objects(id)
 		for _, h := range o.Search("", nil, 100000) {
-			kinds[h.Kind] = true
+			plugin, kind, _, ok := model.ParseRef(h.Ref)
+			if !ok || kind != h.Kind {
+				t.Fatalf("hit %+v: ref does not parse to its kind", h)
+			}
+			if demo[plugin] == nil {
+				demo[plugin] = map[string]bool{}
+			}
+			demo[plugin][kind] = true
 		}
 	}
 	series := fw.sup.SeriesNames()
 
 	addr := startMCPDemo(t)
 	cs := mcpSession(t, addr, mcpLogsToken, "2026-07-28")
+	text, isErr := callTool(t, cs, "dash_search", map[string]any{"kinds": []string{"NoSuchKind"}}, nil)
+	_, listed, found := strings.Cut(text, "the kinds are ")
+	if !isErr || !strings.HasPrefix(text, "invalid_input:") || !found {
+		t.Fatalf("an unknown kind: %s", text)
+	}
+	named := map[string]map[string]bool{}
+	for _, group := range strings.Split(listed, "; ") {
+		kinds, plugin, ok := strings.Cut(strings.TrimSuffix(group, ")"), " (")
+		if !ok {
+			t.Fatalf("a group without its plugin: %q in %s", group, listed)
+		}
+		named[plugin] = map[string]bool{}
+		for _, k := range strings.Split(kinds, ", ") {
+			named[plugin][k] = true
+		}
+	}
+	if !maps.EqualFunc(named, demo, maps.Equal) {
+		t.Errorf("dash_search names the kinds %v, the demo answers with %v", named, demo)
+	}
 	res, err := cs.ListTools(context.Background(), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	i := slices.IndexFunc(res.Tools, func(tl *sdk.Tool) bool { return tl.Name == "dash_search" })
-	desc := res.Tools[i].Description
-	for k := range kinds {
-		if !strings.Contains(desc, " "+k+",") && !strings.Contains(desc, " "+k+" (") {
-			t.Errorf("the dash_search description lacks the kind %s: %s", k, desc)
-		}
+	if desc := res.Tools[i].Description; !strings.Contains(desc, "The kinds: "+listed+".") {
+		t.Errorf("the dash_search description does not list the kinds %s: %s", listed, desc)
 	}
-	text, isErr := callTool(t, cs, "dash_series", map[string]any{"name": "nope.cpu", "range": "1h"}, nil)
+	text, isErr = callTool(t, cs, "dash_series", map[string]any{"name": "nope.cpu", "range": "1h"}, nil)
 	if !isErr || !strings.Contains(text, "invalid_input") || !strings.Contains(text, strings.Join(series, ", ")) {
 		t.Errorf("unknown series: %s (want the names %v)", text, series)
 	}

@@ -95,7 +95,7 @@ func TestToolErrorsAreActionable(t *testing.T) {
 		{"dash_topic", map[string]any{"topic": "core.nothing"}, model.ErrCodeNotFound, "unknown topic: resources/list lists"},
 		{"dash_series", map[string]any{"name": "pod.cpuu", "range": "1h"}, model.ErrCodeInvalidInput, `unknown series "pod.cpuu"; the series are: pod.cpu, host.power`},
 		{"dash_search", map[string]any{"kinds": []string{"pod", "Pods"}}, model.ErrCodeInvalidInput,
-			`unknown kind "Pods"; the kinds are Pod, Workload, Node, Namespace, PVC, App, BackupJob, Certificate, ExternalSecret (kubernetes); VM, Storage (proxmox); `},
+			`unknown kind "Pods"; the kinds are Pod, Workload, Node, Namespace, PVC, App, BackupJob, Certificate, ExternalSecret (kubernetes); VM, Node, Storage (proxmox); `},
 	} {
 		res := callTool(t, url, tc.tool, tc.args)
 		if !res.IsError || res.StructuredContent["code"] != tc.code || !strings.Contains(fmt.Sprint(res.StructuredContent["error"]), tc.want) {
