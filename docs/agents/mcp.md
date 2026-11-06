@@ -1,7 +1,9 @@
 # Connecting MCP clients
 
 This page connects AI clients to dash's [MCP server](../mcp.md): Claude Code with a personal access
-token, Claude Desktop and claude.ai through OAuth, VS Code and omp.
+token, Claude Desktop and claude.ai through OAuth, VS Code and omp. The [dash skill](dash-skill/SKILL.md)
+tells an agent how to use the tools once it is connected: copy its directory to
+`~/.claude/skills/dash/` for Claude Code or `~/.omp/agent/skills/dash/` for omp.
 
 The client commands were checked against Claude Code 2.1.318 (`claude mcp add --help`), the VS Code
 [MCP configuration reference](https://code.visualstudio.com/docs/agents/reference/mcp-configuration)
