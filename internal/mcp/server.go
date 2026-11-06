@@ -12,6 +12,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"reflect"
@@ -132,7 +133,7 @@ func New(o Options) *Server {
 	if o.Recheck <= 0 {
 		o.Recheck = recheckEvery
 	}
-	s := &Server{o: o, slots: slots{calls: map[string]int{}, listens: map[string]int{}},
+	s := &Server{o: o, slots: newSlots(),
 		calls: newWindow(callsPerMinute, o.Now), logCalls: newWindow(logsPerMinute, o.Now)}
 	s.srv = sdk.NewServer(&sdk.Implementation{Name: "dash", Title: "dash", Version: o.Version}, &sdk.ServerOptions{
 		Logger:                    quiet(o.Log),
@@ -199,14 +200,22 @@ func (h warnHandler) WithAttrs(a []slog.Attr) slog.Handler {
 }
 func (h warnHandler) WithGroup(n string) slog.Handler { return warnHandler{h.Handler.WithGroup(n)} }
 
-// Handler serves POST /mcp for p, the token principal dash resolved for r (audience mcp).
+// Handler serves POST /mcp for p, the token principal dash resolved for r (audience mcp). The
+// body is read first (readBody), and the JSON-RPC method it carries decides the slot the request
+// takes (admit).
 func (s *Server) Handler(w http.ResponseWriter, r *http.Request, p auth.Principal) {
-	release, ok := s.admit(w, r, p)
+	body, ok := readBody(w, r)
+	if !ok {
+		return
+	}
+	release, ok := s.admit(w, r, p, rpcMethod(body))
 	if !ok {
 		return
 	}
 	defer release()
-	s.h.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), ctxKey{}, caller{p: p, r: r})))
+	in := r.WithContext(context.WithValue(r.Context(), ctxKey{}, caller{p: p, r: r}))
+	in.Body, in.ContentLength = io.NopCloser(bytes.NewReader(body)), int64(len(body))
+	s.h.ServeHTTP(w, in)
 }
 
 // verify is the SDK's bearer step: it only maps the principal dash already resolved. A request

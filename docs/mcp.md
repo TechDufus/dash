@@ -129,10 +129,14 @@ encoded.
 
 ## Limits
 
-Per token: 120 calls a minute (`tools/call`, `resources/read`, `prompts/get`,
-`subscriptions/listen`), 30 `dash_logs` calls a minute, 8 calls in flight and 2 listen streams.
-In all, 64 calls in flight and 16 listen streams. A call over its rate gets a `rate_limited`
-error; a request over a concurrency limit gets 429 with `Retry-After`.
+Per token: 120 requests a minute (`tools/call`, `resources/read`, `prompts/get`,
+`subscriptions/listen`, and the list and discovery requests), 30 log reads a minute (`dash_logs`,
+and `dash_context` when it reads logs), 8 calls in flight and 2 listen streams. Per user, across
+their tokens: 16 calls in flight. In all, 64 calls in flight and 16 listen streams. A request
+over its rate gets a `rate_limited` error; a request over a concurrency limit gets 429 with
+`Retry-After`, naming the limit. A request body is at most 1 MiB and must arrive within 10 s.
+With protocol `2025-11-25` there is no listen stream: `subscriptions/listen` is refused, like
+`resources/subscribe`.
 
 A result or resource read over 64 KiB is cut to 64 KiB, keeps the untrusted framing around what
 is left, and is flagged `truncated: true` (in `_meta`, and in a tool's structured content).
@@ -141,4 +145,5 @@ is left, and is flagged `truncated: true` (in `_meta`, and in a tool's structure
 
 Every call is recorded in the audit log with surface `mcp`, the token, the tool, resource or
 prompt, the SHA-256 of its arguments (never the arguments), the client's name, the outcome and the
-duration. A rate-limited call is recorded as a denial, at most once per token and minute.
+duration. A rate-limited call is recorded as a denial, at most once per token and minute. The list
+and discovery requests are not recorded.

@@ -6,8 +6,10 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"runtime/debug"
+	"slices"
 	"sync"
 	"time"
 	"unicode/utf8"
@@ -22,9 +24,10 @@ import (
 
 // The limits of design N.6.
 const (
-	callsPerMinute     = 120 // per token: tools/call, resources/read, prompts/get, subscriptions/listen
-	logsPerMinute      = 30  // per token: dash_logs
+	callsPerMinute     = 120 // per token: every call but initialize, ping and notifications
+	logsPerMinute      = 30  // per token: dash_logs, and dash_context when it reads logs
 	concurrentPerToken = 8
+	concurrentPerUser  = 16 // calls across all of one user's tokens
 	listensPerToken    = 2
 	listensGlobal      = 16
 	concurrentGlobal   = 64
@@ -96,27 +99,49 @@ func (w *window) allow(key string) bool {
 	return true
 }
 
-// slots counts the requests in flight per token and in all, calls and listen streams apart.
+// slots counts the requests in flight per token, per user and in all, calls and listen streams
+// apart.
 type slots struct {
 	mu                 sync.Mutex
 	calls              map[string]int
 	listens            map[string]int
+	users              map[string]int // calls
 	total, listenTotal int
 }
 
-// acquire takes a slot for key, a listen stream or a call; release gives it back.
-func (s *slots) acquire(key string, listen bool) (release func(), ok bool) {
+func newSlots() slots {
+	return slots{calls: map[string]int{}, listens: map[string]int{}, users: map[string]int{}}
+}
+
+// The refusals of acquire: the limit a request is over.
+const (
+	overToken = "for this token"
+	overUser  = "for this user"
+	overAll   = "in all"
+)
+
+// acquire takes a slot for key, a token of user, for a listen stream or a call; release gives
+// it back. refused names the limit a request over one is over.
+func (s *slots) acquire(key, user string, listen bool) (release func(), refused string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	m, max, total, maxTotal := s.calls, concurrentPerToken, &s.total, concurrentGlobal
 	if listen {
 		m, max, total, maxTotal = s.listens, listensPerToken, &s.listenTotal, listensGlobal
 	}
-	if m[key] >= max || *total >= maxTotal {
-		return nil, false
+	switch {
+	case m[key] >= max:
+		return nil, overToken
+	case !listen && s.users[user] >= concurrentPerUser:
+		return nil, overUser
+	case *total >= maxTotal:
+		return nil, overAll
 	}
 	m[key]++
 	*total++
+	if !listen {
+		s.users[user]++
+	}
 	return func() {
 		s.mu.Lock()
 		defer s.mu.Unlock()
@@ -124,7 +149,12 @@ func (s *slots) acquire(key string, listen bool) (release func(), ok bool) {
 			delete(m, key)
 		}
 		*total--
-	}, true
+		if !listen {
+			if s.users[user]--; s.users[user] <= 0 {
+				delete(s.users, user)
+			}
+		}
+	}, ""
 }
 
 // tokenKey names the credential a limit counts against: the grant of an OAuth token, else the
@@ -136,24 +166,64 @@ func tokenKey(p auth.Principal) string {
 	return "token:" + p.TokenID + ":" + p.User
 }
 
+// bodyTimeout bounds the reading of a request's body (readBody); a variable for the tests.
+var bodyTimeout = 10 * time.Second
+
+// readBody reads the body of r, at most maxRequestBody within bodyTimeout, before the request
+// takes a slot: a slow or oversized body never holds one. A body that fails is answered here.
+func readBody(w http.ResponseWriter, r *http.Request) ([]byte, bool) {
+	rc := http.NewResponseController(w)
+	_ = rc.SetReadDeadline(time.Now().Add(bodyTimeout)) // a writer without a connection has none
+	body, err := io.ReadAll(io.LimitReader(r.Body, maxRequestBody+1))
+	switch {
+	case err != nil: // the deadline stays: net/http's drain of the rest then fails at once
+		w.Header().Set("Connection", "close")
+		plainError(w, http.StatusBadRequest, model.ErrCodeInvalidInput, "the request body could not be read in time")
+		return nil, false
+	case len(body) > maxRequestBody:
+		w.Header().Set("Connection", "close")
+		plainError(w, http.StatusRequestEntityTooLarge, model.ErrCodeInvalidInput, "the request body is over 1 MiB")
+		return nil, false
+	}
+	// A listen stream reads nothing more, but net/http watches the connection for the client
+	// going away, which a passed deadline would report.
+	_ = rc.SetReadDeadline(time.Time{})
+	return body, true
+}
+
+// rpcMethod is the method of the JSON-RPC request in body; "" when it holds none. It, not the
+// Mcp-Method header (which the legacy protocol does not check), decides the slot.
+func rpcMethod(body []byte) string {
+	var m struct {
+		Method string `json:"method"`
+	}
+	_ = json.Unmarshal(body, &m)
+	return m.Method
+}
+
+func plainError(w http.ResponseWriter, status int, code, msg string) {
+	raw, _ := json.Marshal(map[string]string{"error": msg, "code": code})
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	_, _ = w.Write(append(raw, '\n'))
+}
+
 // admit takes the request's concurrency slot: a listen stream (2 per token, 16 in all) or a call
-// (8 per token, 64 in all). A refusal is a plain 429 with Retry-After, before the SDK reads
-// anything.
-func (s *Server) admit(w http.ResponseWriter, r *http.Request, p auth.Principal) (func(), bool) {
-	listen := r.Header.Get("Mcp-Method") == "subscriptions/listen"
-	release, ok := s.slots.acquire(tokenKey(p), listen)
-	if ok {
+// (8 per token, 16 per user, 64 in all). A refusal is a plain 429 with Retry-After, before the
+// SDK sees the request.
+func (s *Server) admit(w http.ResponseWriter, r *http.Request, p auth.Principal, method string) (func(), bool) {
+	listen := method == "subscriptions/listen"
+	release, refused := s.slots.acquire(tokenKey(p), p.User, listen)
+	if refused == "" {
 		return release, true
 	}
-	method := "request"
+	audited := "request"
 	if listen {
-		method = "subscriptions/listen"
+		audited = method
 	}
-	s.audit(r, Call{Method: method, Result: "rate_limited", Code: model.ErrCodeRateLimited})
-	w.Header().Set("Content-Type", "application/json")
+	s.audit(r, Call{Method: audited, Result: "rate_limited", Code: model.ErrCodeRateLimited})
 	w.Header().Set("Retry-After", "1")
-	w.WriteHeader(http.StatusTooManyRequests)
-	_, _ = w.Write([]byte(`{"error":"too many requests in flight for this token; try again later","code":"rate_limited"}` + "\n"))
+	plainError(w, http.StatusTooManyRequests, model.ErrCodeRateLimited, "too many requests in flight "+refused+"; try again later")
 	return nil, false
 }
 
@@ -166,12 +236,22 @@ func (s *Server) audit(r *http.Request, c Call) {
 // counted are the methods that count against the per-token call rate and are audited.
 var counted = map[string]bool{"tools/call": true, "resources/read": true, "prompts/get": true, "subscriptions/listen": true}
 
-// limitAndAudit is the outermost middleware: the per-token rates (120 calls and 30 dash_logs a
+// listed are the list and discovery methods: they count against the per-token call rate, but
+// are not audited.
+var listed = map[string]bool{"tools/list": true, "resources/list": true, "resources/templates/list": true, "prompts/list": true, "server/discover": true}
+
+// errRateLimited answers a request over its rate.
+var errRateLimited = &jsonrpc.Error{Code: codeRateLimited, Message: "rate_limited: too many calls for this token; try again in a minute"}
+
+// limitAndAudit is the outermost middleware: the per-token rates (120 calls and 30 log reads a
 // minute), then one audit record per counted call with its outcome and duration. A panic below
 // it is answered as an internal error (guard).
 func (s *Server) limitAndAudit(next sdk.MethodHandler) sdk.MethodHandler {
 	return func(ctx context.Context, method string, req sdk.Request) (sdk.Result, error) {
 		if !counted[method] {
+			if c, ok := callerOf(req.GetExtra()); ok && listed[method] && !s.calls.allow(tokenKey(c.p)) {
+				return nil, errRateLimited
+			}
 			return s.guard(ctx, method, req, next)
 		}
 		c, ok := callerOf(req.GetExtra())
@@ -181,14 +261,14 @@ func (s *Server) limitAndAudit(next sdk.MethodHandler) sdk.MethodHandler {
 		call := describe(method, req)
 		start := time.Now()
 		key := tokenKey(c.p)
-		limited := !s.calls.allow(key) || (method == "tools/call" && call.Tool == "dash_logs" && !s.logCalls.allow(key))
+		limited := !s.calls.allow(key) || (method == "tools/call" && readsLogs(c, req) && !s.logCalls.allow(key))
 		if limited {
 			call.Result, call.Code = "rate_limited", model.ErrCodeRateLimited
 			s.audit(c.r, call)
 			if method == "tools/call" {
 				return errorResult(model.ErrCodeRateLimited, "too many calls for this token; try again in a minute"), nil
 			}
-			return nil, &jsonrpc.Error{Code: codeRateLimited, Message: "rate_limited: too many calls for this token; try again in a minute"}
+			return nil, errRateLimited
 		}
 		if method == "subscriptions/listen" {
 			var end context.CancelFunc
@@ -206,6 +286,25 @@ func (s *Server) limitAndAudit(next sdk.MethodHandler) sdk.MethodHandler {
 		s.audit(c.r, call)
 		return res, err
 	}
+}
+
+// readsLogs reports whether a tool call reads logs, and so counts against the dash_logs rate:
+// dash_logs, and dash_context for a token with the logs scope that does not leave the logs out.
+func readsLogs(c caller, req sdk.Request) bool {
+	p, _ := req.GetParams().(*sdk.CallToolParamsRaw)
+	switch {
+	case p == nil:
+		return false
+	case p.Name == "dash_logs":
+		return true
+	case p.Name == "dash_context" && c.p.HasScope("logs"):
+		var in struct {
+			Include []string `json:"include"`
+		}
+		_ = json.Unmarshal(p.Arguments, &in)
+		return len(in.Include) == 0 || slices.Contains(in.Include, string(model.ContextIncludeLogs))
+	}
+	return false
 }
 
 // whileAlive is the context of c's listen stream: it ends with the request, or at the first

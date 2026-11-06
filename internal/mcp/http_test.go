@@ -12,6 +12,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	sdkauth "github.com/modelcontextprotocol/go-sdk/auth"
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
@@ -59,10 +60,14 @@ func (labBackend) Changes(context.Context) <-chan string {
 	return ch
 }
 
-// serveHTTP serves s at a real HTTP server as a read token's principal.
-func serveHTTP(t *testing.T, s *Server) string {
+// serveHTTP serves s at a real HTTP server as the principal of a token of bob's with scopes
+// (read when none are given).
+func serveHTTP(t *testing.T, s *Server, scopes ...string) string {
 	t.Helper()
-	p := auth.Principal{Kind: auth.KindToken, Audience: "mcp", User: "bob", Scopes: []string{"read"}}
+	if len(scopes) == 0 {
+		scopes = []string{"read"}
+	}
+	p := auth.Principal{Kind: auth.KindToken, Audience: "mcp", User: "bob", TokenID: "tok", Scopes: scopes}
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { s.Handler(w, r, p) }))
 	t.Cleanup(ts.Close)
 	return ts.URL
@@ -85,12 +90,19 @@ func rpc(t *testing.T, url, method string, params any) rpcReply {
 	r.Header.Set("Accept", "application/json, text/event-stream")
 	r.Header.Set("Mcp-Protocol-Version", "2025-11-25")
 	r.Header.Set("Authorization", "Bearer t") // dash resolved the principal; the SDK only wants a header
-	resp, err := http.DefaultClient.Do(r)
+	resp, err := (&http.Client{Timeout: 10 * time.Second}).Do(r) // a stream left open fails, not hangs
 	if err != nil {
 		t.Fatalf("%s: %v", method, err)
 	}
 	defer resp.Body.Close()
 	raw, _ := io.ReadAll(resp.Body)
+	if strings.HasPrefix(resp.Header.Get("Content-Type"), "text/event-stream") { // the one message of a stream
+		for line := range strings.Lines(string(raw)) {
+			if data, ok := strings.CutPrefix(line, "data: "); ok {
+				raw = []byte(data)
+			}
+		}
+	}
 	var out rpcReply
 	if resp.StatusCode != http.StatusOK || json.Unmarshal(raw, &out) != nil {
 		t.Fatalf("%s: %d %.300s", method, resp.StatusCode, raw)

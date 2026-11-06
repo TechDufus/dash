@@ -78,6 +78,13 @@ func TestMCPDisabledIs404(t *testing.T) {
 			t.Errorf("%s: %d %s", name, w.Code, w.Body)
 		}
 	}
+	// A listed origin's preflight too: no Access-Control-* header, nothing to suggest /mcp exists.
+	pre := req{method: http.MethodOptions, path: "/mcp", raw: true, header: map[string]string{
+		"Origin": "https://inspector.example.com", "Access-Control-Request-Method": "POST",
+	}}.do(e.s.Handler())
+	if pre.Code != http.StatusNotFound || pre.Header().Get("Access-Control-Allow-Origin") != "" || pre.Header().Get("Access-Control-Allow-Methods") != "" {
+		t.Errorf("preflight: %d %v", pre.Code, pre.Header())
+	}
 	if w := (req{path: "/.well-known/oauth-protected-resource/mcp"}).do(e.s.Handler()); w.Code != http.StatusNotFound {
 		t.Errorf("metadata: %d", w.Code)
 	}

@@ -8,21 +8,32 @@ import (
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
-// The 121st call within a minute is rate-limited (P7.3 acceptance), and dash_logs has its own
-// 30 a minute.
+// Every request but initialize counts against the 120 a minute (P7.3 acceptance): the client's
+// own discovery as well as its calls. dash_logs has its own 30 a minute.
 func TestMCPRateLimits(t *testing.T) {
 	addr := startMCPDemo(t)
 	ctx := context.Background()
 	cs := mcpSession(t, addr, mcpReadToken, "2026-07-28")
-	for i := range 120 {
+	if _, err := cs.ListTools(ctx, nil); err != nil {
+		t.Fatal(err)
+	}
+	calls := 0
+	for ; calls < 121; calls++ {
 		res, err := cs.CallTool(ctx, &sdk.CallToolParams{Name: "dash_search", Arguments: map[string]any{"query": "x"}})
-		if err != nil || res.IsError {
-			t.Fatalf("call %d: %+v, %v", i+1, res, err)
+		if err != nil {
+			t.Fatalf("call %d: %v", calls+1, err)
+		}
+		if res.IsError {
+			if !strings.Contains(res.Content[0].(*sdk.TextContent).Text, "rate_limited") {
+				t.Fatalf("call %d: %+v", calls+1, res)
+			}
+			break
 		}
 	}
-	res, err := cs.CallTool(ctx, &sdk.CallToolParams{Name: "dash_search", Arguments: map[string]any{"query": "x"}})
-	if err != nil || !res.IsError || !strings.Contains(res.Content[0].(*sdk.TextContent).Text, "rate_limited") {
-		t.Errorf("the 121st call: %+v, %v", res, err)
+	// The session's own requests count too: its discovery and the tools/list above.
+	const want = 120 - 2
+	if calls != want {
+		t.Errorf("%d calls passed after the session's own requests, want %d", calls, want)
 	}
 
 	logs := mcpSession(t, addr, mcpLogsToken, "2026-07-28")
@@ -33,7 +44,7 @@ func TestMCPRateLimits(t *testing.T) {
 			t.Fatalf("logs call %d: %+v, %v", i+1, res, err)
 		}
 	}
-	res, err = logs.CallTool(ctx, &sdk.CallToolParams{Name: "dash_logs", Arguments: args})
+	res, err := logs.CallTool(ctx, &sdk.CallToolParams{Name: "dash_logs", Arguments: args})
 	if err != nil || !res.IsError || !strings.Contains(res.Content[0].(*sdk.TextContent).Text, "rate_limited") {
 		t.Errorf("the 31st dash_logs call: %+v, %v", res, err)
 	}

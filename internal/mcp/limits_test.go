@@ -3,6 +3,7 @@ package mcp
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -32,57 +33,53 @@ func TestWindowAllowsNPerMinute(t *testing.T) {
 	}
 }
 
+// The concurrency caps of design N.6, as numbers: 8 calls per token, 16 per user across their
+// tokens, 64 in all; 2 listen streams per token and 16 in all, counted apart from the calls.
 func TestSlotsBoundCallsAndListens(t *testing.T) {
-	s := slots{calls: map[string]int{}, listens: map[string]int{}}
-	var releases []func()
-	for i := range concurrentPerToken {
-		r, ok := s.acquire("t1", false)
-		if !ok {
-			t.Fatalf("call %d refused", i+1)
+	s := newSlots()
+	take := func(key, user string, listen bool, want string) func() {
+		t.Helper()
+		r, refused := s.acquire(key, user, listen)
+		if refused != want {
+			t.Fatalf("%s of %s (listen %v): refused %q, want %q", key, user, listen, refused, want)
 		}
-		releases = append(releases, r)
+		return r
 	}
-	if _, ok := s.acquire("t1", false); ok {
-		t.Error("a 9th concurrent call of one token passed")
+	var t1 []func()
+	for range 8 {
+		t1 = append(t1, take("t1", "ann", false, ""))
 	}
-	for range listensPerToken {
-		if _, ok := s.acquire("t1", true); !ok {
-			t.Fatal("a listen stream was refused: streams count apart from calls")
-		}
+	take("t1", "ann", false, overToken)
+	take("t1", "ann", true, "") // streams count apart from calls
+	take("t1", "ann", true, "")
+	take("t1", "ann", true, overToken)
+	t1[0]()
+	take("t1", "ann", false, "")() // a released slot is given back
+
+	// ann's second token: 16 calls across her tokens, t1 holding 7.
+	var t2 []func()
+	for range 8 {
+		t2 = append(t2, take("t2", "ann", false, ""))
 	}
-	if _, ok := s.acquire("t1", true); ok {
-		t.Error("a 3rd listen stream passed")
+	take("t3", "ann", false, "") // her 16th
+	take("t3", "ann", false, overUser)
+	t2[0]()
+	take("t3", "ann", false, "")
+
+	// 64 calls in all: ann holds 16.
+	for i := range 48 {
+		take(fmt.Sprintf("o%d", i), fmt.Sprintf("u%d", i), false, "")
 	}
-	releases[0]()
-	if r, ok := s.acquire("t1", false); !ok {
-		t.Error("a released slot was not given back")
-	} else {
-		r()
-	}
-	for i := range concurrentGlobal - (concurrentPerToken - 1) { // t1 still holds 7
-		if _, ok := s.acquire("other"+string(rune('a'+i%26))+string(rune('a'+i/26)), false); !ok {
-			t.Fatalf("global call %d refused", i)
-		}
-	}
-	if _, ok := s.acquire("fresh", false); ok {
-		t.Error("the 65th concurrent call passed")
-	}
-	// At most 16 listen streams in all, apart from the calls: t1 holds 2.
+	take("fresh", "fresh", false, overAll)
+
+	// 16 listen streams in all: t1 holds 2.
 	var last func()
 	for i := range 14 {
-		r, ok := s.acquire("listener"+string(rune('a'+i)), true)
-		if !ok {
-			t.Fatalf("listen stream %d refused", i+3)
-		}
-		last = r
+		last = take(fmt.Sprintf("l%d", i), fmt.Sprintf("u%d", i), true, "")
 	}
-	if _, ok := s.acquire("listener-fresh", true); ok {
-		t.Error("the 17th listen stream passed")
-	}
+	take("lfresh", "lfresh", true, overAll)
 	last()
-	if _, ok := s.acquire("listener-fresh", true); !ok {
-		t.Error("a released listen slot was not given back")
-	}
+	take("lfresh", "lfresh", true, "")
 }
 
 // bigBackend answers dash_get with whatever value it holds.

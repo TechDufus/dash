@@ -4,6 +4,8 @@ import (
 	"context"
 	"net/http"
 	"slices"
+
+	"github.com/TechDufus/dash/internal/model"
 )
 
 // The CORS answers of design L.7.
@@ -18,7 +20,8 @@ const (
 // Without a list, or where no bearer token can resolve (auth.mode=none), it sends no
 // Access-Control-* header at all. For a listed Origin:
 //   - a preflight (OPTIONS with Access-Control-Request-Method) is answered 204 here, on the
-//     origin alone: it carries no credential and grants nothing by itself;
+//     origin alone: it carries no credential and grants nothing by itself. With MCP off, one to
+//     /mcp is the JSON 404 of every /mcp request (mcpGate);
 //   - a response to a request authn resolved to a token principal gets
 //     Access-Control-Allow-Origin, Vary: Origin and the exposed headers, as does a 401 to any
 //     request, so a client can read the challenge. A Bearer header alone grants nothing: the
@@ -44,6 +47,10 @@ func (s *Server) cors(next http.Handler) http.Handler {
 		h := w.Header()
 		h.Add("Vary", "Origin")
 		if r.Method == http.MethodOptions && r.Header.Get("Access-Control-Request-Method") != "" {
+			if audienceFor(r.URL.Path) == "mcp" && !s.mcpEnabled() { // as mcpGate: no /mcp at all
+				writeErr(w, http.StatusNotFound, model.ErrCodeNotFound, "not found")
+				return
+			}
 			h.Set("Access-Control-Allow-Origin", origin)
 			h.Set("Access-Control-Allow-Methods", corsAllowMethods)
 			h.Set("Access-Control-Allow-Headers", corsAllowHeaders)

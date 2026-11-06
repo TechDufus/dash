@@ -68,6 +68,11 @@ func (s *Server) scopeFilter(next sdk.MethodHandler) sdk.MethodHandler {
 			if p == nil || p.Notifications == nil {
 				break
 			}
+			// The legacy protocol has no listen stream either (resources/subscribe below); the
+			// SDK serves one under it, so it is refused here.
+			if v, _ := p.Meta[sdk.MetaKeyProtocolVersion].(string); v < ProtocolVersions[0] {
+				return nil, errLegacySubscribe
+			}
 			if err := s.checkSubscriptions(c, p.Notifications.ResourceSubscriptions); err != nil {
 				return nil, err
 			}
