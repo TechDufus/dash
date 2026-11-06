@@ -4498,7 +4498,7 @@
     },
     "/api/v1/push/subscriptions": {
       "get": {
-        "description": "The caller's own devices; an administrator may list one user's (?user=<name>) or everyone's (?user=*). Never the endpoints or the keys. 403 for another user's list to a viewer. 409 push_unavailable when push is off (it needs a writable data dir and DASH_SECRET_KEY in auth.mode local, oidc or proxy).",
+        "description": "The caller's own devices; an administrator may list one user's (?user=<name>) or everyone's (?user=*). Never the endpoints or the keys. 403 for another user's list to a viewer. 409 push_unavailable when push is off (it needs a writable data dir, DASH_SECRET_KEY and push.contact or an https server.publicURL, in auth.mode local, oidc or proxy).",
         "operationId": "listPushSubscriptions",
         "parameters": [
           {
@@ -4538,7 +4538,7 @@
         "x-dash-scope": "push"
       },
       "post": {
-        "description": "201 with a new subscription, which receives a verify push with its code and nothing else until POST .../verify echoes it; it is deleted after 10 minutes unverified. 200 when the caller already holds the endpoint: the row is replaced, verified still when the keys are the same. 400 invalid_input with field errors, an endpoint dash may not post to (a private or loopback address outside push.allowPrivate, a link-local one) included; 409 conflict when another user holds the endpoint; 409 push_limit past 10 devices; 429 past 10 registrations a minute; 503 audit_unavailable. 409 push_unavailable when push is off (it needs a writable data dir and DASH_SECRET_KEY in auth.mode local, oidc or proxy).",
+        "description": "201 with a new subscription, which receives a verify push with its code and nothing else until POST .../verify echoes it; it is deleted after 10 minutes unverified. 200 when the caller already holds the endpoint: the row is replaced, verified still when the keys are the same. 400 invalid_input with field errors, an endpoint dash may not post to (a private or loopback address outside push.allowPrivate, a link-local one) included; 409 conflict when another user holds the endpoint; 409 push_limit past 10 devices; 429 past 10 registrations a minute; 503 audit_unavailable. 409 push_unavailable when push is off (it needs a writable data dir, DASH_SECRET_KEY and push.contact or an https server.publicURL, in auth.mode local, oidc or proxy).",
         "operationId": "createPushSubscription",
         "parameters": [],
         "requestBody": {
@@ -4582,7 +4582,7 @@
     },
     "/api/v1/push/subscriptions/{id}": {
       "delete": {
-        "description": "One's own device, or (administrators) anyone's. 404 for a device that is not the caller's. 409 push_unavailable when push is off (it needs a writable data dir and DASH_SECRET_KEY in auth.mode local, oidc or proxy).",
+        "description": "One's own device, or (administrators) anyone's. 404 for a device that is not the caller's. 409 push_unavailable when push is off (it needs a writable data dir, DASH_SECRET_KEY and push.contact or an https server.publicURL, in auth.mode local, oidc or proxy).",
         "operationId": "deletePushSubscription",
         "parameters": [
           {
@@ -4618,7 +4618,7 @@
     },
     "/api/v1/push/subscriptions/{id}/test": {
       "post": {
-        "description": "202: queued. 409 conflict when the subscription is not verified; 429 past one a minute per subscription. 409 push_unavailable when push is off (it needs a writable data dir and DASH_SECRET_KEY in auth.mode local, oidc or proxy).",
+        "description": "202: queued. 409 conflict when the subscription is not verified; 429 past one a minute per subscription. 409 push_unavailable when push is off (it needs a writable data dir, DASH_SECRET_KEY and push.contact or an https server.publicURL, in auth.mode local, oidc or proxy).",
         "operationId": "testPushSubscription",
         "parameters": [
           {
@@ -4654,7 +4654,7 @@
     },
     "/api/v1/push/subscriptions/{id}/verify": {
       "post": {
-        "description": "422 invalid_input for a wrong code; the fifth wrong code deletes the subscription. 409 conflict when it is not pending; 404 for another user's. 409 push_unavailable when push is off (it needs a writable data dir and DASH_SECRET_KEY in auth.mode local, oidc or proxy).",
+        "description": "422 invalid_input for a wrong code; the fifth wrong code deletes the subscription. 409 conflict when it is not pending; 404 for another user's. 409 push_unavailable when push is off (it needs a writable data dir, DASH_SECRET_KEY and push.contact or an https server.publicURL, in auth.mode local, oidc or proxy).",
         "operationId": "verifyPushSubscription",
         "parameters": [
           {
@@ -4708,7 +4708,7 @@
     },
     "/api/v1/push/vapid": {
       "get": {
-        "description": "The applicationServerKey a browser subscribes with, made at the first request, and the URL a native client connects to. 409 push_unavailable when push is off (it needs a writable data dir and DASH_SECRET_KEY in auth.mode local, oidc or proxy).",
+        "description": "The applicationServerKey a browser subscribes with, made at the first request, and the URL a native client connects to. 409 push_unavailable when push is off (it needs a writable data dir, DASH_SECRET_KEY and push.contact or an https server.publicURL, in auth.mode local, oidc or proxy).",
         "operationId": "getPushVAPID",
         "parameters": [],
         "responses": {

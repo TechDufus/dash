@@ -106,5 +106,5 @@ lists them all.
 The sign-in routes (`POST /login`, `POST /setup`, `POST /auth/logout`, `GET /auth/oidc/start`,
 `GET /auth/callback`) are outside `/api` and not in the OpenAPI document;
 [auth.md](../auth.md#what-the-api-answers) describes them. The settings routes are in
-[settings.md](../settings.md#routes), and the push routes (`/api/v1/push/…`) in
-[push.md](../push.md).
+[settings.md](../settings.md#routes). The push routes (`/api/v1/push/…`) are in the
+[OpenAPI document](openapi.json) under the `Push` tag, and [push.md](../push.md) describes push.

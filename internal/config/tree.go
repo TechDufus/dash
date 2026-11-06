@@ -24,11 +24,11 @@ type Tree struct {
 	Server   ServerConfig   `json:"server" doc:"How dash listens and what it calls itself."`
 	Auth     AuthConfig     `json:"auth" doc:"How dash learns who is making a request and what they may do."`
 	Settings SettingsConfig `json:"settings" doc:"The settings store behind the settings page."`
-	DataDir  string         `json:"dataDir" dash:"restart" doc:"Where dash keeps its state (ui-settings.yaml, audit.jsonl, and credentials.yaml with the local account, the sessions' epochs and the personal access tokens) and looks for config.yaml. Without a writable one, sessions and tokens do not survive a restart, so creating a token is refused outside dev and demo mode. Demo mode uses none."`
+	DataDir  string         `json:"dataDir" dash:"restart" doc:"Where dash keeps its state (ui-settings.yaml, audit.jsonl, and credentials.yaml with the local account, the sessions' epochs, the personal access tokens and the push devices with the VAPID key) and looks for config.yaml. Without a writable one, sessions and tokens do not survive a restart, so creating a token is refused outside dev and demo mode, and push is off. Demo mode uses none."`
 	UI       pluginconf.UI  `json:"ui" doc:"What the web UI is told by the server."`
 	MCP      MCPConfig      `json:"mcp" doc:"The read-only MCP server at /mcp, for AI clients holding an mcp-audience token."`
 	Plugins  PluginsConfig  `json:"plugins" doc:"One section per plugin. An empty URL turns that source off."`
-	Push     PushConfig     `json:"push" doc:"Web Push and UnifiedPush notifications to the devices people register in Settings -> Devices. Push needs a writable data dir and DASH_SECRET_KEY in auth.mode local, oidc or proxy."`
+	Push     PushConfig     `json:"push" doc:"Web Push and UnifiedPush notifications to the devices people register in Settings -> Devices. Push needs a writable data dir, DASH_SECRET_KEY and a contact (push.contact, or an https server.publicURL) in auth.mode local, oidc or proxy."`
 }
 
 // ServerConfig is how dash listens and what it calls itself.

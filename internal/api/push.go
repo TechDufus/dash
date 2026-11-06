@@ -48,7 +48,7 @@ func (s *Server) pushRoutes() []Route {
 		r.Role, r.Scope, r.Tag = auth.RoleViewer, model.OAuthScopePush, "Push"
 		return r
 	}
-	unavailable := " 409 push_unavailable when push is off (it needs a writable data dir and DASH_SECRET_KEY in auth.mode local, oidc or proxy)."
+	unavailable := " 409 push_unavailable when push is off (it needs a writable data dir, DASH_SECRET_KEY and push.contact or an https server.publicURL, in auth.mode local, oidc or proxy)."
 	id := []plugin.Param{{Name: "id", Doc: "The subscription's ID, sub_<26 base32>.", Required: true}}
 	return []Route{
 		row(Route{
@@ -99,7 +99,7 @@ func (s *Server) pushRoutes() []Route {
 // pushReady answers 409 push_unavailable when push is off (contract D37).
 func (s *Server) pushReady(w http.ResponseWriter) bool {
 	if s.d.Push == nil {
-		writeErr(w, http.StatusConflict, model.ErrCodePushUnavailable, "push is off: it needs a writable data dir and DASH_SECRET_KEY in auth.mode local, oidc or proxy")
+		writeErr(w, http.StatusConflict, model.ErrCodePushUnavailable, "push is off: it needs a writable data dir, DASH_SECRET_KEY and push.contact or an https server.publicURL, in auth.mode local, oidc or proxy")
 		return false
 	}
 	return true

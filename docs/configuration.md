@@ -212,7 +212,7 @@ The settings store behind the settings page.
 
 | Setting | Variable | Type | Default | Description |
 |---|---|---|---|---|
-| `dataDir` | `DASH_DATA_DIR` | string | `/data` | Where dash keeps its state (ui-settings.yaml, audit.jsonl, and credentials.yaml with the local account, the sessions' epochs and the personal access tokens) and looks for config.yaml. Without a writable one, sessions and tokens do not survive a restart, so creating a token is refused outside dev and demo mode. Demo mode uses none. _Restart-only._ |
+| `dataDir` | `DASH_DATA_DIR` | string | `/data` | Where dash keeps its state (ui-settings.yaml, audit.jsonl, and credentials.yaml with the local account, the sessions' epochs, the personal access tokens and the push devices with the VAPID key) and looks for config.yaml. Without a writable one, sessions and tokens do not survive a restart, so creating a token is refused outside dev and demo mode, and push is off. Demo mode uses none. _Restart-only._ |
 
 ## `ui`
 
@@ -635,7 +635,7 @@ The names of the Prometheus series dash reads. Each must be a valid metric name.
 
 ## `push`
 
-Web Push and UnifiedPush notifications to the devices people register in Settings -> Devices. Push needs a writable data dir and DASH_SECRET_KEY in auth.mode local, oidc or proxy.
+Web Push and UnifiedPush notifications to the devices people register in Settings -> Devices. Push needs a writable data dir, DASH_SECRET_KEY and a contact (push.contact, or an https server.publicURL) in auth.mode local, oidc or proxy.
 
 | Setting | Variable | Type | Default | Description |
 |---|---|---|---|---|

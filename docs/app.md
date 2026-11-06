@@ -21,7 +21,7 @@ with the proxy's session cookie, so install from a signed-in tab.
   version).
 - **Chrome on Android:** the menu → *Add to Home screen* → *Install*.
 - **Safari on iPhone and iPad:** the Share button → *Add to Home Screen*. iOS and iPadOS deliver
-  Web Push (a later release) only to an app added to the home screen, on 16.4 or later.
+  [push notifications](push.md) only to an app added to the home screen, on 16.4 or later.
 - **Safari on macOS (14 or later):** *File* → *Add to Dock*.
 
 The installed app is the same dash, and its data is live from the server as in a tab. On iOS and

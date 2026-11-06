@@ -249,7 +249,7 @@ func (s *Service) SendVerify(id, code string) {
 		kind: obs.PushVerify, ttl: 600, urgency: "high",
 		msg: model.PushMessage{
 			Type: model.PushTypeVerify, ID: id, Title: "dash: verify this device",
-			Body: "Code " + code + ". dash fills it in when Settings -> Devices is open.", URL: s.URL("/settings/devices"), Code: code,
+			Body: "Code " + code + ". dash fills it in when Settings → Devices is open.", URL: s.URL("/settings/devices"), Code: code,
 		},
 	})
 }
