@@ -2169,10 +2169,10 @@ Remove the Zot push (`ci.yml:31`). README release steps are updated. There is no
 - [x] P7.2 feat(auth): built-in OAuth 2.1 authorization server (v0.14.7: see the R3 deviations)
 - [x] P7.3 feat(mcp): read-only MCP server (v0.14.8: see the R5 deviations)
 - [x] P7.4 feat(mcp): context bundles, prompts and "Copy context for AI" (v0.14.8: see the R5 deviations)
-- [ ] P7.5 feat(approvals): agent action tools with human approval
+- [x] P7.5 feat(approvals): agent action tools with human approval (v0.14.10: see the R6 deviations)
 - [x] P7.6 feat(web): installable PWA (v0.14.5: see the R1 deviations)
 - [x] P7.7 feat(push): Web Push and UnifiedPush notifications (v0.14.9: see the R4 deviations)
-- [ ] P7.8 docs(clients): native client and agent guides
+- [x] P7.8 docs(clients): native client and agent guides (v0.14.10: see the R6 deviations)
 - [ ] P7.9 feat(plugins): optional assistant plugin (later; off by default)
 
 **Acceptance criteria**
@@ -2417,6 +2417,54 @@ R4 of G7: P7.7. A patch: additive, and push stays off until dash has what it nee
 **UX (`RevUXG7R4`, three rounds):** the real flow with a fake push service and delivery through CDP in headless Chromium. It found the notify editor on a stale row, doc errors about key rotation and UnifiedPush, and push silently stopping after any logout; all are fixed.
 
 **Production compatibility (`RevCompatG7R2`):** the homelab's environment against v0.14.8: push stays off with one INFO naming the missing data dir and `DASH_SECRET_KEY`; 180 to 182 of 190 captured responses identical, every status code the same, the push routes going from 404 to 409 `push_unavailable`; upstream 419 of 419 requests and no extra polls; the PWA updates cleanly from v0.14.8; the image 502,876 bytes (0.83%) larger. Push would need a data dir and `DASH_SECRET_KEY` there.
+
+### G7 R6 deviations (v0.14.10)
+
+R6 (branch `feat/g7-approvals`: the wire types, the transport-free action executor, the approvals capability, the per-input confirm rule, the request store, decisions and execution, the MCP action tools, the end-to-end test, the three web commits of the approval page, indicator and agent policy, the approvals docs, the four guide commits, two review-fix rounds, the version, then this docs commit) ships P7.5 and P7.8 and differs from them, and from the G7 plan's decisions D33, D34 and D48 to D57, in these places. [docs/mcp.md](../mcp.md#action-tools-and-approvals) is the user-facing description of approvals; [docs/agents/mcp.md](../agents/mcp.md) and [docs/clients/android.md](../clients/android.md) are the guides.
+
+| Item | The plan said | Shipped | Why |
+|---|---|---|---|
+| A decided request | D51: 403 another user, 410 expired or unknown, 400 without the typed name | Also 409 `conflict` for a request no longer pending (already decided, or being decided) | The claim makes a decision once; a second one must say why it did nothing |
+| A rule tightened since the request | D52: re-validate the requester at execution | Also the target's rule: a target that needs its typed name now (a namespace newly protected) and was requested without one is denied with the reason, nothing run | The person approved a dialog-level request; the typed name is theirs to give (D33) |
+| An approved action that fails | D52: keep the scrubbed result | The request stays `approved`, its `outcome` `{ok: false, error}`; a plugin's refusal keeps its own wording, any other failure only its category | The person did approve; the outcome says what happened |
+| Never run twice | D52: exactly once | Any end of a decision without one (a refusal, an audit failure, a panic in the plugin's code before `Act`) gives the request back to pending; once `Act` has run, a later panic finishes it `approved` with "dash failed after the action ran", never released | A stuck claim, and a released request a second approval would run again (found by the code review) |
+| The client's name | D50: `clientName` | A stateless 2025-11-25 call carries none, so its request names the token or connected app only; where present the page and the push say "(as it names itself)" | The client reports it about itself (found by the security review) |
+| The agent policy | D48: live | A change applies without a restart of dash and restarts that plugin's instance, as every action setting does | The supervisor compares the whole instance configuration |
+| `/me` | Not specified | `capabilities.approvals`: MCP on, some plugin with mounted actions, a signed-in person or a token with `approvals` | The web UI gates the indicator and `/approve/<id>` on it; approvals do not depend on the token store |
+| Agent input | D50: strict decode and Validate | Also: arguments over MCP at most 64 KiB (a REST body's cap, `invalid_input`); targets clipped to 256 bytes (above a DNS name's 253, so a typed name is never cut) and summaries to 512; the alertmanager silence matchers at most 256-byte names and 1024-byte values, on the REST route too | A flood of large calls grew `core.approvals`, streams and the audit log without bound (found by the security review) |
+| `core.approvals` | D55: `ApprovalsData{pending}` | Its entries leave out the input (`null`); the page reads it through `GET` | 20 requests of large inputs made a 52.5 MB envelope (found by the security review) |
+| Publish order | D55: published on every transition | One user's publishes are serialised, read and publish together | A create's publish could land after a decision's and show a decided request as pending (found by the code review) |
+| Listing | D48: admin, scope, `actions.enabled`, policy not `deny` | Also the plugin healthy or degraded; an approval of a request whose plugin stopped serving is denied with the reason | A kubernetes plugin without a cluster, in `error`, listed `kubernetes_restart` and its approvals failed only after the person approved (found by the UX review) |
+| `dash_approval` | D53: the agent polls it | It answers only the token or grant that made the request; another token of the same user gets `forbidden` (a person reads requests through `GET`) | The request is that credential's (found by the code review) |
+| The MRTR retry | D53: blocks up to 30 s | It gives its call slot back while it waits and takes one again before answering (`rate_limited` when it cannot) | Eight waiting agents filled the token's eight slots (found by the code review) |
+| Approvals while MCP is off | Not specified | Denied at execution with that reason | An agent's request could run after an administrator switched MCP off (found by the security review) |
+| `requestState` | D53: an HMAC state | Signed with a per-process key and bound to the token, the tool and the expiry; the input hash is not bound in | The request id already pins the input; the optional hardening was skipped |
+| Action schemas | N.2: `inputSchema` from `ActionSpec.Input` | The restart, reconcile and silence inputs gained `required`, the enums of kind and duration and a description per field | An agent had too little to call them right (found by the UX review) |
+| The guides' verification | D57: every command run against demo mode | Against demo mode where it serves the feature (static tokens, PATs, MCP), and against local mode with a temp data dir for OAuth and push | Demo mode has no OAuth server and no push |
+| VS Code | D57: syntax checked against the installed CLI's `--help` | Checked against VS Code's MCP configuration reference (dated 2026-11-04); Claude Code against `claude mcp add --help` and omp 18.17.0 | No VS Code was installed on the build machine |
+| The Android repository | D57: left out until published (S.12) | Left out; the guide is the contract the app builds against | As decided |
+
+#### v0.14.10 release notes
+
+R6 of G7: P7.5 and P7.8. A patch: additive, and agents can only read until an administrator's `mcp` token holds `actions:<plugin>` with that plugin's actions enabled.
+
+- **Agent actions with human approval:** with MCP on, each enabled plugin action is an MCP tool (`kubernetes_restart`, `flux_reconcile`, `alertmanager_silence_create`, `alertmanager_silence_expire`) for an administrator's `mcp` token holding `actions:<plugin>`. By default a call runs nothing: it creates an approval request that the token's owner approves or denies at `/approve/<id>`, within 10 minutes, and the action then runs once, as the agent's token stands at that moment. A target in a protected namespace always needs a person to type its name.
+- **Where requests show:** a header indicator with the pending count, an approval push to each verified device that takes approvals, and the dash Android app through the `approvals` scope.
+- **The per-plugin agent policy:** `plugins.<id>.actions.agents` (`deny`, `approve`, `allow`; default `approve`), also under Settings → MCP.
+- **What the agent gets back:** a client that supports URL elicitation (protocol 2026-07-28) opens the approval link itself; any other gets `pending_approval` with the link and polls the new `dash_approval` tool.
+- **Guides:** connecting Claude Code, Claude Desktop and claude.ai, VS Code and omp ([docs/agents/mcp.md](../agents/mcp.md)), the dash skill for agents (`docs/agents/dash-skill/SKILL.md`), and the contract for the Android app ([docs/clients/android.md](../clients/android.md)).
+- **Upgrade:** no step. With MCP on, an existing `mcp` token of an administrator that holds `actions:<plugin>` now sees that plugin's action tools, and its calls create approval requests by default; set `plugins.<id>.actions.agents: deny` to keep a plugin's actions away from agents.
+- **Rollback to v0.14.9:** remove every `plugins.<id>.actions.agents` key from the config file and unset every `DASH_PLUGINS_<ID>_ACTIONS_AGENTS` variable first: v0.14.9 refuses both. Approval requests live in memory, so nothing else stays behind. See `docs/upgrading.md`.
+
+**Evidence:** `make check` on every commit, each signed; mutation proofs for same-user approval, exactly-once execution, typed-name enforcement, re-validation at execution, audit fail-closed, the agent's `confirm` dropped, the input caps, tools only for a serving plugin, publish order, the unswept expiry, the waiting retry's slot and never-rerun.
+
+**Security requirement verification (`RevSecG7R6`, two rounds):** nine areas probed against the built binary. It found agent input without a bound: a flood of 19 calls pushed `core.approvals` to 52.5 MB, 525 MB down a stream, 631 MB of resident memory and rotated the audit history away; after the fix the same flood gives 24 KB, 232 KB, about 47 MB flat and 778-byte audit lines. It also found approvals running while MCP was off. All are fixed.
+
+**Correctness (`RevCodeG7R6`, two rounds):** mutation tables of 61 and then 23 mutants, the REST action route unchanged by the executor extraction. It found four security checks without a test, stale `core.approvals` ordering, a claimed request stuck after a panic, `dash_approval` answering per user rather than per credential, and a waiting retry holding its slot. All are fixed.
+
+**UX (`RevUXG7R6`, two rounds):** the approval flow in headless Chromium, the MRTR path with a go-sdk client, the Android path, and every command of the guides run. It found a wrong rollback claim, tools listed for a plugin in `error`, thin action schemas, and the agent texts. All are fixed.
+
+**Production compatibility (`RevCompatG7R2`):** the homelab's environment against v0.14.9: REST actions identical in status, body, upstream writes and audit; 176 of 190 captured responses identical (the rest are the SPA documents and `capabilities.approvals: false`), every status code the same; startup unchanged; the image 259,564 bytes (0.42%) larger.
 
 ### P7.1 feat(auth): bearer principals and personal access tokens
 
