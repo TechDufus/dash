@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/ecdsa"
 	"crypto/elliptic"
-	"crypto/hmac"
 	"crypto/rand"
 	"crypto/sha256"
 	"crypto/subtle"
@@ -107,10 +106,9 @@ type pushSubscription struct {
 	// EndpointHost is the push service's host, what the API and the audit may show.
 	EndpointHost string `json:"endpointHost"`
 	State        string `json:"state"`
-	// CodeHash is the HMAC of the pending code (pushCodeHash), Code the code itself sealed, so a
-	// registration again pushes the same one; Attempts counts wrong ones. All three are cleared
-	// on verification.
-	CodeHash     string     `json:"codeHash,omitempty"`
+	// Code is the pending code, sealed: verification opens it and compares in constant time, and
+	// a registration again pushes the same one. Attempts counts wrong codes. Both are cleared on
+	// verification.
 	Code         string     `json:"code,omitempty"`
 	Attempts     int        `json:"attempts,omitempty"`
 	PendingSince *time.Time `json:"pendingSince,omitempty"`
@@ -126,17 +124,19 @@ type pushSubscription struct {
 
 // stalePushByEpoch turns stale every subscription whose recorded epochs are no longer the
 // document's.
-func stalePushByEpoch(d *document) {
+func stalePushByEpoch(d *document) (n int) {
 	if d.Push == nil {
-		return
+		return 0
 	}
 	for id, sub := range d.Push.Subscriptions {
 		if sub.State == PushStale || sub.Epoch == d.Epochs[sub.User] && sub.GlobalEpoch == d.GlobalEpoch {
 			continue
 		}
-		sub.State, sub.CodeHash, sub.Code, sub.Attempts, sub.PendingSince = PushStale, "", "", 0, nil
+		sub.State, sub.Code, sub.Attempts, sub.PendingSince = PushStale, "", 0, nil
 		d.Push.Subscriptions[id] = sub
+		n++
 	}
+	return n
 }
 
 func (p pushSubscription) clone() pushSubscription {
@@ -237,6 +237,9 @@ type PushOpen struct {
 	Stale int
 	// Resealed is how many sealed values moved from DASH_SECRET_KEY_PREVIOUS to DASH_SECRET_KEY.
 	Resealed int
+	// SignedOut is how many subscriptions turned stale because their owner's session epoch or
+	// the global one moved on since they were registered (a bump this file missed).
+	SignedOut int
 }
 
 // OpenPush readies the store for push with keys (contract D39): it takes keys for every later
@@ -289,11 +292,14 @@ func (s *Store) OpenPush(keys *secret.Keyring) (PushOpen, error) {
 				ok = open(pushFieldPath(id, "code"), &sub.Code) && ok
 			}
 			if sub.State != PushStale && (!ok || res.Lost && sub.Kind == PushKindWebPush) {
-				sub.State, sub.CodeHash, sub.Code, sub.Attempts, sub.PendingSince = PushStale, "", "", 0, nil
+				sub.State, sub.Code, sub.Attempts, sub.PendingSince = PushStale, "", 0, nil
 				res.Stale++
 				changed = true
 			}
 			p.Subscriptions[id] = sub
+		}
+		if res.SignedOut = stalePushByEpoch(d); res.SignedOut > 0 {
+			changed = true
 		}
 		return changed
 	})
@@ -432,14 +438,6 @@ func hashHex(parts ...string) string {
 	return hex.EncodeToString(h.Sum(nil))
 }
 
-// pushCodeHash is the HMAC-SHA256 hex of subscription id's code, keyed with the store's random
-// salt: a copy of credentials.yaml alone does not let anyone test codes offline.
-func (s *Store) pushCodeHash(id, code string) string {
-	m := hmac.New(sha256.New, s.salt)
-	m.Write([]byte("dash push code\x00" + id + "\x00" + normalizeCode(code)))
-	return hex.EncodeToString(m.Sum(nil))
-}
-
 // endpointKey is the endpoint as dash compares it: the scheme (url.Parse lowercases it) and the
 // host lowercased, the host without a trailing dot, no :443 on https, the dot segments of the
 // path resolved. Two spellings of one URL are one endpoint.
@@ -527,7 +525,7 @@ func (s *Store) AddPushSubscription(in PushInput, code string, now time.Time) (s
 		case replacing && prev.State == PushPending && prev.Code != "":
 			current, oerr := keys.Decrypt(pushFieldPath(id, "code"), prev.Code)
 			if oerr == nil {
-				row.State, row.CodeHash, row.Code, row.Attempts, row.PendingSince = PushPending, prev.CodeHash, prev.Code, prev.Attempts, prev.PendingSince
+				row.State, row.Code, row.Attempts, row.PendingSince = PushPending, prev.Code, prev.Attempts, prev.PendingSince
 				sendCode = current
 				break
 			}
@@ -539,7 +537,7 @@ func (s *Store) AddPushSubscription(in PushInput, code string, now time.Time) (s
 				return false
 			}
 			t := now
-			row.State, row.CodeHash, row.Code, row.PendingSince = PushPending, s.pushCodeHash(id, code), sealed, &t
+			row.State, row.Code, row.PendingSince = PushPending, sealed, &t
 			if replacing && prev.State == PushPending {
 				row.Attempts = prev.Attempts
 			}
@@ -590,9 +588,13 @@ func (s *Store) PushSubscriptionByEndpoint(endpoint string) (PushSubscription, b
 // time. A match verifies it; a miss is ErrPushWrongCode, and the PushVerifyAttempts-th miss
 // deletes it (ErrPushCodeExhausted). Another user's subscription is ErrPushNotFound.
 func (s *Store) VerifyPushSubscription(user, id, code string, now time.Time) (PushSubscription, error) {
+	keys, err := s.pushKeyring()
+	if err != nil {
+		return PushSubscription{}, err
+	}
 	var out PushSubscription
 	var result error
-	err := s.update(false, func(d *document) bool {
+	err = s.update(false, func(d *document) bool {
 		sub, ok := pushRow(d, id)
 		switch {
 		case !ok || sub.User != user:
@@ -602,7 +604,8 @@ func (s *Store) VerifyPushSubscription(user, id, code string, now time.Time) (Pu
 			result = ErrPushNotPending
 			return false
 		}
-		if subtle.ConstantTimeCompare([]byte(s.pushCodeHash(id, code)), []byte(sub.CodeHash)) != 1 {
+		want, oerr := keys.Decrypt(pushFieldPath(id, "code"), sub.Code)
+		if oerr != nil || subtle.ConstantTimeCompare([]byte(normalizeCode(want)), []byte(normalizeCode(code))) != 1 {
 			sub.Attempts++
 			if sub.Attempts >= PushVerifyAttempts {
 				deletePushRow(d, id)
@@ -614,7 +617,7 @@ func (s *Store) VerifyPushSubscription(user, id, code string, now time.Time) (Pu
 			return true
 		}
 		t := now.UTC().Truncate(time.Second)
-		sub.State, sub.VerifiedAt, sub.CodeHash, sub.Code, sub.Attempts, sub.PendingSince = PushVerified, &t, "", "", 0, nil
+		sub.State, sub.VerifiedAt, sub.Code, sub.Attempts, sub.PendingSince = PushVerified, &t, "", 0, nil
 		d.Push.Subscriptions[id] = sub
 		out = sub.view(id)
 		return true

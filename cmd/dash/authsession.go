@@ -209,6 +209,9 @@ func pushOn(res *config.Resolved, fixed bool, store *credentials.Store, log *slo
 	if opened.Resealed > 0 {
 		log.Info("push: re-sealed with the current DASH_SECRET_KEY", "values", opened.Resealed)
 	}
+	if opened.SignedOut > 0 {
+		log.Info("push: devices of users signed out since they subscribed are stale; they subscribe again in Settings -> Devices", "devices", opened.SignedOut)
+	}
 	log.Info("push: on", "allowPrivate", len(res.Tree.Push.AllowPrivate))
 	return true
 }

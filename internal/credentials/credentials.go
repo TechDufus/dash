@@ -517,7 +517,8 @@ func (s *Store) SessionSalt() []byte { return s.salt }
 // NoteEnvHash records the SHA-256 fingerprint of the hash DASH_ADMIN_PASSWORD_HASH supplies for
 // user (never the hash itself) and, when a different fingerprint was recorded before, bumps the
 // epoch of user: the "password change" of an env-managed account ends its sessions at the next
-// start. changed reports that bump. The first fingerprint bumps nothing.
+// start, and turns its push subscriptions stale. changed reports that bump. The first
+// fingerprint bumps nothing.
 func (s *Store) NoteEnvHash(user, hash string) (changed bool, err error) {
 	if user == "" || hash == "" {
 		return false, errors.New("credentials: NoteEnvHash needs a user and a hash")
@@ -535,6 +536,7 @@ func (s *Store) NoteEnvHash(user, hash string) (changed bool, err error) {
 		d.EnvHashes[user] = fp
 		if seen {
 			d.Epochs[user]++
+			stalePushByEpoch(d)
 			changed = true
 		}
 		return true

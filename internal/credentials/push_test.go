@@ -509,21 +509,36 @@ func TestPushEndpointIsNormalized(t *testing.T) {
 	}
 }
 
-// The stored code hash is keyed with the store's salt, not a plain digest of the code.
-func TestPushCodeHashIsKeyed(t *testing.T) {
-	s, _ := openPush(t, t.TempDir(), secret.NewKeyring(pushKey(t), secret.Key{}))
-	sub, _, err := s.AddPushSubscription(pushIn("alice", "https://push.example.net/a"), "ABCDEFGH", pushT0)
-	if err != nil {
+// A password change through DASH_ADMIN_PASSWORD_HASH ends the account's sessions and turns its
+// devices stale. A file whose epochs moved on while a row kept older ones (a bump that did not
+// reach the rows) is reconciled when push opens.
+func TestPushEpochReconciled(t *testing.T) {
+	dir := t.TempDir()
+	keys := secret.NewKeyring(pushKey(t), secret.Key{})
+	s, _ := openPush(t, dir, keys)
+	if _, err := s.NoteEnvHash("alice", "$argon2id$first"); err != nil {
 		t.Fatal(err)
 	}
-	s.mu.RLock()
-	stored := s.doc.Push.Subscriptions[sub.ID].CodeHash
-	s.mu.RUnlock()
-	if stored == "" || stored == hashHex("ABCDEFGH") || stored == hashHex(normalizeCode("ABCDEFGH")) {
-		t.Errorf("code hash %q is a plain digest of the code", stored)
+	sub, _ := addPush(t, s, pushIn("alice", "https://push.example.net/a"))
+	other, _ := addPush(t, s, pushIn("bob", "https://push.example.net/b"))
+	if changed, err := s.NoteEnvHash("alice", "$argon2id$rotated"); err != nil || !changed {
+		t.Fatalf("NoteEnvHash = %v %v", changed, err)
 	}
-	other, _ := openPush(t, t.TempDir(), secret.NewKeyring(pushKey(t), secret.Key{}))
-	if other.pushCodeHash(sub.ID, "ABCDEFGH") == stored {
-		t.Error("another store's salt gives the same hash")
+	if got, _ := s.PushSubscriptionByID(sub.ID); got.State != PushStale {
+		t.Errorf("alice's device after the rotation: %s, want stale", got.State)
+	}
+	if got, _ := s.PushSubscriptionByID(other.ID); got.State != PushPending {
+		t.Errorf("bob's device: %s, want pending", got.State)
+	}
+
+	// bob's epoch moves on without the rows (as an older dash would have written it).
+	must(t, s.update(true, func(d *document) bool { d.Epochs["bob"]++; return true }))
+	must(t, s.Close())
+	s, res := openPush(t, dir, keys)
+	if res.SignedOut != 1 {
+		t.Errorf("OpenPush = %+v, want one signed-out device", res)
+	}
+	if got, _ := s.PushSubscriptionByID(other.ID); got.State != PushStale {
+		t.Errorf("bob's device after the reconciliation: %s, want stale", got.State)
 	}
 }
