@@ -14,6 +14,7 @@ import {
 } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
 import { ClipboardUnavailableError, copyFromTextarea, copyText } from "@/lib/clipboard";
+import { usePluginsState } from "@/plugins/state";
 
 /** The bundle parts every copy asks for; `logs` is added for a principal with the logs scope. */
 const PARTS = "events,related,attention,series";
@@ -52,18 +53,21 @@ interface CopyContextButtonProps {
  * "Copy context for AI" (design Q.1): the object's context bundle as Markdown on the clipboard.
  * The click makes one request, GET /api/v1/context; the logs scope comes from the cached /me.
  * Where the async clipboard is missing or refused, a dialog shows the Markdown for a copy in a
- * click of its own.
+ * click of its own. Nothing renders unless the ref's plugin implements Objects (`objects` on its
+ * row of the cached plugin list): any other ref would answer 404 "unknown object".
  */
 export function CopyContextButton({
   contextRef,
   name,
   size = "sm",
   className,
-}: CopyContextButtonProps): JSX.Element {
+}: CopyContextButtonProps): JSX.Element | null {
   const me = useMe();
+  const { byId } = usePluginsState();
   const [pending, setPending] = useState(false);
   const [manual, setManual] = useState<string | null>(null);
   const logs = me.data?.scopes?.includes("logs") === true;
+  const plugin = contextRef.slice(0, Math.max(0, contextRef.indexOf(":")));
 
   const copy = () => {
     setPending(true);
@@ -84,6 +88,7 @@ export function CopyContextButton({
       .finally(() => setPending(false));
   };
 
+  if (byId.get(plugin)?.objects !== true) return null;
   return (
     <>
       <Button

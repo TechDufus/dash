@@ -213,11 +213,13 @@ describe("the pod sheet's Copy context for AI", () => {
     });
     stream = connectStream();
     const r = renderApp(<PodSheet ns="media" name="plex-0" />);
+    stream.plugins([pluginInfo({ id: "kubernetes", name: "Kubernetes", objects: true })]);
     await screen.findByRole("tab", { name: "Overview" });
     await waitFor(() => expect(r.queryClient.getQueryData(["me"])).toBeDefined());
+    const copy = await screen.findByRole("button", { name: "Copy context for AI" });
     const before = f.calls.length;
 
-    fireEvent.click(screen.getByRole("button", { name: "Copy context for AI" }));
+    fireEvent.click(copy);
     await waitFor(() => expect(writeText).toHaveBeenCalledWith("# dash context bundle\n"));
     const after = f.calls.slice(before);
     expect(after.map((c) => c.path)).toEqual(["/api/v1/context"]);

@@ -161,7 +161,7 @@ describe("the alerts page", () => {
       const muted = alert("f3", "Muted", { silencedBy: ["s-dash"] });
       const stub = await show(
         "viewer",
-        [row()],
+        [{ ...row(), objects: true }],
         data({ alerts: [alert("f1", "DiskFull"), muted] }),
       );
       stub.route("GET /api/v1/context", () => new Response("# dash context bundle\n"));

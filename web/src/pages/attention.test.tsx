@@ -77,16 +77,22 @@ describe("AttentionPanel Copy context for AI", () => {
     Reflect.deleteProperty(navigator, "clipboard");
   });
 
-  it("copies the context of each item's ref", async () => {
+  it("copies the context of each item whose plugin implements Objects", async () => {
     const writeText = vi.fn(async (_: string) => {});
     Object.defineProperty(navigator, "clipboard", { value: { writeText }, configurable: true });
     const f = stubFetch({
       "GET /api/v1/me": me("viewer", { scopes: ["read"] }),
+      "GET /api/v1/plugins": [
+        pluginInfo({ id: "kubernetes", objects: true }),
+        pluginInfo({ id: "flux", objects: false }),
+      ],
       "GET /api/v1/context": () => new Response("# dash context bundle\n"),
     });
-    const r = renderApp(<AttentionPanel items={items.slice(0, 2)} />);
+    const r = renderApp(<AttentionPanel items={items.slice(0, 3)} />);
     await waitFor(() => expect(r.queryClient.getQueryData(["me"])).toBeDefined());
-    const buttons = screen.getAllByRole("button", { name: "Copy context for AI" });
+    await waitFor(() => expect(r.queryClient.getQueryData(["plugins"])).toBeDefined());
+    // The flux item gets no button: its ref would answer 404 "unknown object".
+    const buttons = await screen.findAllByRole("button", { name: "Copy context for AI" });
     expect(buttons).toHaveLength(2);
 
     fireEvent.click(buttons[1]);

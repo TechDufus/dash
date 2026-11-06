@@ -2,7 +2,7 @@ import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { toast } from "sonner";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { me } from "@/settings/fixtures";
-import { json, renderApp, stubFetch } from "@/test/harness";
+import { json, pluginInfo, renderApp, stubFetch } from "@/test/harness";
 import { CopyContextButton, copiedMessage } from "./copy-context";
 
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
@@ -62,13 +62,21 @@ function installClipboardItem() {
   return { write, writeText };
 }
 
+/** The cached plugin list: kubernetes implements Objects, rustfs does not. */
+const PLUGINS = [
+  pluginInfo({ id: "kubernetes", objects: true }),
+  pluginInfo({ id: "rustfs", objects: false }),
+];
+
 async function renderButton(scopes: string[], context: unknown = markdownResponse(markdown(3))) {
   const f = stubFetch({
     "GET /api/v1/me": me("admin", { scopes }),
+    "GET /api/v1/plugins": PLUGINS,
     "GET /api/v1/context": () => context,
   });
   const r = renderApp(<CopyContextButton contextRef={REF} name="app-0" />);
   await waitFor(() => expect(r.queryClient.getQueryData(["me"])).toBeDefined());
+  await screen.findByRole("button", { name: "Copy context for AI" });
   return f;
 }
 
@@ -103,8 +111,27 @@ describe("CopyContextButton", () => {
       format: "markdown",
       include: "events,related,attention,series,logs",
     });
-    // The click made one request, and /me was not fetched again.
-    expect(f.calls.map((c) => c.path)).toEqual(["/api/v1/me", "/api/v1/context"]);
+    // The click made one request, and neither /me nor the plugin list was fetched again.
+    expect(f.calls.map((c) => c.path).sort()).toEqual([
+      "/api/v1/context",
+      "/api/v1/me",
+      "/api/v1/plugins",
+    ]);
+  });
+
+  it("renders nothing for a ref whose plugin does not implement Objects", async () => {
+    const f = stubFetch({ "GET /api/v1/me": me("admin"), "GET /api/v1/plugins": PLUGINS });
+    const r = renderApp(
+      <>
+        <CopyContextButton contextRef="rustfs:Bucket/nas" name="nas" />
+        <CopyContextButton contextRef="gone:Thing/x" name="x" />
+        <CopyContextButton contextRef={REF} name="app-0" />
+      </>,
+    );
+    await waitFor(() => expect(r.queryClient.getQueryData(["plugins"])).toBeDefined());
+    // Only the kubernetes ref gets a button.
+    expect(await screen.findAllByRole("button", { name: "Copy context for AI" })).toHaveLength(1);
+    expect(f.callsTo("GET /api/v1/context")).toHaveLength(0);
   });
 
   it("leaves the logs out without the logs scope and says why the bundle has none", async () => {
@@ -119,7 +146,11 @@ describe("CopyContextButton", () => {
     expect(f.callsTo("GET /api/v1/context")[0].query.get("include")).toBe(
       "events,related,attention,series",
     );
-    expect(f.calls.map((c) => c.path)).toEqual(["/api/v1/me", "/api/v1/context"]);
+    expect(f.calls.map((c) => c.path).sort()).toEqual([
+      "/api/v1/context",
+      "/api/v1/me",
+      "/api/v1/plugins",
+    ]);
   });
 
   it("falls back to writeText without ClipboardItem", async () => {

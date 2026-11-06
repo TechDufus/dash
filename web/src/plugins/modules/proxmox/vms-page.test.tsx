@@ -131,11 +131,11 @@ describe("the VMs page", () => {
         "GET /api/v1/context": () => new Response("# dash context bundle\n"),
       });
       renderApp(<VMsPage vmid="101" />, { path: "/vms/101" });
-      stream.plugins([proxmox(), hardware()]);
+      stream.plugins([{ ...proxmox(), objects: true }, hardware()]);
       stream.send("proxmox.vms", data());
 
       const sheet = await screen.findByRole("dialog");
-      fireEvent.click(within(sheet).getByRole("button", { name: "Copy context for AI" }));
+      fireEvent.click(await within(sheet).findByRole("button", { name: "Copy context for AI" }));
       await waitFor(() => expect(writeText).toHaveBeenCalledWith("# dash context bundle\n"));
       expect(stub.callsTo("GET /api/v1/context").map((c) => c.query.get("ref"))).toEqual([
         "proxmox:VM/101",
