@@ -114,7 +114,8 @@ Otherwise the tool is not listed, and calling it is answered as an unknown tool.
 
 `plugins.<id>.actions.agents` (`DASH_PLUGINS_<ID>_ACTIONS_AGENTS`, also under **Settings → MCP**)
 decides what an agent's call does. It applies only to `mcp` tokens; a person in the web UI and an
-`api` token follow their role, scopes and the UI's confirmations, as before. It applies live.
+`api` token follow their role, scopes and the UI's confirmations, as before. A change applies
+without a restart of dash: it restarts that plugin's instance, as every action setting does.
 
 | Value | An agent's call |
 |---|---|
@@ -138,9 +139,9 @@ deny lists and the token's `actionNamespaces`. A refused call creates nothing. T
   the request still waits. A `requestState` is signed with a key that lives as long as the
   process, for that token and tool.
 - **Any other client** gets `{"status": "pending_approval", "approvalId", "approveURL",
-  "expiresAt"}` and polls `dash_approval {id}` (every few seconds at most), which answers
-  `pending`, `approved` (with the outcome), `denied` (with the reason when dash refused it) or
-  `expired`.
+  "expiresAt"}` and polls `dash_approval {id}` (every few seconds at most) with the same token or
+  app, which answers `pending`, `approved` (with the outcome), `denied` (with the reason when dash
+  refused it) or `expired`. Another token, even of the same user, gets `forbidden`.
 
 The same call made again while its request is pending (same token or grant, action and input)
 returns that request. A protocol `2025-11-25` call carries no client name, so its request names
@@ -236,8 +237,9 @@ encoded.
 
 Per token: 120 requests a minute (`tools/call`, `resources/read`, `prompts/get`,
 `subscriptions/listen`, and the list and discovery requests), 30 log reads a minute (`dash_logs`,
-and `dash_context` when it reads logs), 8 calls in flight and 2 listen streams. Per user, across
-their tokens: 16 calls in flight and 4 listen streams. In all, 64 calls in flight and 16 listen
+and `dash_context` when it reads logs), 8 calls in flight (a retry waiting for an approval holds
+none while it waits) and 2 listen streams. Per user, across their tokens: 16 calls in flight and
+4 listen streams. In all, 64 calls in flight and 16 listen
 streams. A request over its rate gets a `rate_limited` error; a request over a concurrency limit
 gets 429 with `Retry-After`, naming the limit. A request body is at most 1 MiB and must arrive
 within 10 s. A token makes at most 10 action calls a minute (a retry waiting for a decision does

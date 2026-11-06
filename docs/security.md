@@ -219,7 +219,7 @@ A push or a link never approves anything: the decision is a POST from the page.
   the action.
 - **Checked twice.** The call is checked before a request exists (role, scope, input, deny lists,
   `actionNamespaces`), and again when it is approved, against the token or grant as it is then:
-  revoked, expired, demoted, narrowed or a plugin now `deny` ends the request denied.
+  revoked, expired, demoted, its scope gone or a plugin now `deny` ends the request denied.
 - **Once.** A request is decided once; a concurrent or later decision is 409, so an approval runs
   the action exactly once.
 - **Audited, fail-closed.** The decision and the run each write an intent before anything happens

@@ -58,7 +58,7 @@ const (
 type Actions struct {
 	Enabled        bool     `json:"enabled" doc:"Offer the plugin's actions. Off by default: without it the actions are not mounted and the web UI does not show their buttons."`
 	DenyNamespaces []string `json:"denyNamespaces" doc:"Namespaces the plugin's actions refuse, whatever the role. A JSON list in the environment."`
-	Agents         string   `json:"agents" dash:"enum=deny|approve|allow" doc:"What an AI agent's call of one of the plugin's action tools (MCP, a token with the mcp audience) does: deny hides the tools and refuses them, approve creates an approval request a person approves or denies in dash, allow runs the action at once. A target that needs its name typed (a protected namespace) always waits for a person's approval, even with allow. API tokens and signed-in people are never affected. The default is approve; applies live."`
+	Agents         string   `json:"agents" dash:"enum=deny|approve|allow" doc:"What an AI agent's call of one of the plugin's action tools (MCP, a token with the mcp audience) does: deny hides the tools and refuses them, approve creates an approval request a person approves or denies in dash, allow runs the action at once. A target that needs its name typed (a protected namespace) always waits for a person's approval, even with allow. API tokens and signed-in people are never affected. The default is approve. A change applies without a restart of dash; it restarts the plugin's instance."`
 }
 
 // AgentPolicy is the configured agent policy, approve when none is set.
@@ -84,7 +84,7 @@ func (a Actions) validate() error {
 // would do nothing.
 type ActionsToggle struct {
 	Enabled bool   `json:"enabled" doc:"Offer the plugin's actions. Off by default: without it the actions are not mounted and the web UI does not show their buttons."`
-	Agents  string `json:"agents" dash:"enum=deny|approve|allow" doc:"What an AI agent's call of one of the plugin's action tools (MCP, a token with the mcp audience) does: deny hides the tools and refuses them, approve creates an approval request a person approves or denies in dash, allow runs the action at once. A target that needs its name typed (a protected namespace) always waits for a person's approval, even with allow. API tokens and signed-in people are never affected. The default is approve; applies live."`
+	Agents  string `json:"agents" dash:"enum=deny|approve|allow" doc:"What an AI agent's call of one of the plugin's action tools (MCP, a token with the mcp audience) does: deny hides the tools and refuses them, approve creates an approval request a person approves or denies in dash, allow runs the action at once. A target that needs its name typed (a protected namespace) always waits for a person's approval, even with allow. API tokens and signed-in people are never affected. The default is approve. A change applies without a restart of dash; it restarts the plugin's instance."`
 }
 
 // Actions is the toggle as the full policy, with no deny list.
