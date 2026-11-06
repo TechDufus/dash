@@ -252,6 +252,32 @@ func TestSlogLineCarriesTheRequestID(t *testing.T) {
 	}
 }
 
+// Without a data directory the slog line is the whole record of an MCP call: it keeps the
+// surface, the token, the argument hash, the client and the duration, and adds none of them
+// empty.
+func TestSlogOnlyLineKeepsTheMCPFields(t *testing.T) {
+	var buf bytes.Buffer
+	l, err := Open("", Options{Logger: jsonLogger(&buf, slog.LevelInfo)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	buf.Reset()
+	l.Event(Record{Action: "mcp tools/call", Actor: Actor{User: "alice", TokenID: "tok-7", Surface: "mcp"},
+		Target: Target{Kind: "tool", Name: "dash_get"}, ArgsSHA256: "ab12", Client: "claude-code", DurationMs: 42})
+	for _, want := range []string{`"surface":"mcp"`, `"tokenID":"tok-7"`, `"argsSha256":"ab12"`, `"client":"claude-code"`, `"durationMs":42`} {
+		if !strings.Contains(buf.String(), want) {
+			t.Errorf("the slog line lacks %s: %s", want, buf.String())
+		}
+	}
+	buf.Reset()
+	l.Event(Record{Action: "login", Actor: Actor{User: "alice"}})
+	for _, absent := range []string{"surface", "tokenID", "argsSha256", "client", "durationMs"} {
+		if strings.Contains(buf.String(), absent) {
+			t.Errorf("an empty %s was logged: %s", absent, buf.String())
+		}
+	}
+}
+
 func TestRotationKeepsFiveFilesAndChainVerifies(t *testing.T) {
 	dir := t.TempDir()
 	l := open(t, dir, Options{MaxSize: 600})
