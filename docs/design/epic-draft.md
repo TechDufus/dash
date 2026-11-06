@@ -1859,12 +1859,12 @@ R3 of G5: P5.4 and P5.5. A patch: additive, the binary is unchanged.
 
 - [x] P6.1 test: replace real-lab identifiers in fixtures and add a denylist test
 - [x] P6.2 chore(dev): decouple dev tooling from the sibling homelab checkout
-- [ ] P6.3 docs: rewrite the README and add generated configuration docs
+- [x] P6.3 docs: rewrite the README and add generated configuration docs (v0.14.4: see "v0.14.4 release notes")
 - [x] P6.4 docs: add SECURITY, CONTRIBUTING, CODE_OF_CONDUCT and templates (`SECURITY.md`, the issue forms, the pull request template and `CODEOWNERS`; no code of conduct and no `CONTRIBUTING.md`, by the owner's decision: see the R1 deviations)
 - [x] P6.5 chore: add LICENSE and third-party notices
-- [ ] P6.6 ci: move CI to GitHub-hosted runners with secret and workflow scans
-- [ ] P6.7 ci(release): publish multi-arch images and the chart to GHCR with attestations
-- [ ] P6.8 docs: automate screenshots from demo mode
+- [x] P6.6 ci: move CI to GitHub-hosted runners with secret and workflow scans (v0.14.3: see "v0.14.3 release notes"; the hosted pull-request acceptance items can only be shown after the flip, see the R2 deviations)
+- [x] P6.7 ci(release): publish multi-arch images and the chart to GHCR with attestations (v0.14.11: see "G6 R4 deviations (v0.14.11)")
+- [x] P6.8 docs: automate screenshots from demo mode (v0.14.3: see "v0.14.3 release notes")
 - [ ] P6.9 chore(repo): pre-publication repository settings
 - [ ] P6.10 chore(repo): execute the history decision, run final scans and make the repo public
 
