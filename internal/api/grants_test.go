@@ -114,6 +114,26 @@ func TestConsentRoutes(t *testing.T) {
 	}
 }
 
+// Approving a consent is a person's write: without the CSRF header, or from a foreign Origin, it
+// is 403 csrf_failed and grants nothing.
+func TestConsentApprovalNeedsCSRF(t *testing.T) {
+	e := newOAuthEnv(t)
+	id := e.consentFor(t, "api", "read")
+	for name, hd := range map[string]map[string]string{
+		"no X-Dash-Csrf":   {"X-Dash-Csrf": ""},
+		"a foreign Origin": {"Origin": "https://evil.example.com"},
+	} {
+		w := e.do(as("alice", req{method: http.MethodPost, path: "/api/v1/oauth/consents/" + id, header: hd,
+			body: model.OAuthConsentDecision{Approve: true, Scopes: []string{"read"}}}))
+		if w.Code != http.StatusForbidden || apiError(t, w).Code != model.ErrCodeCSRFFailed {
+			t.Errorf("%s: %d %s, want 403 csrf_failed", name, w.Code, w.Body)
+		}
+	}
+	if n := len(e.s.d.Credentials.Grants("alice")); n != 0 {
+		t.Errorf("grants = %d after refused approvals", n)
+	}
+}
+
 // The consent and grant routes are for people: a bearer token, even its owner's with every
 // scope, gets 403.
 func TestConsentRoutesRefuseBearer(t *testing.T) {

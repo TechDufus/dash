@@ -3,10 +3,13 @@ package credentials
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -86,6 +89,35 @@ func TestRefreshRotationAndReuse(t *testing.T) {
 	must(t, err)
 	if !strings.Contains(string(data), "schemaVersion: 1") || strings.Contains(string(data), "grants:") {
 		t.Errorf("after the last grant went:\n%s", data)
+	}
+}
+
+// Rotations racing from the same stored state: exactly one wins, however the others interleave
+// (each loser finds the token rotated meanwhile, or rotated away, which is reuse).
+func TestConcurrentRotationHasOneWinner(t *testing.T) {
+	s := open(t, t.TempDir())
+	for round := range 20 {
+		rt, g, err := newGrant(t, s, fmt.Sprintf("u%d", round), t0)
+		must(t, err)
+		const n = 8
+		var wins atomic.Int32
+		var wg sync.WaitGroup
+		start := make(chan struct{})
+		for range n {
+			_, h, err := NewRefreshToken(g.ID)
+			must(t, err)
+			wg.Go(func() {
+				<-start
+				if _, err := s.RotateRefresh(rt, h, t0.Add(time.Minute)); err == nil {
+					wins.Add(1)
+				}
+			})
+		}
+		close(start)
+		wg.Wait()
+		if w := wins.Load(); w != 1 {
+			t.Fatalf("round %d: %d rotations of one token succeeded, want 1", round, w)
+		}
 	}
 }
 

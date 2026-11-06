@@ -106,6 +106,26 @@ func TestConsent(t *testing.T) {
 	}
 }
 
+// A request bound to no one belongs to no one: a principal without a user neither reads nor
+// decides it, even when the request's own user is empty too.
+func TestConsentNeedsAUser(t *testing.T) {
+	s, store, _ := testServer(t, nil)
+	id := consentIDOf(t, s, vera, nil)
+	s.mu.Lock()
+	s.pending[id].user = ""
+	s.mu.Unlock()
+	nobody := auth.Principal{Role: auth.RoleAdmin}
+	if _, err := s.Consent(id, nobody); !errors.Is(err, ErrConsentNotFound) {
+		t.Errorf("consent without a user: %v, want not found", err)
+	}
+	if _, err := s.Approve(id, nobody, []string{"read"}, nil); !errors.Is(err, ErrConsentNotFound) {
+		t.Errorf("approve without a user: %v, want not found", err)
+	}
+	if n := len(store.Grants("")); n != 0 {
+		t.Errorf("grants = %d", n)
+	}
+}
+
 // The whole flow: consent, code with state and iss, exchange with PKCE for an access token and
 // a refresh token; the grant records the person's groups and the approved scopes.
 func TestCodeExchange(t *testing.T) {

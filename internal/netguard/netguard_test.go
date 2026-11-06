@@ -26,6 +26,8 @@ func TestCheck(t *testing.T) {
 		{"127.0.0.1", false, true},
 		{"::1", false, true},
 		{"::ffff:127.0.0.1", false, true},
+		{"::ffff:100.64.0.1", false, true}, // CGNAT, judged as the IPv4 address it maps
+		{"::ffff:198.18.0.1", false, false},
 		{"10.1.2.3", false, true},
 		{"172.16.0.1", false, true},
 		{"192.168.1.1", false, true},

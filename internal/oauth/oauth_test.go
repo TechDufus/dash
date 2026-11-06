@@ -165,6 +165,7 @@ func TestAuthorizeValidation(t *testing.T) {
 		{"push", func(q url.Values) { q.Set("scope", "push") }, "invalid_scope"},
 		{"actions of a plugin without actions", func(q url.Values) { q.Set("scope", "actions:flux") }, "invalid_scope"},
 		{"a repeated resource", func(q url.Values) { q.Add("resource", public+"/api") }, "invalid_request"},
+		{"a resource with a query", func(q url.Values) { q.Set("resource", public+"/api?x=1") }, "invalid_target"},
 	} {
 		res, err := s.Authorize(context.Background(), authReq(tc.mod), nil, aliceCaller)
 		q := redirectError(t, res, err, cb)
@@ -198,6 +199,9 @@ func TestAuthorizeRedirectMatch(t *testing.T) {
 		"https://app.example.com/cb?x=2":      false,
 		"https://app.example.com:8443/cb?x=1": false,
 		"https://evil.example.com/cb?x=1":     false,
+		"https://app.example.com/cb?x=10":     false,
+		"https://app.example.com/cb?x=1&n=e":  false,
+		"http://127.0.0.1/callbackx":          false,
 		"http://127.0.0.1:4711/callback#f":    false,
 		"":                                    false,
 	} {
@@ -428,6 +432,8 @@ func TestClientIDMetadataDocument(t *testing.T) {
 		{"the built-in app's ID", "name of an app this dash knows", namedDocument("dash-android")},
 		{"a config client's name", "name of an app this dash knows", namedDocument("inspector ")},
 		{"a config client's ID", "name of an app this dash knows", namedDocument("MCP-ONLY")},
+		{"a bidi override in client_name", "client_name", namedDocument(`Agent\u202egnp.exe`)},
+		{"a newline in client_name", "client_name", namedDocument(`Agent\nApproved by your admin`)},
 	} {
 		srv, id := cimdServer(t, tc.h)
 		s, _, _ := testServer(t, guarded(srv, true))
@@ -441,6 +447,47 @@ func TestClientIDMetadataDocument(t *testing.T) {
 		if _, err := s.Authorize(context.Background(), cimdReq(bad, nil), nil, aliceCaller); !errors.As(err, &oe) || oe.Code != "invalid_client" {
 			t.Errorf("client ID %q: %v, want invalid_client", bad, err)
 		}
+	}
+}
+
+// A client ID metadata URL is https with a host and a path, without user information, a
+// fragment or a dot segment.
+func TestMetadataURLProblem(t *testing.T) {
+	for id, want := range map[string]string{
+		"https://app.example.com/client.json":                  "",
+		"https://app.example.com/a/b.json":                     "",
+		"http://app.example.com/client.json":                   "is not an https URL",
+		"https:///client.json":                                 "is not an https URL",
+		"https://u@app.example.com/client.json":                "has user information or a fragment",
+		"https://app.example.com/client.json#f":                "has user information or a fragment",
+		"https://app.example.com/client.json#":                 "has user information or a fragment",
+		"https://app.example.com":                              "has no path",
+		"https://app.example.com/":                             "has no path",
+		"https://app.example.com/a/../b":                       "has a dot segment",
+		"https://app.example.com/a/./b":                        "has a dot segment",
+		"https://app.example.com/" + strings.Repeat("a", 2048): "is longer than 2048 bytes",
+	} {
+		if got := metadataURLProblem(id); got != want {
+			t.Errorf("%.60q: %q, want %q", id, got, want)
+		}
+	}
+}
+
+// The server builds its own metadata client from Options: without cimdAllowPrivate it refuses
+// a document on a loopback address before connecting.
+func TestCIMDClientIsGuarded(t *testing.T) {
+	hits := 0
+	_, id := cimdServer(t, func(id string) http.HandlerFunc {
+		return func(w http.ResponseWriter, r *http.Request) { hits++; goodDocument(id)(w, r) }
+	})
+	s, _, _ := testServer(t, nil)
+	_, err := s.Authorize(context.Background(), authReq(func(q url.Values) {
+		q.Set("client_id", id)
+		q.Set("redirect_uri", "http://127.0.0.1:5000/cb")
+	}), nil, aliceCaller)
+	var oe *Error
+	if !errors.As(err, &oe) || oe.Code != "invalid_client" || !strings.Contains(oe.Description, "address dash does not fetch from") || hits != 0 {
+		t.Fatalf("a loopback document: %v (hits %d), want refused by address", err, hits)
 	}
 }
 
