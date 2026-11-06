@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/ecdh"
 	"crypto/rand"
+	"crypto/x509"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -21,6 +22,7 @@ import (
 	"github.com/TechDufus/dash/internal/config"
 	"github.com/TechDufus/dash/internal/credentials"
 	"github.com/TechDufus/dash/internal/model"
+	"github.com/TechDufus/dash/internal/netguard"
 	"github.com/TechDufus/dash/internal/obs"
 	"github.com/TechDufus/dash/internal/secret"
 )
@@ -614,5 +616,105 @@ func TestQueueIsBoundedAndKeepsApprovals(t *testing.T) {
 	defer mu.Unlock()
 	if most != perHost {
 		t.Errorf("at most %d in flight to one host, want %d", most, perHost)
+	}
+}
+
+// A redirect and a certificate the trust does not take are rejections: one attempt, no retry,
+// and the subscription is kept.
+func TestRedirectAndBadCertificateAreRejected(t *testing.T) {
+	f := newFakeService(t, http.StatusFound)
+	f.header.Set("Location", "https://push.example.net/elsewhere")
+	e := newEnv(t, f, loopback)
+	d := e.subscribe(f, "alice", false, nil)
+	if err := e.svc.SendTest(d.id); err != nil {
+		t.Fatal(err)
+	}
+	e.svc.Wait()
+	if n := len(f.requests()); n != 1 || e.sent(obs.PushTest, obs.PushRejected) != 1 || len(e.waits) != 0 {
+		t.Errorf("redirect: %d requests, rejected %v, waits %v", n, e.sent(obs.PushTest, obs.PushRejected), e.waits)
+	}
+
+	ok := newFakeService(t)
+	e2 := newEnv(t, ok, loopback)
+	e2.svc.client = netguard.NewClient(netguard.Options{PrivatePrefixes: loopback.Prefixes, Timeout: sendTimeout, RootCAs: x509.NewCertPool()})
+	d2 := e2.subscribe(ok, "alice", false, nil)
+	if err := e2.svc.SendTest(d2.id); err != nil {
+		t.Fatal(err)
+	}
+	e2.svc.Wait()
+	if got := e2.sent(obs.PushTest, obs.PushRejected); got != 1 || len(e2.waits) != 0 {
+		t.Errorf("bad certificate: rejected %v, waits %v", got, e2.waits)
+	}
+	if _, kept := e2.store.PushSubscriptionByID(d2.id); !kept {
+		t.Error("the subscription was deleted")
+	}
+	if !strings.Contains(e2.log(), "failed TLS verification") {
+		t.Errorf("no WARN: %s", e2.log())
+	}
+}
+
+// The failure WARN after the retries of a 429 carries the status and no empty error.
+func TestRetryWarnHasNoEmptyError(t *testing.T) {
+	f := newFakeService(t, http.StatusTooManyRequests)
+	e := newEnv(t, f, loopback)
+	d := e.subscribe(f, "alice", false, nil)
+	if err := e.svc.SendTest(d.id); err != nil {
+		t.Fatal(err)
+	}
+	e.svc.Wait()
+	if l := e.log(); !strings.Contains(l, "status=429") || strings.Contains(l, "error=<nil>") {
+		t.Errorf("log = %s", l)
+	}
+}
+
+// The per-subscription bookkeeping forgets a subscription an hour after its last send, and at
+// once when the push service says it is gone.
+func TestSendBookkeepingIsPruned(t *testing.T) {
+	f := newFakeService(t, http.StatusCreated, http.StatusGone, http.StatusCreated)
+	e := newEnv(t, f, loopback)
+	idle := e.subscribe(f, "alice", false, nil)
+	gone := e.subscribe(f, "alice", false, nil)
+	other := e.subscribe(f, "alice", false, nil)
+	send := func(d device) {
+		if err := e.svc.SendTest(d.id); err != nil {
+			t.Fatal(err)
+		}
+		e.svc.Wait()
+	}
+	keys := func() (sent, warned []string) {
+		e.svc.mu.Lock()
+		defer e.svc.mu.Unlock()
+		for id := range e.svc.sent {
+			sent = append(sent, id)
+		}
+		for id := range e.svc.warned {
+			warned = append(warned, id)
+		}
+		return sent, warned
+	}
+	send(idle)
+	send(gone)
+	if sent, _ := keys(); len(sent) != 1 || sent[0] != idle.id {
+		t.Errorf("after the 410: sent keys %v, want only the idle one", sent)
+	}
+	e.advance(time.Hour)
+	send(other)
+	if sent, warned := keys(); len(sent) != 1 || sent[0] != other.id || len(warned) != 0 {
+		t.Errorf("an hour later: sent keys %v, warned %v, want only the new one", sent, warned)
+	}
+}
+
+// A push after Close is counted as failed and starts nothing.
+func TestEnqueueAfterClose(t *testing.T) {
+	f := newFakeService(t)
+	e := newEnv(t, f, loopback)
+	d := e.subscribe(f, "alice", false, nil)
+	e.svc.Close()
+	if err := e.svc.SendTest(d.id); err != nil {
+		t.Fatal(err)
+	}
+	e.svc.Wait()
+	if len(f.requests()) != 0 || e.sent(obs.PushTest, obs.PushFailed) != 1 {
+		t.Errorf("%d requests, failed %v", len(f.requests()), e.sent(obs.PushTest, obs.PushFailed))
 	}
 }

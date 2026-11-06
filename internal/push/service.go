@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"crypto/tls"
 	"crypto/x509"
 	"encoding/json"
 	"errors"
@@ -93,6 +94,7 @@ type Service struct {
 	vapid    *VAPID
 	sent     map[string][]time.Time // subscription ID -> sends in the last hour
 	warned   map[string]time.Time   // subscription ID -> last WARN
+	pruned   time.Time              // when sent and warned last lost their idle keys
 }
 
 // New builds the sender. Close it at shutdown.
@@ -140,6 +142,7 @@ func (s *Service) Close() {
 		s.finish(j, obs.PushFailed)
 	}
 	s.wg.Wait()
+	s.client.CloseIdleConnections()
 }
 
 // Wait waits for every delivery queued or in flight to finish; for tests.
@@ -412,6 +415,10 @@ func (s *Service) attempt(j *job) (result string, wait time.Duration, retry bool
 		if _, _, derr := s.o.Store.DeletePushSubscription(j.id); derr != nil {
 			log.Warn("push: the expired subscription could not be deleted from credentials.yaml", "error", derr)
 		}
+		s.mu.Lock()
+		delete(s.sent, j.id)
+		delete(s.warned, j.id)
+		s.mu.Unlock()
 		log.Info("push: the push service says the subscription expired; it was deleted", "status", status)
 		return obs.PushGone, 0, false
 	case errors.Is(err, netguard.ErrRefused):
@@ -419,13 +426,20 @@ func (s *Service) attempt(j *job) (result string, wait time.Duration, retry bool
 		return obs.PushRefused, 0, false
 	case s.ctx.Err() != nil:
 		return obs.PushFailed, 0, false
+	case errors.Is(err, netguard.ErrRedirect) || certError(err):
+		s.warnOnce(log, j.id, "push: the push service redirected or failed TLS verification; nothing was sent, the subscription is kept", "error", err)
+		return obs.PushRejected, 0, false
 	case err == nil && status != http.StatusTooManyRequests && status < 500:
 		s.warnOnce(log, j.id, "push: the push service refused the push; the subscription is kept", "status", status)
 		return obs.PushRejected, 0, false
 	}
 	// 429, 5xx (507 included) or no answer: try again, up to Retries times.
 	if j.attempt == Retries {
-		log.Warn("push: the push service did not take the push after retries", "status", status, "error", err)
+		if err != nil {
+			log.Warn("push: the push service did not answer after retries", "error", err)
+		} else {
+			log.Warn("push: the push service did not take the push after retries", "status", status)
+		}
 		return obs.PushFailed, 0, false
 	}
 	wait = Backoff[j.attempt]
@@ -434,6 +448,15 @@ func (s *Service) attempt(j *job) (result string, wait time.Duration, retry bool
 	}
 	j.attempt++
 	return "", wait, true
+}
+
+// certError reports whether err is a TLS certificate failure, which a retry does not fix.
+func certError(err error) bool {
+	var verification *tls.CertificateVerificationError
+	var authority x509.UnknownAuthorityError
+	var hostname x509.HostnameError
+	var invalid x509.CertificateInvalidError
+	return errors.As(err, &verification) || errors.As(err, &authority) || errors.As(err, &hostname) || errors.As(err, &invalid)
 }
 
 // pushRequest is what every attempt of one push shares.
@@ -538,6 +561,7 @@ func (s *Service) allowSend(id string) bool {
 	now := s.o.Now()
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	s.prune(now)
 	recent := s.sent[id][:0]
 	for _, t := range s.sent[id] {
 		if now.Sub(t) < time.Hour {
@@ -552,10 +576,30 @@ func (s *Service) allowSend(id string) bool {
 	return true
 }
 
+// prune drops, at most once a minute, the subscriptions with no send in the last hour from
+// sent and those with no WARN in the last warnEvery from warned. s.mu is held.
+func (s *Service) prune(now time.Time) {
+	if now.Sub(s.pruned) < time.Minute {
+		return
+	}
+	s.pruned = now
+	for id, times := range s.sent {
+		if len(times) == 0 || now.Sub(times[len(times)-1]) >= time.Hour {
+			delete(s.sent, id)
+		}
+	}
+	for id, last := range s.warned {
+		if now.Sub(last) >= warnEvery {
+			delete(s.warned, id)
+		}
+	}
+}
+
 // warnOnce logs msg for subscription id at most once an hour.
 func (s *Service) warnOnce(log *slog.Logger, id, msg string, args ...any) {
 	now := s.o.Now()
 	s.mu.Lock()
+	s.prune(now)
 	last, seen := s.warned[id]
 	if seen && now.Sub(last) < warnEvery {
 		s.mu.Unlock()

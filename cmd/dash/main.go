@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/signal"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -177,15 +178,20 @@ func run(reg *secret.Registry, onBound func(api, health net.Addr)) error {
 	}
 	pa.deps(&deps)
 	if pa.push {
-		// The sender's deliveries end before the store closes (defers run last-in first-out).
+		// At shutdown (defers run last-in first-out) the sweep and the notifier stop first, then
+		// the sender's deliveries end, then the store closes.
 		svc := push.New(push.Options{
 			Store: pa.store, Contact: cfg.PushContact, Allow: cfg.PushAllow, PublicURL: cfg.PublicURL,
 			Metrics: metrics, Secrets: reg,
 		})
 		defer svc.Close()
-		go svc.RunSweep(ctx)
+		var loops sync.WaitGroup
+		defer loops.Wait()
+		pushCtx, stopPush := context.WithCancel(ctx)
+		defer stopPush()
 		notifier := push.NewNotifier(push.NotifierOptions{Service: svc, Store: pa.store, MayNotify: pushMayNotify(res.Tree.Auth)})
-		go notifier.Run(ctx, h)
+		loops.Go(func() { svc.RunSweep(pushCtx) })
+		loops.Go(func() { notifier.Run(pushCtx, h) })
 		deps.Push = svc
 	}
 	srv := api.New(deps)
