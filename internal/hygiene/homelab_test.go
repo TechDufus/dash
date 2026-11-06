@@ -132,6 +132,8 @@ var allowlist = []allow{
 		"P6.2: the example names that variable"},
 	{"*", j("nas", "-backup"), regexp.MustCompile(`\bDASH_` + j("NAS", "_BACKUP") + `_(?:NAMESPACE|CRONJOB)\b`),
 		"removed variable names that dash still recognises and refuses with their replacement"},
+	{"site/index.html", j("tech", "dufus"), regexp.MustCompile(`(?:github\.com/|© 2026 |Built by )` + owner + `["<]`),
+		"the landing page's copyright line and its link to the owner's GitHub profile"},
 }
 
 // excluded paths quote the identifiers by design (D1) until the P6.10 history scrub rewrites them.

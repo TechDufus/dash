@@ -1,0 +1,299 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>dash · homelab mission control</title>
+  <meta name="description" content="dash is one Go binary that serves a live web UI over Proxmox, Kubernetes, Flux, server hardware, storage, alerts and service status. Open source, MIT.">
+  <meta name="theme-color" content="#04060b">
+  <meta name="color-scheme" content="dark">
+
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="dash">
+  <meta property="og:title" content="dash · homelab mission control">
+  <meta property="og:description" content="One Go binary, a live web UI over Proxmox, Kubernetes, Flux, hardware, storage, alerts and service status. Open source, MIT.">
+  <meta property="og:image" content="assets/banner.png">
+  <meta property="og:image:width" content="2560">
+  <meta property="og:image:height" content="1280">
+  <meta property="og:image:alt" content="dash: Proxmox, Kubernetes, Flux, storage, alerts and service status for the homelab on one live screen">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="dash · homelab mission control">
+  <meta name="twitter:description" content="One Go binary, a live web UI over Proxmox, Kubernetes, Flux, hardware, storage, alerts and service status.">
+  <meta name="twitter:image" content="assets/banner.png">
+  <meta name="twitter:image:alt" content="dash: Proxmox, Kubernetes, Flux, storage, alerts and service status for the homelab on one live screen">
+
+  <link rel="icon" type="image/png" href="assets/icon-512.png">
+  <link rel="apple-touch-icon" href="assets/icon-512.png">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <a class="skip" href="#content">Skip to content</a>
+
+  <header class="site-header">
+    <div class="wrap">
+      <a class="brand" href="#top" aria-label="dash, back to top">
+        <img src="assets/icon-512.png" alt="" width="28" height="28">
+        dash
+      </a>
+      <nav class="nav" aria-label="Primary">
+        <a href="#tour">Tour</a>
+        <a href="#integrations">Integrations</a>
+        <a href="#agents">Agents</a>
+        <a href="#security">Security</a>
+        <a href="#deploy">Deploy</a>
+        <a class="btn small keep" href="https://github.com/TechDufus/dash">
+          <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 .5a11.5 11.5 0 0 0-3.64 22.41c.58.1.79-.25.79-.56v-2.1c-3.2.7-3.88-1.36-3.88-1.36-.52-1.33-1.28-1.69-1.28-1.69-1.04-.71.08-.7.08-.7 1.16.08 1.77 1.19 1.77 1.19 1.03 1.77 2.7 1.26 3.36.96.1-.75.4-1.26.73-1.55-2.55-.29-5.24-1.28-5.24-5.69 0-1.26.45-2.28 1.19-3.09-.12-.29-.52-1.46.11-3.05 0 0 .97-.31 3.17 1.18a11 11 0 0 1 5.78 0c2.2-1.49 3.17-1.18 3.17-1.18.63 1.59.23 2.76.11 3.05.74.81 1.19 1.83 1.19 3.09 0 4.42-2.69 5.4-5.26 5.68.41.36.78 1.06.78 2.14v3.17c0 .31.21.67.8.56A11.5 11.5 0 0 0 12 .5Z"/></svg>
+          GitHub
+        </a>
+      </nav>
+    </div>
+  </header>
+
+  <main id="content">
+    <!-- 1. Hero -->
+    <section class="hero" id="top" aria-labelledby="hero-title">
+      <div class="wrap">
+        <a class="badge" href="https://github.com/TechDufus/dash/releases">
+          <span class="dot" aria-hidden="true"></span>
+          Open source · MIT · v0.14.10
+        </a>
+        <h1 id="hero-title">Homelab <span class="grad">mission control.</span></h1>
+        <p class="lede">One Go binary, a live web UI over Proxmox, Kubernetes, Flux, hardware, storage, alerts and service status.</p>
+        <div class="actions">
+          <a class="btn primary" href="https://github.com/TechDufus/dash">
+            <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 .5a11.5 11.5 0 0 0-3.64 22.41c.58.1.79-.25.79-.56v-2.1c-3.2.7-3.88-1.36-3.88-1.36-.52-1.33-1.28-1.69-1.28-1.69-1.04-.71.08-.7.08-.7 1.16.08 1.77 1.19 1.77 1.19 1.03 1.77 2.7 1.26 3.36.96.1-.75.4-1.26.73-1.55-2.55-.29-5.24-1.28-5.24-5.69 0-1.26.45-2.28 1.19-3.09-.12-.29-.52-1.46.11-3.05 0 0 .97-.31 3.17 1.18a11 11 0 0 1 5.78 0c2.2-1.49 3.17-1.18 3.17-1.18.63 1.59.23 2.76.11 3.05.74.81 1.19 1.83 1.19 3.09 0 4.42-2.69 5.4-5.26 5.68.41.36.78 1.06.78 2.14v3.17c0 .31.21.67.8.56A11.5 11.5 0 0 0 12 .5Z"/></svg>
+            View on GitHub
+          </a>
+          <a class="btn" href="https://github.com/TechDufus/dash/tree/main/docs">
+            Read the docs
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+          </a>
+        </div>
+      </div>
+
+      <div class="stage">
+        <div class="window">
+          <div class="chrome" aria-hidden="true"><i></i><i></i><i></i><span>dash · overview</span></div>
+          <img src="assets/overview.png" width="1600" height="1000" fetchpriority="high" alt="dash overview: KPIs, live topology from the Proxmox host through the VMs to the cluster's namespaces, and the attention list">
+          <div class="fade" aria-hidden="true"></div>
+        </div>
+        <p class="stage-note">Built-in demo mode at a fixed clock. Every name and address is made up.</p>
+      </div>
+    </section>
+
+    <!-- 2. What it is / who it's for -->
+    <section id="what" aria-labelledby="what-title">
+      <div class="wrap">
+        <p class="eyebrow">What it is</p>
+        <h2 id="what-title">One screen for the whole lab.</h2>
+        <p class="section-lede">dash is for people who run their own infrastructure: a Proxmox host, a Kubernetes cluster managed with Flux, the storage and monitoring around them. It reads all of it and shows the state in one place, worst problems first.</p>
+
+        <div class="grid four">
+          <div class="card">
+            <span class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/></svg></span>
+            <h3>One live screen, host to pod</h3>
+            <p>The Overview draws the topology from the Proxmox host through its VMs to every namespace, and lists what needs attention, worst first.</p>
+          </div>
+          <div class="card">
+            <span class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 3v4M15 3v4M7 7h10v4a5 5 0 0 1-10 0V7ZM12 16v5"/></svg></span>
+            <h3>Plugins that switch on when configured</h3>
+            <p>Each integration turns on when its settings are complete. Nothing about a particular lab is compiled in.</p>
+          </div>
+          <div class="card">
+            <span class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12h4l3-8 4 16 3-8h4"/></svg></span>
+            <h3>Live over one SSE stream</h3>
+            <p>The data is live, and only what changed goes out, over a single server-sent event stream.</p>
+          </div>
+          <div class="card">
+            <span class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="7" y="2" width="10" height="20" rx="2.5"/><path d="M11 18h2"/></svg></span>
+            <h3>Installable as an app</h3>
+            <p>Over HTTPS a browser can install dash as an app, on the desktop and on a phone's home screen.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 3. Tour -->
+    <section id="tour" aria-labelledby="tour-title">
+      <div class="wrap">
+        <p class="eyebrow">A tour</p>
+        <h2 id="tour-title">Every layer of the lab, one click apart.</h2>
+        <p class="section-lede">A command palette (<code>Ctrl K</code>) jumps to any page, VM, node, workload or pod. Select a screenshot to open it at full size.</p>
+
+        <div class="shots">
+          <figure class="shot">
+            <a href="assets/vms.png"><img src="assets/vms.png" width="1600" height="1000" loading="lazy" decoding="async" alt="Virtual machines page listing each VM with its status, resources and Kubernetes node"></a>
+            <figcaption><strong>Virtual machines</strong><span>Proxmox VMs with their Kubernetes node, config, snapshots and charts, and a link to each console.</span></figcaption>
+          </figure>
+          <figure class="shot">
+            <a href="assets/hardware.png"><img src="assets/hardware.png" width="1600" height="1000" loading="lazy" decoding="async" alt="Hardware page with power, temperatures, fans, PSUs, ZFS pools and disk health"></a>
+            <figcaption><strong>Hardware</strong><span>IPMI power, temperatures, fans and PSUs, ZFS pools and per-bay SMART health.</span></figcaption>
+          </figure>
+          <figure class="shot">
+            <a href="assets/pods.png"><img src="assets/pods.png" width="1600" height="1000" loading="lazy" decoding="async" alt="Cluster page listing pods with their namespace, phase and health"></a>
+            <figcaption><strong>Cluster</strong><span>Nodes, workloads, pods, events, namespaces and certificates.</span></figcaption>
+          </figure>
+          <figure class="shot">
+            <a href="assets/pod-sheet.png"><img src="assets/pod-sheet.png" width="1600" height="1000" loading="lazy" decoding="async" alt="Pod detail sheet for a crash-looping pod, with Overview, Logs, Metrics, Events and Links tabs"></a>
+            <figcaption><strong>Pod detail</strong><span>Containers, owner, conditions, logs, metrics and events in a side sheet.</span></figcaption>
+          </figure>
+          <figure class="shot">
+            <a href="assets/gitops.png"><img src="assets/gitops.png" width="1600" height="1000" loading="lazy" decoding="async" alt="GitOps page listing Flux sources, Kustomizations and HelmReleases"></a>
+            <figcaption><strong>GitOps</strong><span>Every Flux source, Kustomization and HelmRelease with its revision and signature verification.</span></figcaption>
+          </figure>
+          <figure class="shot">
+            <a href="assets/storage.png"><img src="assets/storage.png" width="1600" height="1000" loading="lazy" decoding="async" alt="Storage page with panels for volumes, databases and object storage"></a>
+            <figcaption><strong>Storage</strong><span>PVC fill and growth with days-to-full, Proxmox storage, Postgres backups and object-store capacity.</span></figcaption>
+          </figure>
+          <figure class="shot">
+            <a href="assets/alerts.png"><img src="assets/alerts.png" width="1600" height="1000" loading="lazy" decoding="async" alt="Alerts page with firing alerts and silences"></a>
+            <figcaption><strong>Alerts and silences</strong><span>Firing Alertmanager alerts, and silences that expire.</span></figcaption>
+          </figure>
+          <figure class="shot">
+            <a href="assets/status.png"><img src="assets/status.png" width="1600" height="1000" loading="lazy" decoding="async" alt="Service status page with endpoint health grouped, critical groups first"></a>
+            <figcaption><strong>Service status</strong><span>Gatus endpoint health, grouped, critical groups first.</span></figcaption>
+          </figure>
+          <figure class="shot">
+            <a href="assets/apps.png"><img src="assets/apps.png" width="1600" height="1000" loading="lazy" decoding="async" alt="Apps page: a searchable launcher of links grouped by platform, apps, tenants and infrastructure"></a>
+            <figcaption><strong>Apps</strong><span>A launcher for your infrastructure, and the apps behind your HTTP routes.</span></figcaption>
+          </figure>
+        </div>
+      </div>
+    </section>
+
+    <!-- 4. Integrations -->
+    <section id="integrations" aria-labelledby="integrations-title">
+      <div class="wrap">
+        <p class="eyebrow">Integrations</p>
+        <h2 id="integrations-title">Plugins for what you already run.</h2>
+        <p class="section-lede">Every plugin turns on when its settings are complete. Leave one unconfigured and its pages stay out of the way; without a cluster, dash still serves the rest.</p>
+
+        <ul class="chips">
+          <li><strong>Proxmox VE</strong><span>VMs, snapshots, charts, consoles</span></li>
+          <li><strong>Hardware</strong><span>IPMI, SMART, ZFS</span></li>
+          <li><strong>Kubernetes</strong><span>Nodes, workloads, pods, logs</span></li>
+          <li><strong>Flux</strong><span>Sources, Kustomizations, HelmReleases</span></li>
+          <li><strong>CloudNativePG</strong><span>Postgres clusters and backup age</span></li>
+          <li><strong>RustFS</strong><span>Object-store buckets and capacity</span></li>
+          <li><strong>Alertmanager</strong><span>Firing alerts and silences</span></li>
+          <li><strong>Gatus</strong><span>Endpoint health, grouped</span></li>
+          <li><strong>VictoriaLogs</strong><span>Pod logs and a live tail</span></li>
+          <li><strong>Prometheus / VictoriaMetrics</strong><span>The series behind the charts</span></li>
+          <li><strong>Grafana · Headlamp</strong><span>Deep links from what you are viewing</span></li>
+          <li><strong>Launcher</strong><span>Links to your infrastructure</span></li>
+        </ul>
+        <p class="shot-note">What each plugin shows, needs and may do: <a href="https://github.com/TechDufus/dash/tree/main/docs/plugins">the plugin docs</a>.</p>
+      </div>
+    </section>
+
+    <!-- 5. Agents -->
+    <section id="agents" aria-labelledby="agents-title">
+      <div class="wrap">
+        <p class="eyebrow">Built for agents too</p>
+        <h2 id="agents-title">Let an AI read your lab. You keep the keys.</h2>
+        <p class="section-lede">dash serves a read-only <a href="https://modelcontextprotocol.io">Model Context Protocol</a> server, so an agent can look at the overview, objects, metric series, logs and context bundles with your permissions. It is off until an administrator switches it on.</p>
+
+        <div class="split">
+          <div class="grid">
+            <div class="card">
+              <span class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="8" y="2" width="8" height="4" rx="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><path d="M9 13h6M9 17h4"/></svg></span>
+              <h3>Copy context for AI</h3>
+              <p>One button on a pod, a VM, an attention item or an alert copies that object's context as Markdown, ready to paste into any chat assistant.</p>
+            </div>
+            <div class="card">
+              <span class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="8" cy="15" r="4"/><path d="M10.9 12.1 20 3M16 7l3 3M14 9l2 2"/></svg></span>
+              <h3>Personal access tokens and OAuth</h3>
+              <p>An agent presents a token scoped to MCP, or signs in through dash with OAuth. Scopes decide what it sees, and a token for MCP is refused by the REST API.</p>
+            </div>
+          </div>
+
+          <div class="card">
+            <p class="card-title">Agent actions wait for you</p>
+            <ol class="steps">
+              <li><strong>An agent asks to act</strong><span>With an administrator's token, it can ask for a restart, a reconcile or a silence, once you have enabled that plugin's actions.</span></li>
+              <li><strong>Nothing runs yet</strong><span>By default dash turns the call into an approval request that only the token's owner can decide.</span></li>
+              <li><strong>You approve on the approval page</strong><span>A push notification can take you to it. The action runs once, and the decision is audited.</span></li>
+            </ol>
+            <p class="card-link"><a href="https://github.com/TechDufus/dash/blob/main/docs/mcp.md">Read about the MCP server →</a></p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 6. Security -->
+    <section id="security" aria-labelledby="security-title">
+      <div class="wrap">
+        <p class="eyebrow">Secure by default</p>
+        <h2 id="security-title">It reads a lot and writes very little.</h2>
+        <p class="section-lede">dash writes in three places only, and each is off until you turn it on.</p>
+
+        <ul class="checks">
+          <li><strong>Three ways to sign in</strong><span>Local, OIDC, or behind an identity proxy.</span></li>
+          <li><strong>Viewer and admin roles</strong><span>Viewers read. Only administrators run actions or change settings.</span></li>
+          <li><strong>CSRF checks and a strict CSP</strong><span>Writes need a matching Origin and a CSRF header, and scripts load only from dash itself.</span></li>
+          <li><strong>A fail-closed audit log</strong><span>Every action and settings change is hash-chained, and a change is refused if its record cannot be written.</span></li>
+          <li><strong>Everything powerful is off by default</strong><span>Rollout restarts, Flux reconciles, silences and the MCP server stay off until you enable them.</span></li>
+          <li><strong>Secrets stay secret</strong><span>Stored encrypted, never shown back, and scrubbed from logs and error messages.</span></li>
+        </ul>
+        <p class="shot-note"><a href="https://github.com/TechDufus/dash/blob/main/docs/security.md">Read the security model →</a></p>
+      </div>
+    </section>
+
+    <!-- 7. Deploy -->
+    <section id="deploy" aria-labelledby="deploy-title">
+      <div class="wrap">
+        <p class="eyebrow">Deploy anywhere</p>
+        <h2 id="deploy-title">A container, wherever you run containers.</h2>
+        <p class="section-lede">dash is a single binary in a single container. The container image is not published yet; the guides build it from the repository.</p>
+
+        <div class="grid three">
+          <div class="card">
+            <span class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 10h18v6a4 4 0 0 1-4 4H7a4 4 0 0 1-4-4v-6ZM6 10V6h3v4M11 10V6h3v4M16 10V7h3v3"/></svg></span>
+            <h3>Docker or Compose</h3>
+            <p>Run the container with a data volume, or start the Compose example with Prometheus and Alertmanager alongside it.</p>
+            <a class="more" href="https://github.com/TechDufus/dash/blob/main/docs/deploy/docker.md">Docker guide →</a>
+          </div>
+          <div class="card">
+            <span class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 2.5 20.5 7v10L12 21.5 3.5 17V7L12 2.5Z"/><circle cx="12" cy="12" r="3"/><path d="M12 9V2.5M14.6 13.5l5.9 3.5M9.4 13.5 3.5 17"/></svg></span>
+            <h3>Kubernetes with Helm</h3>
+            <p>A Helm chart, with kustomize and RBAC modes covered, and a guardrail that holds the service account to what you enabled.</p>
+            <a class="more" href="https://github.com/TechDufus/dash/blob/main/docs/deploy/kubernetes.md">Kubernetes guide →</a>
+          </div>
+          <div class="card">
+            <span class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3 4.5 6v5.5c0 4.5 3.1 8 7.5 9.5 4.4-1.5 7.5-5 7.5-9.5V6L12 3Z"/><path d="m9 12 2.2 2.2L15.5 10"/></svg></span>
+            <h3>Behind oauth2-proxy</h3>
+            <p>Let an identity proxy admit only the users you list, as a sidecar in the cluster.</p>
+            <a class="more" href="https://github.com/TechDufus/dash/tree/main/docs/deploy">All deploy guides →</a>
+          </div>
+        </div>
+
+        <div class="cta">
+          <h2>Take a look at the source.</h2>
+          <p>dash is MIT licensed and developed in the open. Star it, read the docs, or open an issue.</p>
+          <div class="actions">
+            <a class="btn primary" href="https://github.com/TechDufus/dash">View on GitHub</a>
+            <a class="btn" href="https://github.com/TechDufus/dash/tree/main/docs">Read the docs</a>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <!-- 8. Footer -->
+  <footer class="site-footer">
+    <div class="wrap">
+      <a class="brand" href="#top" aria-label="dash, back to top">
+        <img src="assets/icon-512.png" alt="" width="22" height="22">
+        dash
+      </a>
+      <p>MIT · © 2026 TechDufus</p>
+      <nav class="foot-links" aria-label="Footer">
+        <a href="https://github.com/TechDufus/dash">GitHub</a>
+        <a href="https://github.com/TechDufus/dash/releases">Releases</a>
+        <a href="https://github.com/TechDufus/dash/tree/main/docs">Docs</a>
+        <a href="https://github.com/TechDufus">Built by TechDufus</a>
+      </nav>
+    </div>
+  </footer>
+</body>
+</html>
