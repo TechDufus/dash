@@ -4,8 +4,8 @@ description: "A dashboard for a homelab: Kubernetes, GitOps, Proxmox, alerts and
 type: application
 # The chart and the image share one version: a chart release ships with the dash release of the
 # same number.
-version: 0.14.9
-appVersion: "0.14.9"
+version: 0.14.10
+appVersion: "0.14.10"
 # The guardrail is an admissionregistration.k8s.io/v1 ValidatingAdmissionPolicy (GA in 1.30).
 kubeVersion: ">=1.30.0-0"
 home: https://github.com/TechDufus/dash
