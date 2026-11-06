@@ -2171,7 +2171,7 @@ Remove the Zot push (`ci.yml:31`). README release steps are updated. There is no
 - [x] P7.4 feat(mcp): context bundles, prompts and "Copy context for AI" (v0.14.8: see the R5 deviations)
 - [ ] P7.5 feat(approvals): agent action tools with human approval
 - [x] P7.6 feat(web): installable PWA (v0.14.5: see the R1 deviations)
-- [ ] P7.7 feat(push): Web Push and UnifiedPush notifications
+- [x] P7.7 feat(push): Web Push and UnifiedPush notifications (v0.14.9: see the R4 deviations)
 - [ ] P7.8 docs(clients): native client and agent guides
 - [ ] P7.9 feat(plugins): optional assistant plugin (later; off by default)
 
@@ -2368,6 +2368,55 @@ R5 of G7: P7.3 and P7.4. A patch: additive, and the MCP server stays off until `
 **UX (`RevUXG7R5`, two rounds):** a scripted go-sdk client on both protocol versions through every tool and prompt, and a headless browser at 390 to 1280 px. It found the Alerts layout at 390 px, a misleading "0 lines of logs", thin workload bundles, mandatory fields not `required` in the schemas, and errors that did not say what to do; all are fixed.
 
 **Production compatibility (`RevCompatG7R2`, three rounds):** the homelab's environment against v0.14.7: 177 of 190 captured responses identical (6 SPA documents and 7 responses gaining `objects` differ), every status code the same; upstream 419 of 419 requests and no extra polls; the startup log 18 INFO and 0 WARN; the image 2,771,875 bytes (4.8%) larger. It found the binary growth and a copy button on a plugin without objects (`rustfs`); both are fixed.
+
+### G7 R4 deviations (v0.14.9)
+
+R4 (branch `feat/g7-push`: the wire types, RFC 8291 and VAPID, the credential store's push data, the three Settings → Devices web commits, the API with the sender, the attention notifier, the docs, two review-fix rounds with the Devices web fixes, the grant-following app devices, the rebase onto R3 and R5, the version, then this docs commit) ships P7.7 and differs from it, and from the G7 plan's decisions D30 to D32 and D37 to D47 and its G7-R4 section, in these places. [docs/push.md](../push.md) is the user-facing description.
+
+| Item | The plan said | Shipped | Why |
+|---|---|---|---|
+| UnifiedPush after a lost key | D39: when the VAPID key cannot be opened, web-push subscriptions turn stale and UnifiedPush ones keep working | Without `DASH_SECRET_KEY_PREVIOUS` every device turns stale: a subscription's own sealed fields (endpoint, keys, pending code) no longer open either. A UnifiedPush device survives only when the VAPID key alone fails to open | The endpoint is sealed with the same key; a row that cannot be opened cannot be sent to (the docs said otherwise; found by the UX review) |
+| Notify settings | Settings → Devices lists the subscriptions | A device's approvals and attention threshold are changed on the device itself, by registering again with the same endpoint (the row stays verified); other devices show theirs read-only, and a stale row offers only Subscribe again | There is no update route: only the device holds its endpoint and keys |
+| The QR code's URL | D47: the public URL, or the direct URL when set | `GET /api/v1/push/vapid` returns `{publicKey, serverUrl}`, `serverUrl` being the direct URL when set, else the public URL; the QR card encodes it, and the page's own address while the answer is missing | One source of truth for the server URL the app connects to |
+| The worker's CSP | The P7.6 worker policy | `img-src 'self'` is added to `/sw.js`'s policy | Notifications load dash's own icon and badge |
+| The audit target | D31: audited fail-closed, like tokens | `push.subscribe`, `push.verify`, `push.test` and `push.unsubscribe`, each an intent then an outcome; the target is `{kind: pushSubscription, namespace: <push service host>, name: <subscription ID>}`, and the outcome names the row the store wrote | The endpoint is a capability URL and is never recorded; the host says which push service without it |
+| Sending | D42: the netguard client, retries with backoff | A queue: a delivery waiting out a retry gives its slot back; at most 16 in flight, 4 per push-service host and 4 per user; at most 1024 waiting, past which the oldest attention, test or verify push is dropped (`dash_push_sent_total{result="dropped"}`, one WARN an hour) and an approval never is. A redirect or a TLS certificate failure is a rejection, with no retry | One user's slow or hanging endpoints stalled every push (found by the security verification; the per-user cap by the code review) |
+| Registration rate | Not specified | 10 registrations a minute per user, a repeat of the same device included (429) | Each registration may send a verify push (found by the security verification) |
+| Unreachable endpoints | D42: checked at dial time | Also refused at registration: an endpoint whose host is an address the sender refuses, or a name that now resolves only to refused addresses, is a 400 field error naming `push.allowPrivate`; a failed lookup passes, and every dial is still checked | The device subscribed and then silently received nothing (found by the UX review) |
+| Endpoint identity | D40: the same endpoint replaces the row | Endpoints are compared after normalizing: the scheme and host lowercased, no trailing dot, no `:443`, dot segments resolved | Two spellings of one URL let another user register the same device (found by the security verification) |
+| The code | D41: stored hashed, compared in constant time | Stored sealed (`enc:v1`), opened and compared in constant time; no hash is kept | A registration again must push the same code, which a hash cannot give back; the seal already protects it |
+| Registering a pending device again | Not specified | Keeps its code, its wrong attempts and its 10 minutes, and pushes the same code again | A repeat reset the attempts and the window (found by the security verification) |
+| Signed-out users | D43: the role is rechecked at send time | Also: a browser's subscription records its owner's session epoch and the global one, and a logout, "Log out everywhere", "Sign out all users" or a `DASH_ADMIN_PASSWORD_HASH` change turns it stale; at start dash reconciles rows whose recorded epochs fell behind | A removed or signed-out user kept getting lab text (found by the security verification; the password-hash case in its second round) |
+| App devices | Not specified | A subscription registered with an OAuth grant (the dash app) follows that grant instead of the epochs: a plain logout keeps it, and revoking the grant ("Log out everywhere" does) or its expiry turns it stale | A phone app should not lose push when its user logs out of a browser |
+| Other users' devices | Not specified | An administrator lists one user's devices or everyone's (`GET ?user=<name>\|*`) and removes anyone's (`DELETE …/{id}`), audited, as interactive principals only: an administrator's token gets 403 | In `proxy` mode and with `allowedGroups` dash cannot see that a user left, so an administrator removes their devices (found by the security verification) |
+| Escalation | D43: one push per item until it clears | A warning pushed as such that turns critical is pushed once more, to the devices that take critical items only | A crit-only device never heard of it (found by the code review) |
+| The hourly summary | D43: one summary of the excess | Each device's summary counts the held-back items its threshold covers; a device whose threshold covers none gets no summary | A crit-only device was told of warnings it never takes (found by the code review) |
+| After a logout | Not specified | At the next sign-in, when this browser's row is stale or a logout left its marker and the notification permission still holds, dash subscribes the browser again and verifies it; otherwise a dismissible banner says notifications stopped and offers Subscribe again. The Log out item and the stale row say a logout stops push on all your devices | Push stopped silently after any logout (found by the UX review) |
+| One browser, several users | Not specified | The browser's subscription ID is kept under a per-user `localStorage` key; Log out removes this browser's subscription when it is the user's own, leaving a marker of its name and settings; a second user's subscribe gets 409 with a message to use another profile | A shared browser received the previous user's notifications (found by the code review) |
+| Shutdown | Not specified | The sweep and the notifier stop first, then the sender (queued and waiting deliveries end as failed, and it closes its idle connections), then the store | Deliveries could start after the sender closed (found by the code review) |
+| The Android app | P7.8: the native app registers UnifiedPush | It is not released yet: the docs and the QR card say so, and nothing registers a UnifiedPush endpoint today; the API and `push.allowPrivate` are ready for it | The app lives in a separate repository |
+
+#### v0.14.9 release notes
+
+R4 of G7: P7.7. A patch: additive, and push stays off until dash has what it needs.
+
+- **Push notifications:** Web Push to browsers and the installed PWA (iOS 16.4 or later from the home screen), and UnifiedPush for the coming dash Android app. Payloads are end-to-end encrypted; endpoints are sealed with `DASH_SECRET_KEY` and never logged.
+- **Attention notifications:** an attention item still there after 2 minutes, at or above a device's threshold (Critical, Warnings or Off), is pushed once, again only after it clears; a warning that turns critical reaches the Critical devices; at most 30 an hour per user, then one summary.
+- **Settings → Devices:** subscribe this browser, verification by a pushed code, the notify settings, a test push, and a QR code holding the server URL for the app. Administrators can list and remove other users' devices.
+- **Needs:** a writable data dir and `DASH_SECRET_KEY`, plus `push.contact` or an https `server.publicURL`, in `auth.mode` `local`, `oidc` or `proxy`; otherwise one INFO at start names what is missing and the push routes answer 409 `push_unavailable`. `push.allowPrivate` admits a LAN push server.
+- **Logging out** stops push on all your browser devices; dash subscribes them again at the next sign-in while notifications stay allowed.
+- **Upgrade:** no step.
+- **Rollback to v0.14.8:** remove `push:` from the config file first (v0.14.8 refuses a file with keys it does not know). v0.14.8 reads `credentials.yaml` at `schemaVersion: 2`, ignores its push data and drops it at its next write of the file; after upgrading again every device subscribes again. See `docs/upgrading.md`.
+
+**Evidence:** `make check` on every commit, each signed.
+
+**Security requirement verification (`RevSecG7R4`, three rounds):** eight requirement areas probed against the built binary with fake https push services. It found one user stalling every push, removed users keeping pushes, retries of redirects, the pending code reset by a repeat, endpoint spelling variants, and a password-hash change not staling devices; all are fixed. The final round confirmed the grant-following app devices and the netguard and credentials code merged from R3 and R5, with OAuth and MCP smokes.
+
+**Correctness (`RevCodeG7R4`, two rounds):** mutation tables of 51 and then 42 mutants. It found the warning-to-critical escalation miss, the shutdown order, idle connections left open, unbounded per-subscription maps, the summary threshold and the per-user fairness gap; all are fixed.
+
+**UX (`RevUXG7R4`, three rounds):** the real flow with a fake push service and delivery through CDP in headless Chromium. It found the notify editor on a stale row, doc errors about key rotation and UnifiedPush, and push silently stopping after any logout; all are fixed.
+
+**Production compatibility (`RevCompatG7R2`):** the homelab's environment against v0.14.8: push stays off with one INFO naming the missing data dir and `DASH_SECRET_KEY`; 180 to 182 of 190 captured responses identical, every status code the same, the push routes going from 404 to 409 `push_unavailable`; upstream 419 of 419 requests and no extra polls; the PWA updates cleanly from v0.14.8; the image 502,876 bytes (0.83%) larger. Push would need a data dir and `DASH_SECRET_KEY` there.
 
 ### P7.1 feat(auth): bearer principals and personal access tokens
 
