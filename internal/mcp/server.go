@@ -195,8 +195,9 @@ func New(o Options) *Server {
 type ctxKey struct{}
 
 type caller struct {
-	p auth.Principal
-	r *http.Request
+	p    auth.Principal
+	r    *http.Request
+	slot *heldSlot // the request's call slot; nil for none
 }
 
 // quiet is l without its INFO and DEBUG records: the SDK logs every stateless request's session
@@ -225,8 +226,9 @@ func (s *Server) Handler(w http.ResponseWriter, r *http.Request, p auth.Principa
 	if !ok {
 		return
 	}
-	defer release()
-	in := r.WithContext(context.WithValue(r.Context(), ctxKey{}, caller{p: p, r: r}))
+	slot := &heldSlot{slots: &s.slots, key: tokenKey(p), user: p.User, release: release}
+	defer slot.done()
+	in := r.WithContext(context.WithValue(r.Context(), ctxKey{}, caller{p: p, r: r, slot: slot}))
 	in.Body, in.ContentLength = io.NopCloser(bytes.NewReader(body)), int64(len(body))
 	s.h.ServeHTTP(w, in)
 }

@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -210,6 +211,11 @@ func TestMCPActionPendingThenPolled(t *testing.T) {
 	if res := call(t, e.mcpSession(t, other, "2025-11-25", nil), "dash_approval", map[string]any{"id": pending.ApprovalID}); !res.IsError || !strings.Contains(resultText(res), model.ErrCodeForbidden) {
 		t.Errorf("carol's dash_approval = %s", resultText(res))
 	}
+	// Nor can another token of the same user: dash_approval answers the credential that asked.
+	second, _ := e.agentToken(t, "alice", "read")
+	if res := call(t, e.mcpSession(t, second, "2025-11-25", nil), "dash_approval", map[string]any{"id": pending.ApprovalID}); !res.IsError || !strings.Contains(resultText(res), model.ErrCodeForbidden) {
+		t.Errorf("alice's other token's dash_approval = %s", resultText(res))
+	}
 	if res := call(t, cs, "dash_approval", map[string]any{"id": "appr_ABCDEFGHIJKLMNOPQRSTUVWXYZ"}); !res.IsError || !strings.Contains(resultText(res), model.ErrCodeApprovalExpired) {
 		t.Errorf("unknown dash_approval = %s", resultText(res))
 	}
@@ -251,6 +257,45 @@ func TestMCPActionMultiRoundTrip(t *testing.T) {
 	id := urls[0][strings.LastIndex(urls[0], "/")+1:]
 	if info, err := e.approvals.Get(id, "alice"); err != nil || info.ClientName != "Test Agent" {
 		t.Errorf("request = %+v, %v", info, err)
+	}
+}
+
+// A retry waiting for a decision holds none of the token's 8 call slots: with 8 retries blocked,
+// the token still gets an answer to another call; then the decisions release them.
+func TestMCPWaitingRetriesHoldNoSlot(t *testing.T) {
+	e := newApprovalEnv(t, nil)
+	token, _ := e.agentToken(t, "alice", "read", "actions:aa")
+	var mu sync.Mutex
+	var ids []string
+	cs := e.mcpSession(t, token, "2026-07-28", &sdk.ClientOptions{
+		Capabilities: &sdk.ClientCapabilities{Elicitation: &sdk.ElicitationCapabilities{URL: &sdk.URLElicitationCapabilities{}}},
+		ElicitationHandler: func(_ context.Context, req *sdk.ElicitRequest) (*sdk.ElicitResult, error) {
+			mu.Lock()
+			ids = append(ids, req.Params.URL[strings.LastIndex(req.Params.URL, "/")+1:])
+			mu.Unlock()
+			return &sdk.ElicitResult{Action: "accept"}, nil
+		},
+	})
+	var wg sync.WaitGroup
+	for i := range 8 {
+		wg.Go(func() {
+			call(t, cs, "aa_restart", map[string]any{"namespace": "apps", "name": "w" + string(rune('0'+i))})
+		})
+	}
+	e.eventually(t, "8 elicitations", func() bool { mu.Lock(); defer mu.Unlock(); return len(ids) == 8 })
+	time.Sleep(300 * time.Millisecond) // the retries reach their wait
+	other := e.mcpSession(t, token, "2026-07-28", nil)
+	if _, err := other.CallTool(context.Background(), &sdk.CallToolParams{Name: "dash_approval", Arguments: map[string]any{"id": ids[0]}}); err != nil {
+		t.Errorf("a call while 8 retries wait: %v", err)
+	}
+	mu.Lock()
+	for _, id := range ids {
+		e.decide("alice", id, model.ApprovalDecision{Approve: true})
+	}
+	mu.Unlock()
+	wg.Wait()
+	if n := len(e.acts()); n != 8 {
+		t.Errorf("Act ran %d times, want 8", n)
 	}
 }
 

@@ -181,8 +181,10 @@ func (s *Server) agentRefusal(r *http.Request, d *actionDenial) error {
 	return &dashmcp.Error{Code: d.Code, Message: d.Msg}
 }
 
-// Approval is dash_approval and the retry of an input-required answer: request id as its owner's
-// token reads it. Reading the outcome of a request that ran is recorded (contract D54).
+// Approval is dash_approval and the retry of an input-required answer: request id as the token or
+// grant that made it reads it; another credential, even of the same user, gets forbidden (a
+// person reads it through GET /api/v1/approvals/{id}). Reading the outcome of a request that ran
+// is recorded (contract D54).
 func (b mcpBackend) Approval(r *http.Request, p auth.Principal, id string) (model.ApprovalInfo, error) {
 	s := b.s
 	if !approvals.WellFormed(id) {
@@ -194,6 +196,8 @@ func (b mcpBackend) Approval(r *http.Request, p auth.Principal, id string) (mode
 		return model.ApprovalInfo{}, &dashmcp.Error{Code: model.ErrCodeForbidden, Message: "this approval request is another user's"}
 	case err != nil:
 		return model.ApprovalInfo{}, &dashmcp.Error{Code: model.ErrCodeApprovalExpired, Message: "this approval request expired or no longer exists"}
+	case info.TokenID != p.TokenID || info.GrantID != p.GrantID:
+		return model.ApprovalInfo{}, &dashmcp.Error{Code: model.ErrCodeForbidden, Message: "this approval request was made with another token"}
 	}
 	if info.Outcome != nil {
 		rec := s.approvalRecord(auditApprovalResult, info, p)

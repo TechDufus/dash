@@ -206,14 +206,19 @@ func (s *Server) inputRequired(c caller, tool string, info model.ApprovalInfo, a
 }
 
 // awaitApproval answers a retry: it waits up to approvalWait (no longer than the request lives)
-// for the decision, then answers the outcome, or input-required again while it still waits.
+// for the decision, then answers the outcome, or input-required again while it still waits. While
+// it waits it holds no call slot.
 func (s *Server) awaitApproval(ctx context.Context, ab ActionBackend, req *sdk.CallToolRequest, c caller, tool, id string) *sdk.CallToolResult {
 	info, err := ab.Approval(c.r, c.p, id)
 	if err == nil && info.State == model.ApprovalStatePending {
 		wait := min(approvalWait, max(info.ExpiresAt.Sub(s.o.Now()), 0))
 		wctx, cancel := context.WithTimeout(ctx, wait)
+		c.slot.pause()
 		ab.WaitApproval(wctx, id)
 		cancel()
+		if !c.slot.resume() {
+			return errorResult(model.ErrCodeRateLimited, "too many requests in flight for this token; retry the call with the same requestState")
+		}
 		info, err = ab.Approval(c.r, c.p, id)
 	}
 	if te, ok := errors.AsType[*Error](err); ok {

@@ -156,6 +156,50 @@ func (s *slots) acquire(key, user string, listen bool) (release func(), refused 
 	}, ""
 }
 
+// heldSlot is a request's call slot, which a call that only waits (the retry of an
+// input-required answer, blocked on a decision) gives back while it waits and takes again before
+// it answers, so waiting agents do not hold the token's 8 slots.
+type heldSlot struct {
+	mu        sync.Mutex
+	slots     *slots
+	key, user string
+	release   func() // nil while given back
+}
+
+// pause gives the slot back.
+func (h *heldSlot) pause() {
+	if h == nil {
+		return
+	}
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if h.release != nil {
+		h.release()
+		h.release = nil
+	}
+}
+
+// resume takes a call slot again; false when the limits are full.
+func (h *heldSlot) resume() bool {
+	if h == nil {
+		return true
+	}
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if h.release != nil {
+		return true
+	}
+	release, refused := h.slots.acquire(h.key, h.user, false)
+	if refused != "" {
+		return false
+	}
+	h.release = release
+	return true
+}
+
+// done gives the slot back for good: the request is answered.
+func (h *heldSlot) done() { h.pause() }
+
 // tokenKey names the credential a limit counts against: the grant of an OAuth token, else the
 // token.
 func tokenKey(p auth.Principal) string {
