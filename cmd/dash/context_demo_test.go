@@ -13,6 +13,7 @@ import (
 	"github.com/TechDufus/dash/internal/bundle"
 	"github.com/TechDufus/dash/internal/config"
 	"github.com/TechDufus/dash/internal/model"
+	"github.com/TechDufus/dash/internal/secret"
 )
 
 // contextGet asks GET /api/v1/context of a demo run as p.
@@ -161,6 +162,28 @@ func TestDemoContextBundleRefusals(t *testing.T) {
 	} {
 		if w := contextGet(t, fw, cfg, demoAdmin, tc.q); w.Code != tc.code {
 			t.Errorf("%v: status %d, want %d: %s", tc.q, w.Code, tc.code, w.Body)
+		}
+	}
+}
+
+// GET /api/v1/context scrubs every string of the bundle: a secret dash knows that is also lab
+// data (here the attention pod's name) is gone from the JSON and the Markdown alike.
+func TestDemoContextBundleIsScrubbed(t *testing.T) {
+	fw, cfg := startDemo(t)
+	awaitDemoTopics(t, fw)
+	ref := attentionPod(t, fw)
+	_, _, id, _ := model.ParseRef(ref)
+	_, pod, _ := strings.Cut(id, "/")
+	reg := secret.NewRegistry()
+	reg.Add(secret.New(pod, ""))
+	h := api.New(api.Deps{Cfg: cfg, Hub: fw.hub, Plugins: fw.sup, Health: fw.sup, Auth: auth.Fixed(demoAdmin), Secrets: reg}).Handler()
+	for _, format := range []string{"json", "markdown"} {
+		r := httptest.NewRequest(http.MethodGet, cfg.PublicURL+"/api/v1/context?"+url.Values{"ref": {ref}, "format": {format}}.Encode(), nil)
+		r.RemoteAddr = "127.0.0.1:41000"
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, r)
+		if w.Code != http.StatusOK || strings.Contains(w.Body.String(), pod) || !strings.Contains(w.Body.String(), "[redacted]") {
+			t.Errorf("%s: %d, the pod name %q survives:\n%.600s", format, w.Code, pod, w.Body)
 		}
 	}
 }

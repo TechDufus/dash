@@ -60,14 +60,19 @@ func (labBackend) Changes(context.Context) <-chan string {
 	return ch
 }
 
-// serveHTTP serves s at a real HTTP server as the principal of a token of bob's with scopes
-// (read when none are given).
+// serveHTTPPrincipal is the principal serveHTTP serves as: a token of bob's with scopes.
+func serveHTTPPrincipal(scopes ...string) auth.Principal {
+	return auth.Principal{Kind: auth.KindToken, Audience: "mcp", User: "bob", TokenID: "tok", Scopes: scopes}
+}
+
+// serveHTTP serves s at a real HTTP server as serveHTTPPrincipal(scopes), read when none are
+// given.
 func serveHTTP(t *testing.T, s *Server, scopes ...string) string {
 	t.Helper()
 	if len(scopes) == 0 {
 		scopes = []string{"read"}
 	}
-	p := auth.Principal{Kind: auth.KindToken, Audience: "mcp", User: "bob", TokenID: "tok", Scopes: scopes}
+	p := serveHTTPPrincipal(scopes...)
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { s.Handler(w, r, p) }))
 	t.Cleanup(ts.Close)
 	return ts.URL
