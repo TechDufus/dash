@@ -242,12 +242,14 @@ func (s *Server) RevocationTarget(form url.Values) (credentials.Grant, bool) {
 }
 
 // LimitSubject is what a request to /oauth/token or /oauth/revoke is rate limited as (contract
-// G7-R3 fix A1): the grant its refresh token (or token to revoke) names, when that grant is
-// stored; else its client_id when dash knows the client without fetching anything (dash-android,
-// an auth.oauth.clients entry, a cached metadata document); else nothing, and the API keys the
+// G7-R3 fixes A1 and E2): the grant its refresh token (or token to revoke) names, when that
+// grant is stored; else its authorization code, when that code is held and unexpired; else its
+// client_id when dash knows the client without fetching anything (dash-android, an
+// auth.oauth.clients entry, a cached metadata document); else nothing, and the API keys the
 // request on its peer alone.
 type LimitSubject struct {
 	GrantID  string
+	Code     string
 	ClientID string
 }
 
@@ -260,8 +262,20 @@ func (s *Server) LimitSubject(form url.Values) LimitSubject {
 			}
 		}
 	}
+	if v := form.Get("code"); v != "" && s.holdsCode(v) {
+		return LimitSubject{Code: v}
+	}
 	if id := form.Get("client_id"); s.knownClient(id) {
 		return LimitSubject{ClientID: id}
 	}
 	return LimitSubject{}
+}
+
+// holdsCode reports whether value is an authorization code dash holds that has not expired.
+func (s *Server) holdsCode(value string) bool {
+	now := s.now()
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	c, ok := s.codes[value]
+	return ok && now.Before(c.expires)
 }

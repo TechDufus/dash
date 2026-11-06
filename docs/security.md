@@ -64,8 +64,9 @@ after name resolution, so a rebinding name is refused too), uses no proxy from t
 follows no redirect and reads at most 64 KiB within 5 seconds. `auth.oauth.cimdAllowPrivate` adds
 private and loopback addresses, never link-local ones. `/oauth/token` and `/oauth/revoke` need no
 sign-in and no CSRF header (they read no cookie), and are limited to 60 requests a minute per
-grant (a refresh), else per known client and peer, else per peer; the limit's table forgets its
-oldest key rather than refuse a new one. `/oauth/authorize` keeps nothing and fetches no client
+grant (a refresh), else per authorization code dash holds (an exchange), else per known client
+and peer, else per peer; the limit's table forgets its oldest key rather than refuse a new one.
+`/oauth/authorize` keeps nothing and fetches no client
 metadata document for a caller who is not signed in; a person holds at most 20 pending requests,
 and 1024 in all. With `server.directURL`, `/oauth/authorize` and `/consent` are 404 on the direct
 host. Behind an identity proxy,

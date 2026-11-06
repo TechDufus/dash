@@ -234,6 +234,24 @@ func TestCodeExpiry(t *testing.T) {
 	}
 }
 
+// A form naming a code dash holds is limited as that code (G7-R3 fix E2); an unknown code, or
+// one past its expiry, falls back to the client.
+func TestLimitSubjectOfACode(t *testing.T) {
+	s, _, now := testServer(t, nil)
+	code := approve(t, s, consentID(t, s, nil), alice, "read").Get("code")
+	form := func(c string) url.Values { return url.Values{"code": {c}, "client_id": {"inspector"}} }
+	if got := s.LimitSubject(form(code)); got != (LimitSubject{Code: code}) {
+		t.Errorf("a held code = %+v", got)
+	}
+	if got := s.LimitSubject(form("junk")); got != (LimitSubject{ClientID: "inspector"}) {
+		t.Errorf("an unknown code = %+v", got)
+	}
+	*now = now.Add(CodeTTL)
+	if got := s.LimitSubject(form(code)); got != (LimitSubject{ClientID: "inspector"}) {
+		t.Errorf("an expired code = %+v", got)
+	}
+}
+
 // Every refresh rotates: the new token works, the old one used again revokes the grant and
 // with it every access token. Another client's refresh changes nothing.
 func TestRefreshRotation(t *testing.T) {

@@ -44,9 +44,9 @@ func (e *oauthEnv) form(path string, f url.Values, header map[string]string) *ht
 	return req{method: http.MethodPost, path: path, body: f.Encode(), header: h, raw: true}.do(e.s.Handler())
 }
 
-// grant runs the flow for user p at audience with scopes (the consent approved directly) and
-// returns the token response.
-func (e *oauthEnv) grant(t *testing.T, p auth.Principal, audience string, scopes ...string) oauth.TokenResponse {
+// code runs the authorization for user p at audience with scopes (the consent approved
+// directly) and returns the authorization code.
+func (e *oauthEnv) code(t *testing.T, p auth.Principal, audience string, scopes ...string) string {
 	t.Helper()
 	w := req{path: authorizeURL(audience, func(q url.Values) { q.Set("scope", strings.Join(scopes, " ")) })}.do(e.s.Handler())
 	loc := w.Header().Get("Location")
@@ -58,10 +58,22 @@ func (e *oauthEnv) grant(t *testing.T, p auth.Principal, audience string, scopes
 		t.Fatal(err)
 	}
 	u, _ := url.Parse(redirect)
-	w = e.form("/oauth/token", url.Values{
-		"grant_type": {"authorization_code"}, "code": {u.Query().Get("code")}, "client_id": {"inspector"},
+	return u.Query().Get("code")
+}
+
+// exchange is the inspector's code exchange form for code.
+func exchange(code string) url.Values {
+	return url.Values{
+		"grant_type": {"authorization_code"}, "code": {code}, "client_id": {"inspector"},
 		"redirect_uri": {"http://127.0.0.1:4711/callback"}, "code_verifier": {testVerifier},
-	}, nil)
+	}
+}
+
+// grant runs the flow for user p at audience with scopes (the consent approved directly) and
+// returns the token response.
+func (e *oauthEnv) grant(t *testing.T, p auth.Principal, audience string, scopes ...string) oauth.TokenResponse {
+	t.Helper()
+	w := e.form("/oauth/token", exchange(e.code(t, p, audience, scopes...)), nil)
 	var res oauth.TokenResponse
 	if w.Code != http.StatusOK || json.Unmarshal(w.Body.Bytes(), &res) != nil {
 		t.Fatalf("token = %d %s", w.Code, w.Body)
@@ -277,5 +289,24 @@ func TestOAuthJunkRefreshesDoNotStarveARealRefresh(t *testing.T) {
 	unknown := url.Values{"grant_type": {"refresh_token"}, "refresh_token": {"x"}, "client_id": {"unknown-new"}}
 	if w := e.form("/oauth/token", unknown, nil); w.Code != http.StatusTooManyRequests {
 		t.Errorf("a new unknown client_id past the peer's limit = %d", w.Code)
+	}
+}
+
+// A flood of junk codes under a client's client_id, from the client's own peer, uses up that
+// client_id's limit but not the exchange of a code dash issued, which is keyed on the code
+// (G7-R3 fix E2).
+func TestOAuthJunkCodesDoNotStarveARealExchange(t *testing.T) {
+	e := newOAuthEnv(t)
+	code := e.code(t, aliceAdmin, "api", "read")
+	for i := range oauthTokenLimit {
+		if w := e.form("/oauth/token", exchange(fmt.Sprintf("junk-%d", i)), nil); w.Code != http.StatusBadRequest {
+			t.Fatalf("junk code %d = %d %s", i+1, w.Code, w.Body)
+		}
+	}
+	if w := e.form("/oauth/token", exchange("junk-past"), nil); w.Code != http.StatusTooManyRequests {
+		t.Fatalf("junk past the limit = %d", w.Code)
+	}
+	if w := e.form("/oauth/token", exchange(code), nil); w.Code != http.StatusOK {
+		t.Errorf("the real exchange = %d %s", w.Code, w.Body)
 	}
 }

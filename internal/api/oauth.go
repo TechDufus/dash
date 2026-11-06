@@ -213,15 +213,19 @@ func (s *Server) oauthForm(w http.ResponseWriter, r *http.Request) bool {
 	return true
 }
 
-// oauthLimitKey is the /oauth/token and /oauth/revoke limit's key (fix A1): the grant a refresh
-// token names, else a hash of a client_id dash knows and the peer, else the peer alone. An
-// unknown client_id is never a key of its own, so inventing them cannot grow the table, and a
-// flood under a known client_id cannot starve the refresh of that client's real grant.
+// oauthLimitKey is the /oauth/token and /oauth/revoke limit's key (fixes A1, E2): the grant a
+// refresh token names, else a hash of an authorization code dash holds, else a hash of a
+// client_id dash knows and the peer, else the peer alone. An unknown client_id or code is never
+// a key of its own, so inventing them cannot grow the table, and a flood under a known
+// client_id cannot starve the refresh or code exchange of that client's real grant.
 func (s *Server) oauthLimitKey(r *http.Request) string {
 	subject := s.d.OAuth.LimitSubject(r.PostForm)
 	switch {
 	case subject.GrantID != "":
 		return "grant|" + subject.GrantID
+	case subject.Code != "":
+		sum := sha256.Sum256([]byte(subject.Code))
+		return "code|" + hex.EncodeToString(sum[:16])
 	case subject.ClientID != "":
 		sum := sha256.Sum256([]byte(subject.ClientID))
 		return "client|" + peerOf(r) + "|" + hex.EncodeToString(sum[:8])
