@@ -176,6 +176,12 @@ func run(reg *secret.Registry, onBound func(api, health net.Addr)) error {
 	}
 	pa.deps(&deps)
 	srv := api.New(deps)
+	srv.LogMCPState()
+	reloader.Subscribe(func(c config.Change) {
+		if c.Section == "mcp" { // mcp.enabled is live
+			srv.LogMCPState()
+		}
+	})
 	handler := srv.Handler()
 	if cfg.Demo {
 		slog.Info("demo mode: serving fake data, no cluster or upstreams are contacted")

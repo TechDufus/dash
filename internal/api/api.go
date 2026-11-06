@@ -172,6 +172,7 @@ type Server struct {
 	schemas     sync.Map         // reflect.Type -> json.RawMessage: action input schemas
 	mcpOnce     sync.Once
 	mcp         *dashmcp.Server // built at the first /mcp request
+	mcpOn       atomic.Bool     // the MCP state last logged (LogMCPState)
 }
 
 // New builds a Server serving the embedded SPA.

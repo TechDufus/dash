@@ -209,3 +209,24 @@ func decodeErrCode(t *testing.T, w *httptest.ResponseRecorder) string {
 	}
 	return e.Code
 }
+
+// MCP logs one line when it starts serving, at startup or live, and one when it stops.
+func TestMCPStateIsLoggedOncePerTransition(t *testing.T) {
+	logs := captureSlog(t)
+	e := newMCPEnv(t)
+	e.on.Store(false)
+	e.s.LogMCPState() // off at startup: nothing to say
+	e.on.Store(true)
+	e.s.LogMCPState()
+	e.s.LogMCPState() // a reload that did not flip the switch
+	e.on.Store(false)
+	e.s.LogMCPState()
+	e.s.LogMCPState()
+	e.on.Store(true)
+	e.s.LogMCPState()
+	serving := `{"level":"INFO","msg":"mcp: serving /mcp","versions":["2026-07-28","2025-11-25"]}`
+	want := serving + "\n" + `{"level":"INFO","msg":"mcp: stopped"}` + "\n" + serving + "\n"
+	if got := logs.String(); got != want {
+		t.Errorf("logs:\n%s\nwant:\n%s", got, want)
+	}
+}

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"net/http"
 	"slices"
 	"time"
@@ -31,6 +32,21 @@ func (s *Server) mcpGate(w http.ResponseWriter, r *http.Request) bool {
 		return false
 	}
 	return true
+}
+
+// LogMCPState logs MCP turning on, "mcp: serving /mcp" with the protocol versions, or off,
+// "mcp: stopped", once per transition. The caller runs it at startup, where an MCP that is off
+// logs nothing, and after every reload of the mcp section, since mcp.enabled is live.
+func (s *Server) LogMCPState() {
+	on := s.mcpEnabled()
+	if s.mcpOn.Swap(on) == on {
+		return
+	}
+	if on {
+		slog.Info("mcp: serving /mcp", "versions", dashmcp.ProtocolVersions)
+	} else {
+		slog.Info("mcp: stopped")
+	}
 }
 
 // mcpPrincipal resolves the principal of a /mcp request: a bearer token of audience mcp and
