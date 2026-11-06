@@ -2012,6 +2012,10 @@ R4 of G6: P6.7, and the scrub and settings of P6.9 and P6.10. The first public r
 - **Supply chain:** a cosign keyless signature, BuildKit provenance and SBOM, and GitHub build-provenance and SBOM attestations.
 - **Docs:** the install guides and the landing page use the published image and chart; `make set-version` moves every pin, the landing page's included.
 - **Scrub:** the design docs and ADRs no longer name the lab, and the denylist covers every tracked file.
+- **Fix:**
+  - **The bug:** a `credentials.yaml` restored or replaced while dash runs was not always noticed. dash compared the file's device and inode, and ext4 often gives a new file the inode a deleted one just freed, so dash could write over a restored file.
+  - **The fix:** dash now keeps the file it last read or wrote open, so its inode cannot be reused while dash runs.
+  - **How it surfaced:** the first CI run on a GitHub-hosted runner, right after the repository went public. The first `v0.14.11` tag pointed at the commit before this fix; its run failed in `check` and published nothing, so the tag was moved to the fixed commit.
 - **Upgrade:** nothing to change. A self-built image can be replaced by the published one, pinned by digest.
 
 **Evidence:**
