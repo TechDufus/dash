@@ -108,6 +108,18 @@ const ContextMaxLogLines = 100
 // ContextSeriesRange is the range of the series summaries in a context bundle.
 const ContextSeriesRange = "1h"
 
+// ContextLogsSince is how far back a context bundle's log lines go.
+const ContextLogsSince = "1h"
+
+// The values of ContextBundle.LogsNote: why a bundle has no log lines.
+const (
+	LogsNotApplicable   = "not_applicable" // the object has no logs
+	LogsNotRequested    = "not_requested"  // the caller left them out
+	LogsScopeRequired   = "logs_scope_required"
+	LogsNamespaceDenied = "namespace_denied"
+	LogsUnavailable     = "logs_unavailable"
+)
+
 // SeriesLineSummary sums up one line of a series over its range.
 type SeriesLineSummary struct {
 	Labels map[string]string `json:"labels"`
@@ -141,8 +153,9 @@ type ContextBundle struct {
 	// Logs are at most ContextMaxLogLines of the newest lines of the part's LogsRef, oldest
 	// first, and only for a caller with the logs scope.
 	Logs []LogLine `json:"logs"`
-	// LogsNote says why Logs is empty although the part names logs: logs_scope_required,
-	// namespace_denied, logs_unavailable or not_requested.
+	// LogsNote says why Logs is empty: not_applicable (the object has no logs), or, for an
+	// object that has them, logs_scope_required, namespace_denied, logs_unavailable or
+	// not_requested.
 	LogsNote string `json:"logsNote,omitempty"`
 }
 

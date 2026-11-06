@@ -128,16 +128,16 @@ func callTool(t *testing.T, url, name string, args any) toolReply {
 	return out
 }
 
-// framedAndCut fails unless text is a result cut to the cap: within 64 KiB, the untrusted
-// sentence, a block its own fence closes, then the note, and nothing of the tail.
-func framedAndCut(t *testing.T, what, text string) {
+// framedAndCut fails unless text is a result cut to the cap: within 64 KiB, head, the untrusted
+// sentence once, a block its own fence closes, then the note, and nothing of the tail.
+func framedAndCut(t *testing.T, what, head, text string) {
 	t.Helper()
-	body, _, noted := strings.Cut(text, truncatedNote)
+	body, _, noted := strings.Cut(strings.TrimPrefix(text, head), truncatedNote)
 	fence := fenceOf(body)
-	if len(text) > MaxResultBytes || !noted || !strings.HasPrefix(body, bundle.Untrusted+"\n\n") || len(fence) < 3 ||
-		strings.Trim(fence, "`") != "" || !strings.HasSuffix(strings.TrimRight(body, "\n"), "\n"+fence) ||
-		strings.Contains(text, "TAIL-MARK") {
-		t.Errorf("%s: %d bytes:\n%.200s\n...\n%s", what, len(text), text, text[max(0, len(text)-200):])
+	if len(text) > MaxResultBytes || !noted || !strings.HasPrefix(text, head+bundle.Untrusted+"\n\n") || len(fence) < 3 ||
+		strings.Count(text, bundle.Untrusted) != 1 || strings.Trim(fence, "`") != "" ||
+		!strings.HasSuffix(strings.TrimRight(body, "\n"), "\n"+fence) || strings.Contains(text, "TAIL-MARK") {
+		t.Errorf("%s: %d bytes:\n%.300s\n...\n%s", what, len(text), text, text[max(0, len(text)-200):])
 	}
 }
 
@@ -177,14 +177,19 @@ func TestLongBacktickRunsStayWithinTheCapOverHTTP(t *testing.T) {
 			if res.IsError || res.StructuredContent["truncated"] != true {
 				t.Errorf("%d backticks, %s: %v", n, name, res.StructuredContent)
 			}
-			framedAndCut(t, fmt.Sprintf("%d backticks, %s", n, name), res.Content[0].Text)
+			// A bundle keeps its own head, and the sentence once: only its lab data is cut.
+			head := ""
+			if name == "dash_context" {
+				head = bundle.Head(model.ContextBundle{Ref: "kubernetes:Pod/a/b"})
+			}
+			framedAndCut(t, fmt.Sprintf("%d backticks, %s", n, name), head, res.Content[0].Text)
 		}
 		rr := readResource(t, url, topicURIPrefix+"core.overview")
 		c := rr.Contents[0]
 		if c.MIMEType != "text/markdown" || c.Meta["truncated"] != true || rr.Meta["truncated"] != true {
 			t.Errorf("%d backticks, resources/read: %s, meta %v %v", n, c.MIMEType, c.Meta, rr.Meta)
 		}
-		framedAndCut(t, fmt.Sprintf("%d backticks, resources/read", n), c.Text)
+		framedAndCut(t, fmt.Sprintf("%d backticks, resources/read", n), "", c.Text)
 	}
 }
 

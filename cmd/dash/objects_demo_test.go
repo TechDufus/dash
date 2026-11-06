@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"errors"
+	"net/url"
 	"slices"
 	"strings"
 	"testing"
@@ -137,6 +138,59 @@ func TestDemoContextPartsNameTheirSeriesAndRelatedObjects(t *testing.T) {
 	}
 	if fx := first("flux", "Kustomization"); len(fx.Conditions) != 1 || !slices.ContainsFunc(fx.Related, func(r string) bool { return strings.HasPrefix(r, "kubernetes:Namespace/") }) {
 		t.Errorf("flux part = %+v", fx)
+	}
+}
+
+// A workload's part sums up its unhealthy pods, adds their events (still at most 20) and names
+// the logs of the worst one; a workload whose pods are all healthy has none of them, and its
+// bundle says it has no logs.
+func TestDemoWorkloadContextCarriesItsUnhealthyPods(t *testing.T) {
+	fw, cfg := startDemo(t)
+	awaitDemoTopics(t, fw)
+	o, _ := fw.sup.Objects("kubernetes")
+	sick, podEvents, healthy := 0, 0, ""
+	for _, h := range o.Search("", []string{"Workload"}, 1000) {
+		part, err := o.Context(context.Background(), h.Ref, model.ContextOptions{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		var pods []model.ContextFact
+		for _, f := range part.Facts {
+			if strings.HasPrefix(f.Name, "pod.") {
+				pods = append(pods, f)
+			}
+		}
+		if len(pods) == 0 {
+			if part.Logs != nil {
+				t.Errorf("%s: logs %+v without an unhealthy pod", h.Ref, part.Logs)
+			}
+			healthy = h.Ref
+			continue
+		}
+		sick++
+		if part.Logs == nil {
+			t.Errorf("%s: no logs for the unhealthy pods %v", h.Ref, pods)
+			continue
+		}
+		worst := slices.IndexFunc(pods, func(f model.ContextFact) bool { return f.Name == "pod."+part.Logs.Pod })
+		crit := slices.ContainsFunc(pods, func(f model.ContextFact) bool { return strings.HasPrefix(f.Value, "health crit") })
+		if worst < 0 || (crit && !strings.HasPrefix(pods[worst].Value, "health crit")) || !strings.Contains(pods[worst].Value, ", restarts ") {
+			t.Errorf("%s: logs %+v for the unhealthy pods %v", h.Ref, part.Logs, pods)
+		}
+		if len(part.Events) > model.ContextMaxEvents {
+			t.Errorf("%s: %d events", h.Ref, len(part.Events))
+		}
+		for _, e := range part.Events {
+			if strings.HasPrefix(e.Object, "Pod/") {
+				podEvents++
+			}
+		}
+	}
+	if sick == 0 || healthy == "" || podEvents == 0 {
+		t.Fatalf("the demo has %d workloads with unhealthy pods (%d pod events) and healthy one %q", sick, podEvents, healthy)
+	}
+	if b := decodeBundle(t, contextGet(t, fw, cfg, demoAdmin, url.Values{"ref": {healthy}})); b.LogsNote != model.LogsNotApplicable {
+		t.Errorf("a healthy workload's logs note: %q", b.LogsNote)
 	}
 }
 

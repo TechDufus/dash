@@ -241,13 +241,15 @@ func callerOf(extra *sdk.RequestExtra) (caller, bool) {
 }
 
 // tool is one of dash's tools: its MCP description, the scope it needs, and what it runs. in is
-// a pointer to a zero input, decoded strictly; the result is any JSON value plus, optionally, its
-// text rendering (otherwise the JSON, framed as untrusted lab data).
+// a pointer to a zero input, decoded strictly; the result is any JSON value plus, optionally, the
+// text of its lab data (otherwise the JSON), which the answer frames as untrusted. head, when
+// set, is what dash says ahead of that block (a context bundle's title and counts).
 type tool struct {
 	name, title, desc string
 	scope             string
 	input             any
 	run               func(ctx context.Context, c caller, in any) (result any, text string, err error)
+	head              func(result any) string
 }
 
 func (t tool) sdkTool() *sdk.Tool {
@@ -265,8 +267,8 @@ func refuse(code, format string, args ...any) error {
 }
 
 // toolHandler decodes the input strictly, runs the tool and renders its result: the scrubbed
-// JSON as structured content, and as text either the tool's own rendering or the JSON inside the
-// untrusted-data block.
+// JSON as structured content, and as text the tool's head, then its lab data (its own text, or
+// the JSON) inside the untrusted-data block.
 func (s *Server) toolHandler(t tool) sdk.ToolHandler {
 	return func(ctx context.Context, req *sdk.CallToolRequest) (*sdk.CallToolResult, error) {
 		c, ok := callerOf(req.Extra)
@@ -293,19 +295,19 @@ func (s *Server) toolHandler(t tool) sdk.ToolHandler {
 		if err != nil {
 			return nil, err
 		}
-		body := s.o.Scrub(text) // the tool's own rendering, else the JSON
+		head, data := "", s.o.Scrub(text)
+		if t.head != nil {
+			head = s.o.Scrub(t.head(out))
+		}
 		if text == "" {
 			raw, err := json.MarshalIndent(tree, "", "  ")
 			if err != nil {
 				return nil, err
 			}
-			body = string(raw)
-			text = bundle.UntrustedBlock(body)
-		} else {
-			text = body
+			data = string(raw)
 		}
-		res := &sdk.CallToolResult{Content: []sdk.Content{&sdk.TextContent{Text: text}}, StructuredContent: tree}
-		return s.capResult(res, tree, body), nil
+		res := &sdk.CallToolResult{Content: []sdk.Content{&sdk.TextContent{Text: head + bundle.UntrustedBlock(data)}}, StructuredContent: tree}
+		return s.capResult(res, tree, head, data), nil
 	}
 }
 

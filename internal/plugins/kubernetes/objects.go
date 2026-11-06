@@ -62,8 +62,9 @@ func (p *Plugin) Get(ctx context.Context, ref string) (any, error) {
 }
 
 // Context implements plugin.Objects. A pod adds its conditions, events, node, workload,
-// namespace, CPU and memory series and its logs; a node its series and pods; a workload its pods
-// and events; a namespace its workloads.
+// namespace, CPU and memory series and its logs; a node its series and pods; a workload its pods,
+// the summaries and events of the unhealthy ones next to its own and the logs of the worst; a
+// namespace its workloads.
 func (p *Plugin) Context(ctx context.Context, ref string, o model.ContextOptions) (model.ContextPart, error) {
 	part, obj, err := p.Part(ref)
 	if err != nil {
@@ -123,15 +124,34 @@ func (p *Plugin) Context(ctx context.Context, ref string, o model.ContextOptions
 			}
 		}
 	case model.Workload:
+		var events []model.Event
 		if o.Wants(model.ContextIncludeEvents) {
-			part.Events = plugin.NewestEvents(eventsFor(cl.Events, v.Namespace, string(v.Kind)+"/"+v.Name))
+			events = eventsFor(cl.Events, v.Namespace, string(v.Kind)+"/"+v.Name)
 		}
-		if o.Wants(model.ContextIncludeRelated) {
-			for _, pod := range cl.Pods {
-				if pod.Owner != nil && pod.Owner.Kind == string(v.Kind) && pod.Namespace == v.Namespace && pod.Owner.Name == v.Name {
-					related(pod.Ref)
-				}
+		var worst *model.Pod
+		for _, pod := range cl.Pods {
+			if pod.Owner == nil || pod.Owner.Kind != string(v.Kind) || pod.Namespace != v.Namespace || pod.Owner.Name != v.Name {
+				continue
 			}
+			if o.Wants(model.ContextIncludeRelated) {
+				related(pod.Ref)
+			}
+			if pod.Health == model.HealthOK {
+				continue
+			}
+			part.Facts = append(part.Facts, model.ContextFact{Name: "pod." + pod.Name, Value: podSummary(pod)})
+			if o.Wants(model.ContextIncludeEvents) {
+				events = append(events, eventsFor(cl.Events, pod.Namespace, "Pod/"+pod.Name)...)
+			}
+			if worst == nil || worse(pod, *worst) {
+				worst = &pod
+			}
+		}
+		if o.Wants(model.ContextIncludeEvents) {
+			part.Events = plugin.NewestEvents(events)
+		}
+		if worst != nil {
+			part.Logs = &model.LogsRef{Namespace: worst.Namespace, Pod: worst.Name}
 		}
 	case model.Namespace:
 		if o.Wants(model.ContextIncludeRelated) {
@@ -143,6 +163,24 @@ func (p *Plugin) Context(ctx context.Context, ref string, o model.ContextOptions
 		}
 	}
 	return part, nil
+}
+
+// podSummary is a pod's state in one line, for the bundle of its workload.
+func podSummary(p model.Pod) string {
+	s := "health " + string(p.Health) + ", phase " + p.Phase
+	if p.Reason != "" {
+		s += " (" + p.Reason + ")"
+	}
+	return s + ", ready " + strconv.Itoa(p.ReadyContainers) + "/" + strconv.Itoa(p.TotalContainers) +
+		", restarts " + strconv.Itoa(p.Restarts)
+}
+
+// worse reports whether a is in a worse state than b: its health, then its restarts.
+func worse(a, b model.Pod) bool {
+	if ra, rb := healthRank(a.Health), healthRank(b.Health); ra != rb {
+		return ra > rb
+	}
+	return a.Restarts > b.Restarts
 }
 
 // eventsFor are the events of one object ("Kind/name") in namespace ns ("" for any).

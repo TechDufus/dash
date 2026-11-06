@@ -183,7 +183,7 @@ func (b mcpBackend) Logs(r *http.Request, ref model.LogsRef, since, query string
 	switch note {
 	case "":
 		return lines, nil
-	case logsDenied:
+	case model.LogsNamespaceDenied:
 		return nil, &dashmcp.Error{Code: model.ErrCodeForbidden, Message: "the logs of this namespace are not available"}
 	}
 	return nil, errors.New("logs unavailable")

@@ -22,20 +22,13 @@ import (
 // logsInstance is the plugin whose log route a bundle reads its log lines through.
 const logsInstance plugin.ID = "victorialogs"
 
-// The reasons a bundle has no log lines although its part names logs (ContextBundle.LogsNote).
-const (
-	logsNotRequested  = "not_requested"
-	logsScopeRequired = "logs_scope_required"
-	logsDenied        = "namespace_denied"
-	logsUnavailable   = "logs_unavailable"
-)
-
 // contextDoc is the description of GET /api/v1/context in the OpenAPI document.
 const contextDoc = "The context bundle of one object (design N.4): the owning plugin's summary, facts, conditions, " +
 	"at most 20 events, related refs, links, series and logs; the overview's attention items for the ref; a summary " +
 	"of each series over 1h; and at most 100 of the newest log lines, only for a caller with the logs scope and " +
 	"never for a namespace victorialogs denies. format=markdown answers text/markdown in which every lab-sourced " +
-	"text sits in a fenced block after the untrusted-data sentence. 400 for a malformed ref, format or include, " +
+	"text sits in a fenced block after the untrusted-data sentence; the title names only the plugin and the Kind. " +
+	"logsNote is not_applicable for an object without logs. 400 for a malformed ref, format or include, " +
 	"404 for an object no running plugin knows."
 
 // contextBundle serves GET /api/v1/context.
@@ -120,15 +113,15 @@ func (s *Server) buildContext(r *http.Request, ref string, o model.ContextOption
 			b.Series = append(b.Series, s.seriesSummary(r, sr))
 		}
 	}
-	if part.Logs != nil {
-		switch p := principalFrom(r.Context()); {
-		case !o.Wants(model.ContextIncludeLogs):
-			b.LogsNote = logsNotRequested
-		case !mayReadLogs(p):
-			b.LogsNote = logsScopeRequired
-		default:
-			b.Logs, b.LogsNote = s.readLogs(r, *part.Logs, "1h", "", model.ContextMaxLogLines)
-		}
+	switch p := principalFrom(r.Context()); {
+	case part.Logs == nil:
+		b.LogsNote = model.LogsNotApplicable
+	case !o.Wants(model.ContextIncludeLogs):
+		b.LogsNote = model.LogsNotRequested
+	case !mayReadLogs(p):
+		b.LogsNote = model.LogsScopeRequired
+	default:
+		b.Logs, b.LogsNote = s.readLogs(r, *part.Logs, model.ContextLogsSince, "", model.ContextMaxLogLines)
 	}
 	scrubbed, err := bundle.ScrubTyped(b, s.d.Secrets.ScrubLogLine)
 	if err != nil {
@@ -218,11 +211,11 @@ func (s *Server) seriesSummary(r *http.Request, sr model.SeriesRef) model.Series
 func (s *Server) readLogs(r *http.Request, ref model.LogsRef, since, text string, limit int) (lines []model.LogLine, note string) {
 	lines = []model.LogLine{}
 	if s.d.Plugins == nil {
-		return lines, logsUnavailable
+		return lines, model.LogsUnavailable
 	}
 	h, ok := s.d.Plugins.Router(logsInstance, s.routeGuard())
 	if !ok {
-		return lines, logsUnavailable
+		return lines, model.LogsUnavailable
 	}
 	q := url.Values{"ns": {ref.Namespace}, "pod": {ref.Pod}, "since": {since}}
 	if ref.Container != "" {
@@ -239,12 +232,12 @@ func (s *Server) readLogs(r *http.Request, ref model.LogsRef, since, text string
 	h.ServeHTTP(rec, sub)
 	switch {
 	case rec.status == http.StatusForbidden:
-		return lines, logsDenied
+		return lines, model.LogsNamespaceDenied
 	case rec.status != http.StatusOK:
-		return lines, logsUnavailable
+		return lines, model.LogsUnavailable
 	}
 	if err := json.Unmarshal(rec.body.Bytes(), &lines); err != nil || lines == nil {
-		return []model.LogLine{}, logsUnavailable
+		return []model.LogLine{}, model.LogsUnavailable
 	}
 	if len(lines) > limit {
 		lines = lines[len(lines)-limit:]

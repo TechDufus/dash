@@ -406,15 +406,16 @@ func errorCode(res sdk.Result) string {
 const truncatedNote = "\nThe result was larger than 64 KiB and is truncated."
 
 // capResult keeps a tool result within MaxResultBytes of text (design N.6). An answer that is
-// larger is body (its JSON, or its own rendering) cut within the untrusted framing, flagged
-// truncated in its structured content and its _meta, and says so outside the block.
-func (s *Server) capResult(res *sdk.CallToolResult, tree any, body string) *sdk.CallToolResult {
+// larger is its head, then its data (its JSON, or its own text) cut within the untrusted
+// framing, flagged truncated in its structured content and its _meta, and says so outside the
+// block.
+func (s *Server) capResult(res *sdk.CallToolResult, tree any, head, data string) *sdk.CallToolResult {
 	text := res.Content[0].(*sdk.TextContent).Text
 	raw, _ := json.Marshal(tree)
 	if len(text) <= MaxResultBytes && len(raw) <= MaxResultBytes {
 		return res
 	}
-	text = s.frameCut(body, truncatedNote)
+	text = s.frameCut(head, data, truncatedNote)
 	return &sdk.CallToolResult{
 		Meta:              sdk.Meta{"truncated": true},
 		Content:           []sdk.Content{&sdk.TextContent{Text: text}},
@@ -422,11 +423,12 @@ func (s *Server) capResult(res *sdk.CallToolResult, tree any, body string) *sdk.
 	}
 }
 
-// frameCut is text cut to fit, with note, within MaxResultBytes as an untrusted block. The fence
-// grows with the longest backtick run in what is kept, so a cut that leaves the fences too long
-// is cut again with the room they leave; when the fences alone do not fit, nothing is kept.
-func (s *Server) frameCut(text, note string) string {
-	frame := func(t string) string { return bundle.UntrustedBlock(t) + note }
+// frameCut is head, then text cut to fit as an untrusted block, then note, within
+// MaxResultBytes. The fence grows with the longest backtick run in what is kept, so a cut that
+// leaves the fences too long is cut again with the room they leave; when the framing alone does
+// not fit, nothing of text is kept. head is dash's own few lines, which always fit.
+func (s *Server) frameCut(head, text, note string) string {
+	frame := func(t string) string { return head + bundle.UntrustedBlock(t) + note }
 	kept := s.cut(text, MaxResultBytes-len(frame("")))
 	for {
 		out := frame(kept)

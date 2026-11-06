@@ -3436,7 +3436,7 @@
   "paths": {
     "/api/v1/context": {
       "get": {
-        "description": "The context bundle of one object (design N.4): the owning plugin's summary, facts, conditions, at most 20 events, related refs, links, series and logs; the overview's attention items for the ref; a summary of each series over 1h; and at most 100 of the newest log lines, only for a caller with the logs scope and never for a namespace victorialogs denies. format=markdown answers text/markdown in which every lab-sourced text sits in a fenced block after the untrusted-data sentence. 400 for a malformed ref, format or include, 404 for an object no running plugin knows.",
+        "description": "The context bundle of one object (design N.4): the owning plugin's summary, facts, conditions, at most 20 events, related refs, links, series and logs; the overview's attention items for the ref; a summary of each series over 1h; and at most 100 of the newest log lines, only for a caller with the logs scope and never for a namespace victorialogs denies. format=markdown answers text/markdown in which every lab-sourced text sits in a fenced block after the untrusted-data sentence; the title names only the plugin and the Kind. logsNote is not_applicable for an object without logs. 400 for a malformed ref, format or include, 404 for an object no running plugin knows.",
         "operationId": "getContext",
         "parameters": [
           {

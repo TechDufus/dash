@@ -268,8 +268,10 @@ func (s *Server) toolTable() []tool {
 				if err != nil {
 					return nil, "", findable(err)
 				}
-				return bun, bundle.Markdown(bun), nil
+				return bun, bundle.Data(bun), nil
 			},
+			// The bundle's own head: a cut answer keeps it, and cuts only the lab data.
+			head: func(v any) string { return bundle.Head(v.(model.ContextBundle)) },
 		},
 	}
 }

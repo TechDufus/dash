@@ -10,6 +10,7 @@ import (
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/TechDufus/dash/internal/bundle"
+	"github.com/TechDufus/dash/internal/model"
 )
 
 // callTool calls a tool and decodes its structured content into out (when not nil); it returns
@@ -138,7 +139,10 @@ func TestMCPReadTools(t *testing.T) {
 	}
 
 	text, isErr := callTool(t, cs, "dash_context", map[string]any{"ref": pod}, nil)
-	if isErr || !strings.HasPrefix(text, "# dash context bundle") || !strings.Contains(text, bundle.Untrusted) {
+	_, _, podID, _ := model.ParseRef(pod)
+	start := strings.Index(text, bundle.Untrusted)
+	if isErr || !strings.HasPrefix(text, "# Context: `kubernetes` `Pod`\n") || strings.Count(text, bundle.Untrusted) != 1 ||
+		start < 0 || strings.Contains(text[:start], podID) || !strings.Contains(text[start:], "\nref: "+pod+"\n") {
 		t.Errorf("context text:\n%.400s", text)
 	}
 }

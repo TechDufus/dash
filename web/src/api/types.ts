@@ -1169,6 +1169,19 @@ export const ContextMaxLogLines = 100;
  */
 export const ContextSeriesRange = "1h";
 /**
+ * ContextLogsSince is how far back a context bundle's log lines go.
+ */
+export const ContextLogsSince = "1h";
+export const LogsNotApplicable = "not_applicable"; // the object has no logs
+export const LogsNotRequested = "not_requested"; // the caller left them out
+export const LogsScopeRequired = "logs_scope_required";
+export const LogsNamespaceDenied = "namespace_denied";
+export const LogsUnavailable = "logs_unavailable";
+/**
+ * The values of ContextBundle.LogsNote: why a bundle has no log lines.
+ */
+export type Logs = typeof LogsNotApplicable | typeof LogsNotRequested | typeof LogsScopeRequired | typeof LogsNamespaceDenied | typeof LogsUnavailable;
+/**
  * SeriesLineSummary sums up one line of a series over its range.
  */
 export interface SeriesLineSummary {
@@ -1212,8 +1225,9 @@ export interface ContextBundle {
    */
   logs: LogLine[];
   /**
-   * LogsNote says why Logs is empty although the part names logs: logs_scope_required,
-   * namespace_denied, logs_unavailable or not_requested.
+   * LogsNote says why Logs is empty: not_applicable (the object has no logs), or, for an
+   * object that has them, logs_scope_required, namespace_denied, logs_unavailable or
+   * not_requested.
    */
   logsNote?: string;
 }

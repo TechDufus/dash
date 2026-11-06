@@ -93,7 +93,7 @@ func TestDemoContextBundleWithoutTheLogsScope(t *testing.T) {
 		t.Errorf("logs %d, note %q, series %d", len(b.Logs), b.LogsNote, len(b.Series))
 	}
 	w := contextGet(t, fw, cfg, bot, url.Values{"ref": {ref}, "format": {"markdown"}})
-	if strings.Contains(w.Body.String(), "logs (oldest first)") || !strings.Contains(w.Body.String(), "No log lines: logs_scope_required.") {
+	if strings.Contains(w.Body.String(), "\nlogs of ") || !strings.Contains(w.Body.String(), "No log lines: the logs scope is required.") {
 		t.Errorf("markdown:\n%s", w.Body)
 	}
 	if w := contextGet(t, fw, cfg, auth.Principal{Kind: auth.KindToken, User: "bot", Role: auth.RoleViewer, Scopes: []string{"logs"}}, url.Values{"ref": {ref}}); w.Code != http.StatusForbidden {

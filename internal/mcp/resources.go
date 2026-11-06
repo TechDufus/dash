@@ -70,7 +70,7 @@ func (s *Server) readTopic(_ context.Context, req *sdk.ReadResourceRequest) (res
 	content := &sdk.ResourceContents{URI: req.Params.URI, MIMEType: "text/markdown", Text: bundle.UntrustedBlock(string(raw))}
 	res = &sdk.ReadResourceResult{Contents: []*sdk.ResourceContents{content}}
 	if len(content.Text) > MaxResultBytes { // design N.6
-		content.Text = s.frameCut(string(raw), truncatedNote)
+		content.Text = s.frameCut("", string(raw), truncatedNote)
 		content.Meta, res.Meta = sdk.Meta{"truncated": true}, sdk.Meta{"truncated": true}
 	}
 	return res, nil

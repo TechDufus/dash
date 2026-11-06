@@ -100,16 +100,29 @@ Four prompts guide an agent: `dash_triage`, `dash_investigate {ref}`, `dash_dail
 return the same bundle for one object:
 
 - from the plugin that owns it: a summary, its facts and conditions, at most 20 events (newest
-  first), related refs, links, the series it considers relevant and where its logs are;
+  first), related refs, links, the series it considers relevant and where its logs are. A
+  workload (Deployment, StatefulSet, DaemonSet, Job) adds the summary and the events of each
+  unhealthy pod, and the logs of the worst one, as an alert does for the pod it names;
 - from dash: the overview's attention items for the ref, a summary of each series over the last
   hour, and at most 100 of the newest log lines, only for a caller with the `logs` scope.
 
 `include` narrows the parts (`events`, `related`, `attention`, `series`, `logs`). A bundle without
-log lines says why in `logsNote`: `logs_scope_required`, `namespace_denied`, `logs_unavailable` or
-`not_requested`.
+log lines says why in `logsNote`: `not_applicable` (the object has no logs), or
+`logs_scope_required`, `namespace_denied`, `logs_unavailable` or `not_requested`.
+
+The Markdown starts with `` # Context: `<plugin>` `<Kind>` `` (the object's name is lab data, so
+it stays in the block) and a line with the time, the counts and, in words, why there are no log
+lines. Then comes the untrusted block: the object's ref, what the object is and its attention
+items first, then its facts, conditions, events, related refs, links, the series (numbers to 3
+significant digits, bytes and cores in their units) and the log lines, headed with whose they are
+and over what window. A `dash_context` answer cut to 64 KiB keeps that head and cuts only the
+block.
 
 **Copy context for AI** on the pod sheet, the VM sheet, the overview's attention items and the
 alert rows fetches `format=markdown` and puts it on the clipboard; it makes no other request.
+It shows only for objects whose plugin answers for them (`objects: true` in
+`/api/v1/plugins`). Where the browser blocks the clipboard (a page served over plain http), it
+shows the Markdown in a dialog with a Copy button.
 
 ## Untrusted lab data
 

@@ -9,6 +9,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/jsonrpc"
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/TechDufus/dash/internal/bundle"
 	"github.com/TechDufus/dash/internal/model"
 )
 
@@ -26,27 +27,7 @@ type promptArgs struct{ Ref, Since string }
 // package's reflect.MethodByName turns off the linker's dead-code elimination (about 27 MB of
 // binary; internal/hygiene keeps both template packages out).
 func (a promptArgs) render(text string) string {
-	return strings.NewReplacer("`{{.Ref}}`", codeSpan(a.Ref), "{{.Since}}", a.Since).Replace(text)
-}
-
-// codeSpan is s as a Markdown code span: delimited by a backtick run longer than any in s, and
-// padded with a space when s starts or ends with a backtick (CommonMark 6.1), so the client's
-// text cannot end the span and become prose.
-func codeSpan(s string) string {
-	longest, run := 0, 0
-	for i := range len(s) {
-		if s[i] == '`' {
-			run++
-			longest = max(longest, run)
-		} else {
-			run = 0
-		}
-	}
-	fence := strings.Repeat("`", longest+1)
-	if strings.HasPrefix(s, "`") || strings.HasSuffix(s, "`") {
-		s = " " + s + " "
-	}
-	return fence + s + fence
+	return strings.NewReplacer("`{{.Ref}}`", bundle.CodeSpan(a.Ref), "{{.Since}}", a.Since).Replace(text)
 }
 
 type prompt struct {
