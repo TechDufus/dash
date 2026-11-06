@@ -2166,7 +2166,7 @@ Remove the Zot push (`ci.yml:31`). README release steps are updated. There is no
 **Body:** let non-browser clients act with the user's permissions, and add AI features that keep a human in charge of writes (design L to Q in `clients-and-ai.md`). The phase adds bearer principals and personal access tokens, a built-in OAuth 2.1 authorization server, an MCP server with human-approved action tools, an installable PWA with Web Push and UnifiedPush, and the agent and Android client docs. The assistant plugin (P7.9) comes later and is off by default.
 
 - [x] P7.1 feat(auth): bearer principals and personal access tokens (v0.14.6: see the R2 deviations)
-- [ ] P7.2 feat(auth): built-in OAuth 2.1 authorization server
+- [x] P7.2 feat(auth): built-in OAuth 2.1 authorization server (v0.14.7: see the R3 deviations)
 - [ ] P7.3 feat(mcp): read-only MCP server
 - [ ] P7.4 feat(mcp): context bundles, prompts and "Copy context for AI"
 - [ ] P7.5 feat(approvals): agent action tools with human approval
@@ -2269,6 +2269,54 @@ R2 of G7: P7.1. A patch: additive, and tokens stay off until dash has a writable
 **UX (`RevUXG7R2`, two rounds):** every Tokens page state checked in a headless browser in demo, local, read-only and proxy modes; tokens used with curl, static tokens from `dash token generate`, and every doc command run. It found a raw object display of `auth.tokens`, a contradictory "unavailable" state, a wrong message for the anonymous viewer, a shown-once token lost on Escape, and docs gaps; all are fixed.
 
 **Production compatibility (`RevCompatG7R2`, two rounds):** the homelab's environment against v0.14.5: 174 of 190 captured responses identical (12 intended differences plus the known event-order tie), every status code the same, upstream 419 of 419 requests with the 17 writes in order, the startup log 18 INFO and 0 WARN with the same lines, and the image 261 KB larger. It found 409 noise on the Tokens page and an empty Settings entry for viewers in this mode; both are fixed.
+
+### G7 R3 deviations (v0.14.7)
+
+R3 (branch `feat/g7-oauth`: the wire types, netguard, the grant storage, metadata and authorize, token and revoke, the consent and grant routes, the logout scopes, the chart's `routes.direct`, the consent screen, Settings → Connected apps, log out everywhere, the two dependency updates, the docs, the review fixes, a test fix, the version, then this docs commit) ships P7.2 and differs from it, and from the G7 plan's decisions D20 to D24, in these places. [docs/auth.md](../auth.md#oauth) is the user-facing description.
+
+| Item | The plan said | Shipped | Why |
+|---|---|---|---|
+| Grant storage first | Grants in `credentials.yaml` | The storage is its own commit, before the OAuth server; a rotated refresh token is kept only once written, so a client can retry after a failed write | The token endpoint builds on it, and a refresh that answered before the write could lose the grant on a restart |
+| `/oauth/token` and `/oauth/revoke` limits | 60 a minute per `client_id` plus peer | Their own table, which never refuses a new key: it evicts expired keys, then the least recently used. The key is the grant of a parseable refresh token, else a hash of the presented code when it exists, else a known `client_id` (built-in, config or cached CIMD) plus peer, else the peer alone | A flood of distinct or junk `client_id`s, refreshes or codes exhausted the shared table or starved a real client (found by the security verification, the code key in its second round) |
+| Authorize state | Pending requests live 10 min in memory | Nothing is kept for a caller who is not signed in (the anonymous viewer included): after validation dash redirects to `/login?next=` or `/auth/oidc/start?next=` with the same URL, and a URL over 1024 bytes is 400. A signed-in user's pending consents are bound to them, 20 per user (the oldest evicted), 1024 in all. CIMD documents are fetched only for a signed-in caller, or from the identity proxy's peer | Anonymous authorizes filled the table and fetched documents (found by the security verification; the anonymous viewer by the code review's second round) |
+| The direct host (D20) | Authorize stays on `publicURL` | With `directURL` set, `/oauth/authorize` and `/consent` are the JSON 404 off the public host, and identity headers on the direct host are refused, from any peer, and recorded with reason `direct_host` | That host bypasses the identity proxy (found by the security verification) |
+| mcp audience | `api` and `mcp` resources | `mcpAvailable()`, false in this release: a `…/mcp` resource is `invalid_target`, `/.well-known/oauth-protected-resource/mcp` is the JSON 404, and the consent page shows the MCP text only with `capabilities.mcp` | An mcp grant is useless until P7.3 ships the MCP server (found by the UX review) |
+| Client identity | The consent names the client | Every client is badged by kind (built in, configured by your admin, or unverified with its metadata host), on the consent screen and in Connected apps; a CIMD `client_name` that, after NFKC, space folding, trimming, trailing punctuation and case, equals a built-in or config client's name or ID is refused | A metadata document could pose as `dash-android` (found by the UX review; the look-alikes by both reviews' second round) |
+| Revoke all (D23) | `?user=me` in proxy mode | `DELETE /api/v1/oauth/grants?user=me` in every mode, and `?user=*` for administrators in every mode (a viewer gets 403), audited fail-closed; the All users tab has "Revoke every user's connected apps", and "Revoke all my connected apps" shows only on Mine | Proxy mode had no way to revoke every grant before a rollback (found by the UX review) |
+| Logout with the audit down | Revocation audited fail-closed | A logout with grants to revoke is 503 `audit_unavailable` and changes nothing | A revocation is audited before it happens |
+| Connected apps "Last used" | Created and last used | An access token's use notes its grant's `lastUsedAt`, in UTC seconds, flushed with the PATs' | It showed the last refresh (found by the UX review) |
+| Unexchanged grants | Codes live 60 s | A code exchange marks its grant; grants never exchanged past the code's life are revoked by the sweep, audited as `oauth.grant.expire` (reason `code_expired`, not fail-closed), and pruned at start and at each flush; the file is written after the server's mutex is released | A forgotten code stranded its grant, also across a restart (found by the code review) |
+| `directURL` origin | A different origin from `publicURL` | A different host: the public host is refused at any port, after default ports, a trailing dot and case are normalized | A port does not tell the hosts apart for cookies or the proxy (found by the code review) |
+| Chart host (D20) | `routes.direct.host` | Rendering refuses a host equal to an `ingress.hosts` host, an `httpRoute` hostname or the `publicURL` host | The direct route would capture the public host |
+| netguard | Global addresses only | IPv6 passes only inside `2000::/3`, which refuses `::/96` and `::ffff:0:0:0/96` | Those embed an IPv4 address the guard cannot see (security verification) |
+| CIMD fetch failures | Documents cached 24 h | Failures are also remembered for 60 s | The same URL was refetched on every request (found by the code review) |
+| `publicURL` with a path | Not specified | Refused while `auth.oauth.enabled` | The issuer, `/oauth/*` and the `/.well-known` documents are at the root of the origin |
+| Grant limit | At most 20 grants per user | A consent past it is 409 `grant_limit` | |
+| Proxy-mode warning | Not specified | A start-up WARN, also from `config validate`, when OAuth would run in proxy mode without `server.directURL` | Without it the identity proxy sends clients to its login page |
+| D21, D22, D24 | As planned | As planned: OAuth off by default, consent always shown, `routes.direct` refused with more than one replica | |
+
+#### v0.14.7 release notes
+
+R3 of G7: P7.2. A patch: additive, and nothing changes until `auth.oauth.enabled` is set.
+
+- **OAuth 2.1 server**, off by default (`auth.oauth.enabled`): authorization code with PKCE, refresh tokens that rotate, revocation, and the discovery documents, for the Android app, clients you configure in `auth.oauth.clients`, and clients that publish a metadata document. Needs a writable data dir and a mode other than `none`.
+- **The consent screen** names the client and its kind and the scopes it asks for; nothing is pre-ticked but `read`.
+- **Settings → Connected apps** lists your grants with the client, audience, scopes, created and last used, and revokes them; administrators see every user's and can revoke them all.
+- **Logout scopes:** "Log out" ends this session; "Log out everywhere" also revokes your connected apps; "Sign out all users" (administrators) revokes every session and grant. Personal access tokens are untouched.
+- **Behind an identity proxy:** `server.directURL` and the chart's `routes.direct` give clients a host that skips the proxy; authorization and consent stay behind it.
+- **Dependencies:** prometheus/common 0.73.0, and security overrides for development-only web dependencies.
+- **Upgrade:** no step; nothing changes until `auth.oauth.enabled`. In proxy mode, a WARN at start says OAuth needs `server.directURL` when it is empty.
+- **Rollback to v0.14.6 after using OAuth:** revoke every user's connected apps first, then remove `auth.oauth`, `server.directURL` and the chart's `routes` (a `helm rollback` does this). See `docs/upgrading.md`.
+
+**Evidence:** `make check` on every commit, each signed.
+
+**Security requirement verification (`RevSecG7R3`, three rounds):** ten requirement areas probed against the built binary. It found the `/oauth/token` limiter exhaustion, and `/oauth/authorize` state flooding with its exposure on the direct host; then the code-exchange starvation and the look-alike client names; all are fixed.
+
+**Correctness (`RevCodeG7R3`, two rounds):** 96 mutants, 60 killed in the first round; the survivors that matter are now killed, except 6g, which is unreachable. A kind install of `routes.direct` ran with the pod 2/2, the direct port answering 401 with the challenge, and the metadata on the direct host. It found the authorize flood, unexchanged grants, the `directURL` same-origin check, and in its second round the anonymous viewer counted as signed in; all are fixed.
+
+**UX (`RevUXG7R3`, two rounds):** the OAuth flows in local, proxy, CIMD and OIDC (a fake provider) in a headless browser, and the rollback done for real. It found no revoke-all in proxy mode, an MCP audience before the MCP server, a CIMD client posing as `dash-android`, and seven Lows; all are fixed.
+
+**Production compatibility (`RevCompatG7R2`, two rounds):** the homelab's environment against v0.14.6: 182 of 190 captured responses identical, every status code the same; 72 OAuth-probe differences, all paths turning into JSON 404s; upstream 419 of 419 requests; the startup log 18 INFO and 0 WARN; the image 488,748 bytes (0.85%) larger.
 
 ### P7.1 feat(auth): bearer principals and personal access tokens
 
