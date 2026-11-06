@@ -29,6 +29,8 @@ const AUTH = "authSecret";
 const LIST = "GET /api/v1/push/subscriptions";
 const REGISTER = "POST /api/v1/push/subscriptions";
 const ID = "sub_ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+/** alice's own key for this browser's subscription. */
+const MINE_KEY = "dash.push.subscription:alice";
 
 function sub(over: Partial<PushSubscriptionInfo> = {}): PushSubscriptionInfo {
   return {
@@ -158,7 +160,53 @@ describe("DevicesPage", () => {
     expect(stub.callsTo(`POST /api/v1/push/subscriptions/${ID}/verify`)[0]?.body).toEqual({
       code: "ABCD2345",
     });
-    expect(localStorage.getItem("dash.push.subscription")).toBe(ID);
+    expect(localStorage.getItem(MINE_KEY)).toBe(ID);
+  });
+
+  it("marks no row as this browser's when the stored ID is another user's", async () => {
+    // bob subscribed this browser earlier; alice is signed in now.
+    localStorage.setItem("dash.push.subscription:bob", ID);
+    stubFetch(routes(meWith(true), { [LIST]: { subscriptions: [sub()] } }));
+    renderApp(<DevicesPage />);
+    const row = (await screen.findByText("Laptop")).closest("li") as HTMLElement;
+    expect(within(row).queryByText("this browser")).not.toBeInTheDocument();
+    expect(within(row).queryByRole("switch")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Subscribe this browser" })).toBeInTheDocument();
+  });
+
+  it("says the endpoint is another account's on the 409 conflict, and stores nothing", async () => {
+    const user = userEvent.setup();
+    stubFetch(
+      routes(meWith(true), {
+        [REGISTER]: () =>
+          json({ error: "another user registered this push endpoint", code: "conflict" }, 409),
+      }),
+    );
+    renderApp(<DevicesPage />);
+    const button = await screen.findByRole("button", { name: "Subscribe this browser" });
+    await waitFor(() => expect(button).toBeEnabled());
+    await user.click(button);
+    await waitFor(() =>
+      expect(toast.error).toHaveBeenCalledWith(
+        "This browser receives another account's notifications; remove it there, or use another browser profile.",
+      ),
+    );
+    expect(localStorage.getItem(MINE_KEY)).toBeNull();
+  });
+
+  it("keeps the plain failure for the other 409s", async () => {
+    const user = userEvent.setup();
+    stubFetch(
+      routes(meWith(true), {
+        [REGISTER]: () => json({ error: "at most 10 devices", code: "push_limit" }, 409),
+      }),
+    );
+    renderApp(<DevicesPage />);
+    const button = await screen.findByRole("button", { name: "Subscribe this browser" });
+    await waitFor(() => expect(button).toBeEnabled());
+    await user.click(button);
+    await waitFor(() => expect(toast.error).toHaveBeenCalledTimes(1));
+    expect(vi.mocked(toast.error).mock.calls[0]?.[0]).toMatch(/^Subscribing failed: /);
   });
 
   it("submits a code that arrives before the registration answers", async () => {
@@ -255,7 +303,7 @@ describe("DevicesPage", () => {
 
   it("changes this browser's notify settings by registering its subscription again", async () => {
     const user = userEvent.setup();
-    localStorage.setItem("dash.push.subscription", ID);
+    localStorage.setItem(MINE_KEY, ID);
     held = fakeSubscription(base64urlBytes(VAPID));
     const stub = stubFetch(
       routes(meWith(true), { [LIST]: { subscriptions: [sub()] }, [REGISTER]: () => sub() }),
@@ -299,7 +347,7 @@ describe("DevicesPage", () => {
   });
 
   it("says this browser is subscribed, and offers no Subscribe button then", async () => {
-    localStorage.setItem("dash.push.subscription", ID);
+    localStorage.setItem(MINE_KEY, ID);
     held = fakeSubscription(base64urlBytes(VAPID));
     stubFetch(routes(meWith(true), { [LIST]: { subscriptions: [sub()] } }));
     renderApp(<DevicesPage />);
@@ -311,7 +359,7 @@ describe("DevicesPage", () => {
   });
 
   it("says a pending browser waits for its code", async () => {
-    localStorage.setItem("dash.push.subscription", ID);
+    localStorage.setItem(MINE_KEY, ID);
     stubFetch(
       routes(meWith(true), {
         [LIST]: { subscriptions: [sub({ state: "pending", verifiedAt: null })] },
@@ -326,7 +374,7 @@ describe("DevicesPage", () => {
 
   it("offers only Subscribe again on this browser's stale row, which re-registers with the new key", async () => {
     const user = userEvent.setup();
-    localStorage.setItem("dash.push.subscription", ID);
+    localStorage.setItem(MINE_KEY, ID);
     // The browser's subscription was made with dash's previous key.
     const old = fakeSubscription(new Uint8Array([4, 1, 2, 3]));
     held = old;
@@ -360,7 +408,7 @@ describe("DevicesPage", () => {
 
   it("asks before removing a device, and deletes only after the confirmation", async () => {
     const user = userEvent.setup();
-    localStorage.setItem("dash.push.subscription", ID);
+    localStorage.setItem(MINE_KEY, ID);
     held = fakeSubscription(base64urlBytes(VAPID));
     const unsubscribe = held.unsubscribe;
     const stub = stubFetch(routes(meWith(true), { [LIST]: { subscriptions: [sub()] } }));
@@ -380,7 +428,7 @@ describe("DevicesPage", () => {
     await waitFor(() => expect(stub.callsTo(DELETE)).toHaveLength(1));
     // This browser's own row: the browser's subscription goes too.
     await waitFor(() => expect(unsubscribe).toHaveBeenCalledTimes(1));
-    expect(localStorage.getItem("dash.push.subscription")).toBeNull();
+    expect(localStorage.getItem(MINE_KEY)).toBeNull();
   });
 
   /** The QR code's SVG once it shows `url`, checked to draw exactly the matrix of `url`. */

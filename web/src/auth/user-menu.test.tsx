@@ -1,7 +1,7 @@
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { toast } from "sonner";
-import { beforeEach, describe, expect, it, type MockInstance, vi } from "vitest";
+import { beforeEach, describe, expect, it, type Mock, type MockInstance, vi } from "vitest";
 import type { Me } from "@/api/types";
 import { json, renderApp, stubFetch } from "@/test/harness";
 import { browserNav } from "./handle401";
@@ -149,6 +149,67 @@ describe("UserMenu", () => {
       expect(assign).not.toHaveBeenCalled();
     },
   );
+
+  describe("this browser's push subscription", () => {
+    const ID = "sub_ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+    const DELETE = `DELETE /api/v1/push/subscriptions/${ID}`;
+    let unsubscribe: Mock<() => Promise<boolean>>;
+
+    beforeEach(() => {
+      unsubscribe = vi.fn(async () => true);
+      const pushManager = { getSubscription: vi.fn(async () => ({ unsubscribe })) };
+      Object.defineProperty(navigator, "serviceWorker", {
+        value: { getRegistration: vi.fn(async () => ({ pushManager })) },
+        configurable: true,
+      });
+      vi.stubGlobal("isSecureContext", true);
+      vi.stubGlobal("PushManager", class {});
+      vi.stubGlobal("Notification", {});
+      return () => {
+        Reflect.deleteProperty(navigator, "serviceWorker");
+        localStorage.clear();
+      };
+    });
+
+    it("is removed and dropped before the logout when it is this user's", async () => {
+      localStorage.setItem("dash.push.subscription:alice", ID);
+      const stub = stubFetch({ [LOGOUT]: undefined, [DELETE]: undefined });
+      const u = await openMenu(me({ authMode: "oidc" }));
+      await u.click(screen.getByRole("menuitem", { name: "Log out" }));
+
+      await waitFor(() => expect(assign).toHaveBeenCalledWith("/login"));
+      expect(unsubscribe).toHaveBeenCalledTimes(1);
+      expect(localStorage.getItem("dash.push.subscription:alice")).toBeNull();
+      // The DELETE goes first, while the session still holds.
+      expect(stub.calls.map((c) => `${c.method} ${c.path}`)).toEqual([DELETE, LOGOUT]);
+    });
+
+    it("is left alone when it is another user's", async () => {
+      localStorage.setItem("dash.push.subscription:bob", ID);
+      const stub = stubFetch({ [LOGOUT]: undefined, [DELETE]: undefined });
+      const u = await openMenu(me({ authMode: "oidc" }));
+      await u.click(screen.getByRole("menuitem", { name: "Log out" }));
+
+      await waitFor(() => expect(assign).toHaveBeenCalledWith("/login"));
+      expect(unsubscribe).not.toHaveBeenCalled();
+      expect(stub.callsTo(DELETE)).toEqual([]);
+      expect(localStorage.getItem("dash.push.subscription:bob")).toBe(ID);
+    });
+
+    it("does not stop the logout when removing it fails", async () => {
+      localStorage.setItem("dash.push.subscription:alice", ID);
+      const stub = stubFetch({
+        [LOGOUT]: undefined,
+        [DELETE]: () => json({ error: "boom", code: "internal" }, 500),
+      });
+      const u = await openMenu(me({ authMode: "oidc" }));
+      await u.click(screen.getByRole("menuitem", { name: "Log out" }));
+
+      await waitFor(() => expect(assign).toHaveBeenCalledWith("/login"));
+      expect(stub.callsTo(LOGOUT)).toHaveLength(1);
+      expect(unsubscribe).toHaveBeenCalledTimes(1);
+    });
+  });
 
   it("loads /login when the session was gone already (401)", async () => {
     stubFetch({

@@ -23,6 +23,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { dropThisBrowser } from "@/settings/devices-api";
 import { browserNav, safeNext } from "./handle401";
 import { AuthRequestError, type LogoutScope, logout } from "./session";
 
@@ -70,6 +71,8 @@ export function UserMenu({ me }: { me: Me }): JSX.Element | null {
     if (pending) return;
     setPending(true);
     try {
+      // While the session still holds: this browser's push subscription, when it is this user's.
+      await dropThisBrowser(me.user);
       await logout(scope);
     } catch (err) {
       if (!(err instanceof AuthRequestError && err.status === 401)) {

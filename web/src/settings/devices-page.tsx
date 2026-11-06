@@ -1,6 +1,6 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { BellRing, Loader2, QrCode as QrIcon, Send, Trash2 } from "lucide-react";
-import { type FormEvent, type JSX, useCallback, useEffect, useState } from "react";
+import { type FormEvent, type JSX, useCallback, useEffect, useReducer, useState } from "react";
 import { toast } from "sonner";
 import { Link } from "wouter";
 import { errorMessage } from "@/api/client";
@@ -42,7 +42,9 @@ import {
   DEFAULT_NOTIFY,
   defaultDeviceName,
   deleteSubscription,
+  ENDPOINT_TAKEN,
   invalidatePush,
+  isEndpointTaken,
   pushSupported,
   registerSubscription,
   sendTestPush,
@@ -80,7 +82,11 @@ export function DevicesPage(): JSX.Element {
   const subs = useSubscriptions(available);
   const vapid = useVapid(available);
   const queryClient = useQueryClient();
-  const [mine, setMine] = useState<string | null>(thisBrowserID);
+  // Whose this browser's subscription is: localStorage, read on every render under the user's
+  // own key; `stored` re-renders the page after a write.
+  const user = me.data?.user ?? "";
+  const [, stored] = useReducer((n: number) => n + 1, 0);
+  const mine = available ? thisBrowserID(user) : null;
   // The subscription this page just registered, which waits for its code.
   const [awaiting, setAwaiting] = useState<string | null>(null);
   // The last code the service worker posted that was not submitted yet.
@@ -150,8 +156,8 @@ export function DevicesPage(): JSX.Element {
   }
 
   function registered(info: PushSubscriptionInfo) {
-    setThisBrowserID(info.id);
-    setMine(info.id);
+    setThisBrowserID(user, info.id);
+    stored();
     if (info.state !== PushStateVerified) setAwaiting(info.id);
   }
 
@@ -195,8 +201,8 @@ export function DevicesPage(): JSX.Element {
         mine={removing !== null && removing.id === mine}
         onClose={() => setRemoving(null)}
         onRemovedMine={() => {
-          setThisBrowserID(null);
-          setMine(null);
+          setThisBrowserID(user, null);
+          stored();
         }}
       />
     </Page>
@@ -286,7 +292,9 @@ function SubscribePanel({
           : `${info.deviceName} is subscribed: waiting for its code`,
       );
     } catch (err) {
-      toast.error(`Subscribing failed: ${errorMessage(err)}`);
+      toast.error(
+        isEndpointTaken(err) ? ENDPOINT_TAKEN : `Subscribing failed: ${errorMessage(err)}`,
+      );
     } finally {
       setBusy(false);
       void invalidatePush(queryClient);

@@ -1,6 +1,7 @@
 import { type QueryClient, useQuery } from "@tanstack/react-query";
-import { api } from "@/api/client";
+import { ApiError, api } from "@/api/client";
 import {
+  ErrCodeConflict,
   PushAttentionCrit,
   PushDeviceNameMaxLen,
   PushKindWebPush,
@@ -85,27 +86,64 @@ export function invalidatePush(qc: QueryClient): Promise<void> {
 }
 
 // This browser's side. The ID of the subscription this browser registered is kept in
-// localStorage: the list never shows an endpoint, so it is the only way to know which row is this
-// browser's, and only this browser can re-POST it (the endpoint and keys are its own).
-const THIS_BROWSER = "dash.push.subscription";
+// localStorage, under the user who registered it: the list never shows an endpoint, so it is the
+// only way to know which row is this browser's, and only this browser can re-POST it (the
+// endpoint and keys are its own). Several users may share one browser, which holds one push
+// subscription: the key says whose it is.
+function thisBrowserKey(user: string): string {
+  return `dash.push.subscription:${user}`;
+}
 
-/** The ID of the subscription this browser registered, or null. */
-export function thisBrowserID(): string | null {
+/** The ID of the subscription this browser registered for `user`, or null. */
+export function thisBrowserID(user: string): string | null {
   try {
-    return window.localStorage.getItem(THIS_BROWSER);
+    return window.localStorage.getItem(thisBrowserKey(user));
   } catch {
     return null;
   }
 }
 
-/** Records (or with null forgets) the ID of this browser's subscription. */
-export function setThisBrowserID(id: string | null): void {
+/** Records (or with null forgets) the ID of this browser's subscription for `user`. */
+export function setThisBrowserID(user: string, id: string | null): void {
   try {
-    if (id === null) window.localStorage.removeItem(THIS_BROWSER);
-    else window.localStorage.setItem(THIS_BROWSER, id);
+    if (id === null) window.localStorage.removeItem(thisBrowserKey(user));
+    else window.localStorage.setItem(thisBrowserKey(user), id);
   } catch {
     // storage refused (a private window): the row is just not marked as this browser's
   }
+}
+
+/** Whether `err` is the 409 of an endpoint that another user of dash registered. */
+export function isEndpointTaken(err: unknown): boolean {
+  return err instanceof ApiError && err.status === 409 && err.code === ErrCodeConflict;
+}
+
+/** What the page says when this browser's endpoint belongs to another user. */
+export const ENDPOINT_TAKEN =
+  "This browser receives another account's notifications; remove it there, or use another browser profile.";
+
+const DROP_TIMEOUT_MS = 3000;
+
+/**
+ * Before `user` logs out: when this browser's subscription is theirs, it is removed from dash and
+ * dropped from the browser, so the next user of this browser gets none of their notifications.
+ * Best effort and bounded, so that logging out never waits on it: dash marks the subscription
+ * stale once the session ends anyway.
+ */
+export async function dropThisBrowser(user: string): Promise<void> {
+  const id = thisBrowserID(user);
+  if (id === null) return;
+  setThisBrowserID(user, null);
+  const drop = async () => {
+    await deleteSubscription(id).catch(() => undefined);
+    if (!pushSupported()) return;
+    // getRegistration, not ready: ready never settles where no worker is registered.
+    const reg = await navigator.serviceWorker.getRegistration();
+    await (await reg?.pushManager.getSubscription())?.unsubscribe();
+  };
+  // The executor form: tsconfig's lib predates Promise.withResolvers (es2024).
+  const timeout = new Promise<void>((resolve) => setTimeout(resolve, DROP_TIMEOUT_MS));
+  await Promise.race([drop().catch(() => undefined), timeout]);
 }
 
 /** Whether this browser can subscribe to push: a service worker and PushManager in a secure context. */
