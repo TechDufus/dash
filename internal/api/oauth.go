@@ -177,10 +177,11 @@ func (s *Server) consentPage(w http.ResponseWriter, r *http.Request) {
 	s.serveStatic(w, r)
 }
 
-// oauthCaller is who sends an authorization request: the signed-in person (a session, the
-// identity proxy's header; never a bearer token), or an anonymous caller. Only a signed-in
-// person makes dash fetch a client ID metadata document, or, behind the identity proxy, any
-// caller on the public URL's host. A renewed or cleared session cookie is set.
+// oauthCaller is who sends an authorization request: the signed-in person (an interactive
+// principal: a session, the identity proxy's header; never a bearer token or the anonymous
+// viewer), or an anonymous caller. Only a signed-in person makes dash fetch a client ID
+// metadata document, or, behind the identity proxy, a caller on the public URL's host whose
+// peer is the proxy (an untrusted peer bypassed it). A renewed or cleared session cookie is set.
 func (s *Server) oauthCaller(w http.ResponseWriter, r *http.Request) oauth.Caller {
 	var c oauth.Caller
 	if _, ok := auth.Bearer(r); !ok {
@@ -188,11 +189,11 @@ func (s *Server) oauthCaller(w http.ResponseWriter, r *http.Request) oauth.Calle
 		if cookie != nil {
 			http.SetCookie(w, cookie)
 		}
-		if fail == nil && p.Kind != auth.KindToken {
+		if fail == nil && p.Interactive() {
 			c.User = p.User
 		}
 	}
-	c.Fetch = c.User != "" || (s.authMode(auth.Principal{}) == string(auth.KindProxy) && s.d.Cfg.PublicHost(r.Host))
+	c.Fetch = c.User != "" || (s.authMode(auth.Principal{}) == string(auth.KindProxy) && s.d.Cfg.PublicHost(r.Host) && s.peerTrusted(r))
 	return c
 }
 

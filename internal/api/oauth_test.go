@@ -4,9 +4,11 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/url"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -20,7 +22,10 @@ import (
 // testOAuth is an authorization server over d's credential store (a new one in a data dir
 // when d has none), at d's public and direct URLs, with one config client: "inspector", a
 // loopback redirect, both audiences.
-func testOAuth(t *testing.T, d *Deps) *oauth.Server {
+func testOAuth(t *testing.T, d *Deps) *oauth.Server { return testOAuthWith(t, d, nil) }
+
+// testOAuthWith is testOAuth fetching client ID metadata documents with hc (nil: netguard's).
+func testOAuthWith(t *testing.T, d *Deps, hc *http.Client) *oauth.Server {
 	t.Helper()
 	if d.Credentials == nil {
 		store, err := credentials.Open(t.TempDir())
@@ -34,7 +39,7 @@ func testOAuth(t *testing.T, d *Deps) *oauth.Server {
 		d.Tokens = tokens.New(d.Credentials, auth.NewRoleHolder(auth.RoleMap{AdminUsers: []string{"alice"}}), nil, func() time.Time { return fixedNow })
 	}
 	s, err := oauth.New(oauth.Options{
-		PublicURL: d.Cfg.PublicURL, DirectURL: d.Cfg.DirectURL, Store: d.Credentials, AccessKey: make([]byte, 32),
+		PublicURL: d.Cfg.PublicURL, DirectURL: d.Cfg.DirectURL, Store: d.Credentials, AccessKey: make([]byte, 32), HTTPClient: hc,
 		Clients: []config.OAuthClient{{ClientID: "inspector", Name: "Inspector", RedirectURIs: []string{"http://127.0.0.1/callback"}, Audiences: []string{"api", "mcp"}}},
 		Now:     func() time.Time { return fixedNow },
 	})
@@ -271,5 +276,59 @@ func TestOAuthAuthorizeKeepsNothingForAnonymousCallers(t *testing.T) {
 	w = req{path: authorizeURL("api", func(q url.Values) { q.Set("state", strings.Repeat("s", 1000)) }), header: anon}.do(s.Handler())
 	if w.Code != http.StatusBadRequest || !strings.Contains(w.Body.String(), "too long to carry through sign-in") {
 		t.Errorf("too long for next = %d %s", w.Code, w.Body)
+	}
+}
+
+// fetchCounter is an HTTP client that counts client ID metadata fetches and fails each one.
+type fetchCounter struct{ n atomic.Int32 }
+
+func (f *fetchCounter) RoundTrip(*http.Request) (*http.Response, error) {
+	f.n.Add(1)
+	return nil, errors.New("no metadata here")
+}
+
+// cimdAuthorizeURL is a valid authorization request of a client ID metadata document client.
+func cimdAuthorizeURL() string {
+	return authorizeURL("api", func(q url.Values) {
+		q.Set("client_id", "https://client.example.com/oauth/client.json")
+		q.Set("redirect_uri", "https://client.example.com/callback")
+	})
+}
+
+// The anonymous viewer of the local mode is not signed in (G7-R3 fix E1): its authorization
+// request goes to sign in, so dash keeps no pending request for it (Authorize stores one only
+// for a signed-in caller, whose answer is the consent page), and it never makes dash fetch a
+// client ID metadata document.
+func TestOAuthAuthorizeAnonymousViewerSignsIn(t *testing.T) {
+	fc := &fetchCounter{}
+	opt, _ := withSessions(t, auth.ModeLocal, auth.RoleMap{AdminUsers: []string{"alice"}}, true, nil)
+	s := newServer(func(d *Deps) {
+		opt(d)
+		d.OAuth = testOAuthWith(t, d, &http.Client{Transport: fc})
+	})
+	for _, path := range []string{authorizeURL("api", nil), cimdAuthorizeURL()} {
+		w := req{path: path}.do(s.Handler())
+		if w.Code != http.StatusFound || w.Header().Get("Location") != "/login?next="+url.QueryEscape(path) {
+			t.Errorf("the anonymous viewer's %s = %d %v, want the sign-in redirect", path, w.Code, w.Header())
+		}
+	}
+	if n := fc.n.Load(); n != 0 {
+		t.Errorf("the anonymous viewer made %d metadata fetches, want 0", n)
+	}
+}
+
+// Behind the identity proxy an anonymous caller on the public URL's host makes dash fetch a
+// client ID metadata document only when its peer is the proxy: an untrusted peer bypassed it.
+func TestOAuthAuthorizeFetchNeedsTheProxyPeer(t *testing.T) {
+	fc := &fetchCounter{}
+	s := newServer(func(d *Deps) { d.OAuth = testOAuthWith(t, d, &http.Client{Transport: fc}) })
+	anon := map[string]string{"X-Forwarded-Preferred-Username": ""}
+	w := req{path: cimdAuthorizeURL(), peer: "192.0.2.202:1234", header: anon}.do(s.Handler())
+	if w.Code != http.StatusFound || !strings.HasPrefix(w.Header().Get("Location"), "/login?next=") || fc.n.Load() != 0 {
+		t.Errorf("untrusted peer = %d %v, %d fetches; want the sign-in redirect and none", w.Code, w.Header(), fc.n.Load())
+	}
+	w = req{path: cimdAuthorizeURL(), header: anon}.do(s.Handler())
+	if w.Code != http.StatusBadRequest || fc.n.Load() != 1 {
+		t.Errorf("the proxy's peer = %d %s, %d fetches; want the failed fetch's 400", w.Code, w.Body, fc.n.Load())
 	}
 }
