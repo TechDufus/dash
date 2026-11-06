@@ -19,10 +19,12 @@ carries, and `/api/v1/me` reports `capabilities.mcp: false`. MCP is never availa
 ## Tokens
 
 An agent presents a bearer token of the **`mcp` audience** ([auth.md](auth.md)): a personal access
-token created under Settings → Tokens (Settings → MCP links there and shows the endpoint), or a
-static token from `auth.tokens` (`dash token generate` prints one and its hash). An `api` token is
-refused at `/mcp`, and an `mcp` token is refused at `/api/v1`, so a token handed to an agent cannot
-be replayed against the REST API. The session cookie and the identity proxy's user never reach MCP.
+token created under Settings → Tokens (Settings → MCP links there and shows the endpoint), a
+static token from `auth.tokens` (`dash token generate` prints one and its hash), or an access token
+of an [OAuth](auth.md#oauth) grant for the `mcp` audience, which an MCP client that signs in
+through dash receives. An `api` token is refused at `/mcp`, and an `mcp` token is refused at
+`/api/v1`, so a token handed to an agent cannot be replayed against the REST API. The session
+cookie and the identity proxy's user never reach MCP.
 
 The token's scopes decide what the agent sees:
 
@@ -36,7 +38,8 @@ tool.
 
 ## Connecting a client
 
-- **Endpoint:** `https://dash.example.com/mcp`, with `Authorization: Bearer dash_pat_…`.
+- **Endpoint:** `<publicURL>/mcp`, or `<directURL>/mcp` when `server.directURL` is set (behind an
+  identity proxy, the origin bearer clients use), with `Authorization: Bearer dash_pat_…`.
 - **Transport:** Streamable HTTP, stateless, protocol versions `2026-07-28` and `2025-11-25`.
   `2025-11-25` has no stream, so it cannot subscribe to resources.
 - **Origin:** a request that carries an `Origin` header must come from the public URL or from an
@@ -46,7 +49,13 @@ tool.
 - **Behind an identity proxy** (`auth.mode: proxy`) the agent needs a route to dash that does not
   go through the proxy, as every bearer client does ([auth.md](auth.md)).
 
-A client configuration, for example:
+With Claude Code:
+
+```sh
+claude mcp add --transport http dash https://dash.example.com/mcp --header "Authorization: Bearer <token>"
+```
+
+Another client's configuration, for example:
 
 ```json
 {
@@ -156,7 +165,9 @@ is left, and is flagged `truncated: true` (in `_meta`, and in a tool's structure
 
 ## Audit
 
-Every call is recorded in the audit log with surface `mcp`, the token, the tool, resource or
-prompt, the SHA-256 of its arguments (never the arguments), the client's name, the outcome and the
-duration. A rate-limited call is recorded as a denial, at most once per token and minute. The list
-and discovery requests are not recorded.
+Every call is recorded in the audit log with surface `mcp`, the token (or the OAuth grant), the
+tool, resource or prompt, the SHA-256 of its arguments (never the arguments), the outcome and,
+when known, the client's name (`client`, as the client gives it) and the duration
+(`durationMs`). Without a data directory the log line carries the same fields. A rate-limited
+call is recorded as a denial, at most once per token and minute. The list and discovery requests
+are not recorded.
