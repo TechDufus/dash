@@ -303,17 +303,19 @@ func errorCode(res sdk.Result) string {
 	return "error"
 }
 
+// truncatedNote follows, outside the block, a result cut to MaxResultBytes.
+const truncatedNote = "\nThe result was larger than 64 KiB and is truncated."
+
 // capResult keeps a tool result within MaxResultBytes of text (design N.6). An answer that is
-// larger keeps the untrusted framing around what is left of its text, is flagged truncated in
-// its structured content and its _meta, and says so outside the block.
-func (s *Server) capResult(res *sdk.CallToolResult, tree any) *sdk.CallToolResult {
+// larger is body (its JSON, or its own rendering) cut within the untrusted framing, flagged
+// truncated in its structured content and its _meta, and says so outside the block.
+func (s *Server) capResult(res *sdk.CallToolResult, tree any, body string) *sdk.CallToolResult {
 	text := res.Content[0].(*sdk.TextContent).Text
 	raw, _ := json.Marshal(tree)
 	if len(text) <= MaxResultBytes && len(raw) <= MaxResultBytes {
 		return res
 	}
-	const note = "\nThe result was larger than 64 KiB and is truncated."
-	text = s.frameCut(text, note)
+	text = s.frameCut(body, truncatedNote)
 	return &sdk.CallToolResult{
 		Meta:              sdk.Meta{"truncated": true},
 		Content:           []sdk.Content{&sdk.TextContent{Text: text}},

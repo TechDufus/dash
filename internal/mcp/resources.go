@@ -31,7 +31,7 @@ func (s *Server) listTopics(c caller) *sdk.ListResourcesResult {
 	}
 	for _, t := range s.o.Backend.Topics(c.p.User) {
 		out.Resources = append(out.Resources, &sdk.Resource{
-			URI: topicURIPrefix + t.Name, Name: t.Name, Title: t.Name, MIMEType: "application/json",
+			URI: topicURIPrefix + t.Name, Name: t.Name, Title: t.Name, MIMEType: "text/markdown",
 			Description: "The current snapshot of the " + t.Name + " topic.",
 		})
 	}
@@ -39,8 +39,10 @@ func (s *Server) listTopics(c caller) *sdk.ListResourcesResult {
 }
 
 // readTopic answers resources/read of dash://topics/<topic>: the envelope as the caller reads it
-// (its own copy of a user-scoped topic), every string scrubbed. It needs the read scope. A panic
-// is answered as an internal error.
+// (its own copy of a user-scoped topic), every string scrubbed, rendered as the tools render
+// JSON: the indented JSON in the untrusted-data block (design N.5), cut within that framing and
+// flagged truncated past 64 KiB. It needs the read scope. A panic is answered as an internal
+// error.
 func (s *Server) readTopic(_ context.Context, req *sdk.ReadResourceRequest) (res *sdk.ReadResourceResult, err error) {
 	defer func() {
 		if rec := recover(); rec != nil {
@@ -61,19 +63,17 @@ func (s *Server) readTopic(_ context.Context, req *sdk.ReadResourceRequest) (res
 	if err != nil {
 		return nil, err
 	}
-	raw, err := json.Marshal(tree)
+	raw, err := json.MarshalIndent(tree, "", "  ")
 	if err != nil {
 		return nil, err
 	}
-	if len(raw) > MaxResultBytes { // design N.6: cut, flagged; the JSON then does not parse
-		return &sdk.ReadResourceResult{Meta: sdk.Meta{"truncated": true}, Contents: []*sdk.ResourceContents{{
-			URI: req.Params.URI, MIMEType: "text/plain", Text: s.cut(string(raw), MaxResultBytes),
-			Meta: sdk.Meta{"truncated": true},
-		}}}, nil
+	content := &sdk.ResourceContents{URI: req.Params.URI, MIMEType: "text/markdown", Text: bundle.UntrustedBlock(string(raw))}
+	res = &sdk.ReadResourceResult{Contents: []*sdk.ResourceContents{content}}
+	if len(content.Text) > MaxResultBytes { // design N.6
+		content.Text = s.frameCut(string(raw), truncatedNote)
+		content.Meta, res.Meta = sdk.Meta{"truncated": true}, sdk.Meta{"truncated": true}
 	}
-	return &sdk.ReadResourceResult{Contents: []*sdk.ResourceContents{{
-		URI: req.Params.URI, MIMEType: "application/json", Text: string(raw),
-	}}}, nil
+	return res, nil
 }
 
 // checkSubscriptions refuses a subscriptions/listen that asks for a resource c may not follow:

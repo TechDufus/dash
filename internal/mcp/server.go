@@ -160,7 +160,7 @@ func New(o Options) *Server {
 	// The limits and the audit run outside the scope filter, so a refused call is audited too.
 	s.srv.AddReceivingMiddleware(s.limitAndAudit, s.scopeFilter)
 	s.srv.AddResourceTemplate(&sdk.ResourceTemplate{
-		Name: "topic", Title: "dash topic", URITemplate: topicURIPrefix + "{topic}", MIMEType: "application/json",
+		Name: "topic", Title: "dash topic", URITemplate: topicURIPrefix + "{topic}", MIMEType: "text/markdown",
 		Description: "The current snapshot of one of dash's topics, the data behind a page.",
 	}, s.readTopic)
 	s.addPrompts()
@@ -281,17 +281,19 @@ func (s *Server) toolHandler(t tool) sdk.ToolHandler {
 		if err != nil {
 			return nil, err
 		}
+		body := s.o.Scrub(text) // the tool's own rendering, else the JSON
 		if text == "" {
 			raw, err := json.MarshalIndent(tree, "", "  ")
 			if err != nil {
 				return nil, err
 			}
-			text = bundle.UntrustedBlock(string(raw))
+			body = string(raw)
+			text = bundle.UntrustedBlock(body)
 		} else {
-			text = s.o.Scrub(text)
+			text = body
 		}
 		res := &sdk.CallToolResult{Content: []sdk.Content{&sdk.TextContent{Text: text}}, StructuredContent: tree}
-		return s.capResult(res, tree), nil
+		return s.capResult(res, tree, body), nil
 	}
 }
 

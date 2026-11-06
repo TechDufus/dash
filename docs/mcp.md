@@ -84,10 +84,11 @@ holds for agents too.
 ## Resources and prompts
 
 Every topic the token may read is a resource, `dash://topics/<topic>` (for example
-`dash://topics/kubernetes.cluster`), whose content is the topic's JSON envelope. Lists are cached
-privately for 60 s and reads for 5 s. With protocol `2026-07-28`, `subscriptions/listen` delivers
-`notifications/resources/updated` for a global topic at most once per topic every 5 s; a
-user-scoped topic cannot be subscribed to. Every 15 s an open stream checks its token again: a
+`dash://topics/kubernetes.cluster`). Its content is Markdown (`text/markdown`), framed like a
+tool's: the untrusted-data sentence, then the topic's JSON envelope in a fenced block. Lists are
+cached privately for 60 s and reads for 5 s. With protocol `2026-07-28`, `subscriptions/listen`
+delivers `notifications/resources/updated` for a global topic at most once per topic every 5 s;
+a user-scoped topic cannot be subscribed to. Every 15 s an open stream checks its token again: a
 revoked or expired token, a lost `read` scope or MCP switched off ends it.
 
 Four prompts guide an agent: `dash_triage`, `dash_investigate {ref}`, `dash_daily_digest {since}`
@@ -133,8 +134,8 @@ Per token: 120 calls a minute (`tools/call`, `resources/read`, `prompts/get`,
 In all, 64 calls in flight and 16 listen streams. A call over its rate gets a `rate_limited`
 error; a request over a concurrency limit gets 429 with `Retry-After`.
 
-A result over 64 KiB is cut to 64 KiB, keeps the untrusted framing around what is left, and is
-flagged `truncated: true`.
+A result or resource read over 64 KiB is cut to 64 KiB, keeps the untrusted framing around what
+is left, and is flagged `truncated: true` (in `_meta`, and in a tool's structured content).
 
 ## Audit
 

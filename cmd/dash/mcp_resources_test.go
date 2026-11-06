@@ -10,9 +10,11 @@ import (
 	"time"
 
 	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
+
+	"github.com/TechDufus/dash/internal/bundle"
 )
 
-// The topics are resources: listed for the token, readable as JSON, private and cached 5 s.
+// The topics are resources: listed for the token, readable as framed JSON, private and cached 5 s.
 func TestMCPTopicResources(t *testing.T) {
 	addr := startMCPDemo(t)
 	cs := mcpSession(t, addr, mcpReadToken, "2026-07-28")
@@ -35,12 +37,20 @@ func TestMCPTopicResources(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if len(res.Contents) != 1 {
+		t.Fatalf("read = %+v", res.Contents)
+	}
+	// The content is Markdown: the untrusted sentence, then the envelope's JSON in a fenced block.
+	c := res.Contents[0]
+	head, block, framed := strings.Cut(c.Text, bundle.Untrusted+"\n\n")
+	fence, body, _ := strings.Cut(block, "text\n")
 	var env struct {
 		Topic string         `json:"topic"`
 		Data  map[string]any `json:"data"`
 	}
-	if len(res.Contents) != 1 || json.Unmarshal([]byte(res.Contents[0].Text), &env) != nil || env.Topic != "kubernetes.cluster" || env.Data["pods"] == nil {
-		t.Errorf("read = %+v", res.Contents)
+	if c.MIMEType != "text/markdown" || !framed || head != "" || strings.Trim(fence, "`") != "" ||
+		json.Unmarshal([]byte(strings.TrimSuffix(body, "\n"+fence+"\n")), &env) != nil || env.Topic != "kubernetes.cluster" || env.Data["pods"] == nil {
+		t.Errorf("read %s:\n%.400s", c.MIMEType, c.Text)
 	}
 	if res.CacheScope != "private" || res.TTLMs != 5000 {
 		t.Errorf("read cacheable = %+v", res.Cacheable)
