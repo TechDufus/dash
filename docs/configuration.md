@@ -315,6 +315,7 @@ The silence actions.
 | Setting | Variable | Type | Default | Description |
 |---|---|---|---|---|
 | `plugins.alertmanager.actions.enabled` | `DASH_PLUGINS_ALERTMANAGER_ACTIONS_ENABLED` | boolean | - | Offer the plugin's actions. Off by default: without it the actions are not mounted and the web UI does not show their buttons. |
+| `plugins.alertmanager.actions.agents` | `DASH_PLUGINS_ALERTMANAGER_ACTIONS_AGENTS` | string | `approve` | What an AI agent's call of one of the plugin's action tools (MCP, a token with the mcp audience) does: deny hides the tools and refuses them, approve creates an approval request a person approves or denies in dash, allow runs the action at once. A target that needs its name typed (a protected namespace) always waits for a person's approval, even with allow. API tokens and signed-in people are never affected. The default is approve; applies live. |
 
 ## `plugins.victorialogs`
 
@@ -574,6 +575,7 @@ The restart action.
 |---|---|---|---|---|
 | `plugins.kubernetes.actions.enabled` | `DASH_PLUGINS_KUBERNETES_ACTIONS_ENABLED` | boolean | - | Offer the plugin's actions. Off by default: without it the actions are not mounted and the web UI does not show their buttons. |
 | `plugins.kubernetes.actions.denyNamespaces` | `DASH_PLUGINS_KUBERNETES_ACTIONS_DENY_NAMESPACES` | list of strings (JSON) | - | Namespaces the plugin's actions refuse, whatever the role. A JSON list in the environment. |
+| `plugins.kubernetes.actions.agents` | `DASH_PLUGINS_KUBERNETES_ACTIONS_AGENTS` | string | `approve` | What an AI agent's call of one of the plugin's action tools (MCP, a token with the mcp audience) does: deny hides the tools and refuses them, approve creates an approval request a person approves or denies in dash, allow runs the action at once. A target that needs its name typed (a protected namespace) always waits for a person's approval, even with allow. API tokens and signed-in people are never affected. The default is approve; applies live. |
 
 ## `plugins.flux`
 
@@ -602,6 +604,7 @@ The reconcile action.
 |---|---|---|---|---|
 | `plugins.flux.actions.enabled` | `DASH_PLUGINS_FLUX_ACTIONS_ENABLED` | boolean | - | Offer the plugin's actions. Off by default: without it the actions are not mounted and the web UI does not show their buttons. |
 | `plugins.flux.actions.denyNamespaces` | `DASH_PLUGINS_FLUX_ACTIONS_DENY_NAMESPACES` | list of strings (JSON) | - | Namespaces the plugin's actions refuse, whatever the role. A JSON list in the environment. |
+| `plugins.flux.actions.agents` | `DASH_PLUGINS_FLUX_ACTIONS_AGENTS` | string | `approve` | What an AI agent's call of one of the plugin's action tools (MCP, a token with the mcp audience) does: deny hides the tools and refuses them, approve creates an approval request a person approves or denies in dash, allow runs the action at once. A target that needs its name typed (a protected namespace) always waits for a person's approval, even with allow. API tokens and signed-in people are never affected. The default is approve; applies live. |
 
 ## `plugins.cnpg`
 

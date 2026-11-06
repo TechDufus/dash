@@ -208,6 +208,182 @@
         },
         "type": "object"
       },
+      "ApprovalInfo": {
+        "additionalProperties": false,
+        "properties": {
+          "action": {
+            "type": "string"
+          },
+          "clientName": {
+            "type": "string"
+          },
+          "confirm": {
+            "enum": [
+              "none",
+              "dialog",
+              "typeName"
+            ],
+            "type": "string"
+          },
+          "createdAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "credentialName": {
+            "type": "string"
+          },
+          "decidedAt": {
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "decidedBy": {
+            "type": "string"
+          },
+          "destructive": {
+            "type": "boolean"
+          },
+          "expiresAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "grantId": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "input": {},
+          "inputSha256": {
+            "type": "string"
+          },
+          "outcome": {
+            "$ref": "#/components/schemas/ApprovalOutcome"
+          },
+          "plugin": {
+            "type": "string"
+          },
+          "reason": {
+            "type": "string"
+          },
+          "state": {
+            "enum": [
+              "pending",
+              "approved",
+              "denied",
+              "expired"
+            ],
+            "type": "string"
+          },
+          "summary": {
+            "type": "string"
+          },
+          "target": {
+            "$ref": "#/components/schemas/ApprovalTarget"
+          },
+          "title": {
+            "type": "string"
+          },
+          "tokenId": {
+            "type": "string"
+          },
+          "tool": {
+            "type": "string"
+          },
+          "user": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "action",
+          "clientName",
+          "confirm",
+          "createdAt",
+          "credentialName",
+          "decidedAt",
+          "decidedBy",
+          "destructive",
+          "expiresAt",
+          "id",
+          "input",
+          "inputSha256",
+          "plugin",
+          "reason",
+          "state",
+          "summary",
+          "target",
+          "title",
+          "tool",
+          "user"
+        ],
+        "type": "object"
+      },
+      "ApprovalOutcome": {
+        "additionalProperties": false,
+        "properties": {
+          "at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "error": {
+            "type": "string"
+          },
+          "ok": {
+            "type": "boolean"
+          },
+          "result": {
+            "type": "string"
+          },
+          "truncated": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "at",
+          "error",
+          "ok",
+          "result",
+          "truncated"
+        ],
+        "type": "object"
+      },
+      "ApprovalTarget": {
+        "additionalProperties": false,
+        "properties": {
+          "kind": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "namespace": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "name",
+          "namespace"
+        ],
+        "type": "object"
+      },
+      "ApprovalsData": {
+        "additionalProperties": false,
+        "properties": {
+          "pending": {
+            "items": {
+              "$ref": "#/components/schemas/ApprovalInfo"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "pending"
+        ],
+        "type": "object"
+      },
       "AppsData": {
         "additionalProperties": false,
         "properties": {
@@ -797,6 +973,35 @@
           },
           "topic": {
             "const": "cnpg.clusters"
+          },
+          "updatedAt": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "data",
+          "sources",
+          "topic",
+          "updatedAt"
+        ],
+        "type": "object"
+      },
+      "Envelope.core.approvals": {
+        "additionalProperties": false,
+        "description": "The envelope of the core.approvals topic.",
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/ApprovalsData"
+          },
+          "sources": {
+            "items": {
+              "$ref": "#/components/schemas/SourceStatus"
+            },
+            "type": "array"
+          },
+          "topic": {
+            "const": "core.approvals"
           },
           "updatedAt": {
             "format": "date-time",
@@ -5635,6 +5840,9 @@
                     },
                     {
                       "$ref": "#/components/schemas/Envelope.cnpg.clusters"
+                    },
+                    {
+                      "$ref": "#/components/schemas/Envelope.core.approvals"
                     },
                     {
                       "$ref": "#/components/schemas/Envelope.core.overview"

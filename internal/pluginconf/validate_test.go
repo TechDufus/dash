@@ -1,6 +1,7 @@
 package pluginconf
 
 import (
+	"cmp"
 	"errors"
 	"fmt"
 	"reflect"
@@ -275,6 +276,39 @@ func TestPolicyHooks(t *testing.T) {
 	}
 	if _, ok := section.(interface{ Validate() error }); !ok {
 		t.Error("*Alertmanager has no Validate")
+	}
+}
+
+// plugins.<id>.actions.agents (design O.1): the three plugins with actions default to approve,
+// accept deny, approve and allow (and an unset value, which means approve), refuse anything else
+// under actions.agents, and hand the policy to cmd/dash through ActionsConfig.
+func TestAgentPolicy(t *testing.T) {
+	if a, f, k := DefaultAlertmanager(), DefaultFlux(), DefaultKubernetes(); a.Actions.Agents != AgentsApprove || f.Actions.Agents != AgentsApprove || k.Actions.Agents != AgentsApprove {
+		t.Errorf("default agents = %q, %q, %q; want approve", a.Actions.Agents, f.Actions.Agents, k.Actions.Agents)
+	}
+	for _, v := range []string{"", AgentsDeny, AgentsApprove, AgentsAllow, "Allow", "ask"} {
+		var want []string
+		if v == "Allow" || v == "ask" {
+			want = []string{"actions.agents"}
+		}
+		for name, s := range map[string]interface {
+			Validate() error
+			ActionsConfig() Actions
+		}{
+			"alertmanager": Alertmanager{Actions: ActionsToggle{Agents: v}},
+			"flux":         Flux{Actions: Actions{Agents: v}},
+			"kubernetes":   Kubernetes{Actions: Actions{Agents: v}},
+		} {
+			if got := paths(s.Validate()); !slices.Equal(got, want) {
+				t.Errorf("%s agents %q: problems %v, want %v", name, v, got, want)
+			}
+			if want != nil {
+				continue
+			}
+			if got, wantPolicy := s.ActionsConfig().AgentPolicy(), cmp.Or(v, AgentsApprove); got != wantPolicy {
+				t.Errorf("%s agents %q: policy %q, want %q", name, v, got, wantPolicy)
+			}
+		}
 	}
 }
 

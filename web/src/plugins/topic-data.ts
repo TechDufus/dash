@@ -1,4 +1,4 @@
-import type { OverviewData, PluginsData, Topic } from "@/api/types";
+import type { ApprovalsData, OverviewData, PluginsData, Topic } from "@/api/types";
 import type { MODULES } from "./registry";
 import { type TopicDecl, topic } from "./types";
 
@@ -10,6 +10,7 @@ import { type TopicDecl, topic } from "./types";
 export const CORE_TOPICS = {
   "core.plugins": topic<PluginsData>(),
   "core.overview": topic<OverviewData>(),
+  "core.approvals": topic<ApprovalsData>(),
 } as const;
 
 type ModuleTopics = (typeof MODULES)[number]["topics"];

@@ -28,5 +28,6 @@ func TopicTypes() map[Topic]reflect.Type {
 		TopicStatus:           reflect.TypeFor[StatusData](),
 		TopicApps:             reflect.TypeFor[AppsData](),
 		TopicLauncherLinks:    reflect.TypeFor[LauncherData](),
+		TopicApprovals:        reflect.TypeFor[ApprovalsData](),
 	}
 }

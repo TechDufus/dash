@@ -27,6 +27,7 @@ func DefaultAlertmanager() Alertmanager {
 		SeverityMap:      map[string]string{"critical": "crit", "warning": "warn"},
 		SilenceDurations: slices.Clone(silenceDurations),
 		ProtectedAlerts:  []string{"Watchdog"},
+		Actions:          ActionsToggle{Agents: AgentsApprove},
 	}
 }
 
@@ -36,6 +37,7 @@ func DefaultAlertmanager() Alertmanager {
 func (a Alertmanager) Validate() error {
 	var p problems
 	p.addAll("auth", a.Auth.validate())
+	p.addAll("actions", a.Actions.Actions().validate())
 	for i, d := range a.SilenceDurations {
 		if !slices.Contains(silenceDurations, d) {
 			p.add("silenceDurations", "entry %d must be one of: 1h, 4h, 24h, 7d", i+1)
@@ -53,6 +55,6 @@ func (a Alertmanager) Validate() error {
 	return p.err()
 }
 
-// ActionsConfig implements the action policy hook: only the toggle, because a silence has no
-// namespace for a deny list to match.
-func (a Alertmanager) ActionsConfig() Actions { return Actions{Enabled: a.Actions.Enabled} }
+// ActionsConfig implements the action policy hook: the toggle and the agent policy, because a
+// silence has no namespace for a deny list to match.
+func (a Alertmanager) ActionsConfig() Actions { return a.Actions.Actions() }

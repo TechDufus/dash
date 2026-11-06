@@ -188,13 +188,17 @@ func TestVictoriaLogsDenyNamespacesReachTheRoutes(t *testing.T) {
 	}
 }
 
-// plugins.kubernetes.actions reaches the instance's policy, and its deny list arrives in the
-// action ref the supervisor hands the API.
+// plugins.kubernetes.actions reaches the instance's policy, and its deny list and agent policy
+// arrive in the action ref the supervisor hands the API.
 func TestActionPolicyOfASectionReachesTheActionRef(t *testing.T) {
-	section := &pluginconf.Kubernetes{Actions: pluginconf.Actions{Enabled: true, DenyNamespaces: []string{"kube-system"}}}
+	section := &pluginconf.Kubernetes{Actions: pluginconf.Actions{Enabled: true, DenyNamespaces: []string{"kube-system"}, Agents: pluginconf.AgentsAllow}}
 	ic := instanceConfig(config.PluginSection{Name: "kubernetes", Type: "kubernetes", Value: section})
-	if !ic.ActionsEnabled || !slices.Equal(ic.DenyNamespaces, []string{"kube-system"}) || ic.ReadDenyNamespaces != nil {
+	if !ic.ActionsEnabled || !slices.Equal(ic.DenyNamespaces, []string{"kube-system"}) || ic.ActionsAgents != pluginconf.AgentsAllow || ic.ReadDenyNamespaces != nil {
 		t.Fatalf("instance = %+v", ic)
+	}
+	// A section that sets no agent policy has the default: approve.
+	if unset := instanceConfig(config.PluginSection{Name: "kubernetes", Type: "kubernetes", Value: &pluginconf.Kubernetes{}}); unset.ActionsAgents != pluginconf.AgentsApprove {
+		t.Errorf("unset agents = %q, want approve", unset.ActionsAgents)
 	}
 
 	f := plugintest.New("kubernetes", plugintest.Config(func() any { return &pluginconf.Kubernetes{} }))
@@ -212,8 +216,8 @@ func TestActionPolicyOfASectionReachesTheActionRef(t *testing.T) {
 		t.Fatal(err)
 	}
 	ref, ok := sup.Action("kubernetes", "restart")
-	if !ok || !slices.Equal(ref.DenyNamespaces, []string{"kube-system"}) {
-		t.Fatalf("ref = %+v, %v; want the deny list of the section", ref, ok)
+	if !ok || !slices.Equal(ref.DenyNamespaces, []string{"kube-system"}) || ref.Agents != pluginconf.AgentsAllow {
+		t.Fatalf("ref = %+v, %v; want the deny list and agent policy of the section", ref, ok)
 	}
 }
 
@@ -237,9 +241,17 @@ func TestInstanceConfigPolicyFollowsTheSection(t *testing.T) {
 	}
 
 	before := instance("alertmanager")
+	if before.ActionsAgents != pluginconf.AgentsApprove {
+		t.Errorf("default alertmanager agents = %q, want approve", before.ActionsAgents)
+	}
 	tree.Plugins.Alertmanager.Actions.Enabled = true
 	if after := instance("alertmanager"); !after.ActionsEnabled || reflect.DeepEqual(before, after) {
 		t.Errorf("enabling actions: %+v -> %+v, want a different instance config", before, after)
+	}
+	enabled := instance("alertmanager")
+	tree.Plugins.Alertmanager.Actions.Agents = pluginconf.AgentsDeny
+	if after := instance("alertmanager"); after.ActionsAgents != pluginconf.AgentsDeny || reflect.DeepEqual(enabled, after) {
+		t.Errorf("denying agents: %+v -> %+v, want a different instance config", enabled, after)
 	}
 	vlBefore := instance("victorialogs")
 	tree.Plugins.VictoriaLogs.DenyNamespaces = []string{"secrets"}

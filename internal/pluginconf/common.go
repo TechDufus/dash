@@ -44,18 +44,51 @@ func (a Auth) validate() error {
 	return p.err()
 }
 
+// The agent policies of a plugin's actions (plugins.<id>.actions.agents, design O.1): what an
+// mcp-audience principal's call of one of its action tools does.
+const (
+	AgentsDeny    = "deny"    // the action tools are hidden and refused
+	AgentsApprove = "approve" // the call creates an approval request a person decides
+	AgentsAllow   = "allow"   // the call runs at once, except on a target that needs its typed name
+)
+
 // Actions is the policy of a plugin's actions (plugins.<id>.actions.*): whether they are
-// offered at all, and the namespaces they refuse. The core enforces both.
+// offered at all, the namespaces they refuse, and what an agent's call does. The core enforces
+// all three.
 type Actions struct {
 	Enabled        bool     `json:"enabled" doc:"Offer the plugin's actions. Off by default: without it the actions are not mounted and the web UI does not show their buttons."`
 	DenyNamespaces []string `json:"denyNamespaces" doc:"Namespaces the plugin's actions refuse, whatever the role. A JSON list in the environment."`
+	Agents         string   `json:"agents" dash:"enum=deny|approve|allow" doc:"What an AI agent's call of one of the plugin's action tools (MCP, a token with the mcp audience) does: deny hides the tools and refuses them, approve creates an approval request a person approves or denies in dash, allow runs the action at once. A target that needs its name typed (a protected namespace) always waits for a person's approval, even with allow. API tokens and signed-in people are never affected. The default is approve; applies live."`
+}
+
+// AgentPolicy is the configured agent policy, approve when none is set.
+func (a Actions) AgentPolicy() string {
+	if a.Agents == "" {
+		return AgentsApprove
+	}
+	return a.Agents
+}
+
+// validate checks the rules of Actions; the paths are relative to the actions section.
+func (a Actions) validate() error {
+	var p problems
+	switch a.Agents {
+	case "", AgentsDeny, AgentsApprove, AgentsAllow:
+	default:
+		p.add("agents", "must be one of: %s, %s, %s", AgentsDeny, AgentsApprove, AgentsAllow)
+	}
+	return p.err()
 }
 
 // ActionsToggle is Actions for a plugin whose actions have no namespace, where a deny list
 // would do nothing.
 type ActionsToggle struct {
-	Enabled bool `json:"enabled" doc:"Offer the plugin's actions. Off by default: without it the actions are not mounted and the web UI does not show their buttons."`
+	Enabled bool   `json:"enabled" doc:"Offer the plugin's actions. Off by default: without it the actions are not mounted and the web UI does not show their buttons."`
+	Agents  string `json:"agents" dash:"enum=deny|approve|allow" doc:"What an AI agent's call of one of the plugin's action tools (MCP, a token with the mcp audience) does: deny hides the tools and refuses them, approve creates an approval request a person approves or denies in dash, allow runs the action at once. A target that needs its name typed (a protected namespace) always waits for a person's approval, even with allow. API tokens and signed-in people are never affected. The default is approve; applies live."`
 }
+
+// Actions is the toggle as the full policy, with no deny list.
+func (a ActionsToggle) Actions() Actions { return Actions{Enabled: a.Enabled, Agents: a.Agents} }
 
 // isToken reports whether s is an HTTP token (RFC 9110 5.6.2), the grammar of a header name.
 func isToken(s string) bool {

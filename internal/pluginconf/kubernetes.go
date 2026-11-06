@@ -95,8 +95,9 @@ type BackupJob struct {
 func DefaultKubernetes() Kubernetes {
 	return Kubernetes{
 		Mode: KubernetesModeAuto, QPS: KubernetesQPSDefault, Burst: KubernetesBurstDefault,
-		Etcd: KubernetesEtcd{Job: KubernetesEtcdJob},
-		Apps: KubernetesApps{AnnotationPrefix: AppsAnnotationPrefix},
+		Etcd:    KubernetesEtcd{Job: KubernetesEtcdJob},
+		Apps:    KubernetesApps{AnnotationPrefix: AppsAnnotationPrefix},
+		Actions: Actions{Agents: AgentsApprove},
 	}
 }
 
@@ -157,6 +158,7 @@ func (k Kubernetes) Validate() error {
 	default:
 		p.add("mode", "must be one of: %s, %s, %s", KubernetesModeAuto, KubernetesModeInCluster, KubernetesModeKubeconfig)
 	}
+	p.addAll("actions", k.Actions.validate())
 	if k.QPS < 0 {
 		p.add("qps", "must not be negative (0 means the default, %d)", KubernetesQPSDefault)
 	}

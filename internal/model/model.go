@@ -69,6 +69,9 @@ const (
 	// TopicPlugins is the status of every plugin instance (PluginsData), published by the
 	// plugin supervisor. The core.* names belong to dash itself, not to a plugin.
 	TopicPlugins Topic = "core.plugins"
+	// TopicApprovals is the caller's pending approval requests (ApprovalsData). It is published
+	// per user (hub.PublishFor): a user's stream and snapshot carry that user's requests only.
+	TopicApprovals Topic = "core.approvals"
 )
 
 type Link struct {

@@ -1,6 +1,7 @@
 package plugin
 
 import (
+	"cmp"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -8,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/TechDufus/dash/internal/model"
+	"github.com/TechDufus/dash/internal/pluginconf"
 )
 
 func (s *Supervisor) lookup(id ID) *instance {
@@ -142,6 +144,7 @@ func (s *Supervisor) Action(instance ID, name string) (ActionRef, bool) {
 		Instance:       instance,
 		Spec:           in.man.Actions[i],
 		DenyNamespaces: slices.Clone(ic.DenyNamespaces),
+		Agents:         cmp.Or(ic.ActionsAgents, pluginconf.AgentsApprove),
 		Run:            s.actionRun(in, actor, name),
 	}, true
 }

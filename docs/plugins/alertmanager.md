@@ -59,6 +59,7 @@ Every setting is under `plugins.alertmanager` in the config file and is also in 
 | `plugins.alertmanager.silenceDurations` | `DASH_PLUGINS_ALERTMANAGER_SILENCE_DURATIONS` | list of strings (JSON) | `["1h","4h","24h","7d"]` | no | no | The silence lengths the dialog offers, from 1h, 4h, 24h and 7d. A JSON list in the environment. |
 | `plugins.alertmanager.protectedAlerts` | `DASH_PLUGINS_ALERTMANAGER_PROTECTED_ALERTS` | list of strings (JSON) | `["Watchdog"]` | no | no | Alert names nobody can silence through dash, whatever the role. A JSON list in the environment. |
 | `plugins.alertmanager.actions.enabled` | `DASH_PLUGINS_ALERTMANAGER_ACTIONS_ENABLED` | boolean | - | no | no | Offer the plugin's actions. Off by default: without it the actions are not mounted and the web UI does not show their buttons. |
+| `plugins.alertmanager.actions.agents` | `DASH_PLUGINS_ALERTMANAGER_ACTIONS_AGENTS` | string | `approve` | no | no | What an AI agent's call of one of the plugin's action tools (MCP, a token with the mcp audience) does: deny hides the tools and refuses them, approve creates an approval request a person approves or denies in dash, allow runs the action at once. A target that needs its name typed (a protected namespace) always waits for a person's approval, even with allow. API tokens and signed-in people are never affected. The default is approve; applies live. |
 
 An alert whose `severity` label value is not listed in `plugins.alertmanager.severityMap` is not
 attention.

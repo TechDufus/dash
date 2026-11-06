@@ -62,7 +62,7 @@ func instanceConfig(sec config.PluginSection) plugin.InstanceConfig {
 	}
 	if a, ok := sec.Value.(actionsConfigurer); ok {
 		act := a.ActionsConfig()
-		ic.ActionsEnabled, ic.DenyNamespaces = act.Enabled, act.DenyNamespaces
+		ic.ActionsEnabled, ic.DenyNamespaces, ic.ActionsAgents = act.Enabled, act.DenyNamespaces, act.AgentPolicy()
 	}
 	if r, ok := sec.Value.(readDenyConfigurer); ok {
 		ic.ReadDenyNamespaces = r.ReadDenyConfig()

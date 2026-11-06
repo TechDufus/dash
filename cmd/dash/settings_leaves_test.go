@@ -82,6 +82,7 @@ func kubernetesLeaves() []reachLeaf {
 		{"plugins.kubernetes.upstreamViaAPIServer", "true", "false"},
 		{"plugins.kubernetes.actions.enabled", "true", "false"},
 		{"plugins.kubernetes.actions.denyNamespaces", `["kube-system","secrets"]`, `["kube-system"]`},
+		{"plugins.kubernetes.actions.agents", "allow", "deny"},
 		{"plugins.kubernetes.backupJobs",
 			`[{"namespace":"backup","cronjob":"nightly-backup","label":"NAS"}]`,
 			`[{"namespace":"backup","cronjob":"db-backup","label":"DB"}]`},
@@ -108,6 +109,7 @@ func fluxLeaves() []reachLeaf {
 			`[{"kind":"GitRepository","namespace":"gitops","name":"fleet"}]`},
 		{"plugins.flux.actions.enabled", "true", "false"},
 		{"plugins.flux.actions.denyNamespaces", `["kube-system","secrets"]`, `["kube-system"]`},
+		{"plugins.flux.actions.agents", "allow", "deny"},
 	}
 }
 

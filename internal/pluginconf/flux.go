@@ -27,15 +27,17 @@ type VerifySource struct {
 	Name      string `json:"name" doc:"Name of the source."`
 }
 
-// DefaultFlux is the section with nothing set: spec.verify is enforced and no source is pinned.
+// DefaultFlux is the section with nothing set: spec.verify is enforced, no source is pinned, and
+// an agent's reconcile waits for approval.
 func DefaultFlux() Flux {
-	return Flux{Verify: FluxVerify{RequireWhenSpecVerify: true}}
+	return Flux{Verify: FluxVerify{RequireWhenSpecVerify: true}, Actions: Actions{Agents: AgentsApprove}}
 }
 
 // Validate holds the rules of the section the schema cannot express: every pin names a source
-// of a kind that can be verified, completely, once.
+// of a kind that can be verified, completely, once, and the agent policy is one dash knows.
 func (f Flux) Validate() error {
 	var p problems
+	p.addAll("actions", f.Actions.validate())
 	seen := map[VerifySource]int{} // the entry number of each source
 	for i, s := range f.Verify.Sources {
 		switch model.FluxKind(s.Kind) {

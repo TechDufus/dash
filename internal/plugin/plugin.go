@@ -334,11 +334,13 @@ type InstanceConfig struct {
 	// Config is a pointer to a copy of the struct Manifest.Config() returns for Type. A
 	// different type puts the instance in "error" ("configuration type mismatch").
 	Config any
-	// ActionsEnabled and DenyNamespaces are plugins.<Name>.actions.enabled / .denyNamespaces: a
-	// section value that implements ActionsConfig (cmd/dash) feeds them, one without leaves them
-	// false and empty. Either changing restarts the instance.
+	// ActionsEnabled, DenyNamespaces and ActionsAgents are plugins.<Name>.actions.enabled /
+	// .denyNamespaces / .agents: a section value that implements ActionsConfig (cmd/dash) feeds
+	// them, one without leaves them false, empty and "" (approve). Any of them changing restarts
+	// the instance.
 	ActionsEnabled bool
 	DenyNamespaces []string
+	ActionsAgents  string
 	// ReadDenyNamespaces are the namespaces the instance's read routes refuse (a plugin's
 	// denyNamespaces, e.g. plugins.victorialogs.denyNamespaces): the core answers 403 for a
 	// route whose RouteSpec.Namespace names one of them.
@@ -379,5 +381,8 @@ type ActionRef struct {
 	Instance       ID
 	Spec           ActionSpec
 	DenyNamespaces []string
-	Run            func(ctx context.Context, p auth.Principal, input any) (any, error) // recovers panics
+	// Agents is the instance's agent policy (pluginconf.AgentsDeny, AgentsApprove or AgentsAllow),
+	// approve when the section sets none. It applies to mcp-audience principals only (design O.1).
+	Agents string
+	Run    func(ctx context.Context, p auth.Principal, input any) (any, error) // recovers panics
 }
