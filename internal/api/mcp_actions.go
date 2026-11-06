@@ -90,12 +90,38 @@ func (s *Server) actionOfTool(tool string) (plugin.ActionRef, bool) {
 	return plugin.ActionRef{}, false
 }
 
+// pluginServing reports whether instance id answers now: healthy or degraded. An instance that
+// runs but reports error, unavailable or starting (a kubernetes plugin without a cluster) has
+// its actions mounted for the REST route, which answers its failure; an agent is not offered
+// them, and an approval does not run them.
+func (s *Server) pluginServing(id plugin.ID) bool {
+	if s.d.Plugins == nil {
+		return false
+	}
+	for _, pi := range s.d.Plugins.Infos() {
+		if pi.ID == string(id) {
+			return pi.State == model.PluginHealthy || pi.State == model.PluginDegraded
+		}
+	}
+	return false
+}
+
+// agentAction is the action behind tool as an agent may use it now: mounted, its plugin serving,
+// its agent policy not deny.
+func (s *Server) agentAction(tool string) (plugin.ActionRef, bool) {
+	ref, ok := s.actionOfTool(tool)
+	if !ok || ref.Agents == pluginconf.AgentsDeny || !s.pluginServing(ref.Instance) {
+		return plugin.ActionRef{}, false
+	}
+	return ref, true
+}
+
 // ActionVisible is the listing rule of contract D48: an administrator's mcp token holding
-// actions:<plugin>, the action mounted (actions.enabled, the instance running) and the agent
-// policy not deny.
+// actions:<plugin>, the action mounted (actions.enabled), its plugin serving (healthy or
+// degraded) and the agent policy not deny.
 func (b mcpBackend) ActionVisible(p auth.Principal, tool string) bool {
-	ref, ok := b.s.actionOfTool(tool)
-	return ok && ref.Agents != pluginconf.AgentsDeny && p.Kind == auth.KindToken && p.Audience == model.TokenAudienceMCP &&
+	ref, ok := b.s.agentAction(tool)
+	return ok && p.Kind == auth.KindToken && p.Audience == model.TokenAudienceMCP &&
 		p.Role.AtLeast(auth.RoleAdmin) && authorizeAction(p, ref) == nil
 }
 
@@ -105,9 +131,9 @@ func (b mcpBackend) ActionVisible(p auth.Principal, tool string) bool {
 // approval request, or finds the pending one it repeats.
 func (b mcpBackend) CallAction(r *http.Request, p auth.Principal, client, tool string, args json.RawMessage) (dashmcp.ActionReply, error) {
 	s := b.s
-	ref, ok := s.actionOfTool(tool)
-	if !ok || ref.Agents == pluginconf.AgentsDeny {
-		return dashmcp.ActionReply{}, &dashmcp.Error{Code: model.ErrCodeNotFound, Message: "this action is not offered to agents"}
+	ref, ok := s.agentAction(tool)
+	if !ok {
+		return dashmcp.ActionReply{}, &dashmcp.Error{Code: model.ErrCodeNotFound, Message: "this action is not offered to agents now"}
 	}
 	client = s.clip(client, maxAuditAction)
 	c := agentCall{P: p, ClientName: client, Ref: ref, Args: args, RequestID: requestIDFrom(r.Context()), Peer: peerOf(r)}

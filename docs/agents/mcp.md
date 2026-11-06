@@ -165,9 +165,9 @@ The limits, the resources, the prompts and the audit are in [the MCP server](../
 
 **Actions (dash v0.14.10 and later).** A personal access token of an administrator, created with
 audience `mcp` and `actions:<plugin>`, adds that plugin's action tools (`kubernetes_restart`,
-`flux_reconcile`, …), when the plugin's actions are enabled and its agent policy
-(`plugins.<id>.actions.agents`, also under Settings → MCP) is not `deny`. A static token cannot
-hold `actions:*`. Under `approve`, the default, a call runs nothing and answers
+`flux_reconcile`, …), when the plugin runs (healthy or degraded), its actions are enabled and its
+agent policy (`plugins.<id>.actions.agents`, also under Settings → MCP) is not `deny`. A static
+token cannot hold `actions:*`. Under `approve`, the default, a call runs nothing and answers
 `{"status": "pending_approval", "approvalId", "approveURL", "expiresAt"}`, with a text telling the
 agent not to call the tool again but to call `dash_approval {id}` (a client that supports URL
 elicitation shows the approval link itself instead). The token's owner approves or denies within

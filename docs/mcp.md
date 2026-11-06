@@ -103,7 +103,8 @@ annotations say `readOnlyHint: false`, `openWorldHint: false`, and whether the a
 destructive and idempotent. A token sees and calls an action tool only when all of these hold:
 
 - its owner is an administrator and it holds `actions:<plugin>`;
-- the plugin's actions are enabled (`plugins.<id>.actions.enabled`) and the plugin runs;
+- the plugin's actions are enabled (`plugins.<id>.actions.enabled`) and the plugin runs and is
+  `healthy` or `degraded` (not `error`, `unavailable` or `starting`, as `/api/v1/plugins` shows);
 - the plugin's agent policy is not `deny`.
 
 Otherwise the tool is not listed, and calling it is answered as an unknown tool. A token of the
@@ -159,10 +160,11 @@ the `approvals` scope of the dash app:
 Another user gets 403; a request that expired or that dash no longer knows gets 410
 `approval_expired`; one already decided gets 409. Approving runs the action at once, as the agent's
 token stands at that moment: when the token or grant was revoked or expired, its owner is no longer
-an administrator, the scope or the plugin's actions are gone, the policy became `deny` or the
-namespace is now refused, the request ends `denied` with the reason and nothing runs. The action
-runs to completion even if the approving browser goes away (60 s at most), and its outcome, its
-answer scrubbed and cut to 64 KiB, is kept on the request.
+an administrator, the scope or the plugin's actions are gone, the plugin no longer runs healthy or
+degraded, the policy became `deny` or the namespace is now refused, the request ends `denied` with
+the reason and nothing runs. The action runs to completion even if the approving browser goes
+away (60 s at most), and its outcome, its answer scrubbed and cut to 64 KiB, is kept on the
+request.
 
 A request waits 10 minutes, then expires; decided and expired requests stay readable for 10 more
 minutes. Requests live in memory: a restart forgets them, and an agent asking after one gets

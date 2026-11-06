@@ -377,6 +377,8 @@ func (s *Server) runApproved(r *http.Request, req approvals.Request, by, confirm
 	switch {
 	case !found:
 		return deny("the action is no longer offered")
+	case !s.pluginServing(ref.Instance):
+		return deny("the " + req.Plugin + " plugin is not running")
 	case ref.Agents == pluginconf.AgentsDeny:
 		return deny("the plugin's agent policy is now deny")
 	case !rp.Role.AtLeast(auth.RoleAdmin):

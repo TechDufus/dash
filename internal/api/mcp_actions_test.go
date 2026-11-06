@@ -330,3 +330,54 @@ func TestCoreApprovalsEnvelopeIsBounded(t *testing.T) {
 		t.Errorf("GET input is %d bytes", len(info.Input))
 	}
 }
+
+// stateStub reports a plugin in another state than its supervisor's: a plugin that runs but is
+// in error (a kubernetes plugin without a cluster).
+type stateStub struct {
+	PluginsAPI
+	id    string
+	state model.PluginState
+}
+
+func (s stateStub) Infos() []model.PluginInfo {
+	infos := s.PluginsAPI.Infos()
+	for i := range infos {
+		if infos[i].ID == s.id {
+			infos[i].State = s.state
+		}
+	}
+	return infos
+}
+
+// An agent is offered a plugin's action tools only while the plugin serves (healthy or
+// degraded): in error they are not listed and a call is an unknown tool. A request made while it
+// served and approved after it stopped is denied with the reason, and nothing runs.
+func TestMCPActionToolsNeedAServingPlugin(t *testing.T) {
+	e := newApprovalEnv(t, nil)
+	token, p := e.agentToken(t, "alice", "read", "actions:aa")
+	pending := e.mustAsk(t, p, "restart", okRestart)
+
+	for _, state := range []model.PluginState{model.PluginError, model.PluginUnavailable, model.PluginStarting} {
+		e.d.Plugins = stateStub{e.sup, "aa", state}
+		cs := e.mcpSession(t, token, "2025-11-25", nil)
+		if got := listTools(t, cs); got["aa_restart"] != nil {
+			t.Errorf("%s: aa_restart is listed", state)
+		}
+		if _, err := cs.CallTool(context.Background(), &sdk.CallToolParams{Name: "aa_restart", Arguments: restartArgs}); err == nil || !strings.Contains(err.Error(), "unknown tool") {
+			t.Errorf("%s: call = %v", state, err)
+		}
+	}
+	e.d.Plugins = stateStub{e.sup, "aa", model.PluginError}
+	got := approvalOf(t, e.decide("alice", pending.ID, model.ApprovalDecision{Approve: true}))
+	if got.State != model.ApprovalStateDenied || !strings.Contains(got.Reason, "not running") {
+		t.Errorf("approved while in error = %+v", got)
+	}
+	if n := len(e.acts()); n != 0 {
+		t.Errorf("Act ran %d times", n)
+	}
+
+	e.d.Plugins = stateStub{e.sup, "aa", model.PluginDegraded}
+	if got := listTools(t, e.mcpSession(t, token, "2025-11-25", nil)); got["aa_restart"] == nil {
+		t.Error("a degraded plugin's tool is not listed")
+	}
+}
