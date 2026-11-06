@@ -131,7 +131,10 @@ The API moved under `/api/v1` and the plugins' own routes; every old path answer
   `capabilities.approvals`, and the audit log gains `approval` and `approvedBy` on approval
   records, which older releases read and ignore. Approval requests live in memory only: nothing is
   written to `credentials.yaml` or any other file, and a restart (the rollback included) forgets
-  the pending ones. To roll back to v0.14.9, remove every `plugins.<id>.actions.agents` key from
-  the config file first: v0.14.9 refuses a file with keys it does not know, while a value saved
-  from the settings page or set in the environment (`DASH_PLUGINS_<ID>_ACTIONS_AGENTS`) only logs
-  a warning there. With the chart, remove `actions.agents` from `config.plugins.*` in your values.
+  the pending ones. To roll back to v0.14.9, first remove every `plugins.<id>.actions.agents` key
+  from the config file **and** unset every `DASH_PLUGINS_<ID>_ACTIONS_AGENTS` variable: v0.14.9
+  refuses to start with either, since it knows neither the key nor the variable (an unknown
+  `DASH_PLUGINS_*` variable is an error, not a warning). Only a value saved from the settings page
+  is safe to leave: v0.14.9 logs a warning and ignores it. With the chart, remove
+  `actions.agents` from `config.plugins.*` in your values (the chart writes `config` into the
+  config file) and any `DASH_PLUGINS_*_ACTIONS_AGENTS` entry from `env`.
