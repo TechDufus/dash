@@ -11,10 +11,13 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"net"
 	"net/http"
+	"net/netip"
 	"net/url"
 	"slices"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 	"unicode/utf8"
@@ -56,6 +59,13 @@ var Backoff = [Retries]time.Duration{time.Second, 4 * time.Second, 16 * time.Sec
 // ErrNotVerified refuses a test push to a subscription that is not verified.
 var ErrNotVerified = errors.New("push: the subscription is not verified")
 
+// ErrEndpointRefused is CheckEndpoint's refusal: every address of the endpoint's host is one the
+// sender refuses.
+var ErrEndpointRefused = errors.New("push: the endpoint's addresses are all refused")
+
+// resolveTimeout bounds CheckEndpoint's lookup.
+const resolveTimeout = 3 * time.Second
+
 // Options build a Service.
 type Options struct {
 	Store   *credentials.Store // opened for push (OpenPush)
@@ -72,6 +82,8 @@ type Options struct {
 	RootCAs *x509.CertPool
 	// Sleep waits between retries; nil waits for real (tests make it instant).
 	Sleep func(ctx context.Context, d time.Duration) error
+	// Resolve looks up a host's addresses for CheckEndpoint; nil is the system resolver.
+	Resolve func(ctx context.Context, host string) ([]netip.Addr, error)
 }
 
 // Service sends pushes to the subscriptions in the credential store. Deliveries run in the
@@ -80,6 +92,7 @@ type Service struct {
 	o      Options
 	log    *slog.Logger
 	client *http.Client
+	guard  netguard.Options
 
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -105,18 +118,43 @@ func New(o Options) *Service {
 	if o.Sleep == nil {
 		o.Sleep = sleep
 	}
+	if o.Resolve == nil {
+		o.Resolve = func(ctx context.Context, host string) ([]netip.Addr, error) {
+			return net.DefaultResolver.LookupNetIP(ctx, "ip", host)
+		}
+	}
 	log := o.Log
 	if log == nil {
 		log = slog.Default()
 	}
 	ctx, cancel := context.WithCancel(context.Background())
+	guard := netguard.Options{PrivateHosts: o.Allow.Hosts, PrivatePrefixes: o.Allow.Prefixes, Timeout: sendTimeout, RootCAs: o.RootCAs}
 	return &Service{
-		o: o, log: log, ctx: ctx, cancel: cancel,
-		client: netguard.NewClient(netguard.Options{
-			PrivateHosts: o.Allow.Hosts, PrivatePrefixes: o.Allow.Prefixes, Timeout: sendTimeout, RootCAs: o.RootCAs,
-		}),
+		o: o, log: log, ctx: ctx, cancel: cancel, guard: guard, client: netguard.NewClient(guard),
 		hosts: map[string]int{}, sent: map[string][]time.Time{}, warned: map[string]time.Time{},
 	}
+}
+
+// CheckEndpoint refuses, at registration, an endpoint host the sender would never reach: an
+// address it refuses, or a name whose addresses it all refuses now (ErrEndpointRefused). A
+// lookup that fails passes: the sender checks every connection again when it dials.
+func (s *Service) CheckEndpoint(ctx context.Context, host string) error {
+	addrs := []netip.Addr{}
+	if ip, err := netip.ParseAddr(strings.Trim(host, "[]")); err == nil {
+		addrs = append(addrs, ip)
+	} else {
+		ctx, cancel := context.WithTimeout(ctx, resolveTimeout)
+		defer cancel()
+		if addrs, err = s.o.Resolve(ctx, host); err != nil || len(addrs) == 0 {
+			return nil
+		}
+	}
+	for _, ip := range addrs {
+		if s.guard.Allowed(host, ip) == nil {
+			return nil
+		}
+	}
+	return ErrEndpointRefused
 }
 
 func sleep(ctx context.Context, d time.Duration) error {

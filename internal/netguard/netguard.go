@@ -133,6 +133,12 @@ func (o Options) allowed(ip netip.Addr, hostPrivate bool) error {
 	return err
 }
 
+// Allowed reports why the client would refuse to connect to ip for host (the URL's host name
+// or address), or nil: the check the dialler makes, for a caller that wants to refuse early.
+func (o Options) Allowed(host string, ip netip.Addr) error {
+	return o.allowed(ip, slices.Contains(o.PrivateHosts, strings.ToLower(strings.TrimSuffix(host, "."))))
+}
+
 // NewClient builds a client that dials only the addresses Check passes (and those Options
 // allow besides), uses no proxy, follows no redirect (ErrRedirect) and gives up after the
 // timeout. Read a body with ReadBody.
@@ -143,13 +149,12 @@ func NewClient(o Options) *http.Client {
 	}
 	dial := func(ctx context.Context, network, addr string) (net.Conn, error) {
 		host, _, _ := net.SplitHostPort(addr)
-		hostPrivate := slices.Contains(o.PrivateHosts, strings.ToLower(strings.TrimSuffix(host, ".")))
 		d := &net.Dialer{Timeout: timeout, Control: func(_, address string, _ syscall.RawConn) error {
 			ap, err := netip.ParseAddrPort(address)
 			if err != nil {
 				return fmt.Errorf("%w: cannot read the dialled address", ErrRefused)
 			}
-			return o.allowed(ap.Addr(), hostPrivate)
+			return o.Allowed(host, ap.Addr())
 		}}
 		return d.DialContext(ctx, network, addr)
 	}

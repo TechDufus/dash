@@ -70,7 +70,8 @@ func (s *Server) pushRoutes() []Route {
 			Summary: "Register a push device",
 			Description: "201 with a new subscription, which receives a verify push with its code and nothing else until " +
 				"POST .../verify echoes it; it is deleted after 10 minutes unverified. 200 when the caller already holds the endpoint: " +
-				"the row is replaced, verified still when the keys are the same. 400 invalid_input with field errors; 409 conflict when " +
+				"the row is replaced, verified still when the keys are the same. 400 invalid_input with field errors, an endpoint dash may not post to " +
+				"(a private or loopback address outside push.allowPrivate, a link-local one) included; 409 conflict when " +
 				"another user holds the endpoint; 409 push_limit past 10 devices; 429 past 10 registrations a minute; 503 audit_unavailable." + unavailable,
 			Request: model.PushSubscriptionRequest{}, Response: model.PushSubscriptionInfo{}, Status: http.StatusCreated, Handler: s.createPushSubscription,
 		}),
@@ -212,6 +213,13 @@ func (s *Server) createPushSubscription(w http.ResponseWriter, r *http.Request) 
 		s.deny(r, obs.AuthRateLimit)
 		w.Header().Set("Retry-After", retryAfterSeconds(retry))
 		writeErr(w, http.StatusTooManyRequests, model.ErrCodeRateLimited, "too many push registrations; try again later")
+		return
+	}
+	if err := s.d.Push.CheckEndpoint(r.Context(), host); err != nil {
+		writeErrDetails(w, http.StatusBadRequest, model.ErrCodeInvalidInput, "invalid push subscription", &model.SettingsErrorDetails{Fields: []model.SettingsFieldError{{
+			Path:    "endpoint",
+			Message: "dash may not post to this push service: its addresses are private or loopback ones outside push.allowPrivate, or link-local ones, which are never allowed",
+		}}})
 		return
 	}
 	// The record names the row the request creates or replaces.

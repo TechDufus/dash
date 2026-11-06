@@ -4538,7 +4538,7 @@
         "x-dash-scope": "push"
       },
       "post": {
-        "description": "201 with a new subscription, which receives a verify push with its code and nothing else until POST .../verify echoes it; it is deleted after 10 minutes unverified. 200 when the caller already holds the endpoint: the row is replaced, verified still when the keys are the same. 400 invalid_input with field errors; 409 conflict when another user holds the endpoint; 409 push_limit past 10 devices; 429 past 10 registrations a minute; 503 audit_unavailable. 409 push_unavailable when push is off (it needs a writable data dir and DASH_SECRET_KEY in auth.mode local, oidc or proxy).",
+        "description": "201 with a new subscription, which receives a verify push with its code and nothing else until POST .../verify echoes it; it is deleted after 10 minutes unverified. 200 when the caller already holds the endpoint: the row is replaced, verified still when the keys are the same. 400 invalid_input with field errors, an endpoint dash may not post to (a private or loopback address outside push.allowPrivate, a link-local one) included; 409 conflict when another user holds the endpoint; 409 push_limit past 10 devices; 429 past 10 registrations a minute; 503 audit_unavailable. 409 push_unavailable when push is off (it needs a writable data dir and DASH_SECRET_KEY in auth.mode local, oidc or proxy).",
         "operationId": "createPushSubscription",
         "parameters": [],
         "requestBody": {

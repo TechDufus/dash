@@ -718,3 +718,36 @@ func TestEnqueueAfterClose(t *testing.T) {
 		t.Errorf("%d requests, failed %v", len(f.requests()), e.sent(obs.PushTest, obs.PushFailed))
 	}
 }
+
+// CheckEndpoint refuses a host the sender would never reach: a refused address, or a name whose
+// addresses are all refused. A name with one reachable address, a name in push.allowPrivate and
+// a failed lookup pass.
+func TestCheckEndpoint(t *testing.T) {
+	f := newFakeService(t)
+	e := newEnv(t, f, config.PushAllow{Hosts: []string{"ntfy.example.com"}, Prefixes: loopback.Prefixes})
+	dns := map[string][]netip.Addr{
+		"private.example.com": {netip.MustParseAddr("10.0.0.5"), netip.MustParseAddr("169.254.1.1")},
+		"mixed.example.com":   {netip.MustParseAddr("10.0.0.5"), netip.MustParseAddr("1.1.1.1")},
+		"ntfy.example.com":    {netip.MustParseAddr("10.0.0.5")},
+	}
+	e.svc.o.Resolve = func(_ context.Context, host string) ([]netip.Addr, error) {
+		if a, ok := dns[host]; ok {
+			return a, nil
+		}
+		return nil, errors.New("no such host")
+	}
+	for host, refused := range map[string]bool{
+		"10.0.0.1":            true,
+		"169.254.169.254":     true,
+		"[::1]":               true,
+		"127.0.0.1":           false,
+		"private.example.com": true,
+		"mixed.example.com":   false,
+		"ntfy.example.com":    false,
+		"unknown.example.com": false,
+	} {
+		if err := e.svc.CheckEndpoint(t.Context(), host); (err != nil) != refused || err != nil && !errors.Is(err, ErrEndpointRefused) {
+			t.Errorf("%s: %v, want refused %v", host, err, refused)
+		}
+	}
+}

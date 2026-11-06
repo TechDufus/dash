@@ -418,6 +418,24 @@ func TestPushReRegistrationResendsTheCode(t *testing.T) {
 	}
 }
 
+// An endpoint the sender would never reach is refused at registration with a field error that
+// does not repeat it; nothing is stored or pushed.
+func TestPushUnreachableEndpointIsRefused(t *testing.T) {
+	e := newPushEnv(t)
+	for _, endpoint := range []string{"https://10.0.0.1/capability-a", "https://169.254.169.254/capability-b", "https://[fd00::1]:8443/capability-c"} {
+		body := newPushDevice(t, e.f).request("Phone")
+		body.Endpoint = endpoint
+		w := e.do(as("bob", req{method: http.MethodPost, path: "/api/v1/push/subscriptions", body: body}))
+		wantError(t, w, http.StatusBadRequest, model.ErrCodeInvalidInput)
+		if !strings.Contains(w.Body.String(), "push.allowPrivate") || strings.Contains(w.Body.String(), "capability-") {
+			t.Errorf("%s: %s", endpoint, w.Body)
+		}
+	}
+	if n := len(e.store.PushSubscriptions("")); n != 0 {
+		t.Errorf("%d subscriptions stored", n)
+	}
+}
+
 // An administrator lists one user's devices or everyone's and removes another user's; a viewer
 // lists only their own (403 for another's) and cannot remove, verify or test another's (404).
 // An administrator still cannot verify or test another user's device.
