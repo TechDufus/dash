@@ -808,32 +808,32 @@ type LauncherLink struct {
 // RestartRequest is the body of POST /api/v1/plugins/kubernetes/actions/restart.
 type RestartRequest struct {
 	// Kind is Deployment, StatefulSet or DaemonSet; anything else is 400.
-	Kind      WorkloadKind `json:"kind"`
-	Namespace string       `json:"namespace"`
-	Name      string       `json:"name"`
+	Kind      WorkloadKind `json:"kind" dash:"required,enum=Deployment|StatefulSet|DaemonSet" doc:"The workload's kind: Deployment, StatefulSet or DaemonSet."`
+	Namespace string       `json:"namespace" dash:"required" doc:"The workload's namespace."`
+	Name      string       `json:"name" dash:"required" doc:"The workload's name."`
 	// Confirm must equal Name in a namespace carrying the protected label (plugins.kubernetes.conventions.protectedLabel).
-	Confirm string `json:"confirm"`
+	Confirm string `json:"confirm" doc:"The workload's name, typed by a person, in a namespace carrying the protected label; ignored elsewhere."`
 }
 
 // ReconcileRequest is the input of the flux plugin's reconcile action.
 type ReconcileRequest struct {
 	// Kind is any FluxKind; anything else is 400.
-	Kind      FluxKind `json:"kind"`
-	Namespace string   `json:"namespace"`
-	Name      string   `json:"name"`
+	Kind      FluxKind `json:"kind" dash:"required,enum=Kustomization|HelmRelease|GitRepository|OCIRepository|HelmRepository" doc:"The Flux object's kind: Kustomization, HelmRelease, GitRepository, OCIRepository or HelmRepository."`
+	Namespace string   `json:"namespace" dash:"required" doc:"The Flux object's namespace."`
+	Name      string   `json:"name" dash:"required" doc:"The Flux object's name."`
 }
 
 type SilenceMatcher struct {
-	Name  string `json:"name"`
-	Value string `json:"value"`
+	Name  string `json:"name" dash:"required" doc:"A label name, such as alertname; at most 256 bytes."`
+	Value string `json:"value" dash:"required" doc:"The label's exact value (no regex); at most 1024 bytes."`
 }
 
 // SilenceRequest is the input of the alertmanager plugin's silence.create action.
 type SilenceRequest struct {
-	Matchers []SilenceMatcher `json:"matchers"`
+	Matchers []SilenceMatcher `json:"matchers" dash:"required" doc:"1 to 20 exact-match label matchers; one must be alertname."`
 	// Duration is 1h, 4h, 24h or 7d.
-	Duration string `json:"duration"`
-	Comment  string `json:"comment"`
+	Duration string `json:"duration" dash:"required,enum=1h|4h|24h|7d" doc:"How long the silence lasts: 1h, 4h, 24h or 7d (plugins.alertmanager.silenceDurations may offer fewer)."`
+	Comment  string `json:"comment" dash:"required" doc:"Why, 1 to 500 characters; shown in Alertmanager."`
 }
 
 type SilenceResponse struct {

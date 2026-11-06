@@ -3215,12 +3215,18 @@
         "additionalProperties": false,
         "properties": {
           "name": {
+            "description": "A label name, such as alertname; at most 256 bytes.",
             "type": "string"
           },
           "value": {
+            "description": "The label's exact value (no regex); at most 1024 bytes.",
             "type": "string"
           }
         },
+        "required": [
+          "name",
+          "value"
+        ],
         "type": "object"
       },
       "Snapshot": {
@@ -3744,51 +3750,94 @@
         "additionalProperties": false,
         "properties": {
           "kind": {
+            "description": "The Flux object's kind: Kustomization, HelmRelease, GitRepository, OCIRepository or HelmRepository.",
+            "enum": [
+              "Kustomization",
+              "HelmRelease",
+              "GitRepository",
+              "OCIRepository",
+              "HelmRepository"
+            ],
             "type": "string"
           },
           "name": {
+            "description": "The Flux object's name.",
             "type": "string"
           },
           "namespace": {
+            "description": "The Flux object's namespace.",
             "type": "string"
           }
         },
+        "required": [
+          "kind",
+          "name",
+          "namespace"
+        ],
         "type": "object"
       },
       "restartInput": {
         "additionalProperties": false,
         "properties": {
           "confirm": {
+            "description": "The workload's name, typed by a person, in a namespace carrying the protected label; ignored elsewhere.",
             "type": "string"
           },
           "kind": {
+            "description": "The workload's kind: Deployment, StatefulSet or DaemonSet.",
+            "enum": [
+              "Deployment",
+              "StatefulSet",
+              "DaemonSet"
+            ],
             "type": "string"
           },
           "name": {
+            "description": "The workload's name.",
             "type": "string"
           },
           "namespace": {
+            "description": "The workload's namespace.",
             "type": "string"
           }
         },
+        "required": [
+          "kind",
+          "name",
+          "namespace"
+        ],
         "type": "object"
       },
       "silenceCreateInput": {
         "additionalProperties": false,
         "properties": {
           "comment": {
+            "description": "Why, 1 to 500 characters; shown in Alertmanager.",
             "type": "string"
           },
           "duration": {
+            "description": "How long the silence lasts: 1h, 4h, 24h or 7d (plugins.alertmanager.silenceDurations may offer fewer).",
+            "enum": [
+              "1h",
+              "4h",
+              "24h",
+              "7d"
+            ],
             "type": "string"
           },
           "matchers": {
+            "description": "1 to 20 exact-match label matchers; one must be alertname.",
             "items": {
               "$ref": "#/components/schemas/SilenceMatcher"
             },
             "type": "array"
           }
         },
+        "required": [
+          "comment",
+          "duration",
+          "matchers"
+        ],
         "type": "object"
       },
       "silenceExpireInput": {

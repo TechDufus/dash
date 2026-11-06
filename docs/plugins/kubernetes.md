@@ -110,7 +110,7 @@ Every setting is under `plugins.kubernetes` in the config file and is also in th
 
 `POST /api/v1/plugins/kubernetes/actions/restart`, for administrators. Destructive. Not idempotent. Confirmation: the web UI asks in a dialog.
 
-Input, a JSON object: `kind` (string); `namespace` (string); `name` (string); `confirm` (string).
+Input, a JSON object: `kind` (string, required, one of `Deployment`, `StatefulSet`, `DaemonSet`); `namespace` (string, required); `name` (string, required); `confirm` (string).
 
 ### Limits
 

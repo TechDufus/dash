@@ -36,7 +36,7 @@ func (in *restartInput) Validate() error {
 	switch in.Kind {
 	case model.WorkloadKindDeployment, model.WorkloadKindStatefulSet, model.WorkloadKindDaemonSet:
 	default:
-		return errors.New("unsupported kind")
+		return errors.New("kind must be one of Deployment, StatefulSet, DaemonSet")
 	}
 	if !queries.ValidDNS(in.Namespace) || !queries.ValidDNS(in.Name) {
 		return errors.New("invalid namespace or name")

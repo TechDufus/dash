@@ -70,7 +70,7 @@ attention.
 
 `POST /api/v1/plugins/alertmanager/actions/silence.create`, for administrators. Not idempotent. Confirmation: none.
 
-Input, a JSON object: `matchers` (array); `duration` (string); `comment` (string).
+Input, a JSON object: `matchers` (array, required); `duration` (string, required, one of `1h`, `4h`, `24h`, `7d`); `comment` (string, required).
 
 ### `silence.expire`: Expire silence
 

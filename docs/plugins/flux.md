@@ -71,7 +71,7 @@ Every setting is under `plugins.flux` in the config file and is also in the [con
 
 `POST /api/v1/plugins/flux/actions/reconcile`, for administrators. Idempotent: repeating it with the same input is safe. Confirmation: none.
 
-Input, a JSON object: `kind` (string); `namespace` (string); `name` (string).
+Input, a JSON object: `kind` (string, required, one of `Kustomization`, `HelmRelease`, `GitRepository`, `OCIRepository`, `HelmRepository`); `namespace` (string, required); `name` (string, required).
 
 ### Limits
 

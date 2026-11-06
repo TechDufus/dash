@@ -2,6 +2,7 @@ package kubernetes
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"log/slog"
 	"net/http"
@@ -464,7 +465,8 @@ func TestRestartConfirmForFollowsNamespaceProtected(t *testing.T) {
 }
 
 // The input describes itself to the OpenAPI generator and the MCP tool: the embedded request is
-// flattened into one object that rejects other fields.
+// flattened into one object that rejects other fields, requires the kind, namespace and name (not
+// confirm), lists the kinds and describes every field, so an agent can call it right.
 func TestRestartInputSchema(t *testing.T) {
 	doc, err := jsonschema.Document(&restartInput{})
 	if err != nil {
@@ -472,11 +474,35 @@ func TestRestartInputSchema(t *testing.T) {
 	}
 	props, _ := doc["properties"].(jsonschema.Schema)
 	for _, name := range []string{"kind", "namespace", "name", "confirm"} {
-		if _, ok := props[name]; !ok {
+		p, ok := props[name].(jsonschema.Schema)
+		if !ok {
 			t.Errorf("restart schema has no %q: %v", name, doc)
+			continue
+		}
+		if d, _ := p["description"].(string); d == "" {
+			t.Errorf("%s has no description", name)
 		}
 	}
 	if doc["additionalProperties"] != false {
 		t.Errorf("additionalProperties = %v", doc["additionalProperties"])
+	}
+	raw, _ := json.Marshal(doc)
+	var got struct {
+		Required   []string `json:"required"`
+		Properties struct {
+			Kind struct {
+				Enum []string `json:"enum"`
+			} `json:"kind"`
+		} `json:"properties"`
+	}
+	if err := json.Unmarshal(raw, &got); err != nil {
+		t.Fatal(err)
+	}
+	slices.Sort(got.Required)
+	if !slices.Equal(got.Required, []string{"kind", "name", "namespace"}) {
+		t.Errorf("required = %v", got.Required)
+	}
+	if !slices.Equal(got.Properties.Kind.Enum, []string{"Deployment", "StatefulSet", "DaemonSet"}) {
+		t.Errorf("kind enum = %v", got.Properties.Kind.Enum)
 	}
 }
