@@ -47,3 +47,13 @@ regexes = [
   # internal/config/crypt_test.go
   '''^from-env-0123456789$''',
 ]
+
+[[allowlists]]
+description = "The RFC 8291 Appendix A example values the Web Push encryption test reproduces: published in the RFC, not secrets"
+condition = "AND"
+regexTarget = "secret"
+paths = ['''^internal/push/encrypt_test\.go$''']
+regexes = [
+  # RFC 8291 Appendix A: the user agent's auth secret
+  '''^BTBZMqHH6r4Tts7J_aSIgg$''',
+]
