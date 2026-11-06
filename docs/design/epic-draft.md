@@ -1999,8 +1999,28 @@ R4 (branch `ci/release-ghcr`: the release job, its docs and the allowlist cleanu
 | Builder | `setup-buildx-action` defaults | The BuildKit image pinned by digest as in `check`, and `cache-binary: false` | No Actions cache on tag runs (zizmor cache-poisoning), as `mise-action` already does |
 | Annotations | Labels from `metadata-action` | The Dockerfile keeps its OCI labels (`VERSION`, `REVISION`, `CREATED` build args); `metadata-action`'s annotations go on the manifests and the index | GHCR reads a multi-arch package's source and description from the index |
 | The other jobs | All on `ubuntu-24.04` | `check`, `scan`, `smoke` and `kind` stay on the self-hosted runner while the repository is private and switch by themselves at the flip; P6.9 deregisters the runner then | The owner's decision on 2026-11-05: no GitHub-hosted minutes before the flip |
-| Homelab pull (J.9) | GHCR directly, optionally through a pull-through cache | GHCR directly; the owner makes the `dash` and `charts/dash` packages public after their first push (GHCR packages pushed from a private repository start private) | The owner's decision on 2026-11-05: no pull secret, and only the built image and chart become public before the source |
+| Homelab pull (J.9) | GHCR directly, optionally through a pull-through cache | GHCR directly, pinned by digest, with no pull secret. The first GHCR release is tagged right after the repository goes public, so attestations run from the first release; the `dash` and `charts/dash` packages are made public if they start private | The owner's decisions on 2026-11-05 and 2026-11-06 |
 | Pre-release tag on a fork | The proof that both architectures publish | The tag check accepts only `vX.Y.Z`, so the first release tag is the end-to-end proof | A pre-release form would loosen the check only for a test |
+| History (P6.10, J.8) | `git filter-repo` over the history right before going public | The history is kept as it is; one commit scrubs the current files (`docs/design`, `docs/adr`), and the denylist now covers every tracked file | The owner's decision on 2026-11-06. The 41 pull requests keep the old commits reachable through `refs/pull/*`, so an in-place rewrite could not have removed them, and the names in the history are internal hostnames that resolve nowhere, one private IP and hardware models, with no secrets |
+| Settings (P6.9) | A checklist issue, ticked by the owner | Applied with `gh api` right after the flip: the self-hosted runner deregistered first; fork pull requests from outside contributors wait for approval; actions must be pinned by SHA; secret scanning with push protection; private vulnerability reporting; a `main` ruleset (no deletion, no force-push, `check`, `scan` and `smoke` required; administrators bypass) and a `v*` tag ruleset (only administrators create, move or delete release tags) | The free plan offers rulesets, fork-PR approval and secret scanning only on public repositories |
+
+#### v0.14.11 release notes
+
+R4 of G6: P6.7, and the scrub and settings of P6.9 and P6.10. The first public release. A patch: no behaviour change.
+
+- **Images and chart on GHCR:** `ghcr.io/techdufus/dash` for linux/amd64 and linux/arm64 (`0.14.11` and `0.14`), and `oci://ghcr.io/techdufus/charts/dash`, both create-only.
+- **Supply chain:** a cosign keyless signature, BuildKit provenance and SBOM, and GitHub build-provenance and SBOM attestations.
+- **Docs:** the install guides and the landing page use the published image and chart; `make set-version` moves every pin, the landing page's included.
+- **Scrub:** the design docs and ADRs no longer name the lab, and the denylist covers every tracked file.
+- **Upgrade:** nothing to change. A self-built image can be replaced by the published one, pinned by digest.
+
+**Evidence:**
+- `make check` on every commit, and `make scan` over all refs (gitleaks, trufflehog, govulncheck, actionlint, zizmor, the trigger check and the online link check) is clean.
+- **Pre-publication review (`RevPublic`):**
+  - **The current tree:** the denylist test passes, plus a wider scan of all 1149 tracked files, binaries included, for hostnames, private addresses, emails and homelab-looking names; only allowed forms remain. The scrubbed hunks keep their meaning.
+  - **Images:** every screenshot shows demo data, and no PNG carries text chunks or EXIF.
+  - **The workflows:** no trigger an outsider drives with secrets; minimal permissions per job; every action pinned to a verified commit; no template injection; the create-only checks come before the pushes; actionlint and zizmor are clean.
+  - **What it found:** the self-hosted runner still registered (deregistered before the flip), lab machine names in one pull request's description (edited), and design passages still promising a reviewer (marked as shipped).
 
 ### P6.1 test: replace real-lab identifiers in fixtures and add a denylist test
 
