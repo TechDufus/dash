@@ -2,7 +2,7 @@
 
 - Status: Accepted
 - Date: 2026-10-31
-- Deciders: TechDufus
+- Deciders: the owner
 
 ## Context
 
@@ -14,7 +14,7 @@ The full design and its analysis live in [../design/plugins-and-config.md](../de
 
 ### 1. Licence
 
-**Decision.** MIT, with the copyright line "Matthew DeGarmo (TechDufus)" (design G.6).
+**Decision.** MIT, with the copyright line naming the owner by full name and handle (design G.6).
 
 **Alternatives considered.**
 - Apache-2.0 (the earlier lean): patent grant and a NOTICE mechanism, but heavier for a self-hosted dashboard.
@@ -93,20 +93,20 @@ Two follow-on defaults are part of this decision:
 
 ### 8. Git history
 
-**Decision.** Keep the history; no squash. Right before the repository goes public, scrub the homelab identifiers from history with `git filter-repo --replace-text`. That scrub is a separate, later step: it is a history rewrite plus a force-push, and it needs TechDufus's explicit go-ahead at that time (design G.9, G.10).
+**Decision.** Keep the history as it is; no squash. On 2026-11-06 the owner decided to scrub the homelab identifiers only from the current files and not to rewrite history. The denylist test covers every tracked text file, including the design docs and these ADRs (design G.9, G.10).
 
 **Alternatives considered.**
 - Fresh squash or new repository: a clean slate and trivial with so few commits, but loses history and signatures and orphans existing clones.
-- Keeping history unscrubbed: honest provenance at no cost, but internal hostnames, addresses and the private repo layout would stay readable in public.
+- Scrubbing history with `git filter-repo --replace-text` right before going public: removes internal hostnames, addresses and the private repo layout from every ref, but it is a history rewrite plus a force-push.
 
-**Consequences.** The scrub rewrites every SHA, so signatures are lost and existing clones and refs are orphaned. It must be verified with the denylist test and a re-run of gitleaks and trufflehog over all refs. Branch protection is enabled only after the force-push. Nothing in this ADR authorises the rewrite; it is not done until the go-ahead is given.
+**Consequences.** Every SHA and signature is kept and existing clones and refs stay valid. Earlier commits can still show homelab identifiers; the denylist test checks the current files only. A gitleaks and trufflehog run over all refs still covers the history.
 
 ### 9. Homelab image source
 
-**Decision.** The homelab pulls the image from GHCR directly, pinned by version and digest. An optional pull-through cache on its private Zot registry can sit in front (design H.3).
+**Decision.** The homelab pulls the image from GHCR directly, pinned by version and digest. An optional pull-through cache on a private registry can sit in front (design H.3).
 
 **Alternatives considered.**
-- A private mirror job in the homelab repository that copies the attested digest into Zot: workable, but a second artefact and pipeline. If the cluster must never reach GHCR, that job must never run in or be triggered by the public repo.
+- A private mirror job in the homelab repository that copies the attested digest into a private registry: workable, but a second artefact and pipeline. If the cluster must never reach GHCR, that job must never run in or be triggered by the public repo.
 - Continuing to push to the private registry from this repository's CI: needs homelab credentials and a reachable runner in a public repo's workflow.
 
 **Consequences.** There is one artefact, publicly attested, and no homelab secret in a public workflow. The push to the private registry is removed from this repo's CI before it goes public. The "bump the manifest" step lives in the homelab repo's docs, not here.
@@ -216,7 +216,7 @@ Two follow-on defaults are part of this decision:
 
 - The decisions are implemented by the phased plan in the design document (section I). Phases 1 to 6 each land through their own pull requests.
 - Phase 0 lands the configurable-settings branch (P0.1) and this ADR; the existing deployment must keep running the resulting image with unchanged behaviour.
-- Two steps need the owner's explicit approval when they come up: the history scrub and force-push (decision 8) and the visibility flip.
+- One step needs the owner's explicit approval when it comes up: the visibility flip. The history is kept as it is (decision 8).
 
 ## References
 

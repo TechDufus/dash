@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | Status | Proposal (docs only). The owner decided S.4, S.5, S.8, S.10–S.13 on 2026-10-31; ADR 0002 records all S items (P0.3) |
-| Owner | TechDufus |
+| Owner | the owner |
 | Base | Stacked on draft PR #1 (`0b2d210`); assumes the hardening PR (branch `fix/api-hardening`) |
 | Line references | `origin/main` `0097aa3` unless marked |
 | Companion | [`plugins-and-config.md`](plugins-and-config.md) (sections A–J) and [`epic-draft.md`](epic-draft.md). This document continues the section letters of the first as K–S, so a reference such as "design M.3" is unique across both documents. |
@@ -41,7 +41,7 @@ The review covers the plan in PR #1 (sections A–J and the epic) against the co
 | K.11 | Low | Planned `insecureSkipVerify` with no warning (F.6) | F.6, P3.6 amended |
 | K.12 | Low | Launcher `icon` accepts any URL; no `href` scheme guard in the SPA ([`web/src/config/links.ts:12-14`](https://github.com/TechDufus/dash/blob/0097aa3/web/src/config/links.ts#L12-L14)) | A.9, P4.6 amended |
 | K.13 | Low | `npm ci` runs install scripts; `shadcn` CLI in runtime deps ([`web/package.json:24`](https://github.com/TechDufus/dash/blob/0097aa3/web/package.json#L24)) | H.2, P6.6 amended |
-| K.14 | Low | P6.6 keeps the Zot release job while moving runners to GitHub-hosted | P6.6 amended |
+| K.14 | Low | P6.6 keeps the private-registry release job while moving runners to GitHub-hosted | P6.6 amended |
 | K.15 | Low | `/readyz?verbose=1` on the unauthenticated `0.0.0.0` listener (A.6) | A.6, P2.6 amended |
 | K.16 | Gap | No non-cookie auth, and the CSRF rule blocks non-browser writes | M, P7.1, P7.2 |
 | K.17 | Gap | Authorization is role-only: no scopes or audiences | M.3, M.4 |

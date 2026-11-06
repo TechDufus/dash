@@ -23,7 +23,7 @@
 
 **Body**
 
-dash is currently wired to one homelab. Its upstream defaults are VictoriaMetrics-operator `.svc` names. It contains literals such as `flux-system`, `mac-mini`, `rpi-control`, Talos VMIDs and `gateway/home`. It refuses to start without a Kubernetes cluster, trusts identity headers from oauth2-proxy, and releases from a self-hosted runner to a private registry.
+dash is currently wired to one homelab. Its upstream defaults are VictoriaMetrics-operator `.svc` names. It contains literals such as `flux-system`, hard-coded machine names, Talos VMIDs and a gateway namespace. It refuses to start without a Kubernetes cluster, trusts identity headers from oauth2-proxy, and releases from a self-hosted runner to a private registry.
 
 This epic turns dash into a modular, self-hostable app:
 
@@ -52,7 +52,7 @@ Design: `docs/design/plugins-and-config.md` and `docs/design/clients-and-ai.md` 
 
 - `docker run -p 127.0.0.1:8080:8080 -v dash-data:/data ghcr.io/techdufus/dash:<v>` starts with no cluster and no env other than the public URL. An admin can set up an account, enable Prometheus and Proxmox in Settings, and see their pages.
 - The same image runs in Kubernetes from the Helm chart, configured through a ConfigMap and Secrets. Settings are UI-editable by default; `settings.ui: readonly` is the opt-in for GitOps.
-- The homelab runs the released GHCR image (pulled directly, optionally through a Zot pull-through cache) in `proxy` auth mode with the same features as today.
+- The homelab runs the released GHCR image (pulled directly, optionally through a pull-through cache) in `proxy` auth mode with the same features as today.
 - No real-lab identifier remains in tracked files; the denylist test enforces this.
 - CI runs on GitHub-hosted runners; no workflow targets self-hosted labels.
 - The repository is public, with an MIT licence, SECURITY.md and CONTRIBUTING.md.
@@ -96,15 +96,15 @@ The phase 0 PR is based on `claude/project-thread-8gve8b`, so the ADR lands on t
 
 **Body:** write `docs/adr/0001-plugins-config-auth.md` covering design section J. It records all 19 decisions made on 2026-10-31:
 
-1. Licence: MIT, `LICENSE` copyright "Matthew DeGarmo (TechDufus)".
+1. Licence: MIT, `LICENSE` copyright names the owner.
 2. Plugin boundary: in-process, compile-time plugin list, kept in `internal/plugin` until the API is stable at 1.0, then promoted to `pkg/plugin`. Out-of-process plugins rejected for v1 (may return later as an adapter).
 3. Settings store: no database; YAML on `/data` (`ui-settings.yaml`); SQLite only on the named triggers, in a separate `dash.db`; no bbolt.
 4. Precedence defaults < UI < file < env, with locked fields. The Helm chart defaults to UI-editable settings (`settings.ui: editable`), with `readonly` as the opt-in for GitOps (the homelab can opt in). Removing a stored value on a locked field stays allowed. The strict replica guard stays (`replicaCount > 1` only with readonly settings and persistence off), so multi-replica requires opting into readonly.
 5. Legacy env aliases: a one-release alias layer for legacy `DASH_*` names that logs a deprecation warning, then is removed. Direct cutover rejected.
 6. Default auth: local admin with a bootstrap token. `proxy` and `oidc` are options. The anonymous read-only viewer for wall displays is opt-in, off by default.
 7. Helm: the chart lives in this repo and is published as an OCI chart to GHCR. A separate charts repo and manifests-only rejected.
-8. Git history: keep it (no squash), and scrub the homelab identifiers with `git filter-repo` right before going public. That is a separate later step needing TechDufus's explicit go-ahead at that time (history rewrite and force-push).
-9. Homelab image source: GHCR directly, with an optional Zot pull-through cache. Private mirror job rejected.
+8. Git history: keep it (no squash), and scrub the lab identifiers only from the current files; the history stays as it is (the owner decided this on 2026-11-06).
+9. Homelab image source: GHCR directly, with an optional pull-through cache. Private mirror job rejected.
 10. Plugin naming: `prometheus` (displayed "Prometheus-compatible", covers VictoriaMetrics); `hardware`, `rustfs` and `cnpg` are separate plugins. `victoriametrics` name rejected.
 11. Actions are off by default per plugin.
 12. Roles: only `viewer` and `admin` in v1. `operator` rejected for v1.
@@ -188,7 +188,7 @@ Every resolved field carries `source` (`default|ui|file|env`) and an origin (env
 
 ### P1.3 feat(config)!: drop homelab defaults for upstream URLs and conventions
 
-**Body:** remove the defaults at `config.go:100-103` (`.svc` URLs) and `config.go:114-120` (`homelab.io/*`, `app-`, `homelab_zfs_scrub`, `rustfs`/`nas-backup`). An empty value means the source or feature is off: the existing `ErrDisabled` path and empty panels. Validation of the ZFS prefix (`config.go:153-155`) applies only when it is set. Update the README configuration tables.
+**Body:** remove the defaults at `config.go:100-103` (`.svc` URLs) and `config.go:114-120` (`example.io/*`, `app-`, `lab_zfs_scrub`, `rustfs`/`backup-job`). An empty value means the source or feature is off: the existing `ErrDisabled` path and empty panels. Validation of the ZFS prefix (`config.go:153-155`) applies only when it is set. Update the README configuration tables.
 
 **Acceptance criteria**
 - With no env, no Prometheus, Alertmanager, VictoriaLogs or Gatus request is made, and the source chips read "source not configured".
@@ -570,7 +570,7 @@ No aliases survive the phase.
 **Acceptance criteria**
 - All leaves closed.
 - `internal/topics` no longer exists; the overview composition lives in `internal/overview`.
-- `rg -n 'flux-system|mac-mini|rpi-control|gateway/home|2020 && vmid' internal web/src` finds only test fixtures that deliberately use neutral names, or nothing.
+- A search of `internal` and `web/src` for the removed literals (`flux-system`, the hard-coded machine names, the gateway namespace and the critical-VM id rule) finds only test fixtures that deliberately use neutral names, or nothing.
 - dash starts without a cluster.
 - Every object in plugin payloads carries a `ref`, and each ref prefix resolves to its owning plugin.
 - Each plugin's topics reach a stream that was open while its row turned visible, without a restart (design A.9).
@@ -717,16 +717,16 @@ No aliases survive the phase.
 - Visibility is rule (a), with `TestHardwarePublishesAroundTheFlip` for the host/no-host flip. The row can be visible while running, so unlike proxmox it exercises the supervisor's resend path.
 
 **Acceptance criteria**
-- No `mac-mini`, `rpi-control` or `16` bay literal remains.
+- No hard-coded machine name or `16` bay literal remains.
 - Host series names are unchanged.
 - With no machines configured, the machines panel is hidden.
-- **As shipped:** the first criterion is `TestNoHomelabLiterals` (`internal/hygiene`, non-test code only; the machine names of the deployment and `2020 && vmid` are active), and the `16` is `BAY_COUNT` and `FAN_SCALE_MIN`, which are deleted. The deployment's values are pinned by `TestDeploymentEnvV08`, not by a default. Also: both topics reach an open stream (`AssertTopicsReachOpenStream`), `Since` of the attention items is stable across calls, and every setting of the two plugins reaches the running plugin (`TestPR2SettingsReachThePlugin`, with a guard that a new key has a row).
+- **As shipped:** the first criterion is `TestNoHomelabLiterals` (`internal/hygiene`, non-test code only; the machine names of the deployment and the critical-VM id rule are active), and the `16` is `BAY_COUNT` and `FAN_SCALE_MIN`, which are deleted. The deployment's values are pinned by `TestDeploymentEnvV08`, not by a default. Also: both topics reach an open stream (`AssertTopicsReachOpenStream`), `Since` of the attention items is stable across calls, and every setting of the two plugins reaches the running plugin (`TestPR2SettingsReachThePlugin`, with a guard that a new key has a row).
 
 **Dependencies:** P3.1, P3.4, P3.6.
 
 ### P3.8 feat(plugins): kubernetes plugin with optional cluster and discovery-gated informers
 
-**Body:** move `internal/kube`, `internal/topics/cluster.go`, PVC and etcd storage, backup-job freshness (generalising `NASBackupAge`), pod detail and the restart action into `kubernetes`.
+**Body:** move `internal/kube`, `internal/topics/cluster.go`, PVC and etcd storage, backup-job freshness (generalising the old NAS-specific backup-age function), pod detail and the restart action into `kubernetes`.
 
 - `mode: auto|inCluster|kubeconfig`. With no config, the state is `unavailable`, and `cmd/dash/main.go:59-62` no longer exits.
 - Dynamic informers only for API resources present per discovery, re-checked every 5 minutes.
@@ -737,7 +737,7 @@ No aliases survive the phase.
 - `actions.denyNamespaces` (default `[]`) refuses actions on targets in the listed namespaces with 403 (design F.8). The restart action declares `Target` and `Summary` (design A.2).
 
 **As shipped (G3 PR-3a, v0.9.0):** `internal/plugins/kubernetes` publishes `kubernetes.cluster`, `kubernetes.storage` and `kubernetes.apps`, serves `GET /api/v1/plugins/kubernetes/pods/{ns}/{name}`, registers `node.*` and `pod.*`, provides the action `restart` and the Headlamp links, and contributes the nodes tile KPIs (`nodes.ready`, `nodes.total`), the fullest-volume KPI (`pvc.worst`), the cluster and storage attention items and the topology groups. The kubernetes shim, the `internal/topics` files for the cluster, storage, apps, endpoints and unconfigured upstreams, the Manager's node index, `NodeExporterPort`, the `queries` node selectors, the flat `Kubeconfig` and the retired Conventions fields, the two legacy routes (`/api/pods/{ns}/{name}`, `/api/actions/restart`), `api.Deps.{Kube,Dyn,Data}` and `DataAPI` are deleted, and the Manager is left with the flux shim and the overview. Design F.8 has the details; the points that differ from the Body above:
-- The topics are namespaced, with no alias: `cluster`, `storage` and `apps` are `kubernetes.cluster`, `kubernetes.storage` and `kubernetes.apps`; `storage.nasBackups` is `backupJobs` (up to eight entries, a `label`, one row per job, a **"Backup jobs"** panel title); `ref` on nodes, namespaces, workloads, pods, certificates, external secrets, PVCs and backup jobs; the KPIs left `kpis` for `kpiList`.
+- The topics are namespaced, with no alias: `cluster`, `storage` and `apps` are `kubernetes.cluster`, `kubernetes.storage` and `kubernetes.apps`; the NAS-specific backup field of `storage` is `backupJobs` (up to eight entries, a `label`, one row per job, a **"Backup jobs"** panel title); `ref` on nodes, namespaces, workloads, pods, certificates, external secrets, PVCs and backup jobs; the KPIs left `kpis` for `kpiList`.
 - **No cluster:** `mode: auto` with neither a kubeconfig nor an in-cluster environment is `unavailable` and `run()` no longer exits; the API-server probe (`/version` every 5 s) turns the row `unavailable` after 10 s of failures and the service is withdrawn while it is, so proxmox publishes without `k8sNode`; recovery is immediate and `Resend`s the three topics (design A.9). A typed sync that has not finished in 60 s is an `error` row with a category and no service.
 - **Discovery gating:** only the 11 typed informers gate readiness; the dynamic ones start after discovery and publish through per-GVR `Listed` gates (design A.3). `optional.*` are booleans (default false), not `auto`.
 - **Restart** is a framework action behind `plugins.kubernetes.actions.enabled` (off by default), audited with the plugin, with `denyNamespaces` answered 403; the pod detail has no read deny list. `GET /api/pods/{ns}/{name}` and `POST /api/actions/restart` answer 404 `not_found`.
@@ -758,7 +758,7 @@ No aliases survive the phase.
 
 **Body:** replace these literals:
 
-- `routeAttachesToHome` (`gateway/home`, `internal/topics/feeds.go:87-96`)
+- `routeAttachesToHome` (a fixed gateway namespace, `internal/topics/feeds.go:87-96`)
 - the `dash` namespace skip (`feeds.go:117`)
 - the fixed `gethomepage.dev/` prefix (`feeds.go:123-135`)
 
@@ -815,7 +815,7 @@ Icons: replace the hard-coded jsDelivr base (`feeds.go:77`, `web/src/config/link
 
 - `cnpg` (a separate plugin, J.10; requires kubernetes, uses prometheus): clusters plus backup age.
 - `rustfs` (a separate plugin, J.10; requires prometheus): bucket usage and quota, plus cluster capacity.
-- Remove `RustFS`, `CNPG`, `NASBackups` and `Etcd` from `model.StorageData` (`model.go:521-529`). The Storage page renders slots from kubernetes (PVCs, etcd, backup jobs), proxmox (storages), cnpg and rustfs.
+- Remove `RustFS`, `CNPG`, the NAS-specific backup field and `Etcd` from `model.StorageData` (`model.go:521-529`). The Storage page renders slots from kubernetes (PVCs, etcd, backup jobs), proxmox (storages), cnpg and rustfs.
 
 **As shipped (G3 PR-3b, v0.10.0):** `internal/plugins/cnpg` publishes `cnpg.clusters` (`model.CNPGClustersData`, one `cnpg:Cluster/<ns>/<name>` ref per cluster) and `internal/plugins/rustfs` publishes `rustfs.usage` (`model.RustFSUsageData{buckets, capacity}`, `rustfs:Bucket/<name>`), with the `bucket:<name>` attention items; the retired names are `storage.cnpg`, `storage.buckets` and `storage.rustfs` (the last one's `rustfs` field is `capacity`). **cnpg** is automatic (no `Configured`; `unavailable` and hidden without the CRD) and **rustfs is opt-in**, `plugins.rustfs.enabled: true` (a deploy-time change: without it the panel disappears), with `plugins.cnpg.backupMetric` and `plugins.rustfs.metrics.*` defaulting to today's series. Without the prometheus plugin cnpg lists the clusters with a `prometheus: not_configured` note and no backup age. `kubernetes.storage` is `{pvcs, etcd, backupJobs}`; the kubernetes plugin lost the object-store, RustFS and CNPG code and no longer notes `cannot list: cnpg`. **The Storage page is the union of the panels of the plugins that run** (object storage 20, Proxmox 30, Postgres 40 between the volumes and the backup and etcd panels), its explanation names no plugin, and `SlotProps["storage"]` carries no envelope (the SF2 commit, `8f5a2f2`, before the prelude). Design F.10 and A.9 carry the details.
 
@@ -935,7 +935,7 @@ Where PR-2 (branch `feat/g3-hypervisor`, v0.8.0: a production-neutral scaffold, 
 | Demo twins | Unchanged fixtures | The demo world gains `PVENode`, `PVEStorages` and `Machines` with neutral names; the twins publish the same shapes | The twins stand for the plugins, so the world must carry what they publish |
 | `Plugin.Demo()` of proxmox | Not specified | Also promoted onto the twin type, which is harmless | An embedding side effect |
 | Build aids | Not specified | Two commits that made the slices compile on their own (model fields and the tree default) were not integrated | They duplicated what the integrator edited |
-| `TestNoHomelabLiterals` (P3.7) | A repo-wide denylist at P6.1 | Package `internal/hygiene`, a table of literals with an `active` flag: the machine names of the deployment and `2020 && vmid` are active; `flux-system` and `gateway/home` are listed inactive until PR-3; a temp-tree test shows it can fail | The leaf that removes a literal switches its guard on, so the literal cannot come back |
+| `TestNoHomelabLiterals` (P3.7) | A repo-wide denylist at P6.1 | Package `internal/hygiene`, a table of literals with an `active` flag: the machine names of the deployment and the critical-VM id rule are active; `flux-system` and the fixed gateway namespace are listed inactive until PR-3; a temp-tree test shows it can fail | The leaf that removes a literal switches its guard on, so the literal cannot come back |
 | Deployment env test (P3.7) | `TestDeploymentEnvCompat` kept | Replaced by `TestDeploymentEnvV08`; the whole deployment environment is one shared file, `internal/config/testdata/deployment-v0.8.0.env`, read by it and by the `cmd/dash` test that runs the real plugins on it | A stale test omitted most of the deployment's environment and asserted the flat node |
 | Known leftover (P6.1) | Neutral fixtures everywhere | Lab-style identifiers remain in the deployment environment test and its file, and in other test fixtures (the Proxmox client fixtures were neutralised by P3.6 as a courtesy) | P6.1 owns the scrub |
 
@@ -952,7 +952,7 @@ Where PR-2 (branch `feat/g3-hypervisor`, v0.8.0: a production-neutral scaffold, 
 - **Machines are configuration** (`plugins.hardware.machines`), hidden when none are set, and they moved from the VMs page to the Hardware page. A machine's source label is `prometheus` or `gatus` (it was `victoriametrics` or `gatus`); a Gatus-backed machine still follows a Gatus change within about a second. The VMs envelope no longer carries the Gatus chip; `hardware.machines` does. The list is empty (never null) when none are set, and it appears after the first poll, so a machine does not flash as down. With a machines-only configuration `hardware.hosts` is not published and the Hardware page shows the machines alone.
 - **The Hardware plugin is `disabled` unless `plugins.hardware.hosts` or `machines` is non-empty.** A deployment that relied on the implicit host (prometheus plus proxmox, no `hosts`) sets `hosts: [{}]`. `hosts` still takes one entry. The row is `unavailable` ("waiting for the Proxmox node name") until the host's node is known (`hosts[0].nodename`, else the Proxmox node); once it has published it stays visible.
 - **The host's node needs a running proxmox plugin, or `hosts[0].nodename`.** v0.7.0 used `plugins.proxmox.node` as the host's node name even without an API token. v0.8.0 reads the node from the proxmox plugin, which runs only with its URL, token ID and token secret all set (the node is then `plugins.proxmox.node`, or the one it discovers). A deployment with `plugins.proxmox.node` and no token must set the token or `hosts[0].nodename`; otherwise the Hardware row stays `unavailable` ("waiting for the Proxmox node name") and the host shows no data.
-- **Hardware settings.** `bays` and `fanMaxRPM` (0 means derive: with `bays` 0 the grid numbers its slots from 1, or from 0 when a disk sits in slot 0, up to the highest populated slot, at most 128 slots, and above that the page lists the disks sorted; with `fanMaxRPM` 0 the gauge scale is the highest observed rpm, otherwise `max(fanMaxRPM, observed)`), `sensorAliases` (default `inlet` and `exhaust`), `tempThresholds` (default 85 and 90 °C, whole numbers, `0 < warn < crit`) and `selectors` (defaults `node-exporter` and `platform_coretemp_.*`). The CPU temperature health is computed on the server and shown the same on the Hardware page, the topology and the Overview tile. The page's iDRAC-specific wording is vendor-neutral ("System Event Log"). **For API clients:** the setting and its environment value are `fanMaxRPM`, and `hardware.hosts` carries the same number as `fanMaxRpm` (lower-case `pm`, because the OpenAPI linter rejects `RPM` in a key). `dash config validate` is strict about these settings and rejects a bad machine entry, a second host or a bad pattern with its path.
+- **Hardware settings.** `bays` and `fanMaxRPM` (0 means derive: with `bays` 0 the grid numbers its slots from 1, or from 0 when a disk sits in slot 0, up to the highest populated slot, at most 128 slots, and above that the page lists the disks sorted; with `fanMaxRPM` 0 the gauge scale is the highest observed rpm, otherwise `max(fanMaxRPM, observed)`), `sensorAliases` (default `inlet` and `exhaust`), `tempThresholds` (default 85 and 90 °C, whole numbers, `0 < warn < crit`) and `selectors` (defaults `node-exporter` and `platform_coretemp_.*`). The CPU temperature health is computed on the server and shown the same on the Hardware page, the topology and the Overview tile. The page's wording is vendor-neutral and names no server vendor's management controller ("System Event Log"). **For API clients:** the setting and its environment value are `fanMaxRPM`, and `hardware.hosts` carries the same number as `fanMaxRpm` (lower-case `pm`, because the OpenAPI linter rejects `RPM` in a key). `dash config validate` is strict about these settings and rejects a bad machine entry, a second host or a bad pattern with its path.
 - **Series:** `vm.*` answer only while the proxmox plugin runs and `host.*` only while the hardware plugin runs; otherwise they are unknown series (400 `invalid_input`).
 - **Proxmox and hardware reload live**, and their dependents restart with them: a `plugins.prometheus.*` change restarts proxmox and hardware, a `plugins.gatus.*` change restarts hardware, and a `plugins.proxmox.*` change restarts hardware (and re-runs discovery when `node` is unset). `kubernetes` and `flux` still need a restart.
 - **The Overview shows a `prometheus` source chip** (hardware) next to the legacy `victoriametrics` one until a later release renames the legacy key. Attention item ids are unchanged; items gain a `ref`.
@@ -976,7 +976,7 @@ Where PR-3a (branch `feat/g3-kubernetes`, v0.9.0: a production-neutral scaffold-
 | `optional.*` values (F.8) | `auto` | Booleans, default false | A missing CRD of a group the plugin reads is a note and a degraded row unless the operator says the cluster may lack it |
 | Zero `qps` and `burst` (P3.8) | Not specified | A zero value means the default (20 and 40; `EffectiveQPS()` and `EffectiveBurst()`); `burst` below `qps` is the error | Defaults live in `DefaultKubernetes()`; a zero in a section built without them means "unset", not "invalid" |
 | Palette functions and Restart (P3.8, web) | The palette gates Restart with `useActionAvailable` | `PaletteCtx.actionAvailable(pluginId, action)`, the pure `actionAvailable()` over `core.plugins` and `/me`, built in `PaletteBody` | `palette(ctx)` runs per visible module and is not a hook site; `PaletteCtx` had no role access. The edit is outside the slice's file list and went in as one integrator commit |
-| Storage panel title (P3.8, web) | "NAS backups" stays | **"Backup jobs"**, empty text "No backup jobs.", panel id `backups-etcd` | The rows are generic `backupJobs`, one per configured job. Revert the title if the old wording is wanted |
+| Storage panel title (P3.8, web) | The NAS-specific title stays | **"Backup jobs"**, empty text "No backup jobs.", panel id `backups-etcd` | The rows are generic `backupJobs`, one per configured job. Revert the title if the old wording is wanted |
 | A served resource that is refused (P3.9, extended in the review fixes) | `ingress: true` with the resource not served is a `not_configured` note and a degraded row | Also: any dynamic resource that is served but whose list never completes (RBAC, a dead conversion webhook: Ingresses, certificates, external secrets, HTTPRoutes, CNPG clusters) is a `WatchError` note on the plugin; its topic publishes without it after the 60 s sync timeout and the row is `degraded` with `cannot list: <name> (<category>)`. `optional.*` keeps the row out of `degraded` for its group, as it does for a failed discovery; the topic's note stays. `svc.Cluster.Listed` is false for a GVR no discovery has evaluated, and a failed discovery is retried with a backoff from the probe period up to the discovery period | Every dynamic resource needs RBAC the default role may lack; without the rule a topic would wait for ever (the first cut had it for Ingresses only). Needed a new `kube.Cluster.WatchError` |
 | Total discovery failure (P3.8) | Not specified | Before any discovery has succeeded, a total failure counts every wanted resource as listed, so no topic waits for ever; the failure is logged | A cluster that never answers discovery must not wedge the topics |
 | Backup rows (P3.8) | One row per job | A labelled job whose CronJob prefix matches several CronJobs shows the smallest age; rows that produce the same ref collapse to one; a series without a `cronjob` label is dropped | The metric can carry several matching series; a row needs one name and one ref |
@@ -1010,7 +1010,7 @@ Where PR-3a (branch `feat/g3-kubernetes`, v0.9.0: a production-neutral scaffold-
 
 - **Three environment changes keep today's pages; make them in the same change as the image bump.** (1) **Restart:** `DASH_PLUGINS_KUBERNETES_ACTIONS_ENABLED=true`. Restart is off by default, so without it the pod sheet, the workloads list and the palette lose the control. (2) **Apps gateways:** `DASH_PLUGINS_KUBERNETES_APPS_GATEWAYS='[{"namespace":"<ns>","name":"<gateway>"}]'`, the gateway or gateways named in `apps.gateways` that your routes attach to (a JSON list; a `parentRef` without a namespace now means the route's own namespace). With none, **every HTTPRoute is an app**. (3) **Excluded namespaces:** `DASH_PLUGINS_KUBERNETES_APPS_EXCLUDE_NAMESPACES='["dash"]'`, the namespace of dash's own route (a JSON list); with none, no namespace is skipped and dash's own app appears. The apps defaults are generic now: the built-in gateway and the built-in `dash` skip are gone. `dash config env` prints the names.
 - **Restart is a framework action.** `POST /api/v1/plugins/kubernetes/actions/restart` replaces `POST /api/actions/restart`, which answers 404 `not_found`; **tabs opened before the deploy must be reloaded**. It is limited to 10 calls per minute per user (429), audited with `plugin=kubernetes` under the unchanged action name `restart`, refused for a viewer, and answered 403 (and audited) for a namespace in `plugins.kubernetes.actions.denyNamespaces`; a protected namespace still needs the typed workload name. The body and the patch (`restartedAt`) are unchanged.
-- **Routes, topics and fields moved, with no aliases.** `/api/pods/{ns}/{name}` is `/api/v1/plugins/kubernetes/pods/{ns}/{name}` (the same body plus `pod.ref`). The stream and snapshot names `cluster`, `storage` and `apps` are `kubernetes.cluster`, `kubernetes.storage` and `kubernetes.apps`; `storage.nasBackups` is `kubernetes.storage.backupJobs`; `apps[].iconUrl` is `apps[].icon`; nodes, namespaces, workloads, pods, certificates, external secrets, PVCs, backup jobs and apps gain a `ref`. In `core.overview` the `kpis` fields `nodesReady`, `nodesTotal` and `worstPvc` are removed: read the `kpiList` entries `nodes.ready`, `nodes.total` and `pvc.worst` (plugin `kubernetes`). A client that reads the old names must switch. `flux` keeps its name until v0.10.0.
+- **Routes, topics and fields moved, with no aliases.** `/api/pods/{ns}/{name}` is `/api/v1/plugins/kubernetes/pods/{ns}/{name}` (the same body plus `pod.ref`). The stream and snapshot names `cluster`, `storage` and `apps` are `kubernetes.cluster`, `kubernetes.storage` and `kubernetes.apps`; the NAS-specific backup field of `storage` is `kubernetes.storage.backupJobs`; `apps[].iconUrl` is `apps[].icon`; nodes, namespaces, workloads, pods, certificates, external secrets, PVCs, backup jobs and apps gain a `ref`. In `core.overview` the `kpis` fields `nodesReady`, `nodesTotal` and `worstPvc` are removed: read the `kpiList` entries `nodes.ready`, `nodes.total` and `pvc.worst` (plugin `kubernetes`). A client that reads the old names must switch. `flux` keeps its name until v0.10.0.
 - **dash starts without a cluster.** With no kubeconfig and outside a cluster the kubernetes plugin is `unavailable` (hidden) and dash serves the other plugins, Proxmox included; `/readyz` is 200 and the Flux page is hidden. It no longer exits at startup. An explicit `mode: kubeconfig` or `inCluster` that cannot work is an `error` row. Proxmox publishes its VMs without the Kubernetes-node attributes (`k8sNode`) while the kubernetes plugin is `unavailable`, and with them again when it returns.
 - **A missing optional CRD no longer blocks readiness.** One unserved CRD (Flux, CNPG, cert-manager, external-secrets, Gateway API) used to keep the informers "not synced" for ever. Now only the typed informers gate readiness. The row is `degraded` with a note for each missing group it reads (cert-manager, external-secrets, Gateway API; `plugins.kubernetes.optional.*` opts one out, and an opted-out group no longer degrades the row when its discovery fails or its resource cannot be listed either, though its topic still carries the note), and a CRD installed later is picked up within five minutes. A discovery that failed (an API-server blip at start) is retried with a backoff from 5 s up to five minutes, and at once when the API server answers again, so nothing stays published empty for five minutes. A resource the API server serves but the ServiceAccount may not list (any dynamic one, not only an Ingress) is published without its objects after 60 s and the row says `cannot list: <name> (<category>)`, for example `cannot list: ingress (auth)` (`<name>` is `ingress`, `cert-manager`, `external-secrets`, `gateway-api` or `cnpg`).
 - **A cluster outage is visible and debounced.** If the API server is unreachable for 10 s the kubernetes row goes `unavailable` (hidden) and Proxmox shows its VMs without the Kubernetes node flags; when the API server returns the pages reappear at once with their data.
@@ -1018,7 +1018,7 @@ Where PR-3a (branch `feat/g3-kubernetes`, v0.9.0: a production-neutral scaffold-
 - **Apps discovery is configuration** (`plugins.kubernetes.apps.{gateways, excludeNamespaces, annotationPrefix, ingress}`) and the defaults are generic, as the first note says. Ingress discovery is off by default and needs `get`, `list` and `watch` on `ingresses` when on; an Ingress that is served but refused makes the row `degraded` with `cannot list: ingress (<category>)`.
 - **Icons.** The server sends the annotation as written (`icon`) and the SPA resolves it under `ui.iconBaseURL` like launcher icons, so the setting now covers launcher links **and app icons**. With no base nothing is requested from a third party and apps show letter tiles (v0.8.0 loaded app icons from a public CDN); with the base set, `grafana.png`, `grafana.svg`, `grafana.webp` and `grafana` all show `<base>/grafana.png` (an icon that existed only as an SVG shows its PNG). Launcher icons named with an extension work too. Homepage-style prefixes `mdi-`, `si-` and `sh-` (for example `mdi-monitor-dashboard`) are not dashboard-icons names: they show a letter tile and make no request.
 - **Overview.** The `victoriametrics` source chip is gone (the kubernetes plugin's queries report `prometheus`, as hardware's do); the three Kubernetes KPIs come from `kpiList` (the same tiles, with their own health); kubernetes attention items gain a `ref`; ids and severities are unchanged.
-- **Backup jobs.** The storage panel titled "NAS backups" is titled **"Backup jobs"** (empty text "No backup jobs."). `plugins.kubernetes.backupJobs` accepts up to eight entries and a `label` that names the row; the panel shows one row per job.
+- **Backup jobs.** The storage panel that carried a NAS-specific title is titled **"Backup jobs"** (empty text "No backup jobs."). `plugins.kubernetes.backupJobs` accepts up to eight entries and a `label` that names the row; the panel shows one row per job.
 - **The series for a node stay as they were:** an unknown `node=` on `node.cpu` or `node.mem` is still 404 `not_found` "unknown node", and a malformed one is 400 `invalid_input`. `node.*` and `pod.*` are answered only while the kubernetes plugin runs.
 - **`DASH_DEV` no longer proxies upstream URLs through the API server.** Set `plugins.kubernetes.upstreamViaAPIServer` (`DASH_PLUGINS_KUBERNETES_UPSTREAM_VIA_API_SERVER=true`) for that; `dev/site.env.example` does. A dash running in the cluster never used it.
 - **`k8s:` secret references.** `k8s:<namespace>/<name>#<key>` is accepted in secret fields (prometheus, alertmanager, gatus and victorialogs `auth.bearerToken` and `auth.basic.password`, proxmox `tokenSecret`) from the file and environment layers. The kubernetes plugin reads the named Secret with `get` and `watch` (RBAC: a namespaced `Role` with `resourceNames`, `get`, `list` and `watch`; the README has the example) and holds the value, trimmed like an `env:` or `file:` value, in memory only. **A plugin does not start while any `k8s:` reference in its section is unread, an optional credential included:** its row is the generic message `waiting for a Kubernetes Secret (see plugins.<id>.<field>)` from startup, in state `unconfigured` when the plugin's other settings are complete and otherwise `disabled` when its `enabled` is unset or `unconfigured` with `enabled: true`; the reason and the reference go to the log, not to viewers. **This is a runtime message, not the load error the draft planned** (the load accepts a well-formed reference and cannot see plugin state), and `dash config validate` checks the syntax only. Two consequences: a reload that adds a pending reference to a plugin that is running stops it until the value is read, and a plugin that waits counts as settled for `/readyz`, so an unreadable Secret never keeps dash unready.
@@ -1062,7 +1062,7 @@ Where PR-3b (branch `feat/g3-flux-storage`: the prep release v0.9.1, a web commi
 | Config tests (P3.11) | The unknown-field case of `TestFluxVerifySourcesValidation` in the plugin's package | It lives in `internal/config/flux_verify_test.go` (strict decoding needs the loader); the `pluginconf` test covers kind, namespace, name and duplicates | The loader owns the strict decode |
 | Examples (P3.11) | Not specified | README and `dev/site.env.example` use neutral names for the pin (a `gitops` namespace and a `fleet` source); the deployment's own values appear only in `internal/config/testdata/deployment-v0.10.0.env` and the tests that read it | They stay for P6.1, as the earlier deployment files did |
 | Formatting (P3.11) | Not in the plan | `internal/plugin/supervisor.go`, not gofmt-clean since v0.9.0, was formatted; `cmd/dash/deployment_env_test.go`, also unclean, was left | gofmt flagged the first in a file the leaf edited |
-| `StorageData` (P3.12) | Remove `RustFS`, `CNPG`, `NASBackups` and `Etcd` from `model.StorageData`; design F.10 says the type is removed | Only `buckets`, `rustfs` and `cnpg` left it: `kubernetes.storage` is `{pvcs, etcd, backupJobs}` (`nasBackups` had become `backupJobs` in PR-3a) | The PVC, etcd and CronJob data are the kubernetes plugin's own, and its panels read them |
+| `StorageData` (P3.12) | Remove `RustFS`, `CNPG`, the NAS-specific backup field and `Etcd` from `model.StorageData`; design F.10 says the type is removed | Only `buckets`, `rustfs` and `cnpg` left it: `kubernetes.storage` is `{pvcs, etcd, backupJobs}` (the NAS-specific field had become `backupJobs` in PR-3a) | The PVC, etcd and CronJob data are the kubernetes plugin's own, and its panels read them |
 | cnpg `Configured` and hint (P3.12) | cnpg is always configured (D17) | It has no `Configured` method at all (an absent method means configured) and its `ConfigHint` is `plugins.cnpg.enabled`; rustfs's is `plugins.rustfs.enabled (set true)` | The interface is optional; the hint names the setting that turns the plugin off |
 | cnpg without the prometheus plugin (P3.12) | `degraded` when the age query fails | The clusters are listed, the row is `healthy`, and the envelope carries a `prometheus: not_configured` note and no age; only a failing query degrades the row | The kubernetes plugin treats a missing Prometheus the same way |
 | cnpg polling and first publish (P3.12) | Not specified | The age is polled every 60 s on a goroutine of its own, only while the CRD is served and a kubernetes service exists; the row stays `starting` until the first poll ended in **every** publishing branch (a refused list and a failed group included) | A hidden cnpg must send no query, and a payload sent before the first poll would show ages that are not there yet |
@@ -1653,7 +1653,7 @@ R6 of G4: P4.7 to P4.10, the settings API and pages. Image only; nothing to chan
 - [x] P5.5 docs(deploy): plain Kubernetes manifests rendered from the chart
 - [x] P5.6 docs(deploy): PaaS guide and read-only settings without a volume
 
-**External dependency (private repo, not filed here):** the homelab migrates to the chart, or adds a ConfigMap and `DASH_AUTH_MODE=proxy`, and pulls from GHCR directly (optionally through a Zot pull-through cache). It can opt into `settings.ui: readonly`.
+**External dependency (private repo, not filed here):** the homelab migrates to the chart, or adds a ConfigMap and `DASH_AUTH_MODE=proxy`, and pulls from GHCR directly (optionally through a pull-through cache). It can opt into `settings.ui: readonly`.
 
 **Acceptance criteria:** all leaves closed. The examples in the docs are exercised in CI.
 
@@ -1858,7 +1858,7 @@ R3 of G5: P5.4 and P5.5. A patch: additive, the binary is unchanged.
 **Body:** clear every blocker in design G and move CI and release to public infrastructure (design H). P6.1, P6.2, P6.4 and P6.5 can start right after G0; P6.6 can start once G0 and P6.1 have landed.
 
 - [x] P6.1 test: replace real-lab identifiers in fixtures and add a denylist test
-- [x] P6.2 chore(dev): decouple dev tooling from ../homelab
+- [x] P6.2 chore(dev): decouple dev tooling from the sibling homelab checkout
 - [ ] P6.3 docs: rewrite the README and add generated configuration docs
 - [x] P6.4 docs: add SECURITY, CONTRIBUTING, CODE_OF_CONDUCT and templates (`SECURITY.md`, the issue forms, the pull request template and `CODEOWNERS`; no code of conduct and no `CONTRIBUTING.md`, by the owner's decision: see the R1 deviations)
 - [x] P6.5 chore: add LICENSE and third-party notices
@@ -1880,16 +1880,16 @@ R1 (branch `feat/g6-fixtures-a`: the neutral fixtures in two commits, the dev to
 |---|---|---|---|
 | P6.4 community files | `CODE_OF_CONDUCT.md` (Contributor Covenant 2.1) and `CONTRIBUTING.md`; GitHub's community profile complete | No `CODE_OF_CONDUCT.md` and no `CONTRIBUTING.md`; the README's Develop section holds the contributor facts (setup, `make check` and `make generate`, demo mode, the neutral-names rule, where a plugin starts). The "community profile complete" criterion no longer applies | The owner's decision on 2026-11-05, on the Omarchy model: no code of conduct, contributor facts in the README. The docs review had also found that GitHub's Report content does not reach the maintainer of a personal account's repository |
 | Screenshots | The README's screenshots carry no lab identifier | Unchanged; the README no longer claims every name in them is made up | Their PNG metadata is clean, but the pixels still show old names. The repository is private, so they are no new exposure; P6.8 regenerates them from demo mode right after this release |
-| Denylist scope (D1) | A repo-wide denylist | Every tracked text file except `docs/design/**` and `docs/adr/**` | Those quote the identifiers by design; the owner-gated P6.10 history scrub rewrites them, and P6.10 then removes the exclusion |
-| R730 (D2) | Not decided | Neutralised everywhere: "Example 2U server" in the schema docs, model comments, the demo `HostModel` and the fixtures | Design G.4 lists it as lab-specific |
-| Zot push (D3) | Not covered | The Zot release push line in `ci.yml` is allowlisted; the self-hosted `homelab` label and the word `homelab` are not terms | P6.7 removes the push (J.9); `homelab` is the generic tagline (J.14) |
+| Denylist scope (D1) | A repo-wide denylist | Every tracked text file; `docs/design/**` and `docs/adr/**` were exempt at first | Those quoted the identifiers by design. They were scrubbed on 2026-11-06 (the history is kept as it is) and the exemption was removed |
+| Server model (D2) | Not decided | Neutralised everywhere: "Example 2U server" in the schema docs, model comments, the demo `HostModel` and the fixtures | Design G.4 lists it as lab-specific |
+| Private registry push (D3) | Not covered | The private-registry release push line in `ci.yml` is allowlisted; the self-hosted `homelab` label and the word `homelab` are not terms | P6.7 removes the push (J.9); `homelab` is the generic tagline (J.14) |
 | Owner handle (D4) | Allowlist the module path, GHCR image, LICENSE and the app ID | Those, plus the repository URLs, `CODEOWNERS` and the SECURITY and issue-config links to the repository; fixtures that used the handle as a user name now use alice and bob | The handle identifies the project there; as a user name it was a lab identifier |
 | Fixture list | `internal/upstream/clients_test.go`, `internal/api/silences_test.go`, `actions_test.go`, `internal/topics/*`, `internal/links/*`, `internal/demo/demo_test.go:44` | Their successors: the split upstream tests, `alertmanager_actions_test.go`, `kubernetes_restart_test.go`, `secrets_test.go`, the plugins' tests, `cmd/dash/demo_test.go`, the pinned deployment env files and their tests | G3 moved or deleted the files the epic names |
-| Two allowlist entries | Not planned | `HL_OP` (upper case only) in `Makefile`, `README.md` and `dev/secrets.env.example`; the removed variables `DASH_NAS_BACKUP_NAMESPACE` and `_CRONJOB` everywhere | `HL_OP` is the opt-in broker variable P6.2 names; dash still recognises the removed variables to refuse them with their replacement |
+| Two allowlist entries | Not planned | The secrets-broker variable (upper case only) in `Makefile`, `README.md` and `dev/secrets.env.example`; the removed variables `DASH_NAS_BACKUP_NAMESPACE` and `_CRONJOB` everywhere | The broker variable is the opt-in one P6.2 names; dash still recognises the removed variables to refuse them with their replacement |
 | Notices in the image | P6.7 | The final stage copies `LICENSE` and `THIRD_PARTY_NOTICES.md` to `/usr/share/doc/dash/` (a `COPY`, no `RUN`) | A distributed image must carry the licences it ships; pulled forward from P6.7 |
 | `shadcn` | P6.6 (K.13) moves it to devDependencies | Moved now | The app imports only its CSS, which the shadcn/ui notice covers; as a runtime dependency its CLI inflated the notices from 137 to 359 npm packages; pulled forward from P6.6 |
-| Denylist terms | G.2 now, and the three strings P6.6 adds | All of them now, with separator variants, plus low-sensitivity names from the history (the owner's surname outside `LICENSE`, a MAC prefix, a vault name, iDRAC, VIP, router and gateway hostnames, the server line) | One test, one review; the extra names were found while counting the history for the scrub list |
-| Terms left out | Not covered | Wi-Fi network names, the lab's other machine names and the owner's other project domains are deliberately not terms | The test is public and lists its own terms, so adding them would publish them; the P6.10 scrub list covers them |
+| Denylist terms | G.2 now, and the three strings P6.6 adds | All of them now, with separator variants, plus low-sensitivity names from the history (the owner's surname outside `LICENSE`, a MAC prefix, a vault name, a server management controller, VIP, router and gateway hostnames, the server line) | One test, one review; the extra names were found while counting the history for the scrub list |
+| Terms left out | Not covered | Wi-Fi network names, the lab's other machine names and the owner's other project domains are deliberately not terms | The test is public and lists its own terms, so adding them would publish them; they are scrubbed from the current files instead |
 | Reload test flake | Not in the plan | `writeTestFile` in `cmd/dash` replaces the file in one rename | `TestAdminUsersReloadAppliesOnTheNextRequest` failed once under `-race -shuffle` on a poll that read a half-written file |
 
 #### v0.14.2 release notes
@@ -1898,8 +1898,8 @@ R1 of G6: P6.1, P6.2, P6.4 (without a code of conduct or contributing guide) and
 
 - **Neutral names:** the demo's host model is "Example 2U server", and its backup job is `nightly-backup`. Doc and example text uses `example.com`, the documentation address ranges and neutral host and user names.
 - **Licences:** `THIRD_PARTY_NOTICES.md` lists the Go modules and npm runtime packages dash ships, plus the vendored and bundled components. The image carries it with `LICENSE` in `/usr/share/doc/dash/`. `make check` fails on stale notices and on a licence outside the policy.
-- **Repository files:** `SECURITY.md` (private vulnerability reporting), issue forms, a pull request template and `CODEOWNERS`. Dev mode needs nothing outside the checkout: `DASH_DEMO=true make dev-api` and `make dev-web`; `make dev-api-op` with `HL_OP` is the opt-in secret broker.
-- **Hygiene:** `internal/hygiene` fails `go test` on a lab identifier in any tracked text file outside the design docs, with an explicit allowlist.
+- **Repository files:** `SECURITY.md` (private vulnerability reporting), issue forms, a pull request template and `CODEOWNERS`. Dev mode needs nothing outside the checkout: `DASH_DEMO=true make dev-api` and `make dev-web`; `make dev-api-op` with the broker variable is the opt-in secret broker.
+- **Hygiene:** `internal/hygiene` fails `go test` on a lab identifier in any tracked text file, with an explicit allowlist.
 - **Rollback:** revert the image.
 
 **Evidence:** `make check` on every commit, each signed. `go test -race -shuffle=on -count=20 -run Reload ./cmd/dash ./internal/config` passed all 500 runs, and the formerly flaky test passed 200 runs under `-race -shuffle=on`. The denylist test passes on the tree, and on a `git archive` export outside any checkout through the walk fallback.
@@ -1961,7 +1961,7 @@ R3 (branch `feat/g6-docs`: the generated plugin pages, the security model with t
 
 | Item | The plan said | Shipped | Why |
 |---|---|---|---|
-| README | A new README with an intro, features, quick start, screenshots and links to docs | A 150-line README (was 856) that links out; every fact of the old one moved first: the configuration prose to `internal/config/configuration.intro.md` (the top of the generated `docs/configuration.md`), plugin facts to `cmd/dash/plugindocs`, and `docs/operations.md`, `docs/upgrading.md`, `docs/api/README.md` and `docs/development.md` for the rest | The owner's taste (Omarchy): a short front page and a manual of linked pages. Code and tests that cited the README (the removed-variables error, the generated page, the enabled-doc tests, the `HL_OP` allowlist entry, templates and comments) point at the new pages |
+| README | A new README with an intro, features, quick start, screenshots and links to docs | A 150-line README (was 856) that links out; every fact of the old one moved first: the configuration prose to `internal/config/configuration.intro.md` (the top of the generated `docs/configuration.md`), plugin facts to `cmd/dash/plugindocs`, and `docs/operations.md`, `docs/upgrading.md`, `docs/api/README.md` and `docs/development.md` for the rest | The owner's taste (Omarchy): a short front page and a manual of linked pages. Code and tests that cited the README (the removed-variables error, the generated page, the enabled-doc tests, the broker-variable allowlist entry, templates and comments) point at the new pages |
 | Generated docs | `docs/configuration.md` and `docs/plugins/<id>.md` generated from the schemas | `dash docs plugins` writes each page from the plugin's manifest and settings, two hand-kept tables (the web panels and the RBAC rules) and the prose in `cmd/dash/plugindocs/<id>.md`; `make check` diffs them, and tests hold the panel table to the web registry and the RBAC table to the rendered chart | The schema alone cannot say what a page shows, what a plugin needs or what it may do. A misspelled section heading in the prose, a heading inside a code block and a failed input schema are errors, not silent output |
 | Link check | Lychee or equivalent, in CI | lychee 0.24.2, pinned by sha256 in `scripts/ci/tools.sh` and verified on every run: offline (relative links and anchors) in `make check`, the web links with retries in `make scan`. Both CI jobs download it into the job's temp dir | Offline keeps `make check` free of the network apart from the first download; the web links need retries and run where the other networked scans run |
 | `docs/security.md` | Listed beside the generated pages | Hand-written, with no generated part; it links the generated plugin pages for actions and RBAC rather than repeating them, and lists what is not built yet as `SECURITY.md` does | It states behaviour across packages (auth, sessions, requests, upstream clients, audit) that no schema holds; its claims were probed against the binary |
@@ -1999,7 +1999,7 @@ R4 (branch `ci/release-ghcr`: the release job, its docs and the allowlist cleanu
 | Builder | `setup-buildx-action` defaults | The BuildKit image pinned by digest as in `check`, and `cache-binary: false` | No Actions cache on tag runs (zizmor cache-poisoning), as `mise-action` already does |
 | Annotations | Labels from `metadata-action` | The Dockerfile keeps its OCI labels (`VERSION`, `REVISION`, `CREATED` build args); `metadata-action`'s annotations go on the manifests and the index | GHCR reads a multi-arch package's source and description from the index |
 | The other jobs | All on `ubuntu-24.04` | `check`, `scan`, `smoke` and `kind` stay on the self-hosted runner while the repository is private and switch by themselves at the flip; P6.9 deregisters the runner then | The owner's decision on 2026-11-05: no GitHub-hosted minutes before the flip |
-| Homelab pull (J.9) | GHCR directly, optionally through a Zot pull-through cache | GHCR directly; the owner makes the `dash` and `charts/dash` packages public after their first push (GHCR packages pushed from a private repository start private) | The owner's decision on 2026-11-05: no pull secret, and only the built image and chart become public before the source |
+| Homelab pull (J.9) | GHCR directly, optionally through a pull-through cache | GHCR directly; the owner makes the `dash` and `charts/dash` packages public after their first push (GHCR packages pushed from a private repository start private) | The owner's decision on 2026-11-05: no pull secret, and only the built image and chart become public before the source |
 | Pre-release tag on a fork | The proof that both architectures publish | The tag check accepts only `vX.Y.Z`, so the first release tag is the end-to-end proof | A pre-release form would loosen the check only for a test |
 
 ### P6.1 test: replace real-lab identifiers in fixtures and add a denylist test
@@ -2020,19 +2020,19 @@ Use `example.com`, `192.0.2.0/24`, neutral node, VM and tenant names, a zero-fil
 
 **Dependencies:** none (can run after G0; rebase over G3 moves).
 
-### P6.2 chore(dev): decouple dev tooling from ../homelab
+### P6.2 chore(dev): decouple dev tooling from the sibling homelab checkout
 
 **Body:**
 
-- Make `HL_OP` and `KUBECONFIG` in `Makefile:1-2` optional.
+- Make the broker variable and `KUBECONFIG` in `Makefile:1-2` optional.
 - `make dev-api` runs with `DASH_CONFIG=dev/config.yaml` (git-ignored; an example is committed) and any `KUBECONFIG`.
 - Keep an opt-in target for the 1Password broker, or move it to the homelab repo.
 - Remove `dev/secrets.env`, or replace it with an example.
 - Document `DASH_DEMO=true` as the default contributor path.
 
 **Acceptance criteria**
-- On a clean checkout without `../homelab`, `make dev-api` with `DASH_DEMO=true`, and `make dev-web`, both work.
-- No tracked file references `../homelab`.
+- On a clean checkout without the sibling homelab checkout, `make dev-api` with `DASH_DEMO=true`, and `make dev-web`, both work.
+- No tracked file references the sibling homelab checkout.
 
 **Dependencies:** none (P1.1 for `DASH_CONFIG`, otherwise use env).
 
@@ -2070,7 +2070,7 @@ Use `example.com`, `192.0.2.0/24`, neutral node, VM and tenant names, a zero-fil
 
 **Body:**
 
-- Add an MIT `LICENSE` with the copyright line "Matthew DeGarmo (TechDufus)" (J.1).
+- Add an MIT `LICENSE` with a copyright line that names the owner (J.1).
 - Generate `THIRD_PARTY_NOTICES` from `go-licenses report` and an npm licence report.
 - Attribute dashboard-icons (Apache-2.0) and the vendored shadcn/ui and Magic UI components.
 - A CI check fails on disallowed licences.
@@ -2079,7 +2079,7 @@ Use `example.com`, `192.0.2.0/24`, neutral node, VM and tenant names, a zero-fil
 - The notices are generated reproducibly.
 - The CI licence check passes.
 - The Magic UI licence is confirmed at its source.
-- `LICENSE` is MIT and names "Matthew DeGarmo (TechDufus)".
+- `LICENSE` is MIT and names the owner as the copyright holder.
 
 **Dependencies:** P0.2.
 
@@ -2094,7 +2094,7 @@ Use `example.com`, `192.0.2.0/24`, neutral node, VM and tenant names, a zero-fil
 - The release job keeps its self-hosted runner until P6.7 replaces it (design K.14).
 - Add a compatibility matrix (J.18): the last 3 Kubernetes minors on kind with current Flux v2 and Gateway API v1 CRDs installed; Proxmox VE 8 and 9 covered by API fixtures for each major version.
 - Use `npm ci --ignore-scripts` in the Makefile, the Dockerfile and CI. Move `shadcn` from runtime dependencies to devDependencies in `web/package.json` (design H.2, K.13).
-- The denylist gains three new strings, `op://`, `github-runner-1` and `hl-op`; `registry.home` is already in the design G.2 list.
+- The denylist gains three new strings, a 1Password reference scheme, a self-hosted runner name and a broker tool name; the private registry hostname is already in the design G.2 list.
 
 **Acceptance criteria**
 - No workflow references self-hosted labels, except the private release job that P6.7 removes.
@@ -2119,7 +2119,7 @@ Use `example.com`, `192.0.2.0/24`, neutral node, VM and tenant names, a zero-fil
 - `helm push` of the chart to `oci://ghcr.io/techdufus/charts`;
 - the digest in the job summary.
 
-Remove the Zot push (`ci.yml:31`). README release steps are updated. There is no `:demo` image tag: demo mode stays opt-in via `DASH_DEMO` or a config flag (J.15), and a public demo instance comes post-v1.
+Remove the private registry push (`ci.yml:31`). README release steps are updated. There is no `:demo` image tag: demo mode stays opt-in via `DASH_DEMO` or a config flag (J.15), and a public demo instance comes post-v1.
 
 **Acceptance criteria**
 - A pre-release tag on a fork or test repo publishes both architectures.
@@ -2128,7 +2128,7 @@ Remove the Zot push (`ci.yml:31`). README release steps are updated. There is no
 - `cosign verify ghcr.io/techdufus/dash@<digest> --certificate-identity-regexp '^https://github.com/TechDufus/dash/' --certificate-oidc-issuer https://token.actions.githubusercontent.com` succeeds.
 - A release run waits for the reviewer's approval on the `release` environment.
 
-**Dependencies:** P6.6, P5.1, P5.4. **External:** the homelab pulls its image from GHCR directly, optionally through a Zot pull-through cache (J.9).
+**Dependencies:** P6.6, P5.1, P5.4. **External:** the homelab pulls its image from GHCR directly, optionally through a pull-through cache (J.9).
 
 ### P6.8 docs: automate screenshots from demo mode
 
@@ -2161,7 +2161,7 @@ Remove the Zot push (`ci.yml:31`). README release steps are updated. There is no
 
 **Body:**
 
-- Apply the P0.2 history decision (J.8): keep the history, no squash. Right before going public, scrub the homelab identifiers with `git filter-repo`. This is a separate step: it is a history rewrite and force-push, and runs only after TechDufus gives an explicit go-ahead at that time.
+- Apply the P0.2 history decision (J.8): keep the history, no squash. The lab identifiers are scrubbed only from the current files; the history stays as it is (the owner decided this on 2026-11-06).
 - Run gitleaks and trufflehog over all refs one last time.
 - Confirm the denylist test is green.
 - Make GHCR packages public.
@@ -2172,7 +2172,7 @@ Remove the Zot push (`ci.yml:31`). README release steps are updated. There is no
 - The repo and packages are public.
 - `docker pull ghcr.io/techdufus/dash:<v>` works anonymously.
 - The first public release notes are published.
-- The scrub ran only after that explicit go-ahead, which is recorded in the issue.
+- The history is unchanged (no rewrite and no force-push), as the owner decided on 2026-11-06.
 
 **Dependencies:** everything else in this epic, except G7 (phase 7), which is not required for the public release.
 

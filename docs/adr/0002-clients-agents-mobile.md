@@ -2,7 +2,7 @@
 
 - Status: Accepted
 - Date: 2026-11-01
-- Deciders: TechDufus
+- Deciders: the owner
 
 ## Context
 

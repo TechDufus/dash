@@ -131,11 +131,6 @@ var allowlist = []allow{
 		"the landing page's copyright line and its link to the owner's GitHub profile"},
 }
 
-// excluded paths quote the identifiers by design (D1) until the P6.10 history scrub rewrites them.
-func excluded(rel string) bool {
-	return strings.HasPrefix(rel, "docs/design/") || strings.HasPrefix(rel, "docs/adr/")
-}
-
 // shipped says whether the file at rel is code that ships: Go files other than tests, and the web
 // app's sources other than its tests and test helpers; never testdata or node_modules.
 func shipped(rel string) bool {
@@ -167,14 +162,11 @@ func (h hit) String() string { return fmt.Sprintf("%s:%d: %q", h.file, h.line, h
 
 // scan reads each file of files under root and lists every denied term that no allowlist entry
 // excuses. Files are read as bytes, so invalid UTF-8 is still scanned; only a file with a NUL byte
-// counts as binary and is skipped. Excluded paths, directories (gitlinks) and files missing from
-// the worktree are skipped too.
+// counts as binary and is skipped. Directories (gitlinks) and files missing from the worktree are
+// skipped too.
 func scan(root string, files []string) ([]hit, error) {
 	var hits []hit
 	for _, rel := range files {
-		if excluded(rel) {
-			continue
-		}
 		p := filepath.Join(root, filepath.FromSlash(rel))
 		info, err := os.Stat(p)
 		if errors.Is(err, fs.ErrNotExist) {
@@ -316,7 +308,7 @@ func repoRoot(t *testing.T) string {
 	return root
 }
 
-// No tracked text file names the lab (P6.1), outside the design docs (D1) and the allowlist.
+// No tracked text file names the lab (P6.1), outside the allowlist.
 func TestNoLabIdentifiers(t *testing.T) {
 	root := repoRoot(t)
 	files, note, err := listFiles(root)
@@ -389,7 +381,8 @@ func sameHits(t *testing.T, got, want []string) {
 }
 
 // The scan itself, on a temp tree: every term hits, in each spelling it covers, and the
-// allowlisted forms, the excluded or binary files and longer words do not.
+// allowlisted forms and longer words do not; binary files are skipped, and the design docs are
+// scanned like the rest.
 func TestDenylistScanCatchesEveryTermAndHonoursTheAllowlist(t *testing.T) {
 	tr := newTree(t)
 
@@ -469,9 +462,11 @@ func TestDenylistScanCatchesEveryTermAndHonoursTheAllowlist(t *testing.T) {
 	tr.write("words.txt", j("unassigned unasked br", "730 shl", "-ops\n"))
 	// A flux namespace outside shipped code is fine.
 	tr.write("internal/x/x_test.go", j("package x\n\nconst ns = \"flux", "-system\"\n"))
-	// Excluded docs and binaries (a NUL byte) are skipped.
+	// Binaries (a NUL byte) are skipped; the design docs and ADRs are scanned like any other file.
 	tr.write("docs/design/d.md", j("mac", "-mini\n"))
+	want = append(want, hit{"docs/design/d.md", 1, j("mac", "-mini")}.String())
 	tr.write("docs/adr/0001.md", j("Deciders: ", owner, "\n"))
+	want = append(want, hit{"docs/adr/0001.md", 1, j("tech", "dufus")}.String())
 	tr.write("img.png", j("\x00\x01mac", "-mini"))
 
 	// Invalid UTF-8 is not binary: the term in it still hits.
