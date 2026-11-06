@@ -181,6 +181,14 @@ func (c Config) PublicHost(host string) bool {
 	return public != "" && normalizeHost(host) == public
 }
 
+// DirectHostMatcher returns a func reporting whether host (a Host header value, with or without
+// a port) is DirectURL's host, compared as HostMatcher compares; always false when DirectURL is
+// unset. That host bypasses the identity proxy, so no identity header is believed on it.
+func (c Config) DirectHostMatcher() func(host string) bool {
+	direct := directHost(c.DirectURL)
+	return func(host string) bool { return direct != "" && normalizeHost(host) == direct }
+}
+
 // normalizeHost strips a port and IPv6 brackets, lowercases and drops a trailing dot.
 func normalizeHost(host string) string {
 	if h, _, err := net.SplitHostPort(host); err == nil {

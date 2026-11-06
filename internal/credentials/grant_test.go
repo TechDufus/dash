@@ -220,3 +220,39 @@ func TestGrantWritesFailClosed(t *testing.T) {
 		t.Errorf("the retry: %v", err)
 	}
 }
+
+// An access token's use of a grant is noted in memory (NoteGrantUsed, UTC to the second),
+// listed by Grants at once and written by FlushLastUsed and Close, like a personal access
+// token's; noting writes nothing, and an older use never replaces a newer one.
+func TestGrantLastUsedIsFlushed(t *testing.T) {
+	dir := t.TempDir()
+	s := open(t, dir)
+	_, g, err := newGrant(t, s, "alice", t0)
+	must(t, err)
+	before, err := os.Stat(s.Path())
+	must(t, err)
+	used := t0.Add(time.Hour)
+	s.NoteGrantUsed(g.ID, used.In(time.FixedZone("x", 3600)).Add(400*time.Millisecond))
+	if after, _ := os.Stat(s.Path()); !os.SameFile(before, after) {
+		t.Error("noting a use wrote the file")
+	}
+	if got := s.Grants("alice"); got[0].LastUsedAt == nil || !got[0].LastUsedAt.Equal(used) || got[0].LastUsedAt.Location() != time.UTC {
+		t.Errorf("Grants lastUsedAt = %v, want %v in UTC to the second", got[0].LastUsedAt, used)
+	}
+	must(t, s.FlushLastUsed())
+	if got, _ := s.GrantByID(g.ID); got.LastUsedAt == nil || !got.LastUsedAt.Equal(used) {
+		t.Errorf("after the flush lastUsedAt = %v, want %v", got.LastUsedAt, used)
+	}
+	s.NoteGrantUsed(g.ID, t0)
+	must(t, s.FlushLastUsed())
+	if got, _ := s.GrantByID(g.ID); !got.LastUsedAt.Equal(used) {
+		t.Errorf("an older use replaced the newer one: %v", got.LastUsedAt)
+	}
+	later := used.Add(time.Hour)
+	s.NoteGrantUsed(g.ID, later)
+	must(t, s.Close())
+	s = open(t, dir)
+	if got, _ := s.GrantByID(g.ID); got.LastUsedAt == nil || !got.LastUsedAt.Equal(later) {
+		t.Errorf("after Close and a reopen lastUsedAt = %v, want %v", got.LastUsedAt, later)
+	}
+}

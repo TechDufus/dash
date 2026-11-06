@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"context"
 	"errors"
 	"log/slog"
 	"net/http"
@@ -88,22 +89,39 @@ type PeerTruster interface {
 	TrustsPeer(r *http.Request) bool
 }
 
-// TrustsPeer implements PeerTruster.
+// TrustsPeer implements PeerTruster. A request marked with DistrustPeer is never trusted.
 func (p *Proxy) TrustsPeer(r *http.Request) bool {
 	a, ok := PeerOf(r)
-	return ok && p.trust.Trusts(a)
+	return ok && !peerDistrusted(r) && p.trust.Trusts(a)
+}
+
+// distrustKey marks a request context whose peer is trusted by no Proxy (DistrustPeer).
+type distrustKey struct{}
+
+// DistrustPeer returns ctx marked so that a Proxy believes none of the request's identity
+// headers, whatever its peer, as if it came from outside the trusted set. The API marks the
+// requests addressed to server.directURL's host, which bypasses the identity proxy: defence in
+// depth should a route deliver them from a trusted address.
+func DistrustPeer(ctx context.Context) context.Context {
+	return context.WithValue(ctx, distrustKey{}, true)
+}
+
+func peerDistrusted(r *http.Request) bool {
+	d, _ := r.Context().Value(distrustKey{}).(bool)
+	return d
 }
 
 // Authenticate implements Authenticator. The order is the one of the design: a Bearer credential
 // is refused first and the identity headers play no part in it (the API resolves bearer tokens
-// before it asks this authenticator); then the TCP peer must be trusted before any identity
-// header is read; then the first user header names the user.
+// before it asks this authenticator); then the TCP peer must be trusted (and the request not
+// marked by DistrustPeer) before any identity header is read; then the first user header names
+// the user.
 func (p *Proxy) Authenticate(r *http.Request) (Principal, *Failure) {
 	if _, ok := Bearer(r); ok {
 		return Principal{}, &Failure{Status: http.StatusUnauthorized, Code: CodeInvalidToken, Reason: ReasonInvalidToken}
 	}
 	peer, ok := PeerOf(r)
-	if !ok || !p.trust.Trusts(peer) {
+	if !ok || peerDistrusted(r) || !p.trust.Trusts(peer) {
 		if !p.carriesIdentity(r.Header) {
 			return Principal{}, &Failure{Status: http.StatusUnauthorized, Code: CodeUnauthenticated, Reason: ReasonNoIdentity}
 		}

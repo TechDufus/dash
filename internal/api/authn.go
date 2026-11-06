@@ -77,10 +77,15 @@ func rateKey(p auth.Principal) string {
 
 // authenticate resolves a request's principal: a bearer credential first (bearer), then the
 // configured authenticator; a session mode's (auth.CookieAuthenticator) also returns the session
-// cookie the response must carry, nil when there is none to set.
+// cookie the response must carry, nil when there is none to set. On server.directURL's host,
+// which bypasses the identity proxy, the proxy mode believes no identity header, whatever the
+// peer (auth.DistrustPeer).
 func (s *Server) authenticate(r *http.Request) (auth.Principal, *http.Cookie, *auth.Failure) {
 	if p, fail, ok := s.bearer(r); ok {
 		return p, nil, fail
+	}
+	if s.directHost(r.Host) {
+		r = r.WithContext(auth.DistrustPeer(r.Context()))
 	}
 	if ca, ok := s.d.Auth.(auth.CookieAuthenticator); ok {
 		return ca.AuthenticateCookie(r)

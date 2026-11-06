@@ -96,6 +96,17 @@ func TestOAuthOffAnswers404(t *testing.T) {
 	}
 }
 
+// GET on the token and revoke endpoints is 405 with Allow: POST, an OAuth error body.
+func TestOAuthFormEndpointsAnswer405ToGet(t *testing.T) {
+	s := oauthServer(t, nil)
+	for _, p := range []string{"/oauth/token", "/oauth/revoke"} {
+		w := req{path: p}.do(s.Handler())
+		if w.Code != http.StatusMethodNotAllowed || w.Header().Get("Allow") != "POST" || !strings.Contains(w.Body.String(), `"error":"invalid_request"`) {
+			t.Errorf("GET %s = %d %v %s", p, w.Code, w.Header(), w.Body)
+		}
+	}
+}
+
 // The metadata documents are served, carry the listed origin's Access-Control-Allow-Origin
 // (never credentials), and an unknown resource is 404.
 func TestOAuthMetadataRoutes(t *testing.T) {
@@ -196,6 +207,44 @@ func TestOAuthPersonPagesAreNotOnTheDirectHost(t *testing.T) {
 	}
 	if w := (req{path: "/consent/abc"}).do(s.Handler()); strings.Contains(w.Body.String(), `"code":"not_found"`) {
 		t.Errorf("the consent page on the public host = %d %s", w.Code, w.Body)
+	}
+}
+
+// On server.directURL's host no identity header is believed, even from a trusted (loopback)
+// peer, and neither is an upstream request id: defence in depth should a route deliver the
+// direct host from the proxy's address. On the public host both still work.
+func TestIdentityHeadersAreRefusedOnTheDirectHost(t *testing.T) {
+	s := oauthServer(t, func(d *Deps) { d.Cfg.DirectURL = "https://dash-direct.example.com" })
+	rid := map[string]string{requestIDHeader: "upstream-1"}
+	for _, host := range []string{"dash-direct.example.com", "DASH-DIRECT.example.com.:443"} {
+		w := req{path: "/api/v1/me", host: host, header: rid}.do(s.Handler())
+		if w.Code != http.StatusUnauthorized || !strings.Contains(w.Body.String(), `"code":"unauthenticated"`) {
+			t.Errorf("identity headers on %s = %d %s", host, w.Code, w.Body)
+		}
+		if w.Header().Get(requestIDHeader) == "upstream-1" {
+			t.Errorf("the upstream request id was believed on %s", host)
+		}
+	}
+	w := req{path: "/api/v1/me", header: rid}.do(s.Handler())
+	if w.Code != http.StatusOK || w.Header().Get(requestIDHeader) != "upstream-1" {
+		t.Errorf("on the public host = %d %s, request id %q", w.Code, w.Body, w.Header().Get(requestIDHeader))
+	}
+}
+
+// A preflight of /oauth/authorize, a navigation, gets no Access-Control-* header, while the
+// token endpoint's still does.
+func TestOAuthAuthorizePreflightGetsNoCORS(t *testing.T) {
+	s := oauthServer(t, nil)
+	pre := map[string]string{"Origin": "https://inspector.example.com", "Access-Control-Request-Method": "GET"}
+	w := req{method: http.MethodOptions, path: authorizeURL("api", nil), header: pre, raw: true}.do(s.Handler())
+	for k := range w.Header() {
+		if strings.HasPrefix(k, "Access-Control-") {
+			t.Errorf("OPTIONS /oauth/authorize = %d with %s: %q", w.Code, k, w.Header().Get(k))
+		}
+	}
+	pre["Access-Control-Request-Method"] = "POST"
+	if w := (req{method: http.MethodOptions, path: "/oauth/token", header: pre, raw: true}).do(s.Handler()); w.Header().Get("Access-Control-Allow-Origin") != "https://inspector.example.com" {
+		t.Errorf("OPTIONS /oauth/token = %d %v", w.Code, w.Header())
 	}
 }
 

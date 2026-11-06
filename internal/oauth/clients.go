@@ -56,7 +56,8 @@ var errUnknownClient = errors.New("unknown client")
 var errNotFetched = errors.New("the client's metadata document is not fetched for an anonymous caller")
 
 // client resolves a client_id: dash-android, an auth.oauth.clients entry, or the https URL of a
-// client ID metadata document, fetched only when fetch is set (errNotFetched otherwise).
+// client ID metadata document, fetched only when fetch is set (errNotFetched otherwise). An
+// http URL is refused with the reason, so its developer learns what to change.
 func (s *Server) client(ctx context.Context, id string, fetch bool) (*Client, error) {
 	if id == model.OAuthClientAndroid {
 		c := android
@@ -66,8 +67,11 @@ func (s *Server) client(ctx context.Context, id string, fetch bool) (*Client, er
 		return &Client{ID: c.ClientID, Name: c.Name, Kind: model.OAuthClientKindConfig,
 			RedirectURIs: slices.Clone(c.RedirectURIs), Audiences: slices.Clone(c.Audiences)}, nil
 	}
-	if strings.HasPrefix(id, "https://") {
+	switch {
+	case strings.HasPrefix(id, "https://"):
 		return s.cimd.get(ctx, id, fetch)
+	case len(id) >= len("http://") && strings.EqualFold(id[:len("http://")], "http://"):
+		return nil, fmt.Errorf("%w: client metadata URLs must be https", errUnknownClient)
 	}
 	return nil, errUnknownClient
 }

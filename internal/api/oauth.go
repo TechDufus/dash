@@ -27,6 +27,7 @@ import (
 const (
 	auditGrantCreate = "oauth.grant.create"
 	auditGrantRevoke = "oauth.grant.revoke"
+	auditGrantExpire = "oauth.grant.expire"
 )
 
 // The /oauth/token and /oauth/revoke limit (contract G7-R3): per grant for a refresh, else per
@@ -50,6 +51,8 @@ func (s *Server) oauthRoutes() []Route {
 		{Method: "GET", Path: "/oauth/authorize", Infra: true, Handler: s.oauthAuthorize},
 		{Method: "POST", Path: "/oauth/token", Infra: true, Handler: s.oauthToken},
 		{Method: "POST", Path: "/oauth/revoke", Infra: true, Handler: s.oauthRevoke},
+		{Path: "/oauth/token", Infra: true, Handler: s.oauthPostOnly},
+		{Path: "/oauth/revoke", Infra: true, Handler: s.oauthPostOnly},
 		{Path: "/oauth/", Infra: true, Handler: notFound},
 		{Method: "GET", Path: "/consent", Infra: true, Handler: s.consentPage},
 		{Method: "GET", Path: "/consent/", Infra: true, Handler: s.consentPage},
@@ -62,6 +65,18 @@ func oauthFormEndpoint(p string) bool { return p == "/oauth/token" || p == "/oau
 
 func notFound(w http.ResponseWriter, _ *http.Request) {
 	writeErr(w, http.StatusNotFound, model.ErrCodeNotFound, "not found")
+}
+
+// oauthPostOnly answers another method than POST on /oauth/token and /oauth/revoke: 405 with
+// Allow: POST, so a developer who opens one in a browser learns how to call it (404 without
+// the server, as the endpoints themselves).
+func (s *Server) oauthPostOnly(w http.ResponseWriter, r *http.Request) {
+	if s.d.OAuth == nil {
+		notFound(w, r)
+		return
+	}
+	w.Header().Set("Allow", http.MethodPost)
+	writeJSON(w, http.StatusMethodNotAllowed, &oauth.Error{Code: "invalid_request", Description: r.URL.Path + " takes a POST form"})
 }
 
 // oauthCORSPath reports whether a listed origin may read the answer at p whoever asks (design
@@ -222,6 +237,16 @@ func grantActor(g credentials.Grant) audit.Actor {
 // grantTarget is the audit target of a grant: its user's, named by its ID.
 func grantTarget(g credentials.Grant) audit.Target {
 	return audit.Target{Kind: "grant", Namespace: g.User, Name: g.ID}
+}
+
+// auditGrantExpired records a grant dash revoked because its authorization code expired before
+// it was exchanged (oauth.Server.OnGrantExpired). It is an event, not an intent: nothing a person
+// did waits on it, so an audit outage blocks nothing.
+func (s *Server) auditGrantExpired(g credentials.Grant) {
+	s.d.Audit.Event(audit.Record{
+		Action: auditGrantExpire, Target: grantTarget(g), AuthMode: s.authMode(auth.Principal{}),
+		Actor: audit.Actor{Type: "system", User: "dash"}, Reason: "code_expired",
+	})
 }
 
 // oauthToken answers /oauth/token (RFC 6749 3.2): the code exchange with PKCE and the refresh

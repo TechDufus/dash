@@ -132,7 +132,8 @@ func (r *Resolver) Resolve(token, audience string) (auth.Principal, error) {
 // resolveAccess resolves an OAuth access token: sealed by the server, not expired, its grant
 // still there and active (a revoked grant ends its access tokens at once), at its audience. The
 // role is derived from the groups and role-claim value the grant recorded, against the current
-// mapping, and the token's scopes are narrowed to the grant's.
+// mapping, and the token's scopes are narrowed to the grant's. A token that passed notes a use
+// of its grant (Connected apps' "Last used"), as a personal access token does.
 func (r *Resolver) resolveAccess(token, audience string) (auth.Principal, error) {
 	if r.oauth == nil {
 		return auth.Principal{}, ErrInvalid
@@ -141,8 +142,9 @@ func (r *Resolver) resolveAccess(token, audience string) (auth.Principal, error)
 	if err != nil {
 		return auth.Principal{}, ErrInvalid
 	}
+	now := r.now()
 	g, ok := r.store.GrantByID(a.GrantID)
-	if !ok || !g.Active(r.now()) || g.Audience != a.Audience {
+	if !ok || !g.Active(now) || g.Audience != a.Audience {
 		return auth.Principal{}, ErrInvalid
 	}
 	if g.Audience != audience {
@@ -158,6 +160,7 @@ func (r *Resolver) resolveAccess(token, audience string) (auth.Principal, error)
 			scopes = append(scopes, sc)
 		}
 	}
+	r.store.NoteGrantUsed(g.ID, now)
 	return auth.Principal{
 		Kind: auth.KindToken, User: g.User, Role: role, Via: "bearer", Groups: g.Groups, RoleClaim: g.RoleClaim,
 		GrantID: g.ID, ClientID: g.ClientID, Audience: g.Audience, Scopes: scopes,

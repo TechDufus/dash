@@ -24,8 +24,9 @@ const (
 //     request, so a client can read the challenge. A Bearer header alone grants nothing: the
 //     decision is the resolved principal's (the CSRF rule of contract D3, applied to CORS);
 //   - every answer on the OAuth metadata documents and the token and revoke endpoints gets
-//     them too (oauthCORSPath): a browser-based client calls those without a credential. Never
-//     /oauth/authorize, a navigation.
+//     them too (oauthCORSPath): a browser-based client calls those without a credential.
+//
+// /oauth/authorize, a navigation, gets no Access-Control-* header at all, a preflight included.
 //
 // Access-Control-Allow-Credentials is never sent: cookies and the identity proxy's session stay
 // same-origin, so the web UI's own requests are never readable cross-origin.
@@ -36,7 +37,7 @@ func (s *Server) cors(next http.Handler) http.Handler {
 	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		origin := r.Header.Get("Origin")
-		if origin == "" || !slices.Contains(origins, origin) {
+		if origin == "" || !slices.Contains(origins, origin) || r.URL.Path == "/oauth/authorize" {
 			next.ServeHTTP(w, r)
 			return
 		}

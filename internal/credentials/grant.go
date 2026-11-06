@@ -63,8 +63,10 @@ type Grant struct {
 	CreatedAt   time.Time `json:"createdAt"`
 	ExpiresAt   time.Time `json:"expiresAt"` // CreatedAt + GrantLifetime
 	// RefreshedAt is the consent or the last refresh: the grant ends GrantIdle after it.
-	RefreshedAt time.Time  `json:"refreshedAt"`
-	LastUsedAt  *time.Time `json:"lastUsedAt,omitempty"` // the last refresh; nil before one
+	RefreshedAt time.Time `json:"refreshedAt"`
+	// LastUsedAt is the last refresh or request with one of its access tokens (NoteGrantUsed,
+	// written with the personal access tokens' last use); nil before either.
+	LastUsedAt *time.Time `json:"lastUsedAt,omitempty"`
 }
 
 // Active reports whether the grant has neither reached its absolute expiry nor been idle for
@@ -212,7 +214,8 @@ func activeGrantsOf(grants map[string]Grant, user string, now time.Time) int {
 	return n
 }
 
-// Grants lists the grants of user, or every user's for "", oldest first.
+// Grants lists the grants of user, or every user's for "", oldest first, with the lastUsedAt
+// times not flushed yet.
 func (s *Store) Grants(user string) []Grant {
 	s.mu.RLock()
 	out := make([]Grant, 0, len(s.doc.Grants))
@@ -222,6 +225,13 @@ func (s *Store) Grants(user string) []Grant {
 		}
 	}
 	s.mu.RUnlock()
+	s.usedMu.Lock()
+	for i := range out {
+		if t, ok := s.grantUsed[out[i].ID]; ok && (out[i].LastUsedAt == nil || t.After(*out[i].LastUsedAt)) {
+			out[i].LastUsedAt = &t
+		}
+	}
+	s.usedMu.Unlock()
 	slices.SortFunc(out, func(a, b Grant) int {
 		return cmp.Or(a.CreatedAt.Compare(b.CreatedAt), strings.Compare(a.ID, b.ID))
 	})

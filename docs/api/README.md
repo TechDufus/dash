@@ -45,7 +45,9 @@ for public clients. Its endpoints are outside `/api` and not in the OpenAPI docu
 | `POST /oauth/revoke` (form) | RFC 7009: `token` (an access or refresh token) and `client_id` revoke the token's grant; always 200, except 503 when the audit log cannot be written (nothing changes) and 429 as above |
 
 The token and revoke endpoints take no CSRF header, and a listed `server.corsOrigins` origin may
-read them and the metadata; `/oauth/authorize` never carries `Access-Control-Allow-Origin`.
+read them and the metadata; another method than `POST` on them is 405 with `Allow: POST`.
+`/oauth/authorize` never carries an `Access-Control-*` header, not even to a preflight. A
+`client_id` that is an `http://` URL is `invalid_client` ("client metadata URLs must be https").
 
 The consent page and Settings → Connected apps use routes in the OpenAPI document (tag `OAuth`),
 all for people only and CSRF-checked: `GET`/`POST /api/v1/oauth/consents/{id}` (404 for an

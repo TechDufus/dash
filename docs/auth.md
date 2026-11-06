@@ -442,7 +442,8 @@ Agent from agent.example.com?").
    denying with `error=access_denied`.
 4. The client exchanges the code (60 seconds, once) with its `code_verifier` at `/oauth/token`
    for an access token and a refresh token. A wrong verifier, client or redirect URI, or a code
-   used twice, revokes what the code made.
+   used twice, revokes what the code made. A code never exchanged takes its grant with it; the
+   audit log records that as `oauth.grant.expire` (reason `code_expired`).
 
 **Tokens.** An access token is `dash_at_<base64url>`, lives 15 minutes and is sealed with
 XChaCha20-Poly1305 under a key derived from `DASH_SECRET_KEY` and the salt in `credentials.yaml`:
@@ -455,8 +456,10 @@ after its last refresh and 180 days after the consent. `/oauth/revoke` (RFC 7009
 token and revokes the whole grant; a refresh token is never a bearer credential.
 
 **Connected apps.** Each consent is a grant: Settings → Connected apps (`/settings/connected-apps`)
-lists yours (client, audience, scopes, created and last used) with a revoke button, and an
-administrator sees and revokes everyone's. A user holds at most 20 grants (409 `grant_limit`).
+lists yours (client, audience, scopes, created and last used: the last refresh or request with
+one of its access tokens, written to `credentials.yaml` like a personal access token's, at most
+five minutes late) with a revoke button, and an administrator sees and revokes everyone's. A
+user holds at most 20 grants (409 `grant_limit`).
 Grants follow the identity provider like personal access tokens: the groups and role-claim value
 they record are rewritten at the user's next login (`local`, `oidc`) or next request (`proxy`).
 Removing a user at the identity provider does not reach grants they no longer use

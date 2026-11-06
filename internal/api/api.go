@@ -141,7 +141,8 @@ type Server struct {
 	cspMode     cspMode // server.csp; "" enforces (a Config that never went through the resolver)
 	iconSrc     string  // the img-src source of ui.iconBaseURL, computed once ("" = none)
 	static      fs.FS
-	pwa         map[string]pwaFile // headers of sw.js and offline.html in static, computed once
+	pwa         map[string]pwaFile     // headers of sw.js and offline.html in static, computed once
+	directHost  func(host string) bool // server.directURL's host, where no identity header is believed
 	now         func() time.Time
 	heartbeat   time.Duration
 	events      *streamLimiter   // open /api/v1/stream connections
@@ -172,12 +173,13 @@ func New(d Deps) *Server {
 		panic(err)
 	}
 	l := withDefaultLimits(d.Cfg.Limits)
-	return &Server{
+	s := &Server{
 		d: d, static: dist, pwa: pwaFiles(dist), now: time.Now, heartbeat: 15 * time.Second, cspMode: cspMode(d.Cfg.CSP),
-		iconSrc: iconSourceOrWarn(d.Cfg.IconBaseURL, cspMode(d.Cfg.CSP), slog.Default()),
-		events:  newStreamLimiter(l.StreamsPerUser, l.Streams),
-		tails:   newStreamLimiter(l.TailsPerUser, l.Tails),
-		tailMax: l.TailMaxDuration, sseWrite: l.SSEWriteTimeout, bodyTimeout: l.BodyReadTimeout,
+		directHost: d.Cfg.DirectHostMatcher(),
+		iconSrc:    iconSourceOrWarn(d.Cfg.IconBaseURL, cspMode(d.Cfg.CSP), slog.Default()),
+		events:     newStreamLimiter(l.StreamsPerUser, l.Streams),
+		tails:      newStreamLimiter(l.TailsPerUser, l.Tails),
+		tailMax:    l.TailMaxDuration, sseWrite: l.SSEWriteTimeout, bodyTimeout: l.BodyReadTimeout,
 		actionLimit: newRateLimiter(actionRateLimit, actionRateWindow, maxRateKeys),
 		tokenLimit:  newTokenBucket(tokenRate, tokenBurst, maxRateKeys),
 		createLimit: newRateLimiter(tokenCreateLimit, tokenCreateWindow, maxRateKeys),
@@ -186,6 +188,10 @@ func New(d Deps) *Server {
 		openTarget:  newRateLimiter(1, openRecordWindow, maxRateKeys),
 		openUser:    newRateLimiter(openRecordPerUser, openRecordWindow, maxRateKeys),
 	}
+	if d.OAuth != nil {
+		d.OAuth.OnGrantExpired(s.auditGrantExpired)
+	}
+	return s
 }
 
 // Handler is the API plus the SPA, for the loopback listener. The chain is request id, security

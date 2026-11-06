@@ -1038,7 +1038,8 @@ export interface OAuthGrantInfo {
   createdAt: string;
   expiresAt: string;
   /**
-   * LastUsedAt is when the client last refreshed its access token; null when it never did.
+   * LastUsedAt is when the client last used the grant: a refresh, or a request with one of
+   * its access tokens (to within five minutes); null when it never did.
    */
   lastUsedAt: string | null;
 }

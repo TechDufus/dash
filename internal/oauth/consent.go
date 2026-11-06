@@ -35,7 +35,7 @@ func offered(req []string, p auth.Principal) []string {
 }
 
 // claimLocked returns the pending request id for p: only the person who sent it sees it, and it
-// is unknown to everyone else. s.mu is held.
+// is unknown to everyone else. s.mu is held; the caller defers revokeExpired.
 func (s *Server) claimLocked(id string, p auth.Principal, now time.Time) (*pending, error) {
 	s.sweepLocked(now)
 	pr, ok := s.pending[id]
@@ -48,6 +48,7 @@ func (s *Server) claimLocked(id string, p auth.Principal, now time.Time) (*pendi
 // Consent is the authorization request id as the consent page shows it to p. Only read is
 // ticked in advance. ErrNothingToGrant when p may grant none of the scopes asked for.
 func (s *Server) Consent(id string, p auth.Principal) (model.OAuthConsent, error) {
+	defer s.revokeExpired()
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	pr, err := s.claimLocked(id, p, s.now())
@@ -74,6 +75,7 @@ func (s *Server) Consent(id string, p auth.Principal) (model.OAuthConsent, error
 // changes nothing. credentials.ErrTooManyGrants past the limit; the request stays pending then.
 func (s *Server) Approve(id string, p auth.Principal, scopes []string, before func(credentials.Grant) error) (string, error) {
 	now := s.now()
+	defer s.revokeExpired()
 	s.mu.Lock()
 	pr, err := s.claimLocked(id, p, now)
 	if err != nil {
@@ -145,6 +147,7 @@ func (s *Server) Approve(id string, p auth.Principal, scopes []string, before fu
 
 // Deny refuses request id for p: the client gets error=access_denied with state and iss.
 func (s *Server) Deny(id string, p auth.Principal) (string, error) {
+	defer s.revokeExpired()
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	pr, err := s.claimLocked(id, p, s.now())

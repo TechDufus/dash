@@ -58,6 +58,11 @@ var special = []netip.Prefix{
 	netip.MustParsePrefix("5f00::/16"),       // segment routing SIDs
 }
 
+// global6 is the IPv6 global unicast space (RFC 4291 2.4): every other IPv6 address that is
+// neither loopback nor private (handled before) is refused, the IPv4-compatible ::/96 and the
+// IPv4-translated ::ffff:0:0:0/96 among them, which embed an IPv4 address the guard cannot see.
+var global6 = netip.MustParsePrefix("2000::/3")
+
 // Check reports why a connection to ip is refused, or nil. Only global unicast addresses pass.
 // allowPrivate (auth.oauth.cimdAllowPrivate) also passes private (RFC 1918, CGNAT, ULA) and
 // loopback addresses; link-local addresses, which hold the cloud metadata service, the
@@ -89,7 +94,7 @@ func Check(ip netip.Addr, allowPrivate bool) error {
 			return refused("special-purpose")
 		}
 	}
-	if !ip.IsGlobalUnicast() {
+	if !ip.IsGlobalUnicast() || (ip.Is6() && !global6.Contains(ip)) {
 		return refused("non-global")
 	}
 	return nil

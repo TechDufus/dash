@@ -79,7 +79,8 @@ type OAuthGrantInfo struct {
 	// client refreshes. A grant unused for 30 days ends earlier.
 	CreatedAt time.Time `json:"createdAt" dash:"required"`
 	ExpiresAt time.Time `json:"expiresAt" dash:"required"`
-	// LastUsedAt is when the client last refreshed its access token; null when it never did.
+	// LastUsedAt is when the client last used the grant: a refresh, or a request with one of
+	// its access tokens (to within five minutes); null when it never did.
 	LastUsedAt *time.Time `json:"lastUsedAt" dash:"required,nullable" tstype:"string | null,required"`
 }
 

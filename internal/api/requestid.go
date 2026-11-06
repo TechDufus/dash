@@ -54,8 +54,12 @@ func newRequestID() string {
 
 // peerTrusted reports whether the TCP peer is one whose headers dash believes: the trusted set
 // of an authenticator that has one (the proxy mode), otherwise the loopback, where a sidecar
-// proxy of a process-mode dash connects from.
+// proxy of a process-mode dash connects from. Never on server.directURL's host, which bypasses
+// the identity proxy.
 func (s *Server) peerTrusted(r *http.Request) bool {
+	if s.directHost(r.Host) {
+		return false
+	}
 	if t, ok := s.d.Auth.(auth.PeerTruster); ok {
 		return t.TrustsPeer(r)
 	}

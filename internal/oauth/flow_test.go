@@ -170,16 +170,39 @@ func TestCodeExchangeChecks(t *testing.T) {
 	}
 }
 
-// A code lives 60 seconds; one never exchanged takes the grant of its consent with it.
+// A code lives 60 seconds; one never exchanged takes the grant of its consent with it, and
+// OnGrantExpired learns of that grant once, after the sweep.
 func TestCodeExpiry(t *testing.T) {
 	s, store, now := testServer(t, nil)
+	var expired []credentials.Grant
+	s.OnGrantExpired(func(g credentials.Grant) {
+		if !s.mu.TryLock() {
+			t.Error("the grant was revoked under the server's mutex")
+		} else {
+			s.mu.Unlock()
+		}
+		expired = append(expired, g)
+	})
 	code := approve(t, s, consentID(t, s, nil), alice, "read").Get("code")
+	gid := store.Grants("")[0].ID
 	*now = now.Add(CodeTTL)
 	if _, _, oe := exchange(s, code, nil); oe == nil || oe.Code != "invalid_grant" {
 		t.Errorf("expired code: %v", oe)
 	}
 	if n := len(store.Grants("")); n != 0 {
 		t.Errorf("%d grants left by an unused code", n)
+	}
+	if len(expired) != 1 || expired[0].ID != gid || expired[0].User != "alice" {
+		t.Errorf("expired = %+v, want the grant %s once", expired, gid)
+	}
+	// An exchanged code's grant is not expired by the sweep.
+	if _, _, oe := exchange(s, approve(t, s, consentID(t, s, nil), alice, "read").Get("code"), nil); oe != nil {
+		t.Fatal(oe)
+	}
+	*now = now.Add(CodeTTL)
+	consentID(t, s, nil)
+	if len(expired) != 1 || len(store.Grants("")) != 1 {
+		t.Errorf("after an exchanged code expired: expired %d, grants %d", len(expired), len(store.Grants("")))
 	}
 }
 

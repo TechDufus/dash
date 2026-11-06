@@ -213,6 +213,14 @@ func TestAuthorizeRedirectMatch(t *testing.T) {
 	if _, err := s.Authorize(context.Background(), authReq(func(q url.Values) { q.Set("client_id", "nobody") }), nil, aliceCaller); err == nil {
 		t.Error("an unknown client was accepted")
 	}
+	// An http metadata URL is refused with the reason, whoever asks.
+	for _, id := range []string{"http://app.example.com/client.json", "HTTP://app.example.com/client.json"} {
+		_, err := s.Authorize(context.Background(), authReq(func(q url.Values) { q.Set("client_id", id) }), nil, Caller{})
+		var oe *Error
+		if !errors.As(err, &oe) || oe.Code != "invalid_client" || !strings.Contains(oe.Description, "client metadata URLs must be https") {
+			t.Errorf("%s: %v, want invalid_client naming https", id, err)
+		}
+	}
 }
 
 // dash-android may ask for approvals and push, on the api resource only.

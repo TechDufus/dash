@@ -103,10 +103,12 @@ type Store struct {
 	file   os.FileInfo
 	warned bool
 
-	// used holds the lastUsedAt times of tokens not written yet (FlushLastUsed), under its own
-	// mutex so a request never waits for a write.
-	usedMu sync.Mutex
-	used   map[string]time.Time
+	// used and grantUsed hold the lastUsedAt times of personal access tokens and of OAuth
+	// grants (their access tokens) not written yet (FlushLastUsed), under their own mutex so a
+	// request never waits for a write.
+	usedMu    sync.Mutex
+	used      map[string]time.Time
+	grantUsed map[string]time.Time
 }
 
 // Open opens the store of dir. A writable dir gives a persistent store: it takes the flock

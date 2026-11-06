@@ -117,6 +117,7 @@ func pkceMatches(verifier, challenge string) bool {
 func (s *Server) exchangeCode(form url.Values, clientID string) (*TokenResponse, *TokenEvent, *Error) {
 	value, _ := single(form, "code")
 	now := s.now()
+	defer s.revokeExpired()
 	s.mu.Lock()
 	s.sweepLocked(now)
 	c, ok := s.codes[value]

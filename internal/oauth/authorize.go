@@ -151,6 +151,7 @@ func (s *Server) Authorize(ctx context.Context, q url.Values, actions []string, 
 		return AuthorizeResult{}, err
 	}
 	now := s.now()
+	defer s.revokeExpired()
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.sweepLocked(now)
@@ -206,8 +207,9 @@ func (s *Server) requestedScopes(c *Client, audience, raw string, actions []stri
 	return scopes, ""
 }
 
-// sweepLocked forgets expired pending requests and codes. A code that expired unused revokes
-// the grant its consent created, which no client can use any more. s.mu is held.
+// sweepLocked forgets expired pending requests and codes. A code that expired unused queues
+// the grant its consent created, which no client can use any more, for revokeExpired. s.mu is
+// held.
 func (s *Server) sweepLocked(now time.Time) {
 	for id, p := range s.pending {
 		if !now.Before(p.expires) {
@@ -220,7 +222,22 @@ func (s *Server) sweepLocked(now time.Time) {
 		}
 		delete(s.codes, c)
 		if !cd.used {
-			_, _, _ = s.store.RevokeGrant(cd.grantID)
+			s.expired = append(s.expired, cd.grantID)
+		}
+	}
+}
+
+// revokeExpired revokes the grants sweepLocked queued, outside s.mu, and reports each one it
+// removed to onExpire. Every method that sweeps defers it before taking s.mu.
+func (s *Server) revokeExpired() {
+	s.mu.Lock()
+	ids := s.expired
+	s.expired = nil
+	s.mu.Unlock()
+	for _, id := range ids {
+		g, ok, _ := s.store.RevokeGrant(id)
+		if ok && s.onExpire != nil {
+			s.onExpire(g)
 		}
 	}
 }

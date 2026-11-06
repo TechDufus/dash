@@ -86,7 +86,17 @@ type Server struct {
 	mu      sync.Mutex
 	pending map[string]*pending
 	codes   map[string]*code
+	// expired are the grants of codes that expired unexchanged (sweepLocked), revoked by
+	// revokeExpired once s.mu is released, so no file write happens under it.
+	expired []string
+
+	// onExpire learns of each grant revokeExpired removed; set before serving.
+	onExpire func(credentials.Grant)
 }
+
+// OnGrantExpired sets f to learn of every grant revoked because its authorization code expired
+// before it was exchanged (the API audits it as oauth.grant.expire). Call it before serving.
+func (s *Server) OnGrantExpired(f func(credentials.Grant)) { s.onExpire = f }
 
 // New builds a server.
 func New(o Options) (*Server, error) {

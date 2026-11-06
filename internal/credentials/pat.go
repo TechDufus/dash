@@ -346,26 +346,44 @@ func (s *Store) NoteUsed(id string, now time.Time) {
 	s.used[id] = now.UTC().Truncate(time.Second)
 }
 
-// FlushLastUsed writes the lastUsedAt times noted since the last flush. No use, no write.
+// NoteGrantUsed records in memory that an access token of grant id authenticated a request at
+// now, as NoteUsed does for a personal access token; FlushLastUsed writes it.
+func (s *Store) NoteGrantUsed(id string, now time.Time) {
+	s.usedMu.Lock()
+	defer s.usedMu.Unlock()
+	if s.grantUsed == nil {
+		s.grantUsed = map[string]time.Time{}
+	}
+	s.grantUsed[id] = now.UTC().Truncate(time.Second)
+}
+
+// FlushLastUsed writes the lastUsedAt times of tokens and grants noted since the last flush.
+// No use, no write.
 func (s *Store) FlushLastUsed() error {
 	s.usedMu.Lock()
-	pending := make(map[string]time.Time, len(s.used))
-	for id, t := range s.used {
-		pending[id] = t
-	}
+	pats, grants := maps.Clone(s.used), maps.Clone(s.grantUsed)
 	s.usedMu.Unlock()
-	if len(pending) == 0 {
+	if len(pats) == 0 && len(grants) == 0 {
 		return nil
 	}
 	err := s.update(false, func(d *document) bool {
 		changed := false
-		for id, t := range pending {
+		for id, t := range pats {
 			p, ok := d.PATs[id]
 			if !ok || (p.LastUsedAt != nil && !t.After(*p.LastUsedAt)) {
 				continue
 			}
 			p.LastUsedAt = &t
 			d.PATs[id] = p
+			changed = true
+		}
+		for id, t := range grants {
+			g, ok := d.Grants[id]
+			if !ok || (g.LastUsedAt != nil && !t.After(*g.LastUsedAt)) {
+				continue
+			}
+			g.LastUsedAt = &t
+			d.Grants[id] = g
 			changed = true
 		}
 		return changed
@@ -375,13 +393,18 @@ func (s *Store) FlushLastUsed() error {
 	}
 	// Forget what was written, unless a newer use came in meanwhile.
 	s.usedMu.Lock()
-	for id, t := range pending {
-		if s.used[id].Equal(t) {
-			delete(s.used, id)
-		}
-	}
+	forgetWritten(s.used, pats)
+	forgetWritten(s.grantUsed, grants)
 	s.usedMu.Unlock()
 	return nil
+}
+
+func forgetWritten(noted, written map[string]time.Time) {
+	for id, t := range written {
+		if noted[id].Equal(t) {
+			delete(noted, id)
+		}
+	}
 }
 
 // RunLastUsedFlush flushes the lastUsedAt times every interval until ctx ends. Close flushes

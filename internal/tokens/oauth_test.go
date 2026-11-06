@@ -41,14 +41,23 @@ func TestResolveOAuthAccess(t *testing.T) {
 		t.Errorf("without an OAuth server: %v", err)
 	}
 	r.SetOAuth(opener{oauth.Access{GrantID: id, Audience: "api", Scopes: []string{"read", "logs"}}})
+	clock = now.Add(time.Minute)
+	if _, err := r.Resolve(tok, "mcp"); !errors.As(err, new(*AudienceError)) {
+		t.Errorf("at mcp: %v", err)
+	}
+	if l := store.Grants("vera"); l[0].LastUsedAt != nil {
+		t.Errorf("a refused token noted a use: %v", l[0].LastUsedAt)
+	}
 	p, err := r.Resolve(tok, "api")
 	if err != nil || p.Kind != auth.KindToken || p.User != "vera" || p.Role != auth.RoleAdmin || p.GrantID != id || p.ClientID != "inspector" ||
 		!slices.Equal(p.Scopes, []string{"read"}) || p.TokenID != "" {
 		t.Fatalf("principal = %+v, %v", p, err)
 	}
-	if _, err := r.Resolve(tok, "mcp"); !errors.As(err, new(*AudienceError)) {
-		t.Errorf("at mcp: %v", err)
+	// Connected apps' "Last used" is the access token's use, not only the last refresh.
+	if l := store.Grants("vera"); l[0].LastUsedAt == nil || !l[0].LastUsedAt.Equal(clock) {
+		t.Errorf("lastUsedAt after a request = %v, want %v", l[0].LastUsedAt, clock)
 	}
+	clock = now
 	roles.Store(auth.RoleMap{})
 	if p, _ := r.Resolve(tok, "api"); p.Role != auth.RoleViewer {
 		t.Errorf("after a mapping change: role %q", p.Role)

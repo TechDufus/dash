@@ -269,12 +269,13 @@ routes:
 - **Why it is safe:** dash still believes identity headers from the loopback only
   (`config.auth.proxy.trustedProxies` stays `[127.0.0.1/32, ::1/128]`), where only the sidecar
   connects from. A request on the direct host arrives from the ingress controller's pod IP, so
-  any `X-Forwarded-User` it carries is refused with 401: that host authenticates bearer tokens
-  and nothing else, and the browser pages there sign nobody in. Rendering refuses
-  `config.auth.proxy.trustedProxies` and `allowAnyPeer`, `config.server.directURL`, and their
-  variables (`DASH_AUTH_PROXY_TRUSTED_PROXIES`, `DASH_AUTH_PROXY_ALLOW_ANY_PEER`,
-  `DASH_SERVER_DIRECT_URL`, and their `_FILE` forms) with `routes.direct`, and `auth.mode: none`
-  (every client of the host would be an administrator).
+  any `X-Forwarded-User` it carries is refused with 401; dash also refuses identity headers on
+  a request addressed to the direct host whatever its peer, the loopback included. That host
+  authenticates bearer tokens and nothing else, and the browser pages there sign nobody in.
+  Rendering refuses `config.auth.proxy.trustedProxies` and `allowAnyPeer`,
+  `config.server.directURL`, and their variables (`DASH_AUTH_PROXY_TRUSTED_PROXIES`,
+  `DASH_AUTH_PROXY_ALLOW_ANY_PEER`, `DASH_SERVER_DIRECT_URL`, and their `_FILE` forms) with
+  `routes.direct`, and `auth.mode: none` (every client of the host would be an administrator).
 - **One replica:** tokens and OAuth grants live in each pod's `credentials.yaml`, so a token
   created through one replica would be unknown to the others. Rendering refuses `routes.direct`
   with `replicaCount` above 1.

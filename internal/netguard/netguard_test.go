@@ -46,6 +46,14 @@ func TestCheck(t *testing.T) {
 		{"64:ff9b::a00:1", false, false},
 		{"2002:a00:1::1", false, false},
 		{"2001:0:a00:1::1", false, false},
+		// IPv6 passes only inside 2000::/3: the IPv4-compatible ::/96 and IPv4-translated
+		// ::ffff:0:0:0/96 embed an IPv4 address, and the rest is unassigned.
+		{"::a00:1", false, false},
+		{"::808:808", false, false},
+		{"::ffff:0:a00:1", false, false},
+		{"::ffff:0:808:808", false, false},
+		{"4000::1", false, false},
+		{"1000::1", false, false},
 	} {
 		ip := netip.MustParseAddr(tc.addr)
 		if got := Check(ip, false) == nil; got != tc.global {
