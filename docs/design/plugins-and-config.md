@@ -1308,10 +1308,10 @@ jobs:
 
   release:
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: [check, scan]
+    needs: [check, scan, smoke, kind]   # as shipped (v0.14.11); this sketch listed only check and scan
     runs-on: ubuntu-24.04
     timeout-minutes: 30
-    environment: release            # required reviewer (repository setting) before publishing
+    environment: release            # sketch: required reviewer; as shipped (v0.14.11): no reviewer, a tag ruleset gates the tags
     permissions:
       contents: read
       packages: write               # push to ghcr.io with GITHUB_TOKEN
@@ -1384,7 +1384,7 @@ Notes:
 - Demo mode ships in the normal image and is switched on by `DASH_DEMO` or a config flag. The workflow builds no `:demo` tag (decision J.15).
 - Test matrix (decision J.18): the kubernetes, flux and cnpg plugin tests run against the last 3 Kubernetes minor versions, with current Flux v2 and Gateway API v1 CRDs; the proxmox plugin tests cover Proxmox VE 8 and 9 through recorded API fixtures.
 - Cosign keyless signing is required, not optional. Users can verify with `cosign verify ghcr.io/techdufus/dash@<digest> --certificate-identity-regexp '^https://github.com/TechDufus/dash/' --certificate-oidc-issuer https://token.actions.githubusercontent.com`.
-- The `release` environment has a required reviewer, and a tag ruleset restricts creating `v*` tags to the owner, so a compromised workflow or collaborator cannot publish a release alone.
+- The `release` environment has a required reviewer, and a tag ruleset restricts creating `v*` tags to the owner, so a compromised workflow or collaborator cannot publish a release alone. As shipped (v0.14.11): no reviewer; a tag ruleset limits who can create `v*` tags.
 - Every install of web dependencies uses `npm ci --ignore-scripts` (Makefile, Dockerfile and CI), so a dependency's install script never runs in the build. The `shadcn` CLI moves from runtime to dev dependencies (clients-and-ai.md K.13).
 
 ### H.3 The private registry push (`ci.yml:31`)

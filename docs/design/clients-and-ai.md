@@ -556,7 +556,7 @@ The epic grows from 58 to 71 leaves and from 7 to 8 groups. The detailed Body, A
 | P5.4 | `guardrails.enabled: auto` | D.4, K.7 |
 | P6.4 | SECURITY.md scope adds tokens, OAuth, MCP, approvals and push | G.7 |
 | P6.6 | Release job keeps its runner until P6.7; `npm ci --ignore-scripts`; `shadcn` to devDependencies; extended denylist | H.2, K.13, K.14 |
-| P6.7 | Cosign required; required reviewer on `environment: release` | H.2, K.25 |
+| P6.7 | Cosign required; required reviewer on `environment: release` (as shipped, v0.14.11: no reviewer; a tag ruleset limits who can create `v*` tags) | H.2, K.25 |
 | P6.9 | Tag ruleset restricting `v*` to the owner | H.2, K.25 |
 
 Group changes: G3 leaves each add `ref` to their objects (L.6); the new G7 group holds P7.1–P7.9 and is not required for the public release (P6.10). It depends on G2, G3, P1.5, P4.2–P4.4, P4.6, P4.7 and P5.4, and is independent of G6 and of the public flip. Within it, P7.1 also depends on P4.7 (settings endpoints refuse bearer), P7.2 on P5.4 (the chart's `routes.direct`) and P7.6 on P4.6.

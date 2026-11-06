@@ -1,5 +1,5 @@
-# actionlint (make scan). The self-hosted runner's custom labels, used while the repository is
-# private and by the release job until P6.7 moves it to a GitHub-hosted runner; remove them then.
+# actionlint (make scan). The self-hosted runner's custom labels: the check, scan, smoke and kind
+# jobs name them while the repository is private (the release job runs on a GitHub-hosted runner).
 self-hosted-runner:
   labels:
     - homelab

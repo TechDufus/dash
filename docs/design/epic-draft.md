@@ -2115,7 +2115,7 @@ Use `example.com`, `192.0.2.0/24`, neutral node, VM and tenant names, a zero-fil
 - `build-push-action` for `linux/amd64,linux/arm64` with provenance and SBOM;
 - `attest-build-provenance`, plus `attest-sbom` with an SPDX SBOM from `anchore/sbom-action`;
 - cosign keyless signing of the image digest, required (design H.2, K.25);
-- the job runs in `environment: release`, which has a required reviewer;
+- the job runs in `environment: release`, which has a required reviewer (as shipped, v0.14.11: no reviewer; a tag ruleset limits who can create `v*` tags);
 - `helm push` of the chart to `oci://ghcr.io/techdufus/charts`;
 - the digest in the job summary.
 
@@ -2126,7 +2126,7 @@ Remove the private registry push (`ci.yml:31`). README release steps are updated
 - `gh attestation verify oci://ghcr.io/techdufus/dash:<v> --owner TechDufus` succeeds.
 - Re-pushing an existing version fails.
 - `cosign verify ghcr.io/techdufus/dash@<digest> --certificate-identity-regexp '^https://github.com/TechDufus/dash/' --certificate-oidc-issuer https://token.actions.githubusercontent.com` succeeds.
-- A release run waits for the reviewer's approval on the `release` environment.
+- A release run waits for the reviewer's approval on the `release` environment (as shipped, v0.14.11: no reviewer; a tag ruleset limits who can create `v*` tags, so a run starts without approval).
 
 **Dependencies:** P6.6, P5.1, P5.4. **External:** the homelab pulls its image from GHCR directly, optionally through a pull-through cache (J.9).
 
