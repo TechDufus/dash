@@ -44,6 +44,31 @@ func TestASlowBodyHoldsNoSlot(t *testing.T) {
 	}
 }
 
+// dash's own check bounds a body at 1 MiB, before the SDK sees it: one byte over is a 413 in
+// dash's words, closing the connection; exactly 1 MiB goes through.
+func TestABodyOverOneMiBIsRefusedByDash(t *testing.T) {
+	s := New(Options{Backend: labBackend{v: "x"}, Context: canceled()})
+	p := auth.Principal{Kind: auth.KindToken, Audience: "mcp", User: "bob", TokenID: "tok", Scopes: []string{"read"}}
+	post := func(size int) *httptest.ResponseRecorder {
+		head, tail := `{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{"pad":"`, `"}}`
+		body := head + strings.Repeat("x", size-len(head)-len(tail)) + tail
+		r := httptest.NewRequest(http.MethodPost, "/mcp", strings.NewReader(body))
+		r.Header.Set("Content-Type", "application/json")
+		r.Header.Set("Accept", "application/json, text/event-stream")
+		w := httptest.NewRecorder()
+		s.Handler(w, r, p)
+		return w
+	}
+	const refusal = `{"code":"invalid_input","error":"the request body is over 1 MiB"}` + "\n"
+	if w := post(1<<20 + 1); w.Code != http.StatusRequestEntityTooLarge || w.Body.String() != refusal ||
+		w.Header().Get("Connection") != "close" {
+		t.Errorf("1 MiB and a byte: %d %v %s", w.Code, w.Header(), w.Body)
+	}
+	if w := post(1 << 20); w.Code == http.StatusRequestEntityTooLarge || w.Body.String() == refusal {
+		t.Errorf("exactly 1 MiB: %d %s", w.Code, w.Body)
+	}
+}
+
 // The slot is chosen by the JSON-RPC method in the body: a tools/call labelled
 // subscriptions/listen in its header takes a call slot, so it is refused when the token's eight
 // are taken; a 429 names the limit it is over, and only a token's says "this token".
