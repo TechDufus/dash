@@ -114,9 +114,12 @@ The API moved under `/api/v1` and the plugins' own routes; every old path answer
   ignore. To roll back to v0.14.7, remove `mcp.enabled` from the config file first: an older
   release refuses a file with keys it does not know, while a value saved from the settings page or
   set in the environment only logs a warning there.
-- **Push and rolling back (v0.14.9).** Push data (the VAPID key and the devices) keeps
-  `credentials.yaml` at `schemaVersion: 2`, which the release before v0.14.9 reads and starts
-  with: it ignores the `push:` section it does not know, and its next write of the file (a token
-  created or revoked, a session ended) drops that section. Upgrading again then makes a new VAPID
-  key, and every device must subscribe again in Settings → Devices. Remove `push:` from the
-  config file before rolling back: the earlier release refuses a file with keys it does not know.
+- **Push and rolling back (v0.14.9).** v0.14.9 adds [push notifications](push.md). Push data (the
+  VAPID key and the devices) keeps `credentials.yaml` at `schemaVersion: 2`, which v0.14.8 reads
+  and starts with: it keeps the personal access tokens and the OAuth grants, ignores the `push:`
+  section it does not know, and drops that section at its next write of the file (a token created
+  or used, a grant refreshed, a "Log out everywhere"). Upgrading again then makes a new VAPID key,
+  and every device, the dash app's included, must subscribe again in Settings → Devices. To roll
+  back to v0.14.8, remove `push:` from the config file first: v0.14.8 refuses a file with keys it
+  does not know, while a value saved from the settings page or set in the environment only logs a
+  warning there. With the chart, remove `config.push` from your values.

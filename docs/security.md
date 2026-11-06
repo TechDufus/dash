@@ -209,11 +209,14 @@ untrusted-data sentence; every string is scrubbed before it is encoded; results 
 
 Push needs a writable data dir and `DASH_SECRET_KEY`, and is off in `auth.mode=none`, dev and
 demo. Each person registers their own devices; a device receives only a verification code until
-that code comes back, and a token never holds the `push` scope. The VAPID private key and each
-device's endpoint and keys are sealed with `DASH_SECRET_KEY`; an endpoint is never logged or
-audited, only its host. Payloads are lab text, never secrets, end-to-end encrypted (RFC 8291),
-and dash posts only to global https endpoints unless `push.allowPrivate` admits a LAN one. The
-user's role is checked again when an attention push is sent. Details: [push.md](push.md).
+that code comes back. Besides a signed-in person, only the first-party `dash-android` OAuth grant
+holds the `push` scope; personal access tokens and static tokens never do. A browser's device
+follows its owner's sessions, and a device the app registered follows its grant: revoking or
+expiring the grant stops it. The VAPID private key and each device's endpoint and keys are sealed
+with `DASH_SECRET_KEY`; an endpoint is never logged or audited, only its host. Payloads are lab
+text, never secrets, end-to-end encrypted (RFC 8291), and dash posts only to global https
+endpoints unless `push.allowPrivate` admits a LAN one. The user's role is checked again when an
+attention push is sent. Details: [push.md](push.md).
 
 ## Not built yet
 

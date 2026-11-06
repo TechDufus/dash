@@ -1,5 +1,5 @@
 // Package netguard builds HTTP clients for addresses that someone other than the operator
-// chose: an OAuth client ID metadata document (design M.6) and, later, a Web Push endpoint. The
+// chose: an OAuth client ID metadata document (design M.6) and a push endpoint. The
 // guard runs at dial time, after name resolution, so a host name that resolves into a refused
 // range (or rebinds into one) is stopped too. The clients use no proxy from the environment
 // (the guard would see the proxy's address), follow no redirect and read a bounded body.
