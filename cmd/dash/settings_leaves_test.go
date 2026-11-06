@@ -282,6 +282,9 @@ func TestPR2SettingsReachThePlugin(t *testing.T) {
 // Every setting of plugins.kubernetes arrives in the configuration the plugin is started
 // with, and a reload of the file layer restarts the instance with the new value.
 func TestPR3aSettingsReachThePlugin(t *testing.T) {
+	// KUBECONFIG stands in for plugins.kubernetes.kubeconfig: set it to nothing, so the
+	// environment the tests run in cannot override the leaf.
+	t.Setenv("KUBECONFIG", "")
 	settingsReachThePlugin(t, "kubernetes", kubernetesLeaves(), kubernetes.New())
 }
 
