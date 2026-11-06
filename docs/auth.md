@@ -468,10 +468,9 @@ interactively, so offboarding includes revoking them. "Log out everywhere" revok
 "Sign out all users" everyone's; the proxy mode, which has no logout, offers "Revoke all my
 connected apps" on the Mine tab instead. In every mode an administrator's "All users" tab has
 "Revoke every user's connected apps" (`DELETE /api/v1/oauth/grants?user=*`; a viewer gets 403),
-the step to take before rolling back to v0.14.6. Each asks first. Approving a consent and
-revoking a grant are audited before they
-happen: when the audit log cannot be written the answer is 503 `audit_unavailable` and nothing
-changes.
+the step to take before rolling back to v0.14.6. The last two ask first. Approving a consent and
+revoking a grant are audited before they happen: when the audit log cannot be written the answer
+is 503 `audit_unavailable` and nothing changes.
 
 **CORS and limits.** A `server.corsOrigins` origin gets `Access-Control-Allow-Origin` on the
 `/.well-known/oauth-*` documents, `/oauth/token` and `/oauth/revoke`, never on `/oauth/authorize`

@@ -105,4 +105,5 @@ The API moved under `/api/v1` and the plugins' own routes; every old path answer
   back, as an administrator, open Settings → Connected apps, choose "All users" and use "Revoke
   every user's connected apps" (it works in every auth mode, the proxy mode too); or stop dash
   and delete `credentials.yaml`, which ends every session and revokes every token and
-  grant. With the chart, turn `routes.direct` off first.
+  grant. With the chart, remove `routes` and `config.auth.oauth` and `config.server.directURL`
+  from your values (a `helm rollback` to the previous revision does this).
