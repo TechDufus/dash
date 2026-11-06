@@ -15,6 +15,7 @@ import (
 	"github.com/TechDufus/dash/internal/auth"
 	"github.com/TechDufus/dash/internal/credentials"
 	"github.com/TechDufus/dash/internal/model"
+	"github.com/TechDufus/dash/internal/obs"
 	"github.com/TechDufus/dash/internal/plugin"
 	"github.com/TechDufus/dash/internal/push"
 )
@@ -51,7 +52,10 @@ func (s *Server) pushRoutes() []Route {
 		}),
 		row(Route{
 			ID: "listPushSubscriptions", Method: "GET", Path: "/api/v1/push/subscriptions",
-			Summary: "List the caller's push devices", Description: "Never the endpoints or the keys." + unavailable,
+			Summary: "List push devices",
+			Description: "The caller's own devices; an administrator may list one user's (?user=<name>) or everyone's (?user=*). " +
+				"Never the endpoints or the keys. 403 for another user's list to a viewer." + unavailable,
+			Query:    []plugin.Param{{Name: "user", Doc: "Administrators only: a user name, or * for every user. Absent or empty: the caller's own."}},
 			Response: model.PushSubscriptionList{}, Handler: s.listPushSubscriptions,
 		}),
 		row(Route{
@@ -78,7 +82,7 @@ func (s *Server) pushRoutes() []Route {
 		}),
 		row(Route{
 			ID: "deletePushSubscription", Method: "DELETE", Path: "/api/v1/push/subscriptions/{id}",
-			Summary: "Remove a push device", Description: "404 for another user's subscription." + unavailable,
+			Summary: "Remove a push device", Description: "One's own device, or (administrators) anyone's. 404 for a device that is not the caller's." + unavailable,
 			PathParams: id, Status: http.StatusNoContent, Handler: s.deletePushSubscription,
 		}),
 	}
@@ -94,10 +98,11 @@ func (s *Server) pushReady(w http.ResponseWriter) bool {
 }
 
 // pushOwned is the subscription id of the caller; a missing one and another user's are the
-// same 404.
-func (s *Server) pushOwned(w http.ResponseWriter, r *http.Request) (credentials.PushSubscription, bool) {
+// same 404. adminToo also gives an administrator anyone's.
+func (s *Server) pushOwned(w http.ResponseWriter, r *http.Request, adminToo bool) (credentials.PushSubscription, bool) {
+	p := principalFrom(r.Context())
 	sub, ok := s.d.Credentials.PushSubscriptionByID(r.PathValue("id"))
-	if !ok || sub.User != principalFrom(r.Context()).User {
+	if !ok || sub.User != p.User && !(adminToo && p.Role.AtLeast(auth.RoleAdmin)) {
 		writeErr(w, http.StatusNotFound, model.ErrCodeNotFound, "no such push subscription")
 		return credentials.PushSubscription{}, false
 	}
@@ -106,7 +111,7 @@ func (s *Server) pushOwned(w http.ResponseWriter, r *http.Request) (credentials.
 
 func pushInfo(p credentials.PushSubscription) model.PushSubscriptionInfo {
 	return model.PushSubscriptionInfo{
-		ID: p.ID, Kind: p.Kind, DeviceName: p.DeviceName, State: p.State, EndpointHost: p.EndpointHost,
+		ID: p.ID, User: p.User, Kind: p.Kind, DeviceName: p.DeviceName, State: p.State, EndpointHost: p.EndpointHost,
 		Notify:    model.PushNotify{Approvals: p.Approvals, Attention: p.Attention},
 		CreatedAt: p.CreatedAt, VerifiedAt: p.VerifiedAt,
 	}
@@ -133,8 +138,21 @@ func (s *Server) listPushSubscriptions(w http.ResponseWriter, r *http.Request) {
 	if !s.pushReady(w) {
 		return
 	}
+	p := principalFrom(r.Context())
+	user := p.User
+	if u := strings.Join(r.URL.Query()["user"], ","); u != "" { // an empty ?user= is the caller's own
+		if u != p.User && !p.Role.AtLeast(auth.RoleAdmin) {
+			s.deny(r, obs.AuthForbidden)
+			writeErr(w, http.StatusForbidden, model.ErrCodeForbidden, "only an administrator lists another user's push devices")
+			return
+		}
+		user = u
+		if u == "*" {
+			user = "" // every user's
+		}
+	}
 	list := model.PushSubscriptionList{Subscriptions: []model.PushSubscriptionInfo{}}
-	for _, sub := range s.d.Credentials.PushSubscriptions(principalFrom(r.Context()).User) {
+	for _, sub := range s.d.Credentials.PushSubscriptions(user) {
 		list.Subscriptions = append(list.Subscriptions, pushInfo(sub))
 	}
 	writeJSON(w, http.StatusOK, list)
@@ -240,7 +258,7 @@ func (s *Server) verifyPushSubscription(w http.ResponseWriter, r *http.Request) 
 	if !s.pushReady(w) {
 		return
 	}
-	sub, ok := s.pushOwned(w, r)
+	sub, ok := s.pushOwned(w, r, false)
 	if !ok {
 		return
 	}
@@ -275,7 +293,7 @@ func (s *Server) testPushSubscription(w http.ResponseWriter, r *http.Request) {
 	if !s.pushReady(w) {
 		return
 	}
-	sub, ok := s.pushOwned(w, r)
+	sub, ok := s.pushOwned(w, r, false)
 	if !ok {
 		return
 	}
@@ -305,7 +323,7 @@ func (s *Server) deletePushSubscription(w http.ResponseWriter, r *http.Request) 
 	if !s.pushReady(w) {
 		return
 	}
-	sub, ok := s.pushOwned(w, r)
+	sub, ok := s.pushOwned(w, r, true)
 	if !ok {
 		return
 	}

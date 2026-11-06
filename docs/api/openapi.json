@@ -2481,6 +2481,9 @@
             ],
             "type": "string"
           },
+          "user": {
+            "type": "string"
+          },
           "verifiedAt": {
             "format": "date-time",
             "type": [
@@ -2497,6 +2500,7 @@
           "kind",
           "notify",
           "state",
+          "user",
           "verifiedAt"
         ],
         "type": "object"
@@ -4494,9 +4498,18 @@
     },
     "/api/v1/push/subscriptions": {
       "get": {
-        "description": "Never the endpoints or the keys. 409 push_unavailable when push is off (it needs a writable data dir and DASH_SECRET_KEY in auth.mode local, oidc or proxy).",
+        "description": "The caller's own devices; an administrator may list one user's (?user=<name>) or everyone's (?user=*). Never the endpoints or the keys. 403 for another user's list to a viewer. 409 push_unavailable when push is off (it needs a writable data dir and DASH_SECRET_KEY in auth.mode local, oidc or proxy).",
         "operationId": "listPushSubscriptions",
-        "parameters": [],
+        "parameters": [
+          {
+            "description": "Administrators only: a user name, or * for every user. Absent or empty: the caller's own.",
+            "in": "query",
+            "name": "user",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "content": {
@@ -4506,7 +4519,7 @@
                 }
               }
             },
-            "description": "List the caller's push devices",
+            "description": "List push devices",
             "headers": {
               "X-Request-Id": {
                 "$ref": "#/components/headers/XRequestId"
@@ -4517,7 +4530,7 @@
             "$ref": "#/components/responses/Error"
           }
         },
-        "summary": "List the caller's push devices",
+        "summary": "List push devices",
         "tags": [
           "Push"
         ],
@@ -4569,7 +4582,7 @@
     },
     "/api/v1/push/subscriptions/{id}": {
       "delete": {
-        "description": "404 for another user's subscription. 409 push_unavailable when push is off (it needs a writable data dir and DASH_SECRET_KEY in auth.mode local, oidc or proxy).",
+        "description": "One's own device, or (administrators) anyone's. 404 for a device that is not the caller's. 409 push_unavailable when push is off (it needs a writable data dir and DASH_SECRET_KEY in auth.mode local, oidc or proxy).",
         "operationId": "deletePushSubscription",
         "parameters": [
           {

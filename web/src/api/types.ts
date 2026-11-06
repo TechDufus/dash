@@ -1483,6 +1483,7 @@ export interface PushSubscriptionRequest {
  */
 export interface PushSubscriptionInfo {
   id: string; // sub_<26 base32>
+  user: string; // the owner
   kind: string;
   deviceName: string;
   notify: PushNotify;
@@ -1498,7 +1499,8 @@ export interface PushSubscriptionInfo {
   verifiedAt: string | null;
 }
 /**
- * PushSubscriptionList is GET /api/v1/push/subscriptions: the caller's subscriptions.
+ * PushSubscriptionList is GET /api/v1/push/subscriptions: the caller's subscriptions, or
+ * (administrators) one user's or everyone's.
  */
 export interface PushSubscriptionList {
   subscriptions: PushSubscriptionInfo[];

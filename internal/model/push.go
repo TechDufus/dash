@@ -90,7 +90,8 @@ type PushSubscriptionRequest struct {
 
 // PushSubscriptionInfo is one subscription as the API shows it: never the endpoint or the keys.
 type PushSubscriptionInfo struct {
-	ID         string     `json:"id" dash:"required"` // sub_<26 base32>
+	ID         string     `json:"id" dash:"required"`   // sub_<26 base32>
+	User       string     `json:"user" dash:"required"` // the owner
 	Kind       string     `json:"kind" dash:"required,enum=webpush|unifiedpush"`
 	DeviceName string     `json:"deviceName" dash:"required"`
 	Notify     PushNotify `json:"notify" dash:"required"`
@@ -102,7 +103,8 @@ type PushSubscriptionInfo struct {
 	VerifiedAt *time.Time `json:"verifiedAt" dash:"required,nullable" tstype:"string | null,required"`
 }
 
-// PushSubscriptionList is GET /api/v1/push/subscriptions: the caller's subscriptions.
+// PushSubscriptionList is GET /api/v1/push/subscriptions: the caller's subscriptions, or
+// (administrators) one user's or everyone's.
 type PushSubscriptionList struct {
 	Subscriptions []PushSubscriptionInfo `json:"subscriptions" dash:"required"`
 }

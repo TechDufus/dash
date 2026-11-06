@@ -479,11 +479,13 @@ func (s *Store) Epoch(user string) uint64 {
 	return s.doc.Epochs[user]
 }
 
-// BumpEpoch increments the epoch of user and persists it: every session of that user dies. The
-// bump applies to this process even when the write fails (the error says so).
+// BumpEpoch increments the epoch of user and persists it: every session of that user dies, and
+// so do the user's push subscriptions (stale). The bump applies to this process even when the
+// write fails (the error says so).
 func (s *Store) BumpEpoch(user string) error {
 	return s.update(true, func(d *document) bool {
 		d.Epochs[user]++
+		stalePushByEpoch(d)
 		return true
 	})
 }
@@ -496,11 +498,13 @@ func (s *Store) GlobalEpoch() uint64 {
 	return s.doc.GlobalEpoch
 }
 
-// BumpGlobal increments the global epoch and persists it: every session of every user dies. The
-// bump applies to this process even when the write fails (the error says so).
+// BumpGlobal increments the global epoch and persists it: every session of every user dies, and
+// every push subscription turns stale. The bump applies to this process even when the write
+// fails (the error says so).
 func (s *Store) BumpGlobal() error {
 	return s.update(true, func(d *document) bool {
 		d.GlobalEpoch++
+		stalePushByEpoch(d)
 		return true
 	})
 }

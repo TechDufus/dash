@@ -374,6 +374,54 @@ func TestPushSweep(t *testing.T) {
 	}
 }
 
+// A user's epoch bump (a logout) turns that user's subscriptions stale and leaves the others; a
+// global bump turns every one stale; registering again on the new epochs makes the row pending,
+// and verifying it keeps it verified through the next restart.
+func TestPushEpochBumpsMakeSubscriptionsStale(t *testing.T) {
+	dir := t.TempDir()
+	keys := secret.NewKeyring(pushKey(t), secret.Key{})
+	s, _ := openPush(t, dir, keys)
+	alice, aliceCode := addPush(t, s, pushIn("alice", "https://push.example.net/a"))
+	bob, bobCode := addPush(t, s, pushIn("bob", "https://push.example.net/b"))
+	carol, _ := addPush(t, s, pushIn("carol", "https://push.example.net/c")) // pending
+	for user, v := range map[string][2]string{"alice": {alice.ID, aliceCode}, "bob": {bob.ID, bobCode}} {
+		if _, err := s.VerifyPushSubscription(user, v[0], v[1], pushT0); err != nil {
+			t.Fatal(err)
+		}
+	}
+	state := func(id string) string {
+		sub, _ := s.PushSubscriptionByID(id)
+		return sub.State
+	}
+	must(t, s.BumpEpoch("alice"))
+	if state(alice.ID) != PushStale || state(bob.ID) != PushVerified || state(carol.ID) != PushPending {
+		t.Errorf("after alice's bump: %s %s %s, want stale verified pending", state(alice.ID), state(bob.ID), state(carol.ID))
+	}
+	again, code := addPush(t, s, pushIn("alice", "https://push.example.net/a"))
+	if again.ID != alice.ID || again.State != PushPending {
+		t.Fatalf("re-registering = %+v, want the same row pending", again)
+	}
+	// Another user's bump leaves alice's new row alone: it carries her current epoch.
+	must(t, s.BumpEpoch("bob"))
+	if state(alice.ID) != PushPending || state(bob.ID) != PushStale {
+		t.Errorf("after bob's bump: alice %s, bob %s, want pending and stale", state(alice.ID), state(bob.ID))
+	}
+	if _, err := s.VerifyPushSubscription("alice", alice.ID, code, pushT0); err != nil {
+		t.Fatal(err)
+	}
+	must(t, s.Close())
+	s, _ = openPush(t, dir, keys)
+	if state(alice.ID) != PushVerified {
+		t.Errorf("alice after re-verifying and a restart: %s, want verified", state(alice.ID))
+	}
+	must(t, s.BumpGlobal())
+	for _, id := range []string{alice.ID, bob.ID, carol.ID} {
+		if state(id) != PushStale {
+			t.Errorf("%s after the global bump: %s, want stale", id, state(id))
+		}
+	}
+}
+
 // Deleting the last subscription and holding no key returns the file to schemaVersion 1.
 func TestPushDeleteReturnsToVersion1(t *testing.T) {
 	dir := t.TempDir()

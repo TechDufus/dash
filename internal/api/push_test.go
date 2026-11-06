@@ -380,6 +380,57 @@ func TestPushSubscriptionLimit(t *testing.T) {
 	wantError(t, w, http.StatusConflict, model.ErrCodePushLimit)
 }
 
+// An administrator lists one user's devices or everyone's and removes another user's; a viewer
+// lists only their own (403 for another's) and cannot remove, verify or test another's (404).
+// An administrator still cannot verify or test another user's device.
+func TestPushAdminSeesAndRemovesDevices(t *testing.T) {
+	e := newPushEnv(t)
+	_, bobs := e.subscribe(t, "bob", newPushDevice(t, e.f), "Phone")
+	_, carols := e.subscribe(t, "carol", newPushDevice(t, e.f), "Laptop")
+	list := func(user, query string) []model.PushSubscriptionInfo {
+		t.Helper()
+		var l model.PushSubscriptionList
+		decodeJSON(t, e.do(as(user, req{path: "/api/v1/push/subscriptions" + query})), &l)
+		return l.Subscriptions
+	}
+	if l := list("alice", "?user=*"); len(l) != 2 {
+		t.Errorf("admin ?user=* = %+v", l)
+	}
+	if l := list("alice", "?user=bob"); len(l) != 1 || l[0].ID != bobs.ID || l[0].User != "bob" {
+		t.Errorf("admin ?user=bob = %+v", l)
+	}
+	if l := list("alice", "?user="); len(l) != 0 {
+		t.Errorf("admin ?user= (empty) = %+v, want her own (none)", l)
+	}
+	if l := list("bob", "?user=bob"); len(l) != 1 || l[0].User != "bob" {
+		t.Errorf("bob's own = %+v", l)
+	}
+	wantError(t, e.do(as("carol", req{path: "/api/v1/push/subscriptions?user=bob"})), http.StatusForbidden, model.ErrCodeForbidden)
+	wantError(t, e.do(as("carol", req{path: "/api/v1/push/subscriptions?user=*"})), http.StatusForbidden, model.ErrCodeForbidden)
+	wantError(t, e.do(as("carol", req{method: http.MethodDelete, path: "/api/v1/push/subscriptions/" + bobs.ID})), http.StatusNotFound, model.ErrCodeNotFound)
+	for _, r := range []req{
+		{method: http.MethodPost, path: "/api/v1/push/subscriptions/" + bobs.ID + "/verify", body: model.PushVerifyRequest{Code: "x"}},
+		{method: http.MethodPost, path: "/api/v1/push/subscriptions/" + bobs.ID + "/test"},
+	} {
+		wantError(t, e.do(as("alice", r)), http.StatusNotFound, model.ErrCodeNotFound)
+	}
+	if w := e.do(as("alice", req{method: http.MethodDelete, path: "/api/v1/push/subscriptions/" + bobs.ID})); w.Code != http.StatusNoContent {
+		t.Fatalf("admin removes bob's = %d %s", w.Code, w.Body)
+	}
+	if l := list("alice", "?user=*"); len(l) != 1 || l[0].ID != carols.ID {
+		t.Errorf("after the removal = %+v", l)
+	}
+	removed := 0
+	for _, rec := range auditRecords(t, e.auditDir) {
+		if rec.Action == auditPushUnsubscribe && rec.Actor.User == "alice" && rec.Target.Name == bobs.ID && rec.Result == "ok" {
+			removed++
+		}
+	}
+	if removed != 1 {
+		t.Errorf("audit records of alice removing bob's device = %d, want 1", removed)
+	}
+}
+
 // Every write is audited with the subscription ID and the endpoint's host; the endpoint is in
 // no audit record and no log line. An audit log that cannot take the intent stops the write.
 func TestPushAuditAndLogsNeverHoldTheEndpoint(t *testing.T) {

@@ -43,6 +43,20 @@ macOS. On iPhone and iPad push needs:
 
 A device marked **stale** receives nothing: subscribe again on it.
 
+## Removed and signed-out users
+
+In the `local` and `oidc` modes a device follows its owner's sessions: a logout, **Log out
+everywhere** and **Sign out all users** turn the owner's devices (all devices, for the last one)
+stale, and they get nothing until they subscribe again. When an attention push is sent, dash also
+checks that the owner may still sign in: in `local` mode only the administrator account, in `oidc`
+mode a user still in `auth.oidc.allowedUsers`.
+
+Two cases are beyond what dash can see. In `proxy` mode the identity proxy decides who gets in,
+and with `auth.oidc.allowedGroups` dash cannot tell without a login that a user left the group.
+When you remove such a user, remove their devices too: an administrator picks the user (or all
+users) on Settings → Devices and removes the devices there (`GET /api/v1/push/subscriptions?user=`
+and `DELETE /api/v1/push/subscriptions/{id}`).
+
 ## Attention pushes
 
 An attention item still on the overview 2 minutes after dash first saw it is pushed once to each

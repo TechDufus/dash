@@ -30,6 +30,7 @@ const ID = "sub_ABCDEFGHIJKLMNOPQRSTUVWXYZ";
 function sub(over: Partial<PushSubscriptionInfo> = {}): PushSubscriptionInfo {
   return {
     id: ID,
+    user: "alice",
     kind: "webpush",
     deviceName: "Laptop",
     notify: { approvals: true, attention: "crit" },

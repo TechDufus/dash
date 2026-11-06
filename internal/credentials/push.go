@@ -111,6 +111,27 @@ type pushSubscription struct {
 	PendingSince *time.Time `json:"pendingSince,omitempty"`
 	CreatedAt    time.Time  `json:"createdAt"`
 	VerifiedAt   *time.Time `json:"verifiedAt,omitempty"`
+	// Epoch and GlobalEpoch are the user's session epoch and the global epoch when the row was
+	// registered (any bump since turned it stale, so a verified row holds them too). A bump of
+	// either (a logout, "Log out everywhere", "Sign out all users") turns the row stale: a
+	// removed or signed-out user's device gets nothing.
+	Epoch       uint64 `json:"epoch,omitempty"`
+	GlobalEpoch uint64 `json:"globalEpoch,omitempty"`
+}
+
+// stalePushByEpoch turns stale every subscription whose recorded epochs are no longer the
+// document's.
+func stalePushByEpoch(d *document) {
+	if d.Push == nil {
+		return
+	}
+	for id, sub := range d.Push.Subscriptions {
+		if sub.State == PushStale || sub.Epoch == d.Epochs[sub.User] && sub.GlobalEpoch == d.GlobalEpoch {
+			continue
+		}
+		sub.State, sub.CodeHash, sub.Attempts, sub.PendingSince = PushStale, "", 0, nil
+		d.Push.Subscriptions[id] = sub
+	}
 }
 
 func (p pushSubscription) clone() pushSubscription {
@@ -459,6 +480,7 @@ func (s *Store) AddPushSubscription(in PushInput, code string, now time.Time) (s
 		row = pushSubscription{
 			User: in.User, Kind: in.Kind, DeviceName: in.DeviceName, Approvals: in.Approvals, Attention: in.Attention,
 			EndpointHash: endpointHash, KeysHash: keysHash, EndpointHost: in.EndpointHost, CreatedAt: now,
+			Epoch: d.Epochs[in.User], GlobalEpoch: d.GlobalEpoch,
 		}
 		if replacing {
 			row.CreatedAt = prev.CreatedAt
