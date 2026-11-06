@@ -111,7 +111,8 @@ return the same bundle for one object:
 - from the plugin that owns it: a summary, its facts and conditions, at most 20 events (newest
   first), related refs, links, the series it considers relevant and where its logs are. A
   workload (Deployment, StatefulSet, DaemonSet, Job) adds the summary and the events of each
-  unhealthy pod, and the logs of the worst one, as an alert does for the pod it names;
+  unhealthy pod, and the logs of the worst one (one that started before a Pending pod that never
+  did, then the worst health, then the most restarts), as an alert does for the pod it names;
 - from dash: the overview's attention items for the ref, a summary of each series over the last
   hour, and at most 100 of the newest log lines, only for a caller with the `logs` scope.
 

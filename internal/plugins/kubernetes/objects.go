@@ -175,12 +175,27 @@ func podSummary(p model.Pod) string {
 		", restarts " + strconv.Itoa(p.Restarts)
 }
 
-// worse reports whether a is in a worse state than b: its health, then its restarts.
+// worse reports whether a is the better pod to read a workload's logs from than b: one that has
+// run a container (started), so has logs, before a Pending pod that never started; then the
+// worse health; then the most restarts.
 func worse(a, b model.Pod) bool {
+	if sa, sb := started(a), started(b); sa != sb {
+		return sa
+	}
 	if ra, rb := healthRank(a.Health), healthRank(b.Health); ra != rb {
 		return ra > rb
 	}
 	return a.Restarts > b.Restarts
+}
+
+// started reports whether a pod has run a container: it restarted, has a ready container, or
+// left Pending for Running, Succeeded or Failed.
+func started(p model.Pod) bool {
+	switch p.Phase {
+	case "Running", "Succeeded", "Failed":
+		return true
+	}
+	return p.Restarts > 0 || p.ReadyContainers > 0
 }
 
 // eventsFor are the events of one object ("Kind/name") in namespace ns ("" for any).
