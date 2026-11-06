@@ -31,10 +31,13 @@ otherwise `server.publicURL` (the same value as `serverUrl` in `GET /api/v1/push
 
 ## Discovery
 
-1. `GET <server>/api/v1/me` without a token answers 401 with
-   `WWW-Authenticate: Bearer resource_metadata="<server>/.well-known/oauth-protected-resource/api"`.
+1. `GET <server>/.well-known/oauth-protected-resource/api`. Fetch it directly: do not rely on a
+   401 from `GET <server>/api/v1/me`, which a dash with the anonymous viewer on
+   (`auth.local.anonymousViewer`) answers 200 without a token. Where `/api/v1/me` does answer 401,
+   its `WWW-Authenticate: Bearer resource_metadata="…"` names the same document.
 2. That document ([RFC 9728](https://www.rfc-editor.org/rfc/rfc9728)) gives `resource`
-   (`<server>/api`), `authorization_servers` (`[<server>]`) and `scopes_supported`.
+   (`<server>/api`), `authorization_servers` (`[<server>]`) and `scopes_supported`. A 404 means
+   dash does not serve OAuth (`capabilities.oauth: false`).
 3. `<server>/.well-known/oauth-authorization-server` ([RFC 8414](https://www.rfc-editor.org/rfc/rfc8414))
    gives `issuer`, `authorization_endpoint`, `token_endpoint` and `revocation_endpoint`. Use the
    endpoints it names: behind an identity proxy `authorization_endpoint` is on the public URL,

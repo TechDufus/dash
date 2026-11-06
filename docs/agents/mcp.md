@@ -5,10 +5,11 @@ token, Claude Desktop and claude.ai through OAuth, VS Code and omp. The [dash sk
 tells an agent how to use the tools once it is connected: copy its directory to
 `~/.claude/skills/dash/` for Claude Code or `~/.omp/agent/skills/dash/` for omp.
 
-The client commands were checked against Claude Code 2.1.318 (`claude mcp add --help`), the VS Code
+The client commands were checked against Claude Code 2.1.318 (`claude mcp add --help`) and omp
+18.17.0. VS Code was checked against its
 [MCP configuration reference](https://code.visualstudio.com/docs/agents/reference/mcp-configuration)
-(dated 2026-11-04) and omp 18.16.0. Client syntax changes upstream; when a command here fails,
-check the client's own help.
+(dated 2026-11-04), not a running VS Code. Client syntax changes upstream; when a command here
+fails, check the client's own help.
 
 ## On the dash side
 
@@ -84,8 +85,9 @@ machine, so:
   OAuth issuer, from Anthropic's published egress range
   ([Anthropic's requirements](https://claude.com/docs/connectors/building/authentication.md)). A
   dash only reachable on the LAN or over a VPN cannot be a custom connector.
-- **OAuth on:** `auth.oauth.enabled: true`, with a writable data dir and `DASH_SECRET_KEY`
-  ([OAuth](../auth.md#oauth)). The person who connects signs in to dash and approves the consent
+- **OAuth on:** `auth.oauth.enabled: true`, with a writable data dir ([OAuth](../auth.md#oauth)).
+  Set `DASH_SECRET_KEY` too: without it the access tokens end at every restart of dash, and the
+  client has to refresh them. The person who connects signs in to dash and approves the consent
   page, which offers `read` (ticked) and `logs`; the grant then shows in Settings → Connected apps,
   where it is revoked.
 - **Behind an identity proxy:** set `server.directURL` to the host that bypasses the proxy and use
@@ -176,3 +178,6 @@ elicitation shows the approval link itself instead). The token's owner approves 
 `expired`. A target in a protected namespace always waits for a person, who types its name, even
 under `allow`. The details are in
 [action tools and approvals](../mcp.md#action-tools-and-approvals).
+
+Never give an agent an `api` token holding `actions:<plugin>`: the agent policy and the approvals
+apply to `mcp` tokens only, and an `api` token runs actions at once, as a person would.
