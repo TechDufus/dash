@@ -4498,11 +4498,11 @@
     },
     "/api/v1/push/subscriptions": {
       "get": {
-        "description": "The caller's own devices; an administrator may list one user's (?user=<name>) or everyone's (?user=*). Never the endpoints or the keys. 403 for another user's list to a viewer. 409 push_unavailable when push is off (it needs a writable data dir, DASH_SECRET_KEY and push.contact or an https server.publicURL, in auth.mode local, oidc or proxy).",
+        "description": "The caller's own devices; an administrator signed in (not with a token) may list one user's (?user=<name>) or everyone's (?user=*). Never the endpoints or the keys. 403 for another user's list to a viewer or to a token. 409 push_unavailable when push is off (it needs a writable data dir, DASH_SECRET_KEY and push.contact or an https server.publicURL, in auth.mode local, oidc or proxy).",
         "operationId": "listPushSubscriptions",
         "parameters": [
           {
-            "description": "Administrators only: a user name, or * for every user. Absent or empty: the caller's own.",
+            "description": "Administrators signed in only: a user name, or * for every user. Absent or empty: the caller's own.",
             "in": "query",
             "name": "user",
             "schema": {
@@ -4582,7 +4582,7 @@
     },
     "/api/v1/push/subscriptions/{id}": {
       "delete": {
-        "description": "One's own device, or (administrators) anyone's. 404 for a device that is not the caller's. 409 push_unavailable when push is off (it needs a writable data dir, DASH_SECRET_KEY and push.contact or an https server.publicURL, in auth.mode local, oidc or proxy).",
+        "description": "One's own device, or (administrators signed in, not with a token) anyone's. 404 for a device that is not the caller's; 403 for another user's to an administrator's token. 409 push_unavailable when push is off (it needs a writable data dir, DASH_SECRET_KEY and push.contact or an https server.publicURL, in auth.mode local, oidc or proxy).",
         "operationId": "deletePushSubscription",
         "parameters": [
           {

@@ -212,6 +212,30 @@ func TestMeCapabilitiesPush(t *testing.T) {
 	}
 }
 
+// An administrator's token reaches only the administrator's own devices: another user's list
+// and another user's delete are 403, so a token cannot inventory or remove other users' devices.
+func TestPushAdminTokenIsNotCrossUser(t *testing.T) {
+	e := newPushEnv(t)
+	_, bobs := e.subscribe(t, "bob", newPushDevice(t, e.f), "Phone")
+	_, alices := e.subscribe(t, "alice", newPushDevice(t, e.f), "Laptop")
+	tok := bearer(e.pat(t, "alice", []string{"read", "push"}))
+	for _, q := range []string{"?user=bob", "?user=*"} {
+		wantError(t, req{path: "/api/v1/push/subscriptions" + q, header: tok}.do(e.s.Handler()), http.StatusForbidden, model.ErrCodeForbidden)
+	}
+	wantError(t, req{method: http.MethodDelete, path: "/api/v1/push/subscriptions/" + bobs.ID, header: tok}.do(e.s.Handler()), http.StatusForbidden, model.ErrCodeForbidden)
+	if _, ok := e.store.PushSubscriptionByID(bobs.ID); !ok {
+		t.Error("the token removed bob's device")
+	}
+	var own model.PushSubscriptionList
+	decodeJSON(t, req{path: "/api/v1/push/subscriptions?user=alice", header: tok}.do(e.s.Handler()), &own)
+	if len(own.Subscriptions) != 1 || own.Subscriptions[0].ID != alices.ID {
+		t.Errorf("the token's own list = %+v", own)
+	}
+	if w := (req{method: http.MethodDelete, path: "/api/v1/push/subscriptions/" + alices.ID, header: tok}).do(e.s.Handler()); w.Code != http.StatusNoContent {
+		t.Errorf("the token removes alice's own device: %d %s", w.Code, w.Body)
+	}
+}
+
 // With push off every push route answers 409 push_unavailable.
 func TestPushRoutesWhenOff(t *testing.T) {
 	e := newTokenEnv(t)

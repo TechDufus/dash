@@ -60,9 +60,9 @@ func (s *Server) pushRoutes() []Route {
 		row(Route{
 			ID: "listPushSubscriptions", Method: "GET", Path: "/api/v1/push/subscriptions",
 			Summary: "List push devices",
-			Description: "The caller's own devices; an administrator may list one user's (?user=<name>) or everyone's (?user=*). " +
-				"Never the endpoints or the keys. 403 for another user's list to a viewer." + unavailable,
-			Query:    []plugin.Param{{Name: "user", Doc: "Administrators only: a user name, or * for every user. Absent or empty: the caller's own."}},
+			Description: "The caller's own devices; an administrator signed in (not with a token) may list one user's (?user=<name>) or everyone's (?user=*). " +
+				"Never the endpoints or the keys. 403 for another user's list to a viewer or to a token." + unavailable,
+			Query:    []plugin.Param{{Name: "user", Doc: "Administrators signed in only: a user name, or * for every user. Absent or empty: the caller's own."}},
 			Response: model.PushSubscriptionList{}, Handler: s.listPushSubscriptions,
 		}),
 		row(Route{
@@ -90,7 +90,7 @@ func (s *Server) pushRoutes() []Route {
 		}),
 		row(Route{
 			ID: "deletePushSubscription", Method: "DELETE", Path: "/api/v1/push/subscriptions/{id}",
-			Summary: "Remove a push device", Description: "One's own device, or (administrators) anyone's. 404 for a device that is not the caller's." + unavailable,
+			Summary: "Remove a push device", Description: "One's own device, or (administrators signed in, not with a token) anyone's. 404 for a device that is not the caller's; 403 for another user's to an administrator's token." + unavailable,
 			PathParams: id, Status: http.StatusNoContent, Handler: s.deletePushSubscription,
 		}),
 	}
@@ -106,15 +106,23 @@ func (s *Server) pushReady(w http.ResponseWriter) bool {
 }
 
 // pushOwned is the subscription id of the caller; a missing one and another user's are the
-// same 404. adminToo also gives an administrator anyone's.
+// same 404. adminToo also gives an administrator anyone's, but only a person at a browser or
+// behind the proxy: an administrator's token gets 403 for another user's.
 func (s *Server) pushOwned(w http.ResponseWriter, r *http.Request, adminToo bool) (credentials.PushSubscription, bool) {
 	p := principalFrom(r.Context())
 	sub, ok := s.d.Credentials.PushSubscriptionByID(r.PathValue("id"))
-	if !ok || sub.User != p.User && !(adminToo && p.Role.AtLeast(auth.RoleAdmin)) {
-		writeErr(w, http.StatusNotFound, model.ErrCodeNotFound, "no such push subscription")
+	switch {
+	case ok && sub.User == p.User:
+		return sub, true
+	case ok && adminToo && p.Role.AtLeast(auth.RoleAdmin) && p.Interactive():
+		return sub, true
+	case ok && adminToo && p.Role.AtLeast(auth.RoleAdmin):
+		s.deny(r, obs.AuthForbidden)
+		writeErr(w, http.StatusForbidden, model.ErrCodeForbidden, "another user's push devices are managed from Settings -> Devices, not with a token")
 		return credentials.PushSubscription{}, false
 	}
-	return sub, true
+	writeErr(w, http.StatusNotFound, model.ErrCodeNotFound, "no such push subscription")
+	return credentials.PushSubscription{}, false
 }
 
 func pushInfo(p credentials.PushSubscription) model.PushSubscriptionInfo {
@@ -149,9 +157,9 @@ func (s *Server) listPushSubscriptions(w http.ResponseWriter, r *http.Request) {
 	p := principalFrom(r.Context())
 	user := p.User
 	if u := strings.Join(r.URL.Query()["user"], ","); u != "" { // an empty ?user= is the caller's own
-		if u != p.User && !p.Role.AtLeast(auth.RoleAdmin) {
+		if u != p.User && (!p.Role.AtLeast(auth.RoleAdmin) || !p.Interactive()) {
 			s.deny(r, obs.AuthForbidden)
-			writeErr(w, http.StatusForbidden, model.ErrCodeForbidden, "only an administrator lists another user's push devices")
+			writeErr(w, http.StatusForbidden, model.ErrCodeForbidden, "only an administrator, signed in rather than with a token, lists another user's push devices")
 			return
 		}
 		user = u
