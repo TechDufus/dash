@@ -73,6 +73,7 @@ type ApprovalInfo struct {
 	Summary string         `json:"summary" dash:"required"`
 	Target  ApprovalTarget `json:"target" dash:"required"`
 	// Input is the action's input as dash validated it, without confirm: what runs on approval.
+	// null in core.approvals, which lists requests; GET /api/v1/approvals/{id} has it.
 	Input json.RawMessage `json:"input" dash:"required" tstype:"unknown"`
 	// InputSHA256 is the hex SHA-256 of Input: the audit records it instead of the values.
 	InputSHA256 string `json:"inputSha256" dash:"required"`
@@ -101,8 +102,8 @@ type ApprovalDecision struct {
 	Confirm string `json:"confirm,omitempty" dash:"max=253"`
 }
 
-// ApprovalsData is the payload of core.approvals: the caller's pending requests, oldest first.
-// The topic is per user: nobody sees another user's requests.
+// ApprovalsData is the payload of core.approvals: the caller's pending requests, oldest first,
+// each without its input (null). The topic is per user: nobody sees another user's requests.
 type ApprovalsData struct {
 	Pending []ApprovalInfo `json:"pending" dash:"required"`
 }

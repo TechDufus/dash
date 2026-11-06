@@ -98,6 +98,7 @@ export interface ApprovalInfo {
   target: ApprovalTarget;
   /**
    * Input is the action's input as dash validated it, without confirm: what runs on approval.
+   * null in core.approvals, which lists requests; GET /api/v1/approvals/{id} has it.
    */
   input: unknown;
   /**
@@ -140,8 +141,8 @@ export interface ApprovalDecision {
   confirm?: string;
 }
 /**
- * ApprovalsData is the payload of core.approvals: the caller's pending requests, oldest first.
- * The topic is per user: nobody sees another user's requests.
+ * ApprovalsData is the payload of core.approvals: the caller's pending requests, oldest first,
+ * each without its input (null). The topic is per user: nobody sees another user's requests.
  */
 export interface ApprovalsData {
   pending: ApprovalInfo[];

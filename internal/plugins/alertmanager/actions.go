@@ -23,6 +23,11 @@ const (
 
 	maxMatchers = 20
 	maxComment  = 500
+	// maxMatcherName and maxMatcherValue bound a matcher (bytes): a label name is short, and a
+	// value long enough for any real label still keeps a request, its summary and its audit
+	// target small.
+	maxMatcherName  = 256
+	maxMatcherValue = 1024
 )
 
 // silenceLengths is what each duration id of plugins.alertmanager.silenceDurations means.
@@ -50,6 +55,9 @@ func (in *silenceCreateInput) Validate() error {
 	for _, m := range in.Matchers {
 		if strings.TrimSpace(m.Name) == "" || strings.TrimSpace(m.Value) == "" {
 			return errors.New("matcher name and value must not be empty")
+		}
+		if len(m.Name) > maxMatcherName || len(m.Value) > maxMatcherValue {
+			return fmt.Errorf("a matcher name is at most %d bytes and a value at most %d", maxMatcherName, maxMatcherValue)
 		}
 		hasAlertname = hasAlertname || m.Name == "alertname"
 	}

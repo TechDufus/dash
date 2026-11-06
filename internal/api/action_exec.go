@@ -129,8 +129,10 @@ var errAuditUnavailable = errors.New("audit log unavailable")
 // executeAction runs a checked call: the audit intent rec (fail-closed: errAuditUnavailable and
 // no run), then Act as p under ctx, then the outcome. An action whose audit target exists only
 // after it ran (plugin.Outcome) re-targets the record before its outcome is written, on success
-// only. It returns Act's body, unwrapped, and Act's error.
+// only. Both targets come from the input or the plugin, so each text is clipped to
+// maxApprovalTarget. It returns Act's body, unwrapped, and Act's error.
 func (s *Server) executeAction(ctx context.Context, ref plugin.ActionRef, p auth.Principal, input any, rec audit.Record) (any, error) {
+	rec.Target = s.clipTarget(rec.Target)
 	pending, err := s.d.Audit.Intent(rec)
 	if err != nil {
 		return nil, errAuditUnavailable
@@ -139,7 +141,7 @@ func (s *Server) executeAction(ctx context.Context, ref plugin.ActionRef, p auth
 	if err == nil {
 		var t *plugin.ActionTarget
 		if out, t = unwrapOutcome(out); t != nil {
-			pending = pending.WithTarget(audit.Target{Kind: t.Kind, Namespace: t.Namespace, Name: t.Name})
+			pending = pending.WithTarget(s.clipTarget(audit.Target{Kind: t.Kind, Namespace: t.Namespace, Name: t.Name}))
 		}
 	}
 	pending.Outcome(err)

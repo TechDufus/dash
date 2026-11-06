@@ -287,3 +287,46 @@ func TestMCPActionCallsAreLimited(t *testing.T) {
 		t.Errorf("dash_approval = %s", resultText(res))
 	}
 }
+
+// An agent's arguments are held to a REST body's 64 KiB: a 900 KiB argument over MCP (within the
+// transport's 1 MiB) is invalid_input, and creates no request.
+func TestMCPActionArgumentsAreCapped(t *testing.T) {
+	e := newApprovalEnv(t, nil)
+	token, _ := e.agentToken(t, "alice", "read", "actions:aa")
+	cs := e.mcpSession(t, token, "2025-11-25", nil)
+	res := call(t, cs, "aa_restart", map[string]any{"namespace": "apps", "name": strings.Repeat("n", 900<<10)})
+	if !res.IsError || !strings.Contains(resultText(res), model.ErrCodeInvalidInput) {
+		t.Fatalf("900 KiB = %.200s", resultText(res))
+	}
+	if n := len(e.approvals.Pending("alice")); n != 0 {
+		t.Errorf("%d pending requests, want none", n)
+	}
+}
+
+// core.approvals stays small however large the inputs: with 20 pending requests of inputs near
+// 64 KiB, the envelope holds no input and the clipped targets and summaries only. The request
+// itself keeps its input for GET.
+func TestCoreApprovalsEnvelopeIsBounded(t *testing.T) {
+	e := newApprovalEnv(t, nil, plugin.InstanceConfig{Name: "aa", ActionsEnabled: true})
+	p := e.agent(t, "alice", "actions:aa")
+	var last model.ApprovalInfo
+	for i := range model.ApprovalsPendingMax {
+		last = e.mustAsk(t, p, "wipe", restartIn{Namespace: "apps", Name: strings.Repeat(string(rune('a'+i)), 60<<10)})
+	}
+	if n := len(last.Target.Name); n > maxApprovalTarget || len(last.Summary) > maxApprovalSummary {
+		t.Errorf("target name %d bytes, summary %d", n, len(last.Summary))
+	}
+	ev, ok := e.hub.Latest("alice", model.TopicApprovals)
+	if !ok {
+		t.Fatal("no core.approvals")
+	}
+	if n := len(ev.Data); n > 32<<10 {
+		t.Errorf("core.approvals is %d bytes with 20 pending", n)
+	}
+	if got := e.pendingFor(t, "alice"); len(got) != model.ApprovalsPendingMax || string(got[0].Input) != "null" && got[0].Input != nil {
+		t.Errorf("entries = %d, input %s", len(got), got[0].Input)
+	}
+	if info := approvalOf(t, e.get("alice", last.ID)); len(info.Input) < 60<<10 {
+		t.Errorf("GET input is %d bytes", len(info.Input))
+	}
+}

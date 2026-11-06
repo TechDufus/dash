@@ -63,14 +63,33 @@ func (s *Server) newApprovals() *approvals.Store {
 // RunApprovals expires the requests nobody touches until ctx ends.
 func (s *Server) RunApprovals(ctx context.Context) { s.approvals.Run(ctx, approvalSweep) }
 
-// publishApprovals publishes user's pending requests on core.approvals, for that user only.
+// publishApprovals publishes user's pending requests on core.approvals, for that user only. The
+// entries leave out the input: the topic is a list, its size bounded by the 20 requests and their
+// clipped texts, and the approval page reads the input through GET /api/v1/approvals/{id}.
 func (s *Server) publishApprovals(user string) {
 	if s.d.Hub == nil {
 		return
 	}
-	if _, err := s.d.Hub.PublishFor(user, model.TopicApprovals, model.ApprovalsData{Pending: s.approvals.Pending(user)}, nil); err != nil {
+	pending := s.approvals.Pending(user)
+	for i := range pending {
+		pending[i].Input = nil
+	}
+	if _, err := s.d.Hub.PublishFor(user, model.TopicApprovals, model.ApprovalsData{Pending: pending}, nil); err != nil {
 		slog.Error("core.approvals publish failed", "error", err)
 	}
+}
+
+// maxApprovalTarget caps each text of an agent action's target and maxApprovalSummary its summary
+// (they come from the agent's input). The target's cap is above the 253 bytes of a DNS name, so a
+// name a person must type is never cut.
+const (
+	maxApprovalTarget  = 256
+	maxApprovalSummary = 512
+)
+
+// clipTarget is t with each text cut to maxApprovalTarget.
+func (s *Server) clipTarget(t audit.Target) audit.Target {
+	return audit.Target{Kind: s.clip(t.Kind, maxApprovalTarget), Namespace: s.clip(t.Namespace, maxApprovalTarget), Name: s.clip(t.Name, maxApprovalTarget)}
 }
 
 // approvalRecord is the audit record of a request's transition: the requester as actor on its
@@ -116,15 +135,19 @@ type agentAction struct {
 }
 
 // checkAgentAction runs the chain's checks for an agent's call (contract D50: validate first):
-// an administrator, the action's role and the actions:<plugin> scope, the input (strictly
-// decoded, its tags and Validate), the target's namespace against the instance's and the token's
-// lists. The agent's own confirm is cleared: dash fills it only from a person's decision (D33).
+// an administrator, the action's role and the actions:<plugin> scope, arguments no larger than a
+// REST body (64 KiB), the input (strictly decoded, its tags and Validate), the target's namespace
+// against the instance's and the token's lists. The agent's own confirm is cleared: dash fills it
+// only from a person's decision (D33). The returned target is clipped (maxApprovalTarget).
 func (s *Server) checkAgentAction(ctx context.Context, c agentCall) (agentAction, *actionDenial) {
 	if !c.P.Role.AtLeast(auth.RoleAdmin) {
 		return agentAction{}, &actionDenial{Reason: obs.AuthForbidden, Status: http.StatusForbidden, Code: model.ErrCodeForbidden, Msg: "agent actions need an administrator's token"}
 	}
 	if d := authorizeAction(c.P, c.Ref); d != nil {
 		return agentAction{}, d
+	}
+	if len(c.Args) > maxBody {
+		return agentAction{}, &actionDenial{Status: http.StatusBadRequest, Code: model.ErrCodeInvalidInput, Msg: "the arguments are larger than 64 KiB"}
 	}
 	input, msg := decodeActionInput(c.Ref.Spec, c.Args)
 	if msg != "" {
@@ -139,7 +162,7 @@ func (s *Server) checkAgentAction(ctx context.Context, c agentCall) (agentAction
 	if err != nil {
 		return agentAction{}, &actionDenial{Status: http.StatusInternalServerError, Code: model.ErrCodeInternal, Msg: "internal error"}
 	}
-	return agentAction{Input: input, JSON: canon, SHA256: sum, Target: target, Rule: c.Ref.ConfirmFor(ctx, input)}, nil
+	return agentAction{Input: input, JSON: canon, SHA256: sum, Target: s.clipTarget(target), Rule: c.Ref.ConfirmFor(ctx, input)}, nil
 }
 
 // requestApproval creates the approval request of a checked agent call, or finds the pending one
@@ -150,7 +173,7 @@ func (s *Server) requestApproval(c agentCall, a agentAction) (model.ApprovalInfo
 	spec := c.Ref.Spec
 	summary := ""
 	if spec.Summary != nil {
-		summary = spec.Summary(a.Input)
+		summary = s.clip(spec.Summary(a.Input), maxApprovalSummary)
 	}
 	credName := ""
 	if rv, ok := s.d.Tokens.(TokenReviver); ok {

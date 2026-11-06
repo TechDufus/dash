@@ -57,6 +57,10 @@ func TestCreateSilenceValidate(t *testing.T) {
 		{"multibyte comment counts runes", func(i *silenceCreateInput) { i.Comment = strings.Repeat("é", 500) }, true},
 		{"empty value", func(i *silenceCreateInput) { i.Matchers[1].Value = "" }, false},
 		{"empty name", func(i *silenceCreateInput) { i.Matchers[1].Name = "" }, false},
+		{"256 byte name, 1024 byte value", func(i *silenceCreateInput) { i.Matchers[1].Name, i.Matchers[1].Value = long(256), long(1024) }, true},
+		{"257 byte name", func(i *silenceCreateInput) { i.Matchers[1].Name = long(257) }, false},
+		{"1025 byte value", func(i *silenceCreateInput) { i.Matchers[1].Value = long(1025) }, false},
+		{"long alertname value", func(i *silenceCreateInput) { i.Matchers[0].Value = long(1025) }, false},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
