@@ -146,6 +146,9 @@ func (s *Server) toolTable() []tool {
 				if limit < 1 || limit > maxSearchHits {
 					return nil, "", refuse(model.ErrCodeInvalidInput, "limit must be 1-%d", maxSearchHits)
 				}
+				if err := checkKinds(q.Kinds); err != nil {
+					return nil, "", err
+				}
 				// One hit more than asked tells whether the answer is cut.
 				hits := b().Search(q.Query, q.Kinds, limit+1)
 				res := searchResult{Hits: hits, More: len(hits) > limit}
@@ -278,10 +281,43 @@ func (s *Server) toolTable() []tool {
 	}
 }
 
-// searchKinds are the kinds of the objects dash's plugins answer for, by plugin.
-const searchKinds = "Pod, Workload, Node, Namespace, PVC, App, BackupJob, Certificate, ExternalSecret (kubernetes); " +
-	"VM, Storage (proxmox); Alert, Silence (alertmanager); Cluster (cnpg); GitRepository, HelmRelease, " +
-	"HelmRepository, Kustomization, OCIRepository (flux); Endpoint (gatus); Disk, Host, Machine, Pool (hardware)"
+// pluginKinds are the kinds of the objects dash's plugins answer for, by plugin.
+var pluginKinds = []struct {
+	plugin string
+	kinds  []string
+}{
+	{"kubernetes", []string{"Pod", "Workload", "Node", "Namespace", "PVC", "App", "BackupJob", "Certificate", "ExternalSecret"}},
+	{"proxmox", []string{"VM", "Storage"}},
+	{"alertmanager", []string{"Alert", "Silence"}},
+	{"cnpg", []string{"Cluster"}},
+	{"flux", []string{"GitRepository", "HelmRelease", "HelmRepository", "Kustomization", "OCIRepository"}},
+	{"gatus", []string{"Endpoint"}},
+	{"hardware", []string{"Disk", "Host", "Machine", "Pool"}},
+}
+
+// searchKinds lists pluginKinds for a reader: "Pod, Workload, ... (kubernetes); VM, ...".
+var searchKinds = func() string {
+	parts := make([]string, len(pluginKinds))
+	for i, p := range pluginKinds {
+		parts[i] = strings.Join(p.kinds, ", ") + " (" + p.plugin + ")"
+	}
+	return strings.Join(parts, "; ")
+}()
+
+// checkKinds refuses a kind no plugin answers for, which would match nothing, naming the kinds.
+// Kinds match ignoring case, as the search does.
+func checkKinds(kinds []string) error {
+next:
+	for _, k := range kinds {
+		for _, p := range pluginKinds {
+			if slices.ContainsFunc(p.kinds, func(known string) bool { return strings.EqualFold(known, k) }) {
+				continue next
+			}
+		}
+		return refuse(model.ErrCodeInvalidInput, "unknown kind %q; the kinds are %s", k, searchKinds)
+	}
+	return nil
+}
 
 // topicsHint says where the topic names are.
 const topicsHint = "resources/list lists the topics this token may read, as dash://topics/<topic>"
