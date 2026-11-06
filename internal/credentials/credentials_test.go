@@ -412,6 +412,110 @@ func TestReplacedFileBeforeAnyWriteIsNotOverwritten(t *testing.T) {
 	}
 }
 
+// openDescriptors counts this process's descriptors on credentials.yaml in dir (a deleted one
+// counts too: the kernel names it "<path> (deleted)").
+func openDescriptors(t *testing.T, dir string) int {
+	t.Helper()
+	real, err := filepath.EvalSymlinks(dir)
+	must(t, err)
+	target := filepath.Join(real, FileName)
+	entries, err := os.ReadDir("/proc/self/fd")
+	if err != nil {
+		t.Skip("no /proc/self/fd to count descriptors with")
+	}
+	n := 0
+	for _, e := range entries {
+		if l, err := os.Readlink(filepath.Join("/proc/self/fd", e.Name())); err == nil && (l == target || l == target+" (deleted)") {
+			n++
+		}
+	}
+	return n
+}
+
+// The store keeps the file it knows open (one descriptor, the newest) so that file's inode is
+// never free for a replacement to be given: a write swaps the descriptor, Close releases it.
+func TestStoreHoldsOneDescriptorOnItsFile(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, FileName)
+	same := func(f *os.File) bool {
+		t.Helper()
+		if f == nil {
+			t.Fatal("the store holds no file")
+		}
+		held, err := f.Stat()
+		must(t, err)
+		onDisk, err := os.Stat(path)
+		must(t, err)
+		return os.SameFile(held, onDisk)
+	}
+
+	mem, err := OpenMemory()
+	must(t, err)
+	if mem.held != nil {
+		t.Error("an in-memory store holds a file")
+	}
+
+	s := open(t, dir) // a fresh directory: the file is created by the first write
+	first := s.held
+	if !same(first) || openDescriptors(t, dir) != 1 {
+		t.Fatalf("after Open: held is the file on disk = %v, descriptors = %d, want true and 1", same(first), openDescriptors(t, dir))
+	}
+	must(t, s.BumpEpoch("alice"))
+	second := s.held
+	if second == first || !same(second) {
+		t.Errorf("a write did not move the descriptor to the new file")
+	}
+	if _, err := first.Stat(); !errors.Is(err, os.ErrClosed) {
+		t.Errorf("the descriptor of the replaced file is still open: %v", err)
+	}
+	if n := openDescriptors(t, dir); n != 1 {
+		t.Errorf("descriptors on credentials.yaml after a write = %d, want 1", n)
+	}
+	must(t, s.Close())
+	if s.held != nil {
+		t.Error("Close kept the held file")
+	}
+	if _, err := second.Stat(); !errors.Is(err, os.ErrClosed) {
+		t.Errorf("Close left the descriptor open: %v", err)
+	}
+	if n := openDescriptors(t, dir); n != 0 {
+		t.Errorf("descriptors on credentials.yaml after Close = %d, want 0", n)
+	}
+	must(t, s.Close()) // twice is fine
+
+	// A reopened store holds the file it read (not one it wrote), also once.
+	r := open(t, dir)
+	if !same(r.held) || openDescriptors(t, dir) != 1 {
+		t.Errorf("after a reopen: held is the file on disk = %v, descriptors = %d, want true and 1", same(r.held), openDescriptors(t, dir))
+	}
+}
+
+// A file deleted and made again, over and over, is never taken for the one the store knows: its
+// inode stays allocated while the store holds it, so the new file's inode is another number even
+// on a filesystem that hands a freed inode number out at once (ext4). Without the held
+// descriptor this loop fails there; here it holds on any filesystem.
+func TestRestoredFileIsNeverTakenForTheOriginal(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, FileName)
+	s := open(t, dir)
+	must(t, s.BumpEpoch("alice"))
+	content, err := os.ReadFile(path)
+	must(t, err)
+	for i := range 200 {
+		must(t, os.Remove(path))
+		must(t, os.WriteFile(path, content, 0o600))
+		if !s.changedOnDisk() {
+			t.Fatalf("round %d: a restored credentials.yaml was taken for the file the store knows", i)
+		}
+	}
+	if err := s.BumpEpoch("alice"); err != nil {
+		t.Errorf("BumpEpoch after a restore: %v", err)
+	}
+	if after, _ := os.ReadFile(path); !bytes.Equal(after, content) {
+		t.Error("a restored credentials.yaml was overwritten")
+	}
+}
+
 func TestConcurrentBumpsAreAllCounted(t *testing.T) {
 	dir := t.TempDir()
 	s := open(t, dir)

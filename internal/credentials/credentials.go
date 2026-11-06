@@ -25,6 +25,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"log/slog"
 	"maps"
@@ -103,9 +104,14 @@ type Store struct {
 	closed bool
 	doc    document
 	salt   []byte
-	// file is the file this store read or last wrote (os.SameFile identity); a file that is
-	// gone or another one since is never written over (ErrFileChanged). warned: said so once.
-	file   os.FileInfo
+	// held is the file this store read or last wrote, kept open read-only. A file that is gone,
+	// or another one since, is never written over (ErrFileChanged); os.SameFile(stat(path),
+	// fstat(held)) tells. Holding the descriptor keeps that inode allocated, so no file made
+	// later can be given its number (a filesystem such as ext4 reuses a freed inode number at
+	// once, and a bare device+inode comparison would take the replacement for the original).
+	// At most one descriptor per store; Close releases it. nil in memory and after Close.
+	// warned: said so once.
+	held   *os.File
 	warned bool
 
 	// used and grantUsed hold the lastUsedAt times of personal access tokens and of OAuth
@@ -200,9 +206,17 @@ func emptyDocument(salt []byte) document {
 
 // load reads the file, or creates it with a fresh salt when there is none (or it is empty).
 func (s *Store) load() error {
-	data, err := os.ReadFile(s.path)
+	f, err := os.Open(s.path)
 	if err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return fmt.Errorf("credentials: read %s: %w", s.path, err)
+	}
+	var data []byte
+	if err == nil {
+		// The descriptor read from is the one kept: the identity is that of the bytes read.
+		s.held = f
+		if data, err = io.ReadAll(f); err != nil {
+			return fmt.Errorf("credentials: read %s: %w", s.path, err)
+		}
 	}
 	if len(bytes.TrimSpace(data)) == 0 {
 		salt, err := newSalt()
@@ -214,30 +228,29 @@ func (s *Store) load() error {
 			return err
 		}
 		s.doc, s.salt = doc, salt
-		return s.remember()
+		return nil
 	}
 	doc, salt, err := decode(data)
 	if err != nil {
 		return fmt.Errorf("credentials: %s: %w", s.path, err)
 	}
 	// A file written by hand or restored with a wider mode is narrowed: it holds a password hash.
-	if fi, err := os.Stat(s.path); err == nil && fi.Mode().Perm() != 0o600 {
-		if err := os.Chmod(s.path, 0o600); err != nil {
+	if fi, err := f.Stat(); err == nil && fi.Mode().Perm() != 0o600 {
+		if err := f.Chmod(0o600); err != nil {
 			return fmt.Errorf("credentials: chmod %s: %w", s.path, err)
 		}
 	}
 	s.doc, s.salt = doc, salt
-	return s.remember()
+	return nil
 }
 
-// remember notes the identity of the file on disk, after a load or a committed write.
-func (s *Store) remember() error {
-	fi, err := os.Stat(s.path)
-	if err != nil {
-		return fmt.Errorf("credentials: stat %s: %w", s.path, err)
+// hold makes f, an open read-only file on the inode now at the path, the one this store knows,
+// and releases the one before. The caller holds s.mu (or the store is not shared yet).
+func (s *Store) hold(f *os.File) {
+	if s.held != nil {
+		s.held.Close()
 	}
-	s.file = fi
-	return nil
+	s.held = f
 }
 
 // changedOnDisk reports whether the file this store knows was removed or replaced since. Another
@@ -247,7 +260,11 @@ func (s *Store) changedOnDisk() bool {
 	if errors.Is(err, fs.ErrNotExist) {
 		return true
 	}
-	return err == nil && s.file != nil && !os.SameFile(fi, s.file)
+	if err != nil || s.held == nil {
+		return false
+	}
+	known, err := s.held.Stat()
+	return err == nil && !os.SameFile(fi, known)
 }
 
 // decode parses and checks a document. It never repairs one: the caller refuses to start rather
@@ -323,7 +340,9 @@ func encode(doc document) ([]byte, error) {
 
 // persist writes doc atomically: a 0600 temp file in the same directory, fsync, rename over
 // the file, fsync of the directory. committed reports that the rename happened (a later
-// directory fsync error still leaves the new file in place).
+// directory fsync error still leaves the new file in place). A committed write holds the new
+// file open (see held) before the rename, so its inode is never unowned: the caller holds s.mu
+// (or the store is not shared yet).
 func (s *Store) persist(doc document) (committed bool, err error) {
 	data, err := encode(doc)
 	if err != nil {
@@ -348,10 +367,18 @@ func (s *Store) persist(doc document) (committed bool, err error) {
 		os.Remove(tmp)
 		return false, fmt.Errorf("credentials: close %s: %w", tmp, err)
 	}
+	// Opened before the rename, on the temp file's inode, which the rename keeps.
+	held, err := os.Open(tmp)
+	if err != nil {
+		os.Remove(tmp)
+		return false, fmt.Errorf("credentials: open %s: %w", tmp, err)
+	}
 	if err := os.Rename(tmp, s.path); err != nil {
+		held.Close()
 		os.Remove(tmp)
 		return false, fmt.Errorf("credentials: replace %s: %w", s.path, err)
 	}
+	s.hold(held)
 	if err := syncDir(s.dir); err != nil {
 		return true, fmt.Errorf("credentials: sync %s: %w", s.dir, err)
 	}
@@ -418,12 +445,6 @@ func (s *Store) update(keepOnFailure bool, change func(*document) bool) error {
 	if committed || keepOnFailure {
 		s.doc = next
 	}
-	if committed {
-		// The rename made a new file: remember it, or the next write would think it replaced.
-		if fi, serr := os.Stat(s.path); serr == nil {
-			s.file = fi
-		}
-	}
 	return err
 }
 
@@ -434,7 +455,7 @@ func (s *Store) Persistent() bool { return s.path != "" }
 // Path is the credential file, "" for an in-memory store.
 func (s *Store) Path() string { return s.path }
 
-// Close writes the tokens' last use and releases the lock. Later writes fail.
+// Close writes the tokens' last use and releases the lock and the held file. Later writes fail.
 func (s *Store) Close() error {
 	if err := s.FlushLastUsed(); err != nil && !errors.Is(err, errClosed) {
 		slog.Warn("credentials: writing the tokens' last use failed", "err", err)
@@ -442,6 +463,10 @@ func (s *Store) Close() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.closed = true
+	if s.held != nil {
+		s.held.Close()
+		s.held = nil
+	}
 	if s.lock == nil {
 		return nil
 	}
