@@ -30,9 +30,9 @@ import (
 
 // Lifetimes and bounds (design M.6).
 const (
-	PendingTTL = 10 * time.Minute // an authorization request waiting for consent
-	CodeTTL    = 60 * time.Second // an authorization code
-	AccessTTL  = 15 * time.Minute // an access token
+	PendingTTL = 10 * time.Minute    // an authorization request waiting for consent
+	CodeTTL    = credentials.CodeTTL // an authorization code; the store prunes grants never exchanged past it
+	AccessTTL  = 15 * time.Minute    // an access token
 
 	// maxPending and maxCodes bound what dash holds for requests: only signed-in people create
 	// pending requests (at most maxPendingPerUser each, the oldest goes), and codes come from

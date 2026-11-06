@@ -34,6 +34,10 @@ const (
 // MaxActiveGrants is how many unexpired grants one user may hold (contract G7-R3).
 const MaxActiveGrants = 20
 
+// CodeTTL is how long the authorization code of a consent lives (oauth.CodeTTL). A grant whose
+// code was never exchanged within it can never be used: PruneExpired deletes it.
+const CodeTTL = 60 * time.Second
+
 var (
 	// ErrTooManyGrants refuses a grant past MaxActiveGrants for its user.
 	ErrTooManyGrants = errors.New("credentials: the user holds the most grants allowed")
@@ -73,6 +77,13 @@ type Grant struct {
 // GrantIdle at now.
 func (g Grant) Active(now time.Time) bool {
 	return now.Before(g.ExpiresAt) && now.Before(g.RefreshedAt.Add(GrantIdle))
+}
+
+// unexchanged reports a grant whose authorization code was never exchanged (ExchangeGrant sets
+// LastUsedAt, and so does every later refresh or use) and has expired at now. CreatedAt is
+// truncated to the second, so the code lived at most CodeTTL plus one second after it.
+func (g Grant) unexchanged(now time.Time) bool {
+	return g.LastUsedAt == nil && !now.Before(g.CreatedAt.Add(CodeTTL+time.Second))
 }
 
 func (g Grant) clone() Grant {
@@ -244,6 +255,29 @@ func (s *Store) GrantByID(id string) (Grant, bool) {
 	defer s.mu.RUnlock()
 	g, ok := s.doc.Grants[id]
 	return g.clone(), ok
+}
+
+// ExchangeGrant records that the authorization code of grant id was exchanged at now: its
+// LastUsedAt is set, so PruneExpired no longer counts it as unexchanged. It returns the grant;
+// false when it is gone or inactive. Nothing changes when the write fails.
+func (s *Store) ExchangeGrant(id string, now time.Time) (Grant, bool, error) {
+	var out Grant
+	found := false
+	err := s.update(false, func(d *document) bool {
+		g, ok := d.Grants[id]
+		if !ok || !g.Active(now) {
+			return false
+		}
+		at := now.UTC().Truncate(time.Second)
+		g.LastUsedAt = &at
+		d.Grants[id] = g
+		out, found = g.clone(), true
+		return true
+	})
+	if err != nil {
+		return Grant{}, false, err
+	}
+	return out, found, nil
 }
 
 // RefreshGrant returns the grant a refresh token belongs to, current or rotated away (its

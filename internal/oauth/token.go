@@ -146,8 +146,13 @@ func (s *Server) exchangeCode(form url.Values, clientID string) (*TokenResponse,
 	case resource != "" && s.audienceOf(resource) != c.audience:
 		return nil, s.revokeFor(c.grantID, "code_misuse"), oauthErr("invalid_target", "resource differs from the authorization request")
 	}
-	g, found := s.store.GrantByID(c.grantID)
-	if !found || !g.Active(now) {
+	// The exchange is recorded on the grant (LastUsedAt), so the store never prunes it as one
+	// whose code expired unexchanged.
+	g, found, err := s.store.ExchangeGrant(c.grantID, now)
+	if err != nil {
+		return nil, nil, oauthErr("server_error", "")
+	}
+	if !found {
 		return nil, nil, oauthErr("invalid_grant", "the grant was revoked")
 	}
 	at, err := s.sealAccess(g, c.scopes, now)

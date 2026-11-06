@@ -205,13 +205,15 @@ func activeOf(pats map[string]PAT, user string, now time.Time) int {
 }
 
 // PruneExpired deletes the tokens that expired more than PruneAfter before now (past that they
-// only grow the file and keep it at schemaVersion 2) and the OAuth grants that are no longer
-// active, which no refresh can bring back. It reports how many it deleted; like a revocation,
-// the deletion holds in this process even when the write fails.
+// only grow the file and keep it at schemaVersion 2), the OAuth grants that are no longer
+// active, which no refresh can bring back, and the grants whose authorization code expired
+// unexchanged, which no client can ever use (the oauth server revokes those when it sweeps the
+// code; a restart forgets the code, so this catches them). It reports how many it deleted; like
+// a revocation, the deletion holds in this process even when the write fails.
 func (s *Store) PruneExpired(now time.Time) (int, error) {
 	cut := now.Add(-PruneAfter)
 	stale := func(p PAT) bool { return p.ExpiresAt.Before(cut) }
-	gone := func(g Grant) bool { return !g.Active(now) }
+	gone := func(g Grant) bool { return !g.Active(now) || g.unexchanged(now) }
 	s.mu.RLock()
 	found := slices.ContainsFunc(slices.Collect(maps.Values(s.doc.PATs)), stale) ||
 		slices.ContainsFunc(slices.Collect(maps.Values(s.doc.Grants)), gone)
@@ -407,9 +409,13 @@ func forgetWritten(noted, written map[string]time.Time) {
 	}
 }
 
-// RunLastUsedFlush flushes the lastUsedAt times every interval until ctx ends. Close flushes
-// the last ones.
+// RunLastUsedFlush prunes at once (PruneExpired: what expired while dash was stopped), then
+// flushes the lastUsedAt times and prunes every interval until ctx ends. Close flushes the
+// last ones.
 func (s *Store) RunLastUsedFlush(ctx context.Context, every time.Duration) {
+	if _, err := s.PruneExpired(time.Now()); err != nil {
+		slog.Warn("credentials: removing long-expired tokens failed", "err", err)
+	}
 	t := time.NewTicker(every)
 	defer t.Stop()
 	for {

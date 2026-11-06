@@ -1,6 +1,7 @@
 package credentials
 
 import (
+	"context"
 	"errors"
 	"os"
 	"path/filepath"
@@ -113,6 +114,50 @@ func TestGrantIdleAndAbsoluteExpiry(t *testing.T) {
 	}
 	if n, err := s.PruneExpired(t0.Add(GrantLifetime)); err != nil || n != 1 {
 		t.Errorf("prune = %d, %v; want the expired grant deleted", n, err)
+	}
+}
+
+// A grant whose code was never exchanged is pruned once the code has expired, so a restart that
+// forgot the code strands nothing; an exchanged one stays, and the exchange is written.
+func TestUnexchangedGrantsArePruned(t *testing.T) {
+	dir := t.TempDir()
+	s := open(t, dir)
+	_, idle, err := newGrant(t, s, "alice", t0)
+	must(t, err)
+	_, used, err := newGrant(t, s, "alice", t0)
+	must(t, err)
+	if g, ok, err := s.ExchangeGrant(used.ID, t0.Add(30*time.Second)); err != nil || !ok || g.LastUsedAt == nil || !g.LastUsedAt.Equal(t0.Add(30*time.Second)) {
+		t.Fatalf("exchange = %+v, %v, %v", g, ok, err)
+	}
+	if n, err := s.PruneExpired(t0.Add(CodeTTL)); err != nil || n != 0 {
+		t.Errorf("prune while the code may still live = %d, %v", n, err)
+	}
+	if n, err := s.PruneExpired(t0.Add(CodeTTL + time.Second)); err != nil || n != 1 {
+		t.Errorf("prune after the code expired = %d, %v; want the unexchanged grant deleted", n, err)
+	}
+	if _, ok := s.GrantByID(idle.ID); ok {
+		t.Error("the unexchanged grant is still stored")
+	}
+	must(t, s.Close())
+	s = open(t, dir)
+	if g, ok := s.GrantByID(used.ID); !ok || g.LastUsedAt == nil {
+		t.Errorf("after a reopen the exchanged grant = %+v, %v", g, ok)
+	}
+	if _, ok, err := s.ExchangeGrant(idle.ID, t0); ok || err != nil {
+		t.Errorf("exchanging a pruned grant = %v, %v", ok, err)
+	}
+}
+
+// The flush loop prunes once as it starts: what expired while dash was stopped goes at once.
+func TestRunLastUsedFlushPrunesAtStart(t *testing.T) {
+	s := open(t, t.TempDir())
+	_, g, err := newGrant(t, s, "alice", time.Now().UTC().Truncate(time.Second).Add(-time.Hour))
+	must(t, err)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	s.RunLastUsedFlush(ctx, time.Hour)
+	if _, ok := s.GrantByID(g.ID); ok {
+		t.Error("a grant never exchanged survived the start")
 	}
 }
 

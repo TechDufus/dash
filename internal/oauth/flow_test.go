@@ -204,6 +204,14 @@ func TestCodeExpiry(t *testing.T) {
 	if len(expired) != 1 || len(store.Grants("")) != 1 {
 		t.Errorf("after an exchanged code expired: expired %d, grants %d", len(expired), len(store.Grants("")))
 	}
+	// The exchange is recorded on the grant, so the store's prune (at start-up too, when the
+	// codes are forgotten) keeps it.
+	if g := store.Grants(""); len(g) != 1 || g[0].LastUsedAt == nil {
+		t.Fatalf("the exchanged grant = %+v, want its lastUsedAt set", g)
+	}
+	if n, err := store.PruneExpired(now.Add(time.Hour)); err != nil || n != 0 || len(store.Grants("")) != 1 {
+		t.Errorf("prune removed %d (%v) of the exchanged grant", n, err)
+	}
 }
 
 // Every refresh rotates: the new token works, the old one used again revokes the grant and
