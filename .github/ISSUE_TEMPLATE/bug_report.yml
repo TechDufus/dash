@@ -12,7 +12,7 @@ body:
     attributes:
       label: Version
       description: The image tag or release, or `version` in the answer of `/api/v1/me`.
-      placeholder: "0.14.10"
+      placeholder: "0.14.11"
     validations:
       required: true
   - type: dropdown

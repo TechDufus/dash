@@ -10,7 +10,7 @@ name: dash
 
 services:
   dash:
-    image: ${DASH_IMAGE:-ghcr.io/techdufus/dash:0.14.10}
+    image: ${DASH_IMAGE:-ghcr.io/techdufus/dash:0.14.11}
     restart: unless-stopped
     # Loopback only: put a TLS reverse proxy in front to serve other machines.
     ports: ["127.0.0.1:${DASH_PORT:-8080}:8080"]
