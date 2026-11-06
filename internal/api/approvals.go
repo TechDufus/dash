@@ -357,12 +357,13 @@ func (s *Server) decideApproval(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	info, err := s.runApproved(r, req, p.User, body.Confirm)
-	finished = info.ID != ""
+	// A request whose action ran is never given back, even when dash failed to record how.
+	finished = info.ID != "" || errors.Is(err, errAfterRun)
 	pending.Outcome(err)
 	switch {
 	case errors.Is(err, errAuditUnavailable):
 		writeErr(w, http.StatusServiceUnavailable, model.ErrCodeAuditUnavailable, "audit log unavailable")
-	case errors.Is(err, errApprovalPanic):
+	case errors.Is(err, errApprovalPanic), errors.Is(err, errAfterRun) && info.ID == "":
 		writeErr(w, http.StatusInternalServerError, model.ErrCodeInternal, "internal error")
 	case info.ID == "": // the store refused the end of a claim it gave: nothing to show
 		s.writeApprovalErr(w, r, err)
@@ -375,6 +376,10 @@ func (s *Server) decideApproval(w http.ResponseWriter, r *http.Request) {
 // (its Validate, Target or ConfirmFor): nothing ran and the request goes back to pending.
 var errApprovalPanic = errors.New("internal error before the action ran")
 
+// errAfterRun is runApproved's answer when dash failed after the action ran: the request is
+// finished as approved with a failed outcome, and never runs again.
+var errAfterRun = errors.New("dash failed after the action ran")
+
 // runApproved runs a claimed request its owner approved (contract D52). The requester is
 // resolved again, and the request is denied with the reason when the credential is gone, its
 // owner is no longer an administrator or lost the scope, the action is no longer offered or its
@@ -383,12 +388,22 @@ var errApprovalPanic = errors.New("internal error before the action ran")
 // timeout, not the deciding request's, through the shared executor (intent, Act, outcome) with
 // the approval's id and approver; errAuditUnavailable means it did not run and the request is
 // still claimed. The returned error is what the decision record's outcome notes.
+//
+// A panic before the action ran gives errApprovalPanic (the caller releases the request); a panic
+// after it ran finishes the request as approved with a failed outcome, so it never runs again.
 func (s *Server) runApproved(r *http.Request, req approvals.Request, by, confirm string) (info model.ApprovalInfo, err error) {
+	ran := false
 	defer func() {
-		if rec := recover(); rec != nil {
-			slog.Error("panic while running an approval", "approval", req.ID, "plugin", req.Plugin, "action", req.Action,
-				"panic", s.d.Secrets.Scrub(fmt.Sprint(rec)), "stack", string(debug.Stack()))
-			info, err = model.ApprovalInfo{}, errApprovalPanic
+		rec := recover()
+		if rec == nil {
+			return
+		}
+		msg := s.d.Secrets.Scrub(fmt.Sprint(rec))
+		slog.Error("panic while running an approval", "approval", req.ID, "plugin", req.Plugin, "action", req.Action,
+			"ran", ran, "panic", msg, "stack", string(debug.Stack()))
+		info, err = model.ApprovalInfo{}, errApprovalPanic
+		if ran {
+			info, err = s.finishAfterPanic(req, by)
 		}
 	}()
 	deny := func(reason string) (model.ApprovalInfo, error) {
@@ -454,7 +469,26 @@ func (s *Server) runApproved(r *http.Request, req approvals.Request, by, confirm
 	if errors.Is(runErr, errAuditUnavailable) {
 		return model.ApprovalInfo{}, runErr
 	}
+	ran = true
 	return s.approvals.Approve(req.ID, by, s.approvalOutcome(req, out, runErr))
+}
+
+// finishAfterPanic ends a request whose action ran before dash panicked: approved, its outcome a
+// failure that says so. Should even that fail, the request stays claimed (no decision, no run)
+// until a restart forgets it; it is never released to run again.
+func (s *Server) finishAfterPanic(req approvals.Request, by string) (info model.ApprovalInfo, err error) {
+	defer func() {
+		if recover() != nil {
+			info, err = model.ApprovalInfo{}, errAfterRun
+		}
+	}()
+	info, err = s.approvals.Approve(req.ID, by, model.ApprovalOutcome{
+		OK: false, Error: errAfterRun.Error() + ": its answer could not be kept", At: s.now().UTC(),
+	})
+	if err != nil {
+		return model.ApprovalInfo{}, errAfterRun
+	}
+	return info, errAfterRun
 }
 
 // approvalOutcome is what an approved run is kept as: the answer as JSON (202's

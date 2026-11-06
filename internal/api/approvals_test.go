@@ -818,3 +818,24 @@ func TestCoreApprovalsEndsCurrent(t *testing.T) {
 		}
 	}
 }
+
+// panicOnMarshal is an action answer whose encoding panics: dash fails after the action ran.
+type panicOnMarshal struct{}
+
+func (panicOnMarshal) MarshalJSON() ([]byte, error) { panic("answer cannot be encoded") }
+
+// A panic after the action ran (keeping its answer) finishes the request as approved with a
+// failed outcome: the action ran once, and a second decision is 409, never a second run.
+func TestApprovalThatRanIsNeverRunAgain(t *testing.T) {
+	e := newApprovalEnv(t, func(string, any) (any, error) { return panicOnMarshal{}, nil })
+	info := e.mustAsk(t, e.agent(t, "alice", "actions:aa"), "restart", okRestart)
+	got := approvalOf(t, e.decide("alice", info.ID, model.ApprovalDecision{Approve: true}))
+	if got.State != model.ApprovalStateApproved || got.Outcome == nil || got.Outcome.OK ||
+		!strings.Contains(got.Outcome.Error, "dash failed after the action ran") {
+		t.Fatalf("decision = %+v %+v", got, got.Outcome)
+	}
+	wantError(t, e.decide("alice", info.ID, model.ApprovalDecision{Approve: true}), http.StatusConflict, model.ErrCodeConflict)
+	if n := len(e.acts()); n != 1 {
+		t.Errorf("Act ran %d times, want once", n)
+	}
+}
