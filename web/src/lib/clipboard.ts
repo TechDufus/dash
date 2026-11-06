@@ -56,3 +56,18 @@ export function copyFromTextarea(area: HTMLTextAreaElement): boolean {
     return false;
   }
 }
+
+/**
+ * Selects the text of el and copies it with `document.execCommand("copy")`; false when the browser
+ * refused, with the text left selected for a manual copy. Call it synchronously in a click handler.
+ */
+export function copyElementText(el: HTMLElement): boolean {
+  const selection = globalThis.getSelection?.();
+  if (!selection) return false;
+  selection.selectAllChildren(el);
+  try {
+    return document.execCommand("copy");
+  } catch {
+    return false;
+  }
+}

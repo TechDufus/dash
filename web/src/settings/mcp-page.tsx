@@ -1,29 +1,55 @@
 import { useQueryClient } from "@tanstack/react-query";
-import { Bot, Plug } from "lucide-react";
-import { type JSX, useState } from "react";
+import { Bot, ClipboardCopy, Plug } from "lucide-react";
+import { type JSX, useRef, useState } from "react";
 import { toast } from "sonner";
 import { Link } from "wouter";
 import { api, errorMessage } from "@/api/client";
 import { useMe } from "@/api/queries";
-import type { SettingsView } from "@/api/types";
+import type { SettingField, SettingsView } from "@/api/types";
 import { Page } from "@/components/page";
 import { Panel, PanelHeader } from "@/components/panel";
 import { HealthBadge } from "@/components/status";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
+import { copyElementText } from "@/lib/clipboard";
 import { invalidateSettings, settingsPaths, useSettingsView } from "./api";
 import { lockedText, sourceText } from "./list-locked";
 
 /** The setting this page switches; it applies live, without a restart. */
 export const MCP_ENABLED = "mcp.enabled";
 const PUBLIC_URL = "server.publicURL";
+const DIRECT_URL = "server.directURL";
 
-/** The MCP endpoint: server.publicURL (else this page's origin) plus /mcp. */
+/** The value of a general string setting, or "" when it is unset. */
+function generalString(view: SettingsView | undefined, path: string): string {
+  const v = view?.general.find((f) => f.path === path)?.value;
+  return typeof v === "string" ? v : "";
+}
+
+/**
+ * The MCP endpoint: server.directURL plus /mcp when it is set (bearer clients reach dash there,
+ * past the identity proxy), else server.publicURL (else this page's origin) plus /mcp.
+ */
 function endpointOf(view: SettingsView | undefined): string {
-  const v = view?.general.find((f) => f.path === PUBLIC_URL)?.value;
-  const base = typeof v === "string" && v !== "" ? v : window.location.origin;
+  const base =
+    generalString(view, DIRECT_URL) || generalString(view, PUBLIC_URL) || window.location.origin;
   return `${base.replace(/\/+$/, "")}/mcp`;
+}
+
+/** Why the switch cannot be changed here and how to change it; undefined when it can. */
+function lockOf(field: SettingField | undefined, readonly: boolean): string | undefined {
+  if (field?.lockedBy === "env") {
+    return `Set by the environment variable ${field.ref ?? "DASH_MCP_ENABLED"}. To switch it here, unset the variable and restart dash.`;
+  }
+  if (field?.lockedBy === "file") {
+    return `Set in the config file${field.ref ? ` ${field.ref}` : ""}. Change it there, or remove it to switch it here; dash applies the file without a restart.`;
+  }
+  if (field?.lockedBy === "readonly" || (readonly && field)) {
+    return "Settings are read-only. Set mcp.enabled in the config file, applied without a restart, or with DASH_MCP_ENABLED and a restart.";
+  }
+  return field ? lockedText(field) : undefined;
 }
 
 /**
@@ -40,9 +66,22 @@ export function McpPage(): JSX.Element {
   const field = view.data?.general.find((f) => f.path === MCP_ENABLED);
   const serving = me.data?.capabilities.mcp === true;
   const endpoint = endpointOf(view.data);
-  const lock =
-    (field && lockedText(field)) ??
-    (view.data?.store.readonly ? "Settings are read-only" : undefined);
+  const lock = lockOf(field, view.data?.store.readonly === true);
+  const command = `claude mcp add --transport http dash ${endpoint} --header "Authorization: Bearer <token>"`;
+  const commandRef = useRef<HTMLElement>(null);
+
+  /** Copies the command inside the click: writeText, else the shown text through execCommand. */
+  function copyCommand() {
+    const refused = () => toast.error("Copying failed: select the command and copy it yourself");
+    const clipboard = globalThis.navigator?.clipboard;
+    if (typeof clipboard?.writeText === "function") {
+      clipboard.writeText(command).then(() => toast.success("Command copied"), refused);
+    } else if (commandRef.current && copyElementText(commandRef.current)) {
+      toast.success("Command copied");
+    } else {
+      refused();
+    }
+  }
 
   async function toggle(enabled: boolean) {
     if (!view.data) return;
@@ -82,7 +121,7 @@ export function McpPage(): JSX.Element {
         <div className="space-y-3 px-4 pb-4">
           <p className="text-sm text-muted">
             Read-only tools, resources and prompts for AI clients that present a token with the mcp
-            audience. The switch applies at once, without a restart.
+            audience.{lock ? null : " The switch applies at once, without a restart."}
           </p>
           {field ? (
             <div className="flex flex-wrap items-center gap-3">
@@ -96,7 +135,7 @@ export function McpPage(): JSX.Element {
               <Label htmlFor="mcp-enabled" className="text-sm text-fg">
                 Serve MCP at /mcp
               </Label>
-              <span className="text-xs text-faint">{sourceText(field)}</span>
+              {lock ? null : <span className="text-xs text-faint">{sourceText(field)}</span>}
               {lock ? (
                 <p id="mcp-enabled-lock" className="w-full text-xs text-muted">
                   {lock}
@@ -130,9 +169,15 @@ export function McpPage(): JSX.Element {
             , then give it to the client as a bearer token.
           </p>
           <div className="space-y-1">
-            <p className="text-muted">Claude Code:</p>
-            <pre className="overflow-x-auto rounded-lg border border-line bg-panel-hover p-3 text-xs">
-              <code>{`claude mcp add --transport http dash ${endpoint} --header "Authorization: Bearer <token>"`}</code>
+            <div className="flex items-center justify-between gap-2">
+              <p className="text-muted">Claude Code:</p>
+              <Button type="button" variant="outline" size="xs" onClick={copyCommand}>
+                <ClipboardCopy aria-hidden="true" />
+                Copy command
+              </Button>
+            </div>
+            <pre className="rounded-lg border border-line bg-panel-hover p-3 text-xs whitespace-pre-wrap wrap-anywhere">
+              <code ref={commandRef}>{command}</code>
             </pre>
           </div>
         </div>

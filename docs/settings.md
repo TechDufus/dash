@@ -55,9 +55,12 @@ Writes are refused in two more cases:
   An administrator also lists one user's or everyone's. In the proxy mode, which has no logout,
   **Revoke all my connected apps** revokes every one of the caller's grants.
 - **`/settings/mcp`** switches the read-only MCP server (`mcp.enabled`, saved like any setting
-  and applied at once, without a restart) and shows whether dash serves it now. It names the
-  endpoint (`<server.publicURL>/mcp`), links to Tokens for a token with the `mcp` audience,
-  and gives a Claude Code example:
+  and applied at once, without a restart) and shows whether dash serves it now. When the
+  environment sets it, the page says to unset the variable and restart; when the config file
+  does, to change it there (dash applies the file without a restart). It names the endpoint
+  (`<server.directURL>/mcp` when `server.directURL` is set, else `<server.publicURL>/mcp`), links
+  to Tokens for a token with the `mcp` audience, and gives a Claude Code command with a copy
+  button:
   `claude mcp add --transport http dash <endpoint> --header "Authorization: Bearer <token>"`.
   dash never serves MCP in the `none` mode.
 

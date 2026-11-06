@@ -1,6 +1,6 @@
 import { fireEvent, screen, waitFor } from "@testing-library/react";
 import { toast } from "sonner";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { renderApp, stubFetch } from "@/test/harness";
 import { settingsPaths } from "./api";
 import {
@@ -86,7 +86,7 @@ describe("McpPage", () => {
     expect(toggle()).not.toBeChecked();
   });
 
-  it("cannot switch a value the environment sets, and says so", async () => {
+  it("cannot switch a value the environment sets, and says how to unlock it", async () => {
     stubFetch(
       settingsRoutes({
         [`GET ${settingsPaths.view}`]: withMCP(
@@ -97,7 +97,44 @@ describe("McpPage", () => {
     renderApp(<McpPage />);
     await waitFor(() => expect(toggle()).toBeDisabled());
     expect(toggle()).toBeChecked();
-    expect(toggle()).toHaveAccessibleDescription("Set by env DASH_MCP_ENABLED");
+    expect(toggle()).toHaveAccessibleDescription(
+      "Set by the environment variable DASH_MCP_ENABLED. To switch it here, unset the variable and restart dash.",
+    );
+    // The lock says where the value comes from once: no source label beside it.
+    expect(screen.getAllByText(/DASH_MCP_ENABLED/)).toHaveLength(1);
+    // A locked switch does not apply at once.
+    expect(screen.queryByText(/applies at once/)).toBeNull();
+  });
+
+  it("says to edit the config file when it sets the value", async () => {
+    stubFetch(
+      settingsRoutes({
+        [`GET ${settingsPaths.view}`]: withMCP(
+          field(MCP_ENABLED, "boolean", {
+            value: false,
+            set: true,
+            source: "file",
+            ref: "/etc/dash/config.yaml",
+            locked: true,
+            lockedBy: "file",
+          }),
+        ),
+      }),
+    );
+    renderApp(<McpPage />);
+    await waitFor(() => expect(toggle()).toBeDisabled());
+    expect(toggle()).toHaveAccessibleDescription(
+      "Set in the config file /etc/dash/config.yaml. Change it there, or remove it to switch it here; dash applies the file without a restart.",
+    );
+    expect(screen.getAllByText(/\/etc\/dash\/config\.yaml/)).toHaveLength(1);
+  });
+
+  it("says the switch applies at once while it is unlocked, with its source", async () => {
+    stubFetch(settingsRoutes({ [`GET ${settingsPaths.view}`]: withMCP() }));
+    renderApp(<McpPage />);
+    await waitFor(() => expect(toggle()).toBeEnabled());
+    expect(screen.getByText(/The switch applies at once, without a restart\./)).toBeInTheDocument();
+    expect(screen.getByText("default")).toBeInTheDocument();
   });
 
   it("shows how to connect: the endpoint, the Tokens page and a Claude Code command", async () => {
@@ -113,5 +150,62 @@ describe("McpPage", () => {
         'claude mcp add --transport http dash https://dash.example.com/mcp --header "Authorization: Bearer <token>"',
       ),
     ).toBeInTheDocument();
+  });
+
+  it("names the endpoint on server.directURL when it is set", async () => {
+    const view = withMCP();
+    view.general.push(
+      envField("server.directURL", "string", "DASH_SERVER_DIRECT_URL", {
+        value: "https://dash-direct.example.com",
+        restart: true,
+      }),
+    );
+    stubFetch(settingsRoutes({ [`GET ${settingsPaths.view}`]: view }));
+    renderApp(<McpPage />);
+    expect(await screen.findByText("https://dash-direct.example.com/mcp")).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        'claude mcp add --transport http dash https://dash-direct.example.com/mcp --header "Authorization: Bearer <token>"',
+      ),
+    ).toBeInTheDocument();
+  });
+
+  describe("Copy command", () => {
+    const COMMAND =
+      'claude mcp add --transport http dash https://dash.example.com/mcp --header "Authorization: Bearer <token>"';
+
+    afterEach(() => {
+      Reflect.deleteProperty(navigator, "clipboard");
+      Reflect.deleteProperty(document, "execCommand");
+    });
+
+    async function render() {
+      stubFetch(settingsRoutes({ [`GET ${settingsPaths.view}`]: withMCP() }));
+      renderApp(<McpPage />);
+      await screen.findByText(COMMAND);
+    }
+
+    it("copies the command with writeText", async () => {
+      const writeText = vi.fn(async (_: string) => {});
+      Object.defineProperty(navigator, "clipboard", { value: { writeText }, configurable: true });
+      await render();
+      fireEvent.click(screen.getByRole("button", { name: "Copy command" }));
+      expect(writeText).toHaveBeenCalledWith(COMMAND);
+      await waitFor(() => expect(toast.success).toHaveBeenCalledWith("Command copied"));
+    });
+
+    it("copies the shown command with execCommand inside the click without the clipboard API", async () => {
+      Object.defineProperty(navigator, "clipboard", { value: undefined, configurable: true });
+      const copied: string[] = [];
+      const exec = vi.fn((command: string) => {
+        if (command === "copy") copied.push(String(document.getSelection()));
+        return true;
+      });
+      Object.defineProperty(document, "execCommand", { value: exec, configurable: true });
+      await render();
+      fireEvent.click(screen.getByRole("button", { name: "Copy command" }));
+      expect(copied).toEqual([COMMAND]);
+      expect(toast.success).toHaveBeenCalledWith("Command copied");
+    });
   });
 });
