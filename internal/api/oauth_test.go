@@ -183,9 +183,14 @@ func TestMCPResourceMetadataFollowsMCPEnabled(t *testing.T) {
 }
 
 // /oauth/authorize sends a valid request to the SPA's consent page and an invalid one back to
-// the client; it never carries Access-Control-Allow-Origin, and nothing on /oauth is stored.
+// the client; it never carries Access-Control-Allow-Origin, and nothing on /oauth is stored. The
+// mcp resource follows mcp.enabled, live: invalid_target while MCP is off, the consent once on.
 func TestOAuthAuthorizeRoute(t *testing.T) {
-	s := oauthServer(t, nil)
+	var mcpOn atomic.Bool
+	s := oauthServer(t, func(d *Deps) {
+		newTokenFixture(t).deps(d) // MCP needs bearer tokens
+		d.MCPEnabled = mcpOn.Load
+	})
 	origin := map[string]string{"Origin": "https://inspector.example.com"}
 	w := req{path: authorizeURL("api", nil), header: origin}.do(s.Handler())
 	if w.Code != http.StatusFound || !strings.HasPrefix(w.Header().Get("Location"), testOrigin+"/consent/") {
@@ -209,8 +214,12 @@ func TestOAuthAuthorizeRoute(t *testing.T) {
 	}
 	w = req{path: authorizeURL("mcp", nil)}.do(s.Handler())
 	if loc, _ := url.Parse(w.Header().Get("Location")); w.Code != http.StatusFound || loc == nil || loc.Query().Get("error") != "invalid_target" ||
-		loc.Query().Get("error_description") != "the MCP server is not available on this dash" {
-		t.Errorf("mcp resource = %d %v", w.Code, w.Header())
+		loc.Query().Get("error_description") != "the MCP server is off on this dash" {
+		t.Errorf("mcp resource with MCP off = %d %v", w.Code, w.Header())
+	}
+	mcpOn.Store(true)
+	if w = (req{path: authorizeURL("mcp", nil)}).do(s.Handler()); w.Code != http.StatusFound || !strings.HasPrefix(w.Header().Get("Location"), testOrigin+"/consent/") {
+		t.Errorf("mcp resource with MCP on = %d %v", w.Code, w.Header())
 	}
 }
 

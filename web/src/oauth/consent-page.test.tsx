@@ -131,7 +131,7 @@ describe("ConsentPage", () => {
       /without asking again/i,
     ],
     [
-      "mcp before the MCP server",
+      "mcp while MCP is off",
       "mcp",
       false,
       /runs without asking again/i,

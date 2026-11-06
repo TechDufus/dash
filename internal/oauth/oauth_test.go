@@ -166,7 +166,7 @@ func TestAuthorizeValidation(t *testing.T) {
 		{"no resource", func(q url.Values) { q.Del("resource") }, "invalid_request"},
 		{"another resource", func(q url.Values) { q.Set("resource", "https://other.example.com/api") }, "invalid_target"},
 		{"an audience the client may not use", func(q url.Values) { q.Set("client_id", "mcp-only") }, "invalid_target"},
-		{"the mcp resource before the MCP server", func(q url.Values) { q.Set("resource", public+"/mcp") }, "invalid_target"},
+		{"the mcp resource while MCP is off", func(q url.Values) { q.Set("resource", public+"/mcp") }, "invalid_target"},
 		{"no state", func(q url.Values) { q.Del("state") }, "invalid_request"},
 		{"a token response", func(q url.Values) { q.Set("response_type", "token") }, "unsupported_response_type"},
 		{"an unknown scope", func(q url.Values) { q.Set("scope", "read admin") }, "invalid_scope"},
@@ -186,7 +186,7 @@ func TestAuthorizeValidation(t *testing.T) {
 		}
 	}
 	res, err = s.Authorize(context.Background(), authReq(func(q url.Values) { q.Set("resource", public+"/mcp") }), nil, aliceCaller)
-	if q := redirectError(t, res, err, cb); q.Get("error_description") != "the MCP server is not available on this dash" {
+	if q := redirectError(t, res, err, cb); q.Get("error_description") != "the MCP server is off on this dash" {
 		t.Errorf("mcp resource: %v", q)
 	}
 }

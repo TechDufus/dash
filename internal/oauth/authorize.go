@@ -132,7 +132,7 @@ func (s *Server) Authorize(ctx context.Context, q url.Values, actions []string, 
 		return fail("invalid_target", "resource is not "+s.resourcesText())
 	}
 	if !s.Serves(audience) {
-		return fail("invalid_target", "the MCP server is not available on this dash")
+		return fail("invalid_target", "the MCP server is off on this dash")
 	}
 	if !slices.Contains(c.Audiences, audience) {
 		return fail("invalid_target", "this client may not ask for the "+audience+" resource")

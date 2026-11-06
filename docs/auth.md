@@ -395,8 +395,9 @@ you build yourself needs:
 ## OAuth
 
 The Android app and other API clients get their tokens from dash itself: dash is an OAuth 2.1
-authorization server. MCP clients arrive with the MCP server's release: until then a request for
-the `mcp` resource is `invalid_target` ("the MCP server is not available on this dash") and
+authorization server, and MCP clients sign in the same way for the `mcp` resource of the
+[MCP server](mcp.md). The `mcp` resource follows `mcp.enabled`, live: while it is off a request for
+it is `invalid_target` ("the MCP server is off on this dash") and
 `/.well-known/oauth-protected-resource/mcp` answers 404. The authorization server is **off**
 until `auth.oauth.enabled` is true (restart-only), because it
 adds an endpoint that needs no sign-in (`/oauth/token`), and it runs only in the `local`, `oidc`
