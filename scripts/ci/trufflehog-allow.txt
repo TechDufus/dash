@@ -11,3 +11,4 @@ URI https://user:hunter2@evil.example.com   made-up userinfo the icon URL valida
 URI https://user:secret@cdn.example.com   made-up userinfo the launcher test refuses (internal/plugins/launcher/plugin_test.go)
 URI https://user:pass@host   documentation example of a URL dash refuses (docs/settings.md)
 URI https://user:password@host   placeholder quoted by the epic (docs/design/epic-draft.md) and two fix(config) commit messages about URL errors
+Github 6be3c7ed4c21d4f76b208d351d95aac273ebb76d   public commit of the v5.2.4 tag of jdx/mise-action, pinned by `uses:` (.github/workflows/ci.yml, flagged by the first release job that followed a GITHUB_TOKEN line)
