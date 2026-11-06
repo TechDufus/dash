@@ -249,7 +249,8 @@ DASH_SKIP_HOOKS=1 git push
 
 1. On a branch off `main`: `make set-version VERSION=X.Y.Z`. It moves the version in
    `charts/dash/Chart.yaml` (`version` and `appVersion`), the version pins of the README, the
-   deploy docs, `examples/compose/compose.yaml` and the bug report form, and re-renders
+   deploy docs, `examples/compose/compose.yaml`, the bug report form and the landing page
+   (`site/index.html`: its badge and install commands), and re-renders
    `examples/kubernetes` with `make generate`; prose that names a past version stays. Commit the
    result and merge it: the `release` job refuses a tag whose version differs from `Chart.yaml`.
 2. On `main` with CI green: `git tag vX.Y.Z && git push origin vX.Y.Z`.

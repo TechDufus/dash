@@ -728,6 +728,39 @@ h2 {
   font-weight: 600;
 }
 
+.install {
+  display: grid;
+  gap: 18px;
+  margin-top: 28px;
+}
+
+.install-label {
+  margin: 0 0 8px;
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 13px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.install pre {
+  margin: 0;
+  padding: 16px 20px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--card);
+  overflow-x: auto;
+}
+
+.install pre code {
+  padding: 0;
+  border: 0;
+  background: none;
+  font-size: 0.9rem;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
 .cta {
   margin-top: 104px;
   padding: 56px 32px;

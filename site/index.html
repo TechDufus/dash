@@ -244,7 +244,7 @@
       <div class="wrap">
         <p class="eyebrow">Deploy anywhere</p>
         <h2 id="deploy-title">A container, wherever you run containers.</h2>
-        <p class="section-lede">dash is a single binary in a single container. The container image is not published yet; the guides build it from the repository.</p>
+        <p class="section-lede">dash is a single binary in a single container, published for linux/amd64 and linux/arm64 on GHCR, with a Helm chart at the same version.</p>
 
         <div class="grid three">
           <div class="card">
@@ -264,6 +264,17 @@
             <h3>Behind oauth2-proxy</h3>
             <p>Let an identity proxy admit only the users you list, as a sidecar in the cluster.</p>
             <a class="more" href="https://github.com/TechDufus/dash/tree/main/docs/deploy">All deploy guides →</a>
+          </div>
+        </div>
+
+        <div class="install">
+          <div>
+            <p class="install-label">Try it on demo data</p>
+            <pre tabindex="0"><code>docker run -p 8080:8080 -e DASH_DEMO=true -e DASH_SERVER_LISTEN=0.0.0.0:8080 ghcr.io/techdufus/dash:0.14.10</code></pre>
+          </div>
+          <div>
+            <p class="install-label">Install on Kubernetes</p>
+            <pre tabindex="0"><code>helm install dash oci://ghcr.io/techdufus/charts/dash --version 0.14.10</code></pre>
           </div>
         </div>
 

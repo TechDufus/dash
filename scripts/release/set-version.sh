@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # Moves the release version, X.Y.Z, from the one charts/dash/Chart.yaml names to the one given:
 # the chart's version and appVersion (CI's release job refuses a tag that differs from them) and
-# the version pins of the docs, the Compose example and the bug report form, then re-renders
-# examples/kubernetes with `make generate`. Only the pins change: each pattern is anchored to the
-# text around its pin (an image tag, a build argument, a kustomize ref), so prose that names a
-# version ("since v0.14.0") stays as it is.
+# the version pins of the docs, the Compose example, the bug report form and the landing page,
+# then re-renders examples/kubernetes with `make generate`. Only the pins change: each pattern is
+# anchored to the text around its pin (an image tag, a build argument, a kustomize ref), so prose
+# that names a version ("since v0.14.0") stays as it is.
 #
 #   set-version.sh X.Y.Z   (make set-version VERSION=X.Y.Z)
 #
@@ -64,6 +64,7 @@ pin() {
 build="s#(VERSION=)$o$end#\\1$new\\2#g"  # docker build --build-arg VERSION=X.Y.Z
 image="s#(/dash:)$o$end#\\1$new\\2#g"     # …/dash:X.Y.Z
 helm="s#(--version )$o$end#\\1$new\\2#g"  # helm install … --version X.Y.Z
+badge="s#(MIT · v)$o$end#\\1$new\\2#g"    # the landing page's hero badge: …MIT · vX.Y.Z
 
 pin "$chart" \
 	"s#^version: $o\$#version: $new#" \
@@ -76,6 +77,7 @@ pin docs/deploy/kubernetes.md "$helm" \
 	"s#^([[:space:]]*newTag: \")$o\"#\\1$new\"#"
 pin examples/compose/compose.yaml "s#(\\\$\\{DASH_IMAGE:-[^}]*:)$o\\}#\\1$new}#"
 pin .github/ISSUE_TEMPLATE/bug_report.yml "s#^([[:space:]]*placeholder: \")$o\"\$#\\1$new\"#"
+pin site/index.html "$badge" "$image" "$helm"
 
 # cat keeps each file's mode and links; mv would replace them with the scratch copy's.
 for file in "${files[@]}"; do
