@@ -33,6 +33,13 @@ const (
 // pushTestWindow is how often one subscription may get a test push (contract D44).
 const pushTestWindow = time.Minute
 
+// pushRegisterLimit is how many registrations (new or again) one user makes in
+// pushRegisterWindow: each may send a verify push.
+const (
+	pushRegisterLimit  = 10
+	pushRegisterWindow = time.Minute
+)
+
 // pushRoutes are the push device routes (design P.2, contract D45): the scope push, so the
 // dash-android grant reaches them as well as a person; viewer role; never the anonymous viewer
 // or a static token. Writes are CSRF-checked for cookies and audited fail-closed.
@@ -64,7 +71,7 @@ func (s *Server) pushRoutes() []Route {
 			Description: "201 with a new subscription, which receives a verify push with its code and nothing else until " +
 				"POST .../verify echoes it; it is deleted after 10 minutes unverified. 200 when the caller already holds the endpoint: " +
 				"the row is replaced, verified still when the keys are the same. 400 invalid_input with field errors; 409 conflict when " +
-				"another user holds the endpoint; 409 push_limit past 10 devices; 503 audit_unavailable." + unavailable,
+				"another user holds the endpoint; 409 push_limit past 10 devices; 429 past 10 registrations a minute; 503 audit_unavailable." + unavailable,
 			Request: model.PushSubscriptionRequest{}, Response: model.PushSubscriptionInfo{}, Status: http.StatusCreated, Handler: s.createPushSubscription,
 		}),
 		row(Route{
@@ -198,6 +205,13 @@ func (s *Server) createPushSubscription(w http.ResponseWriter, r *http.Request) 
 	host, fields := pushRequestProblems(body)
 	if len(fields) > 0 {
 		writeErrDetails(w, http.StatusBadRequest, model.ErrCodeInvalidInput, "invalid push subscription", &model.SettingsErrorDetails{Fields: fields})
+		return
+	}
+	// Every registration counts, a repeat included: each may push a code.
+	if ok, retry := s.pushRegisterLimit.allow(p.User, s.now()); !ok {
+		s.deny(r, obs.AuthRateLimit)
+		w.Header().Set("Retry-After", retryAfterSeconds(retry))
+		writeErr(w, http.StatusTooManyRequests, model.ErrCodeRateLimited, "too many push registrations; try again later")
 		return
 	}
 	// The record names the row the request creates or replaces.

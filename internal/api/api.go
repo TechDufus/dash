@@ -151,34 +151,35 @@ type Deps struct {
 
 // Server holds the handlers' state.
 type Server struct {
-	d             Deps
-	cspMode       cspMode // server.csp; "" enforces (a Config that never went through the resolver)
-	iconSrc       string  // the img-src source of ui.iconBaseURL, computed once ("" = none)
-	static        fs.FS
-	pwa           map[string]pwaFile     // headers of sw.js and offline.html in static, computed once
-	directHost    func(host string) bool // server.directURL's host, where no identity header is believed
-	now           func() time.Time
-	heartbeat     time.Duration
-	events        *streamLimiter   // open /api/v1/stream connections
-	tails         *streamLimiter   // open plugin streams (a log tail)
-	tailMax       time.Duration    // longest a plugin stream stays open
-	sseWrite      time.Duration    // deadline of each SSE write
-	bodyTimeout   time.Duration    // longest a request body may take to arrive
-	actionLimit   *rateLimiter     // framework actions per principal
-	tokenLimit    *tokenBucket     // requests per api token (design M.5)
-	createLimit   *rateLimiter     // personal access tokens created per user
-	oauthLimit    *evictingLimiter // /oauth/token and /oauth/revoke per grant, or client_id and peer
-	testLimit     *rateLimiter     // settings connection tests per principal
-	pushTestLimit *rateLimiter     // test pushes per subscription
-	openTarget    *rateLimiter     // stream-open audit records per user and target
-	openUser      *rateLimiter     // stream-open audit records per user
-	hostWarn      atomic.Int64     // unix nanos of the last unknown-host warning
-	serving       atomic.Bool      // the listeners are bound (MarkServing)
-	probe         principalProbe   // first sighting of each user name, for the log
-	schemas       sync.Map         // reflect.Type -> json.RawMessage: action input schemas
-	mcpOnce       sync.Once
-	mcp           *dashmcp.Server // built at the first /mcp request
-	mcpOn         atomic.Bool     // the MCP state last logged (LogMCPState)
+	d                 Deps
+	cspMode           cspMode // server.csp; "" enforces (a Config that never went through the resolver)
+	iconSrc           string  // the img-src source of ui.iconBaseURL, computed once ("" = none)
+	static            fs.FS
+	pwa               map[string]pwaFile     // headers of sw.js and offline.html in static, computed once
+	directHost        func(host string) bool // server.directURL's host, where no identity header is believed
+	now               func() time.Time
+	heartbeat         time.Duration
+	events            *streamLimiter   // open /api/v1/stream connections
+	tails             *streamLimiter   // open plugin streams (a log tail)
+	tailMax           time.Duration    // longest a plugin stream stays open
+	sseWrite          time.Duration    // deadline of each SSE write
+	bodyTimeout       time.Duration    // longest a request body may take to arrive
+	actionLimit       *rateLimiter     // framework actions per principal
+	tokenLimit        *tokenBucket     // requests per api token (design M.5)
+	createLimit       *rateLimiter     // personal access tokens created per user
+	oauthLimit        *evictingLimiter // /oauth/token and /oauth/revoke per grant, or client_id and peer
+	testLimit         *rateLimiter     // settings connection tests per principal
+	pushTestLimit     *rateLimiter     // test pushes per subscription
+	pushRegisterLimit *rateLimiter     // push registrations per user
+	openTarget        *rateLimiter     // stream-open audit records per user and target
+	openUser          *rateLimiter     // stream-open audit records per user
+	hostWarn          atomic.Int64     // unix nanos of the last unknown-host warning
+	serving           atomic.Bool      // the listeners are bound (MarkServing)
+	probe             principalProbe   // first sighting of each user name, for the log
+	schemas           sync.Map         // reflect.Type -> json.RawMessage: action input schemas
+	mcpOnce           sync.Once
+	mcp               *dashmcp.Server // built at the first /mcp request
+	mcpOn             atomic.Bool     // the MCP state last logged (LogMCPState)
 }
 
 // New builds a Server serving the embedded SPA.
@@ -198,14 +199,15 @@ func New(d Deps) *Server {
 		events:     newStreamLimiter(l.StreamsPerUser, l.Streams),
 		tails:      newStreamLimiter(l.TailsPerUser, l.Tails),
 		tailMax:    l.TailMaxDuration, sseWrite: l.SSEWriteTimeout, bodyTimeout: l.BodyReadTimeout,
-		actionLimit:   newRateLimiter(actionRateLimit, actionRateWindow, maxRateKeys),
-		tokenLimit:    newTokenBucket(tokenRate, tokenBurst, maxRateKeys),
-		createLimit:   newRateLimiter(tokenCreateLimit, tokenCreateWindow, maxRateKeys),
-		oauthLimit:    newEvictingLimiter(oauthTokenLimit, oauthTokenWindow, maxRateKeys),
-		testLimit:     newRateLimiter(settingsTestRateLimit, settingsTestRateWindow, maxRateKeys),
-		pushTestLimit: newRateLimiter(1, pushTestWindow, maxRateKeys),
-		openTarget:    newRateLimiter(1, openRecordWindow, maxRateKeys),
-		openUser:      newRateLimiter(openRecordPerUser, openRecordWindow, maxRateKeys),
+		actionLimit:       newRateLimiter(actionRateLimit, actionRateWindow, maxRateKeys),
+		tokenLimit:        newTokenBucket(tokenRate, tokenBurst, maxRateKeys),
+		createLimit:       newRateLimiter(tokenCreateLimit, tokenCreateWindow, maxRateKeys),
+		oauthLimit:        newEvictingLimiter(oauthTokenLimit, oauthTokenWindow, maxRateKeys),
+		testLimit:         newRateLimiter(settingsTestRateLimit, settingsTestRateWindow, maxRateKeys),
+		pushTestLimit:     newRateLimiter(1, pushTestWindow, maxRateKeys),
+		pushRegisterLimit: newRateLimiter(pushRegisterLimit, pushRegisterWindow, maxRateKeys),
+		openTarget:        newRateLimiter(1, openRecordWindow, maxRateKeys),
+		openUser:          newRateLimiter(openRecordPerUser, openRecordWindow, maxRateKeys),
 	}
 	if d.OAuth != nil {
 		d.OAuth.OnGrantExpired(s.auditGrantExpired)

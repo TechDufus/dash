@@ -368,7 +368,7 @@ func TestPushSubscriptionAccess(t *testing.T) {
 	}
 }
 
-// A user holds at most ten devices.
+// A user holds at most ten devices, and registers at most ten a minute (repeats included).
 func TestPushSubscriptionLimit(t *testing.T) {
 	e := newPushEnv(t)
 	for range model.PushSubscriptionsMax {
@@ -377,7 +377,28 @@ func TestPushSubscriptionLimit(t *testing.T) {
 		}
 	}
 	w := e.do(as("bob", req{method: http.MethodPost, path: "/api/v1/push/subscriptions", body: newPushDevice(t, e.f).request("d")}))
+	wantError(t, w, http.StatusTooManyRequests, model.ErrCodeRateLimited)
+	if w.Header().Get("Retry-After") == "" {
+		t.Error("no Retry-After")
+	}
+	if status, _ := e.subscribe(t, "carol", newPushDevice(t, e.f), "d"); status != http.StatusCreated {
+		t.Errorf("carol at bob's rate limit: %d", status)
+	}
+	e.s.now = func() time.Time { return fixedNow.Add(pushRegisterWindow + time.Second) }
+	w = e.do(as("bob", req{method: http.MethodPost, path: "/api/v1/push/subscriptions", body: newPushDevice(t, e.f).request("d")}))
 	wantError(t, w, http.StatusConflict, model.ErrCodePushLimit)
+}
+
+// Registering the same device again counts against the minute's ten as well.
+func TestPushReRegistrationsAreLimited(t *testing.T) {
+	e := newPushEnv(t)
+	d := newPushDevice(t, e.f)
+	for i := range pushRegisterLimit {
+		if status, _ := e.subscribe(t, "bob", d, "d"); status != http.StatusCreated && status != http.StatusOK {
+			t.Fatalf("registration %d: %d", i+1, status)
+		}
+	}
+	wantError(t, e.do(as("bob", req{method: http.MethodPost, path: "/api/v1/push/subscriptions", body: d.request("d")})), http.StatusTooManyRequests, model.ErrCodeRateLimited)
 }
 
 // An administrator lists one user's devices or everyone's and removes another user's; a viewer

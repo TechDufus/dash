@@ -528,3 +528,91 @@ func TestPayloadIsCutTo3KiB(t *testing.T) {
 		t.Errorf("body = %q…, %v", back.Body[:10], err)
 	}
 }
+
+func attentionMsg(id string) model.PushMessage {
+	return model.PushMessage{Type: model.PushTypeAttention, ID: id, Title: "t", URL: "https://dash.example.com/"}
+}
+
+// A user whose ten devices answer 429 with Retry-After: 60 holds no slot while their retries
+// wait, so another user's test push still goes out at once.
+func TestOneUsersRetriesStallNoOneElse(t *testing.T) {
+	slow := newFakeService(t, http.StatusTooManyRequests)
+	slow.header.Set("Retry-After", "60")
+	fast := newFakeService(t)
+	e := newEnv(t, fast, loopback)
+	release := make(chan struct{})
+	e.svc.o.Sleep = func(ctx context.Context, _ time.Duration) error {
+		select {
+		case <-release:
+			return nil
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+	var devs []device
+	for range credentials.MaxPushSubscriptions {
+		devs = append(devs, e.subscribe(slow, "alice", false, nil))
+	}
+	for _, item := range []string{"a", "b", "c"} {
+		for _, d := range devs {
+			e.svc.Attention(d.id, attentionMsg(item), false)
+		}
+	}
+	waitUntil(t, func() bool { return len(slow.requests()) >= parallel })
+	bob := e.subscribe(fast, "bob", false, nil)
+	if err := e.svc.SendTest(bob.id); err != nil {
+		t.Fatal(err)
+	}
+	waitUntil(t, func() bool { return len(fast.requests()) == 1 })
+	close(release)
+	e.svc.Wait()
+	if got := e.sent(obs.PushTest, obs.PushOK); got != 1 {
+		t.Errorf("bob's test push: ok = %v", got)
+	}
+}
+
+// At most perHost pushes are in flight to one host. Past MaxQueue waiting pushes the oldest
+// that is not an approval is dropped and counted; the queued approval still goes out first.
+func TestQueueIsBoundedAndKeepsApprovals(t *testing.T) {
+	gate := make(chan struct{})
+	var mu sync.Mutex
+	inFlight, most := 0, 0
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.Copy(io.Discard, r.Body)
+		mu.Lock()
+		inFlight++
+		most = max(most, inFlight)
+		mu.Unlock()
+		<-gate
+		mu.Lock()
+		inFlight--
+		mu.Unlock()
+		w.WriteHeader(http.StatusCreated)
+	}))
+	t.Cleanup(srv.Close)
+	f := &fakeService{Server: srv, header: http.Header{}}
+	e := newEnv(t, f, loopback)
+	d := e.subscribe(f, "alice", false, nil)
+	for range perHost + 2 {
+		e.svc.Attention(d.id, attentionMsg("first"), false)
+	}
+	waitUntil(t, func() bool { mu.Lock(); defer mu.Unlock(); return inFlight == perHost })
+	e.svc.Notify("alice", model.PushMessage{Type: model.PushTypeApproval, ID: "approval", Title: "approve?", URL: "https://dash.example.com/"})
+	for range MaxQueue + 5 {
+		e.svc.Attention(d.id, attentionMsg("later"), false)
+	}
+	// Queued: 2 + 1 + 1029 = 1032, so 8 of the attention pushes were dropped.
+	if got := e.sent(obs.PushAttention, obs.PushDropped); got != 8 {
+		t.Errorf("dropped = %v, want 8", got)
+	}
+	close(gate)
+	e.svc.Wait()
+	if got := e.sent(obs.PushApproval, obs.PushOK); got != 1 {
+		t.Errorf("approval ok = %v, want 1", got)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if most != perHost {
+		t.Errorf("at most %d in flight to one host, want %d", most, perHost)
+	}
+}

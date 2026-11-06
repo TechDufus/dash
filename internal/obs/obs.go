@@ -113,6 +113,7 @@ const (
 	PushRefused    = "refused"    // the endpoint's address is not global nor allow-listed
 	PushLimited    = "limited"    // over 60 pushes in an hour for the subscription
 	PushUnverified = "unverified" // the subscription is not verified: nothing is sent
+	PushDropped    = "dropped"    // more than 1024 pushes waited: the oldest was dropped
 )
 
 // Fixed sets of label values. They are the contract of the series, and the tests compare what
@@ -130,7 +131,7 @@ var (
 	StreamKinds = []string{StreamEvents, StreamTail}
 	// PushKinds and PushResults are every value of dash_push_sent_total's labels.
 	PushKinds   = []string{PushApproval, PushAttention, PushVerify, PushTest}
-	PushResults = []string{PushOK, PushGone, PushRejected, PushFailed, PushRefused, PushLimited, PushUnverified}
+	PushResults = []string{PushOK, PushGone, PushRejected, PushFailed, PushRefused, PushLimited, PushUnverified, PushDropped}
 	// PluginStates is every value of dash_plugin_state's state label.
 	PluginStates = []model.PluginState{
 		model.PluginDisabled, model.PluginUnavailable, model.PluginUnconfigured, model.PluginBlocked,

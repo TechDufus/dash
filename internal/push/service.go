@@ -12,6 +12,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
+	"slices"
 	"strconv"
 	"sync"
 	"time"
@@ -39,8 +40,13 @@ const (
 	warnEvery = time.Hour
 	// sendTimeout bounds one request to a push service.
 	sendTimeout = 10 * time.Second
-	// parallel bounds the deliveries in flight.
+	// parallel bounds the deliveries in flight, perHost those to one push service's host; a
+	// delivery waiting out a retry holds neither.
 	parallel = 16
+	perHost  = 4
+	// MaxQueue bounds the deliveries waiting for a slot. Past it the oldest attention, test or
+	// verify push is dropped (result dropped); an approval never is.
+	MaxQueue = 1024
 )
 
 // Backoff is the wait before each retry.
@@ -76,13 +82,17 @@ type Service struct {
 
 	ctx    context.Context
 	cancel context.CancelFunc
-	wg     sync.WaitGroup
-	slots  chan struct{}
+	wg     sync.WaitGroup // one per delivery, from enqueue to its result
 
-	mu     sync.Mutex
-	vapid  *VAPID
-	sent   map[string][]time.Time // subscription ID -> sends in the last hour
-	warned map[string]time.Time   // subscription ID -> last WARN
+	mu       sync.Mutex
+	closed   bool
+	queue    []*job         // waiting for a slot, oldest first
+	active   int            // deliveries holding a slot
+	hosts    map[string]int // host -> deliveries holding a slot
+	dropWarn time.Time      // the last WARN about a full queue
+	vapid    *VAPID
+	sent     map[string][]time.Time // subscription ID -> sends in the last hour
+	warned   map[string]time.Time   // subscription ID -> last WARN
 }
 
 // New builds the sender. Close it at shutdown.
@@ -99,11 +109,11 @@ func New(o Options) *Service {
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	return &Service{
-		o: o, log: log, ctx: ctx, cancel: cancel, slots: make(chan struct{}, parallel),
+		o: o, log: log, ctx: ctx, cancel: cancel,
 		client: netguard.NewClient(netguard.Options{
 			PrivateHosts: o.Allow.Hosts, PrivatePrefixes: o.Allow.Prefixes, Timeout: sendTimeout, RootCAs: o.RootCAs,
 		}),
-		sent: map[string][]time.Time{}, warned: map[string]time.Time{},
+		hosts: map[string]int{}, sent: map[string][]time.Time{}, warned: map[string]time.Time{},
 	}
 }
 
@@ -118,13 +128,21 @@ func sleep(ctx context.Context, d time.Duration) error {
 	}
 }
 
-// Close stops the deliveries in flight (their retries end) and waits for them.
+// Close stops the deliveries (the queued ones and the retries end as failed) and waits for them.
 func (s *Service) Close() {
 	s.cancel()
+	s.mu.Lock()
+	s.closed = true
+	queued := s.queue
+	s.queue = nil
+	s.mu.Unlock()
+	for _, j := range queued {
+		s.finish(j, obs.PushFailed)
+	}
 	s.wg.Wait()
 }
 
-// Wait waits for the deliveries in flight to finish; for tests.
+// Wait waits for every delivery queued or in flight to finish; for tests.
 func (s *Service) Wait() { s.wg.Wait() }
 
 // RunSweep deletes the subscriptions left unverified for ten minutes, every minute, until ctx
@@ -237,82 +255,185 @@ func (s *Service) Attention(id string, m model.PushMessage, crit bool) {
 	s.enqueue(id, delivery{kind: obs.PushAttention, msg: m, ttl: 3600, urgency: urgency, topic: b64.EncodeToString(sum[:16])})
 }
 
+// job is one delivery on its way: queued, in flight or waiting out a retry.
+type job struct {
+	id, host string // host: the push service's, for perHost
+	d        delivery
+	attempt  int
+	// Set by the first attempt.
+	prepared bool
+	t        credentials.PushTarget
+	log      *slog.Logger
+	body     []byte
+	req      pushRequest
+}
+
+// enqueue queues d for subscription id. A full queue drops its oldest push that is not an
+// approval (or d itself when every queued one is an approval and d is not).
 func (s *Service) enqueue(id string, d delivery) {
 	if d.msg.TS.IsZero() {
 		d.msg.TS = s.o.Now().UTC()
 	}
-	s.wg.Go(func() {
-		select {
-		case s.slots <- struct{}{}:
-		case <-s.ctx.Done():
-			s.o.Metrics.PushSent(d.kind, obs.PushFailed)
-			return
+	j := &job{id: id, d: d}
+	if sub, ok := s.o.Store.PushSubscriptionByID(id); ok {
+		j.host = sub.EndpointHost
+	}
+	s.mu.Lock()
+	if s.closed {
+		s.mu.Unlock()
+		s.o.Metrics.PushSent(d.kind, obs.PushFailed)
+		return
+	}
+	var dropped *job
+	if len(s.queue) >= MaxQueue {
+		if i := slices.IndexFunc(s.queue, func(q *job) bool { return q.d.kind != obs.PushApproval }); i >= 0 {
+			dropped = s.queue[i]
+			s.queue = slices.Delete(s.queue, i, i+1)
+		} else if d.kind != obs.PushApproval {
+			dropped = j
 		}
-		defer func() { <-s.slots }()
-		s.o.Metrics.PushSent(d.kind, s.deliver(s.ctx, id, d))
-	})
+	}
+	if dropped != j {
+		s.wg.Add(1)
+		s.queue = append(s.queue, j)
+		s.dispatch()
+	}
+	warn := dropped != nil && s.o.Now().Sub(s.dropWarn) >= warnEvery
+	if warn {
+		s.dropWarn = s.o.Now()
+	}
+	s.mu.Unlock()
+	if dropped != nil {
+		s.o.Metrics.PushSent(dropped.d.kind, obs.PushDropped)
+		if dropped != j {
+			s.wg.Done()
+		}
+	}
+	if warn {
+		s.log.Warn("push: more than 1024 pushes are waiting for the push services; the oldest are dropped", "kind", dropped.d.kind)
+	}
 }
 
-// deliver sends d to subscription id and returns the result (obs.Push*). Only a verified
+// dispatch starts the queued deliveries that have a slot, oldest first: at most parallel in
+// flight, perHost to one host. s.mu is held.
+func (s *Service) dispatch() {
+	for i := 0; i < len(s.queue) && s.active < parallel; {
+		j := s.queue[i]
+		if s.hosts[j.host] >= perHost {
+			i++
+			continue
+		}
+		s.queue = slices.Delete(s.queue, i, i+1)
+		s.active++
+		s.hosts[j.host]++
+		go s.run(j)
+	}
+}
+
+// run makes one attempt of j in its slot. A retry gives the slot back while it waits, then
+// queues j again ahead of the others.
+func (s *Service) run(j *job) {
+	result, wait, retry := s.attempt(j)
+	s.mu.Lock()
+	s.active--
+	if s.hosts[j.host]--; s.hosts[j.host] <= 0 {
+		delete(s.hosts, j.host)
+	}
+	s.dispatch()
+	s.mu.Unlock()
+	if !retry {
+		s.finish(j, result)
+		return
+	}
+	if s.o.Sleep(s.ctx, wait) != nil {
+		s.finish(j, obs.PushFailed)
+		return
+	}
+	s.mu.Lock()
+	if s.closed {
+		s.mu.Unlock()
+		s.finish(j, obs.PushFailed)
+		return
+	}
+	s.queue = slices.Insert(s.queue, 0, j)
+	s.dispatch()
+	s.mu.Unlock()
+}
+
+func (s *Service) finish(j *job, result string) {
+	s.o.Metrics.PushSent(j.d.kind, result)
+	s.wg.Done()
+}
+
+// prepare readies j's first attempt, or returns its result (obs.Push*). Only a verified
 // subscription receives anything but its verify push, and a pending one nothing else.
-func (s *Service) deliver(ctx context.Context, id string, d delivery) string {
-	t, err := s.o.Store.PushTarget(id)
+func (s *Service) prepare(j *job) (result string, ok bool) {
+	t, err := s.o.Store.PushTarget(j.id)
 	if err != nil {
 		if !errors.Is(err, credentials.ErrPushNotFound) {
-			s.log.Warn("push: the subscription cannot be opened", "subscription", id, "error", err)
+			s.log.Warn("push: the subscription cannot be opened", "subscription", j.id, "error", err)
 		}
-		return obs.PushGone
+		return obs.PushGone, false
 	}
-	if want := credentials.PushVerified; d.msg.Type == model.PushTypeVerify && t.State != credentials.PushPending ||
-		d.msg.Type != model.PushTypeVerify && t.State != want {
-		return obs.PushUnverified
+	if want := credentials.PushVerified; j.d.msg.Type == model.PushTypeVerify && t.State != credentials.PushPending ||
+		j.d.msg.Type != model.PushTypeVerify && t.State != want {
+		return obs.PushUnverified, false
 	}
 	if s.o.Secrets != nil {
 		s.o.Secrets.AddString(t.Endpoint)
 	}
-	log := s.log.With("subscription", id, "host", t.EndpointHost, "kind", d.kind)
-	if !s.allowSend(id) {
+	log := s.log.With("subscription", j.id, "host", t.EndpointHost, "kind", j.d.kind)
+	if !s.allowSend(j.id) {
 		log.Warn("push: the subscription reached 60 pushes this hour; this one is dropped")
-		return obs.PushLimited
+		return obs.PushLimited, false
 	}
-	body, req, err := s.request(t, d)
+	body, req, err := s.request(t, j.d)
 	if err != nil {
 		log.Warn("push: the push could not be built", "error", err)
-		return obs.PushFailed
+		return obs.PushFailed, false
 	}
-	for attempt := 0; ; attempt++ {
-		status, retryAfter, err := s.post(ctx, t.Endpoint, body, req)
-		switch {
-		case err == nil && status >= 200 && status < 300:
-			return obs.PushOK
-		case err == nil && (status == http.StatusNotFound || status == http.StatusGone):
-			if _, _, derr := s.o.Store.DeletePushSubscription(id); derr != nil {
-				log.Warn("push: the expired subscription could not be deleted from credentials.yaml", "error", derr)
-			}
-			log.Info("push: the push service says the subscription expired; it was deleted", "status", status)
-			return obs.PushGone
-		case errors.Is(err, netguard.ErrRefused):
-			s.warnOnce(log, id, "push: the endpoint's address is neither global nor in push.allowPrivate; nothing was sent", "error", err)
-			return obs.PushRefused
-		case ctx.Err() != nil:
-			return obs.PushFailed
-		case err == nil && status != http.StatusTooManyRequests && status < 500:
-			s.warnOnce(log, id, "push: the push service refused the push; the subscription is kept", "status", status)
-			return obs.PushRejected
-		}
-		// 429, 5xx (507 included) or no answer: try again, up to Retries times.
-		if attempt == Retries {
-			log.Warn("push: the push service did not take the push after retries", "status", status, "error", err)
-			return obs.PushFailed
-		}
-		wait := Backoff[attempt]
-		if retryAfter > 0 {
-			wait = min(retryAfter, MaxRetryAfter)
-		}
-		if s.o.Sleep(ctx, wait) != nil {
-			return obs.PushFailed
+	j.prepared, j.t, j.log, j.body, j.req = true, t, log, body, req
+	return "", true
+}
+
+// attempt posts j once. It returns the result, or retry with the wait before the next attempt.
+func (s *Service) attempt(j *job) (result string, wait time.Duration, retry bool) {
+	if !j.prepared {
+		if result, ok := s.prepare(j); !ok {
+			return result, 0, false
 		}
 	}
+	log := j.log
+	status, retryAfter, err := s.post(s.ctx, j.t.Endpoint, j.body, j.req)
+	switch {
+	case err == nil && status >= 200 && status < 300:
+		return obs.PushOK, 0, false
+	case err == nil && (status == http.StatusNotFound || status == http.StatusGone):
+		if _, _, derr := s.o.Store.DeletePushSubscription(j.id); derr != nil {
+			log.Warn("push: the expired subscription could not be deleted from credentials.yaml", "error", derr)
+		}
+		log.Info("push: the push service says the subscription expired; it was deleted", "status", status)
+		return obs.PushGone, 0, false
+	case errors.Is(err, netguard.ErrRefused):
+		s.warnOnce(log, j.id, "push: the endpoint's address is neither global nor in push.allowPrivate; nothing was sent", "error", err)
+		return obs.PushRefused, 0, false
+	case s.ctx.Err() != nil:
+		return obs.PushFailed, 0, false
+	case err == nil && status != http.StatusTooManyRequests && status < 500:
+		s.warnOnce(log, j.id, "push: the push service refused the push; the subscription is kept", "status", status)
+		return obs.PushRejected, 0, false
+	}
+	// 429, 5xx (507 included) or no answer: try again, up to Retries times.
+	if j.attempt == Retries {
+		log.Warn("push: the push service did not take the push after retries", "status", status, "error", err)
+		return obs.PushFailed, 0, false
+	}
+	wait = Backoff[j.attempt]
+	if retryAfter > 0 {
+		wait = min(retryAfter, MaxRetryAfter)
+	}
+	j.attempt++
+	return "", wait, true
 }
 
 // pushRequest is what every attempt of one push shares.

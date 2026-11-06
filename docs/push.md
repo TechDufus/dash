@@ -76,8 +76,13 @@ link-local addresses never pass.
 
 - A payload is at most 3 KiB before encryption.
 - A device receives at most 60 pushes an hour.
+- A user registers at most 10 devices a minute, registering the same device again included (429).
 - A 429, a 5xx or a failed connection is tried 3 more times, after 1, 4 and 16 seconds, or after the
-  `Retry-After` the push service asks for, up to 60 seconds.
+  `Retry-After` the push service asks for, up to 60 seconds. A push waiting to retry holds no
+  sending slot, so one slow push service delays no one else.
+- dash sends at most 16 pushes at once, and at most 4 to one push service. Up to 1024 more wait
+  their turn; past that the oldest attention, test or verify push is dropped and counted as
+  `dash_push_sent_total{result="dropped"}`. An approval is never dropped.
 - A 404 or 410 means the push service dropped the subscription: dash deletes it.
 
 ## Rotating DASH_SECRET_KEY
