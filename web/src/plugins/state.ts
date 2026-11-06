@@ -157,6 +157,13 @@ export function isActive(e: NavEntry, location: string): boolean {
     : location === e.path || location.startsWith(`${e.path}/`);
 }
 
+/**
+ * The top bar's title for location: the active nav entry's, "Approval" on an approval page (no
+ * nav entry leads there; a notification or an agent's link does), else "dash".
+ */
 export function titleFor(entries: readonly NavEntry[], location: string): string {
-  return entries.find((e) => isActive(e, location))?.title ?? "dash";
+  const entry = entries.find((e) => isActive(e, location));
+  if (entry) return entry.title;
+  if (location.startsWith("/approve/")) return "Approval";
+  return "dash";
 }

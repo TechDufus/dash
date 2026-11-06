@@ -1,5 +1,6 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, renderHook, screen, waitFor, within } from "@testing-library/react";
+import { Boxes } from "lucide-react";
 import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { getEnvelope, startStream, stopStream } from "@/api/stream";
@@ -16,7 +17,14 @@ import {
 } from "@/test/harness";
 import { shimRows, withState } from "@/test/shims";
 import { PluginRoutes } from "./routes";
-import { isVisible, usePluginsState, usePluginVisible, useTopicAvailable } from "./state";
+import {
+  isVisible,
+  type NavEntry,
+  titleFor,
+  usePluginsState,
+  usePluginVisible,
+  useTopicAvailable,
+} from "./state";
 
 function wrapper({ children }: { children: ReactNode }) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -54,6 +62,39 @@ describe("isVisible", () => {
     ["a-state-from-a-newer-server", true],
   ])("%s -> %s", (state, visible) => {
     expect(isVisible(state)).toBe(visible);
+  });
+});
+
+describe("titleFor", () => {
+  const entries: NavEntry[] = [
+    {
+      key: "core:/",
+      path: "/",
+      label: "Overview",
+      title: "Overview",
+      icon: Boxes,
+      order: 0,
+      core: true,
+    },
+    {
+      key: "kubernetes/cluster",
+      path: "/cluster",
+      label: "Cluster",
+      title: "Kubernetes cluster",
+      icon: Boxes,
+      order: 1,
+      core: false,
+    },
+  ];
+  it.each([
+    ["/", "Overview"],
+    ["/cluster/pods", "Kubernetes cluster"],
+    ["/approve/appr_ABCDEFGHIJKLMNOPQRSTUVWXYZ", "Approval"],
+    ["/approve/not-an-id", "Approval"],
+    ["/approvals", "dash"],
+    ["/nowhere", "dash"],
+  ])("%s -> %s", (location, title) => {
+    expect(titleFor(entries, location)).toBe(title);
   });
 });
 
