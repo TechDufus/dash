@@ -69,6 +69,13 @@ func newApprovalEnv(t *testing.T, fn func(action string, in any) (any, error), i
 // agent is the principal of a new mcp personal access token of user holding scopes.
 func (e *approvalEnv) agent(t *testing.T, user string, scopes ...string) auth.Principal {
 	t.Helper()
+	_, p := e.agentToken(t, user, scopes...)
+	return p
+}
+
+// agentToken is a new mcp personal access token of user holding scopes, and its principal.
+func (e *approvalEnv) agentToken(t *testing.T, user string, scopes ...string) (string, auth.Principal) {
+	t.Helper()
 	token, id, hash, err := credentials.NewPAT()
 	if err != nil {
 		t.Fatal(err)
@@ -83,7 +90,7 @@ func (e *approvalEnv) agent(t *testing.T, user string, scopes ...string) auth.Pr
 	if err != nil {
 		t.Fatal(err)
 	}
-	return p
+	return token, p
 }
 
 // ask is the agent's call of action with args, checked and turned into a request.

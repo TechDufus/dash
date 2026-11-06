@@ -45,15 +45,15 @@ func toolNames(t *testing.T, cs *sdk.ClientSession) []string {
 }
 
 // tools/list varies with the token's scopes: no dash_logs without logs, and calling it anyway is
-// an unknown tool, not a log read.
+// an unknown tool, not a log read. A static token holds no actions scope: no action tool.
 func TestMCPToolsListVariesWithScopes(t *testing.T) {
 	addr := startMCPDemo(t)
 	read, logs := mcpSession(t, addr, mcpReadToken, "2026-07-28"), mcpSession(t, addr, mcpLogsToken, "2026-07-28")
-	want := []string{"dash_overview", "dash_search", "dash_get", "dash_topic", "dash_series", "dash_context"}
+	want := []string{"dash_overview", "dash_search", "dash_get", "dash_topic", "dash_series", "dash_context", "dash_approval"}
 	if got := toolNames(t, read); !slices.Equal(got, want) {
 		t.Errorf("read token: %v", got)
 	}
-	if got := toolNames(t, logs); !slices.Equal(got, []string{"dash_overview", "dash_search", "dash_get", "dash_topic", "dash_series", "dash_logs", "dash_context"}) {
+	if got := toolNames(t, logs); !slices.Equal(got, []string{"dash_overview", "dash_search", "dash_get", "dash_topic", "dash_series", "dash_logs", "dash_context", "dash_approval"}) {
 		t.Errorf("logs token: %v", got)
 	}
 	_, err := read.CallTool(context.Background(), &sdk.CallToolParams{Name: "dash_logs", Arguments: map[string]any{"namespace": "media", "pod": "x"}})

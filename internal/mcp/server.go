@@ -1,9 +1,11 @@
-// Package mcp is dash's read-only MCP server at POST /mcp (design N, contract D36): stateless
-// Streamable HTTP for protocol versions 2026-07-28 and 2025-11-25, served with the official Go
-// SDK. dash's own authentication runs first (internal/api): a request reaches Handler only with
-// a token principal of audience mcp, and the SDK's bearer step merely carries that principal to
-// the tool handlers. One shared SDK server serves every principal; what a principal may see and
-// call is decided per request.
+// Package mcp is dash's MCP server at POST /mcp (design N, contract D36): stateless Streamable
+// HTTP for protocol versions 2026-07-28 and 2025-11-25, served with the official Go SDK: read
+// tools, resources and prompts, and the plugins' action tools, which run only after their
+// owner's approval unless a plugin's agent policy allows them (actions.go). dash's own
+// authentication runs first (internal/api): a request reaches Handler only with a token
+// principal of audience mcp, and the SDK's bearer step merely carries that principal to the tool
+// handlers. One shared SDK server serves every principal; what a principal may see and call is
+// decided per request.
 package mcp
 
 import (
@@ -111,9 +113,13 @@ type Server struct {
 	tools []tool
 	h     http.Handler
 
-	slots    slots
-	calls    *window // calls a minute per token
-	logCalls *window // dash_logs calls a minute per token
+	slots       slots
+	calls       *window // calls a minute per token
+	logCalls    *window // dash_logs calls a minute per token
+	actionCalls *window // action tool calls a minute per token
+
+	actionTools []ActionTool // every action tool registered; scopeFilter decides who sees one
+	stateKey    []byte       // seals the requestState of an input-required answer
 }
 
 // New builds the server and its tools.
@@ -136,8 +142,8 @@ func New(o Options) *Server {
 	if o.Recheck <= 0 {
 		o.Recheck = recheckEvery
 	}
-	s := &Server{o: o, slots: newSlots(),
-		calls: newWindow(callsPerMinute, o.Now), logCalls: newWindow(logsPerMinute, o.Now)}
+	s := &Server{o: o, slots: newSlots(), stateKey: newStateKey(),
+		calls: newWindow(callsPerMinute, o.Now), logCalls: newWindow(logsPerMinute, o.Now), actionCalls: newWindow(actionsPerMinute, o.Now)}
 	s.srv = sdk.NewServer(&sdk.Implementation{Name: "dash", Title: "dash", Version: o.Version}, &sdk.ServerOptions{
 		Logger:                    quiet(o.Log),
 		SupportedProtocolVersions: ProtocolVersions,
@@ -158,9 +164,13 @@ func New(o Options) *Server {
 		},
 	})
 	s.tools = s.toolTable()
+	if ab := s.actionBackend(); ab != nil {
+		s.tools = append(s.tools, s.approvalTool(ab))
+	}
 	for _, t := range s.tools {
 		s.srv.AddTool(t.sdkTool(), s.toolHandler(t))
 	}
+	s.addActionTools()
 	// The limits and the audit run outside the scope filter, so a refused call is audited too.
 	s.srv.AddReceivingMiddleware(s.limitAndAudit, s.scopeFilter)
 	s.srv.AddResourceTemplate(&sdk.ResourceTemplate{

@@ -21,9 +21,17 @@ func (s *Server) toolNamed(name string) (tool, bool) {
 // visible reports whether c may call t: its token holds the tool's scope.
 func visible(c caller, t tool) bool { return c.p.HasScope(t.scope) }
 
+// actionVisible reports whether c may see and call action tool name now (contract D48): the
+// backend decides, from the token, the instance and the agent policy as they are.
+func (s *Server) actionVisible(c caller, name string) bool {
+	ab := s.actionBackend()
+	return ab != nil && ab.ActionVisible(c.p, name)
+}
+
 // scopeFilter makes tools/list show only the tools the calling principal may call, in the
-// table's order, and answers tools/call of any other tool as the SDK answers an unknown one
-// (design N.2): one shared server, decided per request.
+// table's order and then the action tools in registry order, and answers tools/call of any
+// other tool as the SDK answers an unknown one (design N.2): one shared server, decided per
+// request.
 func (s *Server) scopeFilter(next sdk.MethodHandler) sdk.MethodHandler {
 	return func(ctx context.Context, method string, req sdk.Request) (sdk.Result, error) {
 		c, ok := callerOf(req.GetExtra())
@@ -33,7 +41,14 @@ func (s *Server) scopeFilter(next sdk.MethodHandler) sdk.MethodHandler {
 			if p == nil {
 				break
 			}
-			if t, known := s.toolNamed(p.Name); !ok || (known && !visible(c, t)) {
+			unknown := !ok
+			if t, known := s.toolNamed(p.Name); known && ok && !visible(c, t) {
+				unknown = true
+			}
+			if s.isActionTool(p.Name) && ok && !s.actionVisible(c, p.Name) {
+				unknown = true
+			}
+			if unknown {
 				return nil, &jsonrpc.Error{Code: jsonrpc.CodeInvalidParams, Message: "unknown tool " + strconv.Quote(p.Name)}
 			}
 		case "tools/list":
@@ -44,12 +59,19 @@ func (s *Server) scopeFilter(next sdk.MethodHandler) sdk.MethodHandler {
 			}
 			out := *lr
 			out.Tools = []*sdk.Tool{}
-			for _, t := range s.tools {
-				if !ok || !visible(c, t) {
-					continue
-				}
-				if i := slices.IndexFunc(lr.Tools, func(x *sdk.Tool) bool { return x.Name == t.name }); i >= 0 {
+			add := func(name string) {
+				if i := slices.IndexFunc(lr.Tools, func(x *sdk.Tool) bool { return x.Name == name }); i >= 0 {
 					out.Tools = append(out.Tools, lr.Tools[i])
+				}
+			}
+			for _, t := range s.tools {
+				if ok && visible(c, t) {
+					add(t.name)
+				}
+			}
+			for _, at := range s.actionTools {
+				if ok && s.actionVisible(c, at.Name) {
+					add(at.Name)
 				}
 			}
 			return &out, nil
