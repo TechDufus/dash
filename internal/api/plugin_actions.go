@@ -10,19 +10,19 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/TechDufus/dash/internal/audit"
 	"github.com/TechDufus/dash/internal/model"
 	"github.com/TechDufus/dash/internal/obs"
 	"github.com/TechDufus/dash/internal/plugin"
 )
 
 // runAction is POST /api/v1/plugins/{id}/actions/{name}: the request chain every plugin action
-// goes through (design A.8). A refusal at any step ends the request before Act runs.
+// goes through (design A.8). A refusal at any step ends the request before Act runs. The steps
+// that do not need the request (the checks, intent, Act, outcome) are in action_exec.go, shared
+// with the callers that are not this route.
 //
 // A token needs the actions:<plugin> scope (403 insufficient_scope), and its actionNamespaces
-// restrict the target's namespace beside the instance's DenyNamespaces. The agent policy arrives
-// with MCP. CSRF and Origin are checked ahead of the mux for every non-GET request that is not a
-// token's.
+// restrict the target's namespace beside the instance's DenyNamespaces. CSRF and Origin are
+// checked ahead of the mux for every non-GET request that is not a token's.
 func (s *Server) runAction(w http.ResponseWriter, r *http.Request) {
 	id, name := plugin.ID(r.PathValue("id")), r.PathValue("name")
 	var ref plugin.ActionRef
@@ -49,13 +49,8 @@ func (s *Server) runAction(w http.ResponseWriter, r *http.Request) {
 	}()
 	p := principalFrom(r.Context())
 
-	if !p.Role.AtLeast(ref.Spec.MinRole) {
-		s.deny(r, obs.AuthForbidden)
-		writeErr(w, http.StatusForbidden, model.ErrCodeForbidden, "forbidden")
-		return
-	}
-	if scope := "actions:" + string(id); !p.HasScope(scope) {
-		s.denyScope(w, r, scope)
+	if d := authorizeAction(p, ref); d != nil {
+		s.denyAction(w, r, d)
 		return
 	}
 
@@ -71,39 +66,18 @@ func (s *Server) runAction(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var target audit.Target
-	if ref.Spec.Target != nil {
-		kind, ns, tname := ref.Spec.Target(input)
-		target = audit.Target{Kind: kind, Namespace: ns, Name: tname}
-	}
-	if target.Namespace != "" && slices.Contains(ref.DenyNamespaces, target.Namespace) {
-		s.deny(r, obs.AuthNamespaceDenied)
-		writeErr(w, http.StatusForbidden, model.ErrCodeForbidden, "actions are not allowed in this namespace")
-		return
-	}
-	if !p.ActionNamespaceAllowed(target.Namespace) {
-		s.deny(r, obs.AuthNamespaceDenied)
-		writeErr(w, http.StatusForbidden, model.ErrCodeForbidden, "this token may not act in this namespace")
+	target := actionTarget(ref, input)
+	if d := authorizeTarget(p, ref, target); d != nil {
+		s.denyAction(w, r, d)
 		return
 	}
 
 	rec := s.auditRecord(r, name, target)
 	rec.Plugin = string(id)
-	pending, ok := s.beginRecord(w, rec)
-	if !ok {
-		return
-	}
-	out, err := ref.Run(r.Context(), p, input)
-	if err == nil {
-		// An action whose audit target exists only after it ran says so; the record is re-targeted
-		// before its outcome is written, on success only.
-		var t *plugin.ActionTarget
-		if out, t = unwrapOutcome(out); t != nil {
-			pending = pending.WithTarget(audit.Target{Kind: t.Kind, Namespace: t.Namespace, Name: t.Name})
-		}
-	}
-	pending.Outcome(err)
+	out, err := s.executeAction(r.Context(), ref, p, input, rec)
 	switch {
+	case errors.Is(err, errAuditUnavailable):
+		writeErr(w, http.StatusServiceUnavailable, model.ErrCodeAuditUnavailable, "audit log unavailable")
 	case err == nil && out == nil:
 		accepted(w)
 	case err == nil:
@@ -116,6 +90,12 @@ func (s *Server) runAction(w http.ResponseWriter, r *http.Request) {
 		}
 		s.badGateway(w, string(id), err)
 	}
+}
+
+// denyAction records and answers a refusal of the action chain.
+func (s *Server) denyAction(w http.ResponseWriter, r *http.Request, d *actionDenial) {
+	s.deny(r, d.Reason)
+	writeErr(w, d.Status, d.Code, d.Msg)
 }
 
 // accepted answers an action that returns nothing: 202 {"status":"accepted"}.
@@ -143,29 +123,16 @@ func unwrapOutcome(out any) (any, *plugin.ActionTarget) {
 // is not JSON, names a field the struct does not have, breaks a dash tag (required, enum) or
 // fails the input's own Validate. An action without an Input takes no body.
 func (s *Server) actionInput(w http.ResponseWriter, r *http.Request, spec plugin.ActionSpec) (any, bool) {
-	if spec.Input == nil {
+	ptr, ok := newActionInput(spec)
+	if !ok {
 		return nil, true
 	}
-	t := reflect.TypeOf(spec.Input())
-	if t == nil {
-		return nil, true
-	}
-	for t.Kind() == reflect.Pointer {
-		t = t.Elem()
-	}
-	ptr := reflect.New(t)
 	if !s.decodeStrict(w, r, ptr.Interface()) {
 		return nil, false
 	}
-	if msg := validateInput(ptr); msg != "" {
+	if msg := checkActionInput(ptr); msg != "" {
 		writeErr(w, http.StatusBadRequest, model.ErrCodeInvalidInput, msg)
 		return nil, false
-	}
-	if c, ok := ptr.Interface().(interface{ Validate() error }); ok {
-		if err := c.Validate(); err != nil {
-			writeErr(w, http.StatusBadRequest, model.ErrCodeInvalidInput, err.Error())
-			return nil, false
-		}
 	}
 	return ptr.Interface(), true
 }

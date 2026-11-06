@@ -192,23 +192,27 @@ func TestActionCSRFFailure(t *testing.T) {
 	}
 }
 
+// A body the action refuses is 400 before anything is recorded or run. decodeActionInput, the
+// same decode for callers that hold the bytes (MCP, approvals), refuses the same inputs with the
+// same message and accepts the same valid ones.
 func TestActionInvalidInputIs400(t *testing.T) {
 	for _, tc := range []struct {
 		name, action string
-		body         any
+		body         string
+		httpOnly     bool // the body cap belongs to the route's read
 	}{
-		{"not JSON", "restart", "{"},
-		{"empty body", "restart", ""},
-		{"unknown field", "restart", `{"namespace":"apps","name":"web","bogus":1}`},
-		{"missing required field", "restart", `{"namespace":"apps"}`},
-		{"wrong type", "restart", `{"namespace":5,"name":"web"}`},
-		{"enum violated", "restart", `{"namespace":"apps","name":"web","kind":"CronJob"}`},
-		{"the input's own Validate", "scale", `{"replicas":-1}`},
-		{"body over the cap", "restart", `{"namespace":"` + strings.Repeat("a", maxBody) + `","name":"web"}`},
+		{"not JSON", "restart", "{", false},
+		{"empty body", "restart", "", false},
+		{"unknown field", "restart", `{"namespace":"apps","name":"web","bogus":1}`, false},
+		{"missing required field", "restart", `{"namespace":"apps"}`, false},
+		{"wrong type", "restart", `{"namespace":5,"name":"web"}`, false},
+		{"enum violated", "restart", `{"namespace":"apps","name":"web","kind":"CronJob"}`, false},
+		{"the input's own Validate", "scale", `{"replicas":-1}`, false},
+		{"body over the cap", "restart", `{"namespace":"` + strings.Repeat("a", maxBody) + `","name":"web"}`, true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			e := newActionEnv(t, nil)
-			wantError(t, e.post(tc.action, tc.body), http.StatusBadRequest, model.ErrCodeInvalidInput)
+			got := wantError(t, e.post(tc.action, tc.body), http.StatusBadRequest, model.ErrCodeInvalidInput)
 			if n := len(e.acts()); n != 0 {
 				t.Errorf("Act ran %d times", n)
 			}
@@ -216,16 +220,37 @@ func TestActionInvalidInputIs400(t *testing.T) {
 			if recs := auditRecords(t, e.dir); len(recs) != 0 {
 				t.Errorf("records = %+v", recs)
 			}
+			if tc.httpOnly {
+				return
+			}
+			ref, _ := e.sup.Action("aa", tc.action)
+			if in, msg := decodeActionInput(ref.Spec, []byte(tc.body)); in != nil || msg != got.Error {
+				t.Errorf("decodeActionInput = %v, %q; want nil, %q", in, msg, got.Error)
+			}
 		})
 	}
 
 	t.Run("a valid input passes", func(t *testing.T) {
 		e := newActionEnv(t, nil)
-		if w := e.post("scale", `{"replicas":3}`); w.Code != http.StatusAccepted {
-			t.Fatalf("scale = %d %s", w.Code, w.Body)
+		for action, body := range map[string]string{
+			"scale":   `{"replicas":3}`,
+			"restart": `{"namespace":"apps","name":"web","kind":"StatefulSet"}`,
+		} {
+			if w := e.post(action, body); w.Code != http.StatusAccepted {
+				t.Fatalf("%s = %d %s", action, w.Code, w.Body)
+			}
+			ref, _ := e.sup.Action("aa", action)
+			in, msg := decodeActionInput(ref.Spec, []byte(body))
+			if msg != "" || in == nil {
+				t.Fatalf("decodeActionInput(%s) = %v, %q", action, in, msg)
+			}
+			if calls := e.acts(); !reflect.DeepEqual(calls[len(calls)-1].input, in) {
+				t.Errorf("decodeActionInput(%s) = %#v, the route ran %#v", action, in, calls[len(calls)-1].input)
+			}
 		}
-		if w := e.post("restart", `{"namespace":"apps","name":"web","kind":"StatefulSet"}`); w.Code != http.StatusAccepted {
-			t.Fatalf("restart = %d %s", w.Code, w.Body)
+		ping, _ := e.sup.Action("aa", "ping")
+		if in, msg := decodeActionInput(ping.Spec, nil); in != nil || msg != "" {
+			t.Errorf("an action without input decodes to %v, %q", in, msg)
 		}
 	})
 }
