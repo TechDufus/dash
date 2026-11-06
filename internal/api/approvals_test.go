@@ -10,6 +10,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -30,17 +31,41 @@ type approvalEnv struct {
 	store *credentials.Store
 }
 
+// protectedLater makes the namespace "later" need the typed name from now on (a namespace newly
+// protected); fragilePanics makes fragileIn's Validate panic. The tests that set them reset them.
+var (
+	protectedLater atomic.Bool
+	fragilePanics  atomic.Bool
+)
+
 var wipeSpec = plugin.ActionSpec{
 	Name: "wipe", Title: "Wipe", Destructive: true, Confirm: plugin.ConfirmDialog,
 	Input:   func() any { return &restartIn{} },
 	Summary: func(in any) string { i := in.(*restartIn); return "Wipe " + i.Namespace + "/" + i.Name },
 	Target:  func(in any) (string, string, string) { i := in.(*restartIn); return "Workload", i.Namespace, i.Name },
 	ConfirmFor: func(_ context.Context, in any) plugin.Confirm {
-		if in.(*restartIn).Namespace == "vault" {
+		if ns := in.(*restartIn).Namespace; ns == "vault" || ns == "later" && protectedLater.Load() {
 			return plugin.ConfirmTypeName
 		}
 		return plugin.ConfirmDialog
 	},
+}
+
+// fragileIn is the input of "fragile", whose Validate panics while fragilePanics is set.
+type fragileIn struct {
+	Name string `json:"name" dash:"required"`
+}
+
+func (f *fragileIn) Validate() error {
+	if fragilePanics.Load() {
+		panic("fragile input")
+	}
+	return nil
+}
+
+var fragileSpec = plugin.ActionSpec{
+	Name: "fragile", Title: "Fragile", Input: func() any { return &fragileIn{} },
+	Target: func(in any) (string, string, string) { return "Thing", "", in.(*fragileIn).Name },
 }
 
 func newApprovalEnv(t *testing.T, fn func(action string, in any) (any, error), ics ...plugin.InstanceConfig) *approvalEnv {
@@ -48,7 +73,7 @@ func newApprovalEnv(t *testing.T, fn func(action string, in any) (any, error), i
 	if len(ics) == 0 {
 		ics = []plugin.InstanceConfig{{Name: "aa", ActionsEnabled: true}}
 	}
-	e := &approvalEnv{actionEnv: newActionEnvSpecs(t, fn, ics, []plugin.ActionSpec{wipeSpec})}
+	e := &approvalEnv{actionEnv: newActionEnvSpecs(t, fn, ics, []plugin.ActionSpec{wipeSpec, fragileSpec})}
 	store, err := credentials.Open(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
@@ -621,12 +646,175 @@ func TestApprovalIsPushedToVerifiedDevicesTakingApprovals(t *testing.T) {
 		t.Fatalf("the device taking approvals got %d pushes: %+v", len(msgs), msgs)
 	}
 	if m := msgs[0]; m.Type != model.PushTypeApproval || m.ID != info.ID || m.URL != testOrigin+"/approve/"+info.ID ||
-		!strings.Contains(m.Body, "Ping aa") || !strings.Contains(m.Body, "Test Agent") {
+		!strings.Contains(m.Body, "Ping aa") || !strings.Contains(m.Body, "Test Agent (as it names itself)") {
 		t.Errorf("push = %+v", m)
 	}
 	for name, d := range map[string]pushDevice{"off": off, "pending": pending, "bob": bobs} {
 		if got := d.messages(t, e.f)[before[name]:]; len(got) != 0 {
 			t.Errorf("%s got %+v", name, got)
+		}
+	}
+}
+
+// agentGrant is the principal of a new mcp OAuth grant of user holding scopes.
+func (e *approvalEnv) agentGrant(t *testing.T, user string, scopes ...string) auth.Principal {
+	t.Helper()
+	id, err := credentials.NewGrantID()
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, hash, err := credentials.NewRefreshToken(id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := e.clk.now()
+	if err := e.store.AddGrant(credentials.Grant{
+		ID: id, User: user, ClientID: "https://agent.example.com/client.json", ClientName: "Agent", ClientKind: "metadata",
+		Audience: model.TokenAudienceMCP, Scopes: scopes, RefreshHash: hash, CreatedAt: now, ExpiresAt: now.Add(credentials.GrantLifetime), RefreshedAt: now,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	return auth.Principal{Kind: auth.KindToken, User: user, Role: auth.RoleAdmin, GrantID: id, ClientID: "https://agent.example.com/client.json",
+		Audience: model.TokenAudienceMCP, Scopes: scopes}
+}
+
+// A request made through an OAuth grant runs while the grant is active; a revoked grant ends it
+// denied, with nothing run.
+func TestApprovalOfARevokedGrantIsDenied(t *testing.T) {
+	e := newApprovalEnv(t, nil)
+	g := e.agentGrant(t, "alice", "actions:aa")
+	ok := e.mustAsk(t, g, "restart", okRestart)
+	if got := approvalOf(t, e.decide("alice", ok.ID, model.ApprovalDecision{Approve: true})); got.State != model.ApprovalStateApproved || got.CredentialName != "Agent" {
+		t.Fatalf("active grant = %+v", got)
+	}
+	revoked := e.mustAsk(t, g, "restart", restartIn{Namespace: "apps", Name: "api"})
+	if _, _, err := e.store.RevokeGrant(g.GrantID); err != nil {
+		t.Fatal(err)
+	}
+	got := approvalOf(t, e.decide("alice", revoked.ID, model.ApprovalDecision{Approve: true}))
+	if got.State != model.ApprovalStateDenied || !strings.Contains(got.Reason, "revoked") {
+		t.Errorf("revoked grant = %+v", got)
+	}
+	if n := len(e.acts()); n != 1 {
+		t.Errorf("Act ran %d times, want once (the active grant's)", n)
+	}
+}
+
+// A rule tightened after the request (a namespace newly protected) is enforced at approval: the
+// request, made without a typed name, is denied and nothing runs.
+func TestApprovalOfARuleTightenedSinceIsDenied(t *testing.T) {
+	t.Cleanup(func() { protectedLater.Store(false) })
+	e := newApprovalEnv(t, nil)
+	info := e.mustAsk(t, e.agent(t, "alice", "actions:aa"), "wipe", restartIn{Namespace: "later", Name: "db"})
+	if info.Confirm != plugin.ConfirmDialog {
+		t.Fatalf("rule = %q", info.Confirm)
+	}
+	protectedLater.Store(true)
+	got := approvalOf(t, e.decide("alice", info.ID, model.ApprovalDecision{Approve: true}))
+	if got.State != model.ApprovalStateDenied || !strings.Contains(got.Reason, "typed") {
+		t.Errorf("decision = %+v", got)
+	}
+	if n := len(e.acts()); n != 0 {
+		t.Errorf("Act ran %d times", n)
+	}
+}
+
+// The run does not end with the deciding request (a phone whose connection drops): Act's context
+// is not cancelled with it. It does end at approvalRunTimeout.
+func TestApprovalRunOutlivesTheRequestAndEndsAtItsTimeout(t *testing.T) {
+	e := newApprovalEnv(t, nil)
+	p := e.agent(t, "alice", "actions:aa")
+	var sawErr error
+	e.actCtx = func(ctx context.Context, _ string, _ any) (any, error) {
+		sawErr = ctx.Err()
+		return nil, ctx.Err()
+	}
+	info := e.mustAsk(t, p, "restart", okRestart)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	b, _ := json.Marshal(model.ApprovalDecision{Approve: true})
+	hr := httptest.NewRequestWithContext(ctx, http.MethodPost, "/api/v1/approvals/"+info.ID+"/decision", strings.NewReader(string(b)))
+	hr.Host, hr.RemoteAddr = testHost, testPeer
+	for k, v := range map[string]string{"X-Forwarded-Preferred-Username": "alice", "X-Dash-Csrf": "1", "Origin": testOrigin, "Content-Type": "application/json"} {
+		hr.Header.Set(k, v)
+	}
+	w := httptest.NewRecorder()
+	e.Handler().ServeHTTP(w, hr)
+	if got := approvalOf(t, w); got.State != model.ApprovalStateApproved || got.Outcome == nil || !got.Outcome.OK || sawErr != nil {
+		t.Fatalf("with the request cancelled: %+v (Act saw %v)", got, sawErr)
+	}
+
+	prev := approvalRunTimeout
+	approvalRunTimeout = 50 * time.Millisecond
+	t.Cleanup(func() { approvalRunTimeout = prev })
+	e.actCtx = func(ctx context.Context, _ string, _ any) (any, error) {
+		<-ctx.Done()
+		return nil, ctx.Err()
+	}
+	slow := e.mustAsk(t, p, "restart", restartIn{Namespace: "apps", Name: "slow"})
+	start := time.Now()
+	got := approvalOf(t, e.decide("alice", slow.ID, model.ApprovalDecision{Approve: true}))
+	if got.State != model.ApprovalStateApproved || got.Outcome == nil || got.Outcome.OK || time.Since(start) > 5*time.Second {
+		t.Errorf("past the timeout: %+v after %v", got, time.Since(start))
+	}
+}
+
+// A secret in an approved action's answer is scrubbed from the stored outcome.
+func TestApprovalOutcomeIsScrubbed(t *testing.T) {
+	leak, _, _, err := credentials.NewPAT()
+	if err != nil {
+		t.Fatal(err)
+	}
+	e := newApprovalEnv(t, func(string, any) (any, error) { return map[string]string{"token": leak}, nil })
+	info := e.mustAsk(t, e.agent(t, "alice", "actions:aa"), "restart", okRestart)
+	approvalOf(t, e.decide("alice", info.ID, model.ApprovalDecision{Approve: true}))
+	got := approvalOf(t, e.get("alice", info.ID))
+	if got.Outcome == nil || !got.Outcome.OK || strings.Contains(got.Outcome.Result, leak) || !strings.Contains(got.Outcome.Result, "token") {
+		t.Errorf("outcome = %+v", got.Outcome)
+	}
+}
+
+// A panic in the plugin's code before the action runs (its Validate) answers 500 and gives the
+// request back to pending: nothing ran, and a later approval runs it.
+func TestApprovalPanicGivesTheRequestBack(t *testing.T) {
+	t.Cleanup(func() { fragilePanics.Store(false) })
+	e := newApprovalEnv(t, nil)
+	info := e.mustAsk(t, e.agent(t, "alice", "actions:aa"), "fragile", fragileIn{Name: "x"})
+	fragilePanics.Store(true)
+	wantError(t, e.decide("alice", info.ID, model.ApprovalDecision{Approve: true}), http.StatusInternalServerError, model.ErrCodeInternal)
+	if got := approvalOf(t, e.get("alice", info.ID)); got.State != model.ApprovalStatePending {
+		t.Fatalf("after the panic: %+v", got)
+	}
+	if n := len(e.acts()); n != 0 {
+		t.Fatalf("Act ran %d times", n)
+	}
+	fragilePanics.Store(false)
+	if got := approvalOf(t, e.decide("alice", info.ID, model.ApprovalDecision{Approve: true})); got.State != model.ApprovalStateApproved {
+		t.Errorf("the later approval = %+v", got)
+	}
+}
+
+// core.approvals ends as the store stands, however creations and decisions interleave.
+func TestCoreApprovalsEndsCurrent(t *testing.T) {
+	e := newApprovalEnv(t, nil)
+	p := e.agent(t, "alice", "actions:aa")
+	for round := range 20 {
+		var wg sync.WaitGroup
+		for i := range 8 {
+			wg.Go(func() {
+				info, _, d := e.ask(t, p, "restart", restartIn{Namespace: "apps", Name: "w-" + strings.Repeat("x", round) + string(rune('a'+i))})
+				if d == nil && i%2 == 0 {
+					e.decide("alice", info.ID, model.ApprovalDecision{Approve: false})
+				}
+			})
+		}
+		wg.Wait()
+		want, got := e.approvals.Pending("alice"), e.pendingFor(t, "alice")
+		if len(got) != len(want) {
+			t.Fatalf("round %d: core.approvals has %d, the store %d", round, len(got), len(want))
+		}
+		for _, info := range want {
+			e.decide("alice", info.ID, model.ApprovalDecision{Approve: false})
 		}
 	}
 }

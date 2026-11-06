@@ -172,6 +172,11 @@ func TestRevive(t *testing.T) {
 	if got := r.CredentialName(gp); got != "App" {
 		t.Errorf("grant CredentialName = %q", got)
 	}
+	clock = now.Add(credentials.GrantIdle)
+	if _, err := r.Revive(gp); !errors.Is(err, ErrInvalid) {
+		t.Errorf("an idle-expired grant: %v", err)
+	}
+	clock = now
 	if _, _, err := s.RevokeGrant(id); err != nil {
 		t.Fatal(err)
 	}

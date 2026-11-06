@@ -182,6 +182,7 @@ type Server struct {
 	mcp               *dashmcp.Server // built at the first /mcp request
 	mcpOn             atomic.Bool     // the MCP state last logged (LogMCPState)
 	approvals         *approvals.Store
+	approvalsPub      sync.Map // user -> *sync.Mutex: one user's core.approvals publishes in order
 }
 
 // New builds a Server serving the embedded SPA.

@@ -7,10 +7,13 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"reflect"
+	"runtime/debug"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/TechDufus/dash/internal/approvals"
@@ -35,8 +38,9 @@ const (
 )
 
 // approvalRunTimeout bounds the run of an approved action. It does not end with the deciding
-// request: a phone that loses its connection does not stop a half-done action (contract D52).
-const approvalRunTimeout = 60 * time.Second
+// request: a phone that loses its connection does not stop a half-done action (contract D52). A
+// variable for the tests.
+var approvalRunTimeout = 60 * time.Second
 
 // approvalSweep is how often the store expires requests nobody touches, so the expiry reaches
 // the owner's core.approvals and the audit log in time.
@@ -65,11 +69,16 @@ func (s *Server) RunApprovals(ctx context.Context) { s.approvals.Run(ctx, approv
 
 // publishApprovals publishes user's pending requests on core.approvals, for that user only. The
 // entries leave out the input: the topic is a list, its size bounded by the 20 requests and their
-// clipped texts, and the approval page reads the input through GET /api/v1/approvals/{id}.
+// clipped texts, and the approval page reads the input through GET /api/v1/approvals/{id}. One
+// user's publishes are serialised, read and publish together, so two transitions racing cannot
+// leave the older list as the last one published.
 func (s *Server) publishApprovals(user string) {
 	if s.d.Hub == nil {
 		return
 	}
+	mu := s.approvalsPublishLock(user)
+	mu.Lock()
+	defer mu.Unlock()
 	pending := s.approvals.Pending(user)
 	for i := range pending {
 		pending[i].Input = nil
@@ -77,6 +86,13 @@ func (s *Server) publishApprovals(user string) {
 	if _, err := s.d.Hub.PublishFor(user, model.TopicApprovals, model.ApprovalsData{Pending: pending}, nil); err != nil {
 		slog.Error("core.approvals publish failed", "error", err)
 	}
+}
+
+// approvalsPublishLock is user's publish lock. The table holds one entry per user who ever had
+// a request, which the token and grant owners bound.
+func (s *Server) approvalsPublishLock(user string) *sync.Mutex {
+	mu, _ := s.approvalsPub.LoadOrStore(user, &sync.Mutex{})
+	return mu.(*sync.Mutex)
 }
 
 // maxApprovalTarget caps each text of an agent action's target and maxApprovalSummary its summary
@@ -214,7 +230,7 @@ func (s *Server) requestApproval(c agentCall, a agentAction) (model.ApprovalInfo
 func approvalPushBody(info model.ApprovalInfo) string {
 	who := info.CredentialName
 	if info.ClientName != "" {
-		who = info.ClientName + " (" + info.CredentialName + ")"
+		who = info.CredentialName + ", with " + info.ClientName + " (as it names itself)"
 	}
 	return strings.TrimSpace(info.Summary + " - asked by " + who + ". Open dash to approve or deny.")
 }
@@ -307,8 +323,15 @@ func (s *Server) decideApproval(w http.ResponseWriter, r *http.Request) {
 		s.writeApprovalErr(w, r, err)
 		return
 	}
+	// Whatever ends this handler without a decision (a refusal, an audit failure, a panic) gives
+	// the request back to pending, so it can still be decided or expire.
+	finished := false
+	defer func() {
+		if !finished {
+			s.approvals.Release(id)
+		}
+	}()
 	if body.Approve && req.Confirm == plugin.ConfirmTypeName && body.Confirm != req.Target.Name {
-		s.approvals.Release(id)
 		writeErr(w, http.StatusBadRequest, model.ErrCodeInvalidInput, "type the "+req.Target.Kind+"'s name ("+req.Target.Name+") to approve")
 		return
 	}
@@ -320,11 +343,11 @@ func (s *Server) decideApproval(w http.ResponseWriter, r *http.Request) {
 	rec.Plugin, rec.Approval, rec.ArgsSHA256, rec.Client = req.Plugin, req.ID, req.InputSHA256, req.ClientName
 	pending, ok := s.beginRecord(w, rec)
 	if !ok {
-		s.approvals.Release(id)
 		return
 	}
 	if !body.Approve {
 		info, err := s.approvals.Deny(id, p.User, "")
+		finished = err == nil
 		pending.Outcome(err)
 		if err != nil {
 			s.writeApprovalErr(w, r, err)
@@ -334,17 +357,23 @@ func (s *Server) decideApproval(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	info, err := s.runApproved(r, req, p.User, body.Confirm)
+	finished = info.ID != ""
 	pending.Outcome(err)
 	switch {
 	case errors.Is(err, errAuditUnavailable):
-		s.approvals.Release(id)
 		writeErr(w, http.StatusServiceUnavailable, model.ErrCodeAuditUnavailable, "audit log unavailable")
+	case errors.Is(err, errApprovalPanic):
+		writeErr(w, http.StatusInternalServerError, model.ErrCodeInternal, "internal error")
 	case info.ID == "": // the store refused the end of a claim it gave: nothing to show
 		s.writeApprovalErr(w, r, err)
 	default:
 		writeJSON(w, http.StatusOK, info)
 	}
 }
+
+// errApprovalPanic is runApproved's answer when a plugin's code panicked before the action ran
+// (its Validate, Target or ConfirmFor): nothing ran and the request goes back to pending.
+var errApprovalPanic = errors.New("internal error before the action ran")
 
 // runApproved runs a claimed request its owner approved (contract D52). The requester is
 // resolved again, and the request is denied with the reason when the credential is gone, its
@@ -354,7 +383,14 @@ func (s *Server) decideApproval(w http.ResponseWriter, r *http.Request) {
 // timeout, not the deciding request's, through the shared executor (intent, Act, outcome) with
 // the approval's id and approver; errAuditUnavailable means it did not run and the request is
 // still claimed. The returned error is what the decision record's outcome notes.
-func (s *Server) runApproved(r *http.Request, req approvals.Request, by, confirm string) (model.ApprovalInfo, error) {
+func (s *Server) runApproved(r *http.Request, req approvals.Request, by, confirm string) (info model.ApprovalInfo, err error) {
+	defer func() {
+		if rec := recover(); rec != nil {
+			slog.Error("panic while running an approval", "approval", req.ID, "plugin", req.Plugin, "action", req.Action,
+				"panic", s.d.Secrets.Scrub(fmt.Sprint(rec)), "stack", string(debug.Stack()))
+			info, err = model.ApprovalInfo{}, errApprovalPanic
+		}
+	}()
 	deny := func(reason string) (model.ApprovalInfo, error) {
 		info, err := s.approvals.Deny(req.ID, "", reason)
 		if err != nil {
@@ -418,11 +454,7 @@ func (s *Server) runApproved(r *http.Request, req approvals.Request, by, confirm
 	if errors.Is(runErr, errAuditUnavailable) {
 		return model.ApprovalInfo{}, runErr
 	}
-	info, err := s.approvals.Approve(req.ID, by, s.approvalOutcome(req, out, runErr))
-	if err != nil {
-		return info, err
-	}
-	return info, nil
+	return s.approvals.Approve(req.ID, by, s.approvalOutcome(req, out, runErr))
 }
 
 // approvalOutcome is what an approved run is kept as: the answer as JSON (202's

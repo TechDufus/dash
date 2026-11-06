@@ -274,18 +274,19 @@ func (s *Store) finish(id, state, by, reason string, outcome *model.ApprovalOutc
 	return info, nil
 }
 
-// Pending is user's pending requests, oldest first.
+// Pending is user's pending requests, oldest first: undecided and not past their expiry (or
+// being decided). It runs no callback, so Changed may call it: the expiry itself is swept,
+// recorded and published by the other calls and Run.
 func (s *Store) Pending(user string) []model.ApprovalInfo {
 	s.mu.Lock()
-	expired := s.sweepLocked()
+	now := s.o.Now()
 	out := []model.ApprovalInfo{}
 	for _, r := range s.byID {
-		if r.User == user && r.state == model.ApprovalStatePending {
+		if r.User == user && r.state == model.ApprovalStatePending && (r.claimed || now.Before(r.ExpiresAt)) {
 			out = append(out, r.Info())
 		}
 	}
 	s.mu.Unlock()
-	s.notify(expired, "")
 	slices.SortFunc(out, func(a, b model.ApprovalInfo) int {
 		return cmp.Or(a.CreatedAt.Compare(b.CreatedAt), strings.Compare(a.ID, b.ID))
 	})

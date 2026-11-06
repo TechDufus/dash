@@ -55,6 +55,8 @@ type actionEnv struct {
 	*pluginEnv
 	mu    sync.Mutex
 	calls []actCall
+	// actCtx, when set, answers Act with the context it runs under (after the call is recorded).
+	actCtx func(ctx context.Context, action string, in any) (any, error)
 }
 
 func (e *actionEnv) acts() []actCall {
@@ -96,10 +98,14 @@ func (e *actionEnv) fixture(fn func(action string, in any) (any, error), more []
 		{Name: "scale", Title: "Scale", Input: func() any { return &scaleIn{} }},
 		{Name: "ping", Title: "Ping", Idempotent: true},
 	}, more...)
-	f.ActionFn = func(_ context.Context, action string, p auth.Principal, in any) (any, error) {
+	f.ActionFn = func(ctx context.Context, action string, p auth.Principal, in any) (any, error) {
 		e.mu.Lock()
 		e.calls = append(e.calls, actCall{action, p, in})
+		withCtx := e.actCtx
 		e.mu.Unlock()
+		if withCtx != nil {
+			return withCtx(ctx, action, in)
+		}
 		if fn == nil {
 			return nil, nil
 		}
