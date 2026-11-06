@@ -443,3 +443,43 @@ func TestClientIDMetadataDocument(t *testing.T) {
 		}
 	}
 }
+
+// A metadata document that failed is not fetched again for 60 seconds: the same answer comes
+// from memory. After that it is fetched again, and a fixed document is used.
+func TestCIMDFailureIsCached(t *testing.T) {
+	hits, good := 0, false
+	srv, id := cimdServer(t, func(id string) http.HandlerFunc {
+		return func(w http.ResponseWriter, r *http.Request) {
+			hits++
+			if good {
+				goodDocument(id)(w, r)
+				return
+			}
+			http.NotFound(w, r)
+		}
+	})
+	s, _, now := testServer(t, func(o *Options) {
+		pool := srv.Client().Transport.(*http.Transport).TLSClientConfig.RootCAs
+		o.HTTPClient = netguard.NewClient(netguard.Options{AllowPrivate: true, RootCAs: pool})
+	})
+	q := authReq(func(q url.Values) { q.Set("client_id", id); q.Set("redirect_uri", "http://127.0.0.1:5000/cb") })
+	for i := range 3 {
+		_, err := s.Authorize(context.Background(), q, nil, aliceCaller)
+		var oe *Error
+		if !errors.As(err, &oe) || oe.Code != "invalid_client" || !strings.Contains(oe.Description, "answered 404") {
+			t.Fatalf("attempt %d: %v, want the 404", i, err)
+		}
+	}
+	if hits != 1 {
+		t.Errorf("fetched %d times within a minute, want once", hits)
+	}
+	good = true
+	*now = now.Add(cimdFailTTL - time.Second)
+	if _, err := s.Authorize(context.Background(), q, nil, aliceCaller); err == nil || hits != 1 {
+		t.Errorf("just before a minute: %v, hits %d; want the cached failure", err, hits)
+	}
+	*now = now.Add(time.Second)
+	if res, err := s.Authorize(context.Background(), q, nil, aliceCaller); err != nil || res.ConsentURL == "" || hits != 2 {
+		t.Errorf("after a minute: %+v, %v, hits %d; want a new fetch that works", res, err, hits)
+	}
+}

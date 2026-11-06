@@ -407,7 +407,8 @@ path. There is no dynamic client registration.
 - `dash-android`, the first-party app: redirect `io.github.techdufus.dash:/oauth2redirect`, the
   `api` audience only, and the only client that may be granted `approvals` and `push`;
 - a client ID metadata document: the client's `client_id` is an https URL with a path, and dash
-  fetches it (5 seconds, 64 KiB, no redirect, no proxy from the environment, cached 24 hours).
+  fetches it (5 seconds, 64 KiB, no redirect, no proxy from the environment, cached 24 hours; a
+  failed fetch is remembered for 60 seconds, so the URL is not fetched again on every request).
   The document needs `client_id` equal to its URL, a `client_name`, and `redirect_uris` that are
   https, http on a loopback host, or a private-use scheme containing a dot
   (`com.example.app:/callback`). dash fetches only from global addresses, unless

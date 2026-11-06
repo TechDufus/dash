@@ -24,8 +24,9 @@ const (
 	cimdTimeout  = 5 * time.Second
 	cimdMaxBytes = 64 << 10
 	cimdTTL      = 24 * time.Hour
-	cimdMaxCache = 256 // documents kept; the oldest goes first
-	cimdFetches  = 4   // fetches at once
+	cimdFailTTL  = 60 * time.Second // a failed fetch is not retried sooner
+	cimdMaxCache = 256              // documents kept, and failures apart; the oldest goes first
+	cimdFetches  = 4                // fetches at once
 )
 
 // Client is an OAuth client dash knows: public, identified by its ID.
@@ -123,8 +124,16 @@ type cimdEntry struct {
 	fetched time.Time
 }
 
+// cimdFailure is a fetch that failed (an errUnknownClient), kept for cimdFailTTL.
+type cimdFailure struct {
+	err error
+	at  time.Time
+}
+
 // cimdCache fetches client ID metadata documents through the guarded client and keeps the
-// valid ones for cimdTTL.
+// valid ones for cimdTTL, and the failed fetches for cimdFailTTL so that a URL that fails is
+// not fetched again on every request (contract G7-R3 C1). The two are bounded apart, so
+// failures never push a valid document out.
 type cimdCache struct {
 	http     *http.Client
 	now      func() time.Time
@@ -133,10 +142,14 @@ type cimdCache struct {
 
 	mu      sync.Mutex
 	entries map[string]cimdEntry
+	failed  map[string]cimdFailure
 }
 
 func newCIMDCache(hc *http.Client, now func() time.Time) *cimdCache {
-	return &cimdCache{http: hc, now: now, slots: make(chan struct{}, cimdFetches), reserved: map[string]bool{}, entries: map[string]cimdEntry{}}
+	return &cimdCache{
+		http: hc, now: now, slots: make(chan struct{}, cimdFetches), reserved: map[string]bool{},
+		entries: map[string]cimdEntry{}, failed: map[string]cimdFailure{},
+	}
 }
 
 // reserve keeps names (a built-in or config client's ID and name) from metadata documents: a
@@ -161,8 +174,8 @@ func (c *cimdCache) cached(id string) bool {
 	return ok && c.now().Sub(e.fetched) < cimdTTL
 }
 
-// get returns the client of metadata document id from the cache, else fetches it when fetch is
-// set, else errNotFetched.
+// get returns the client of metadata document id from the cache, else the failure of a fetch
+// of it in the last cimdFailTTL, else fetches it when fetch is set, else errNotFetched.
 func (c *cimdCache) get(ctx context.Context, id string, fetch bool) (*Client, error) {
 	if problem := metadataURLProblem(id); problem != "" {
 		return nil, fmt.Errorf("%w: the client ID %s", errUnknownClient, problem)
@@ -170,6 +183,7 @@ func (c *cimdCache) get(ctx context.Context, id string, fetch bool) (*Client, er
 	now := c.now()
 	c.mu.Lock()
 	e, ok := c.entries[id]
+	f, failed := c.failed[id]
 	c.mu.Unlock()
 	if ok && now.Sub(e.fetched) < cimdTTL {
 		cl := e.client
@@ -178,6 +192,9 @@ func (c *cimdCache) get(ctx context.Context, id string, fetch bool) (*Client, er
 	if !fetch {
 		return nil, errNotFetched
 	}
+	if failed && now.Sub(f.at) < cimdFailTTL {
+		return nil, f.err
+	}
 	select {
 	case c.slots <- struct{}{}:
 		defer func() { <-c.slots }()
@@ -185,22 +202,35 @@ func (c *cimdCache) get(ctx context.Context, id string, fetch bool) (*Client, er
 		return nil, ctx.Err()
 	}
 	cl, err := c.fetch(ctx, id)
-	if err != nil {
-		return nil, err
-	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	if len(c.entries) >= cimdMaxCache {
-		oldest := ""
-		for k, v := range c.entries {
-			if oldest == "" || v.fetched.Before(c.entries[oldest].fetched) {
-				oldest = k
-			}
+	if err != nil {
+		// A refused document is remembered; a request its caller cancelled says nothing about it.
+		if errors.Is(err, errUnknownClient) && ctx.Err() == nil {
+			makeRoom(c.failed, id, func(f cimdFailure) time.Time { return f.at })
+			c.failed[id] = cimdFailure{err: err, at: now}
 		}
-		delete(c.entries, oldest)
+		return nil, err
 	}
+	delete(c.failed, id)
+	makeRoom(c.entries, id, func(e cimdEntry) time.Time { return e.fetched })
 	c.entries[id] = cimdEntry{client: *cl, fetched: now}
 	return cl, nil
+}
+
+// makeRoom makes room for key in m: when key is new and m holds cimdMaxCache entries, it
+// deletes the one whose time (at) is the oldest.
+func makeRoom[V any](m map[string]V, key string, at func(V) time.Time) {
+	if _, ok := m[key]; ok || len(m) < cimdMaxCache {
+		return
+	}
+	oldest := ""
+	for k, v := range m {
+		if oldest == "" || at(v).Before(at(m[oldest])) {
+			oldest = k
+		}
+	}
+	delete(m, oldest)
 }
 
 // fetch reads and checks one document: 5 seconds, 64 KiB, no redirect, a global address unless
