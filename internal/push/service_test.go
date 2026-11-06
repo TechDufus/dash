@@ -9,8 +9,10 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/netip"
@@ -785,4 +787,184 @@ func TestDeliverRefusesPlainHTTP(t *testing.T) {
 	if got := e.sent(obs.PushTest, obs.PushFailed); got != 1 {
 		t.Errorf("failed = %v, want 1", got)
 	}
+}
+
+// gatedService is a push service that answers nothing until open is called, and counts the
+// requests in flight.
+type gatedService struct {
+	*fakeService
+	gate           chan struct{}
+	mu             sync.Mutex
+	inFlight, most int
+}
+
+func newGatedService(t *testing.T) *gatedService {
+	t.Helper()
+	g := &gatedService{gate: make(chan struct{})}
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.Copy(io.Discard, r.Body)
+		g.mu.Lock()
+		g.inFlight++
+		g.most = max(g.most, g.inFlight)
+		g.mu.Unlock()
+		<-g.gate
+		g.mu.Lock()
+		g.inFlight--
+		g.mu.Unlock()
+		w.WriteHeader(http.StatusCreated)
+	}))
+	g.fakeService = &fakeService{Server: srv, header: http.Header{}}
+	t.Cleanup(srv.Close)
+	t.Cleanup(g.open)
+	return g
+}
+
+func (g *gatedService) open() {
+	select {
+	case <-g.gate:
+	default:
+		close(g.gate)
+	}
+}
+
+func (g *gatedService) counts() (inFlight, most int) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	return g.inFlight, g.most
+}
+
+// onHost registers the device under push-service host h (the fake listens on one address).
+func onHost(h string) func(*credentials.PushInput) {
+	return func(in *credentials.PushInput) { in.EndpointHost = h }
+}
+
+// Two users whose eight devices each hang hold at most 4 slots each, so a third user's push
+// still goes out at once.
+func TestPerUserCapKeepsOthersMoving(t *testing.T) {
+	g := newGatedService(t)
+	fast := newFakeService(t)
+	e := newEnv(t, fast, loopback)
+	for _, user := range []string{"alice", "bob"} {
+		for i := range 8 {
+			d := e.subscribe(g.fakeService, user, false, onHost(fmt.Sprintf("%s-%d.example.net", user, i)))
+			e.svc.Attention(d.id, attentionMsg("x"), false)
+		}
+	}
+	waitUntil(t, func() bool { n, _ := g.counts(); return n == 8 })
+	carol := e.subscribe(fast, "carol", false, onHost("fast.example.net"))
+	if err := e.svc.SendTest(carol.id); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(time.Second)
+	for len(fast.requests()) == 0 {
+		if time.Now().After(deadline) {
+			t.Fatal("carol's push waited behind alice's and bob's")
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	if _, most := g.counts(); most != 8 {
+		t.Errorf("at most %d in flight for two users, want 8 (4 each)", most)
+	}
+	g.open()
+	e.svc.Wait()
+}
+
+// Two users on one push-service host share its 4 slots.
+func TestPerHostCapIsFour(t *testing.T) {
+	g := newGatedService(t)
+	e := newEnv(t, g.fakeService, loopback)
+	for _, user := range []string{"alice", "bob"} {
+		for range 4 {
+			d := e.subscribe(g.fakeService, user, false, onHost("one.example.net"))
+			e.svc.Attention(d.id, attentionMsg("x"), false)
+		}
+	}
+	waitUntil(t, func() bool { n, _ := g.counts(); return n == 4 })
+	time.Sleep(50 * time.Millisecond) // room for a fifth, which must not come
+	if _, most := g.counts(); most != 4 {
+		t.Errorf("at most %d in flight to one host, want 4", most)
+	}
+	g.open()
+	e.svc.Wait()
+}
+
+// At most 16 pushes are in flight, whatever the hosts and users.
+func TestGlobalCapIsSixteen(t *testing.T) {
+	g := newGatedService(t)
+	e := newEnv(t, g.fakeService, loopback)
+	for u := range 5 {
+		for i := range 4 {
+			d := e.subscribe(g.fakeService, fmt.Sprintf("user%d", u), false, onHost(fmt.Sprintf("h%d-%d.example.net", u, i)))
+			e.svc.Attention(d.id, attentionMsg("x"), false)
+		}
+	}
+	waitUntil(t, func() bool { n, _ := g.counts(); return n == 16 })
+	time.Sleep(50 * time.Millisecond)
+	if _, most := g.counts(); most != 16 {
+		t.Errorf("at most %d in flight, want 16", most)
+	}
+	g.open()
+	e.svc.Wait()
+}
+
+// A queue full of approvals still takes a new approval; a new attention push is the one dropped.
+func TestFullQueueOfApprovalsKeepsApprovals(t *testing.T) {
+	g := newGatedService(t)
+	e := newEnv(t, g.fakeService, loopback)
+	d := e.subscribe(g.fakeService, "alice", false, nil)
+	for range 4 {
+		e.svc.Attention(d.id, attentionMsg("x"), false)
+	}
+	waitUntil(t, func() bool { n, _ := g.counts(); return n == 4 })
+	approval := model.PushMessage{Type: model.PushTypeApproval, ID: "a", Title: "approve?", URL: "https://dash.example.com/"}
+	for range MaxQueue + 1 {
+		e.svc.Notify("alice", approval)
+	}
+	e.svc.Attention(d.id, attentionMsg("late"), false)
+	e.svc.mu.Lock()
+	queued := len(e.svc.queue)
+	e.svc.mu.Unlock()
+	if queued != MaxQueue+1 || e.sent(obs.PushApproval, obs.PushDropped) != 0 || e.sent(obs.PushAttention, obs.PushDropped) != 1 {
+		t.Errorf("queued %d, approvals dropped %v, attention dropped %v; want %d, 0, 1",
+			queued, e.sent(obs.PushApproval, obs.PushDropped), e.sent(obs.PushAttention, obs.PushDropped), MaxQueue+1)
+	}
+	g.open()
+	e.svc.Wait()
+}
+
+// Close closes the sender's idle connections: the push service sees them end.
+func TestCloseClosesIdleConnections(t *testing.T) {
+	var mu sync.Mutex
+	open := 0
+	srv := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.Copy(io.Discard, r.Body)
+		w.WriteHeader(http.StatusCreated)
+	}))
+	srv.Config.ConnState = func(_ net.Conn, st http.ConnState) {
+		mu.Lock()
+		defer mu.Unlock()
+		switch st {
+		case http.StateNew:
+			open++
+		case http.StateClosed, http.StateHijacked:
+			open--
+		}
+	}
+	srv.StartTLS()
+	t.Cleanup(srv.Close)
+	f := &fakeService{Server: srv, header: http.Header{}}
+	e := newEnv(t, f, loopback)
+	d := e.subscribe(f, "alice", false, nil)
+	if err := e.svc.SendTest(d.id); err != nil {
+		t.Fatal(err)
+	}
+	e.svc.Wait()
+	mu.Lock()
+	before := open
+	mu.Unlock()
+	if before == 0 {
+		t.Fatal("no connection stayed open after the push")
+	}
+	e.svc.Close()
+	waitUntil(t, func() bool { mu.Lock(); defer mu.Unlock(); return open == 0 })
 }

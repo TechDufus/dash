@@ -44,10 +44,11 @@ const (
 	warnEvery = time.Hour
 	// sendTimeout bounds one request to a push service.
 	sendTimeout = 10 * time.Second
-	// parallel bounds the deliveries in flight, perHost those to one push service's host; a
-	// delivery waiting out a retry holds neither.
+	// parallel bounds the deliveries in flight, perHost those to one push service's host and
+	// perUser those to one user's devices; a delivery waiting out a retry holds none of them.
 	parallel = 16
 	perHost  = 4
+	perUser  = 4
 	// MaxQueue bounds the deliveries waiting for a slot. Past it the oldest attention, test or
 	// verify push is dropped (result dropped); an approval never is.
 	MaxQueue = 1024
@@ -103,6 +104,7 @@ type Service struct {
 	queue    []*job         // waiting for a slot, oldest first
 	active   int            // deliveries holding a slot
 	hosts    map[string]int // host -> deliveries holding a slot
+	users    map[string]int // user -> deliveries holding a slot
 	dropWarn time.Time      // the last WARN about a full queue
 	vapid    *VAPID
 	sent     map[string][]time.Time // subscription ID -> sends in the last hour
@@ -131,7 +133,7 @@ func New(o Options) *Service {
 	guard := netguard.Options{PrivateHosts: o.Allow.Hosts, PrivatePrefixes: o.Allow.Prefixes, Timeout: sendTimeout, RootCAs: o.RootCAs}
 	return &Service{
 		o: o, log: log, ctx: ctx, cancel: cancel, guard: guard, client: netguard.NewClient(guard),
-		hosts: map[string]int{}, sent: map[string][]time.Time{}, warned: map[string]time.Time{},
+		hosts: map[string]int{}, users: map[string]int{}, sent: map[string][]time.Time{}, warned: map[string]time.Time{},
 	}
 }
 
@@ -298,7 +300,7 @@ func (s *Service) Attention(id string, m model.PushMessage, crit bool) {
 
 // job is one delivery on its way: queued, in flight or waiting out a retry.
 type job struct {
-	id, host string // host: the push service's, for perHost
+	id, host, user string // host: the push service's, for perHost; user: the owner's, for perUser
 	d        delivery
 	attempt  int
 	// Set by the first attempt.
@@ -317,7 +319,7 @@ func (s *Service) enqueue(id string, d delivery) {
 	}
 	j := &job{id: id, d: d}
 	if sub, ok := s.o.Store.PushSubscriptionByID(id); ok {
-		j.host = sub.EndpointHost
+		j.host, j.user = sub.EndpointHost, sub.User
 	}
 	s.mu.Lock()
 	if s.closed {
@@ -356,17 +358,18 @@ func (s *Service) enqueue(id string, d delivery) {
 }
 
 // dispatch starts the queued deliveries that have a slot, oldest first: at most parallel in
-// flight, perHost to one host. s.mu is held.
+// flight, perHost to one host and perUser to one user's devices. s.mu is held.
 func (s *Service) dispatch() {
 	for i := 0; i < len(s.queue) && s.active < parallel; {
 		j := s.queue[i]
-		if s.hosts[j.host] >= perHost {
+		if s.hosts[j.host] >= perHost || s.users[j.user] >= perUser {
 			i++
 			continue
 		}
 		s.queue = slices.Delete(s.queue, i, i+1)
 		s.active++
 		s.hosts[j.host]++
+		s.users[j.user]++
 		go s.run(j)
 	}
 }
@@ -379,6 +382,9 @@ func (s *Service) run(j *job) {
 	s.active--
 	if s.hosts[j.host]--; s.hosts[j.host] <= 0 {
 		delete(s.hosts, j.host)
+	}
+	if s.users[j.user]--; s.users[j.user] <= 0 {
+		delete(s.users, j.user)
 	}
 	s.dispatch()
 	s.mu.Unlock()
