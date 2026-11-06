@@ -1,8 +1,8 @@
 name: pages
 
-# The landing page (site/) at https://dash.techdufus.com, published from main. GitHub Pages and the
-# links the page advertises need a public repository: while it is private the jobs are skipped,
-# not failed. The custom domain is set in the repository's Pages settings, not in a CNAME file.
+# The landing page (site/), published from main to GitHub Pages. Pages and the links the page
+# advertises need a public repository: while it is private the jobs are skipped, not failed. The
+# custom domain is set in the repository's Pages settings, not in a CNAME file.
 on:
   push:
     branches: [main]
