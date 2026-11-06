@@ -5,6 +5,7 @@ import { useMe } from "@/api/queries";
 import { type ConnectionState, useConnection, useTopic } from "@/api/stream";
 import type { Health } from "@/api/types";
 import { ui } from "@/api/ui-store";
+import { ApprovalsIndicator } from "@/approvals/indicator";
 import { UserMenu } from "@/auth/user-menu";
 import { HealthBadge } from "@/components/status";
 import { Button } from "@/components/ui/button";
@@ -119,6 +120,7 @@ export function TopBar() {
             {isMac ? "⌘K" : "Ctrl K"}
           </kbd>
         </Button>
+        {me.data ? <ApprovalsIndicator me={me.data} /> : null}
         {me.data ? <UserMenu me={me.data} /> : null}
       </div>
       <Sheet open={menu} onOpenChange={setMenu}>

@@ -7,9 +7,11 @@ import type { Envelope, PluginsData, Topic } from "./types";
 
 export type ConnectionState = "connecting" | "live" | "reconnecting";
 
-// The stream starts with these two. Every other topic is named by a plugin row in core.plugins,
-// so a plugin this build has never heard of still gets its topics delivered (generic views).
-const BOOT = ["core.plugins", "core.overview"] as const;
+// The stream starts with the core topics: core.approvals reaches only the user whose requests
+// changed, and nobody else ever gets an event for it. Every other topic is named by a plugin row
+// in core.plugins, so a plugin this build has never heard of still gets its topics delivered
+// (generic views).
+const BOOT = ["core.plugins", "core.overview", "core.approvals"] as const;
 
 const envelopes = new Map<string, Envelope>();
 const listeners = new Set<() => void>();

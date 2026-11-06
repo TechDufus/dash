@@ -48,15 +48,16 @@ afterEach(() => {
 });
 
 describe("stream.ts per-plugin topics", () => {
-  it("listens to core.plugins and core.overview only until a plugin list arrives", () => {
+  it("listens to the core topics only until a plugin list arrives", () => {
     const es = connect();
-    expect([...es.listenedTo].sort()).toEqual(["core.overview", "core.plugins"]);
+    expect([...es.listenedTo].sort()).toEqual(["core.approvals", "core.overview", "core.plugins"]);
   });
 
   it("attaches a listener for every topic a core.plugins event lists, hidden plugins included", () => {
     const es = connect();
     es.emit("core.plugins", pluginsEnvelope([vmsRow(), fluxRow("disabled")]));
     expect([...es.listenedTo].sort()).toEqual([
+      "core.approvals",
       "core.overview",
       "core.plugins",
       "flux.objects",
@@ -263,11 +264,16 @@ describe("stream.ts snapshot seeding", () => {
     const next = ES.instances[1];
     expect(next).toBeDefined();
     if (!next) return;
-    expect([...next.listenedTo].sort()).toEqual(["core.overview", "core.plugins"]);
+    expect([...next.listenedTo].sort()).toEqual([
+      "core.approvals",
+      "core.overview",
+      "core.plugins",
+    ]);
 
     next.open();
     next.emit("core.plugins", pluginsEnvelope([vmsRow(), fluxRow()]));
     expect([...next.listenedTo].sort()).toEqual([
+      "core.approvals",
       "core.overview",
       "core.plugins",
       "flux.objects",
