@@ -125,6 +125,9 @@ func (p *Proxy) Authenticate(r *http.Request) (Principal, *Failure) {
 		if !p.carriesIdentity(r.Header) {
 			return Principal{}, &Failure{Status: http.StatusUnauthorized, Code: CodeUnauthenticated, Reason: ReasonNoIdentity}
 		}
+		if peerDistrusted(r) {
+			return Principal{}, &Failure{Status: http.StatusUnauthorized, Code: CodeUnauthenticated, Reason: ReasonDirectHost}
+		}
 		if p.untrustedWarn.allow(p.now()) {
 			from := r.RemoteAddr
 			if ok {

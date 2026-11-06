@@ -38,7 +38,7 @@ answers 404. The registry is private: there are no Go or process collectors, onl
 | `dash_plugin_state` | `plugin`, `state`: 1 for the state an instance is in, 0 for the other seven |
 | `dash_upstream_requests_total`, `dash_upstream_request_duration_seconds` | `plugin` (`prometheus`, `alertmanager`, `victorialogs`, `gatus`, `proxmox`), `outcome` (counter only: `ok`, `timeout`, `tls`, `auth`, `http_4xx`, `http_5xx`, `invalid_response`, `unreachable`) |
 | `dash_actions_total` | `plugin`, `action`, `outcome` (`ok`, `error`, `denied`, `invalid`, `rate_limited`) |
-| `dash_auth_failures_total` | `reason` (`unauthenticated`, `csrf`, `forbidden`, `rate_limit`, `namespace_denied`, `stream_limit`, `untrusted_peer`, `ambiguous_identity`, `login_failed`, `login_throttled`, `invalid_token`, `ambiguous_credentials`, `insufficient_scope`) |
+| `dash_auth_failures_total` | `reason` (`unauthenticated`, `csrf`, `forbidden`, `rate_limit`, `namespace_denied`, `stream_limit`, `untrusted_peer`, `direct_host`, `ambiguous_identity`, `login_failed`, `login_throttled`, `invalid_token`, `ambiguous_credentials`, `insufficient_scope`) |
 
 Every label value comes from a fixed set: a route is a pattern, never the path asked for, and no
 series carries a user, an object or a host name. The `/metrics` endpoint is unauthenticated like

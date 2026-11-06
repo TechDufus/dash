@@ -68,8 +68,10 @@ var (
 	AuthStreamLimit     = AuthReason{"stream_limit"}
 
 	// AuthUntrustedPeer is an identity header from a peer outside auth.proxy.trustedProxies;
+	// AuthDirectHost one on server.directURL's host, which bypasses the identity proxy;
 	// AuthAmbiguousIdentity is an identity header sent as more than one line.
 	AuthUntrustedPeer     = AuthReason{"untrusted_peer"}
+	AuthDirectHost        = AuthReason{"direct_host"}
 	AuthAmbiguousIdentity = AuthReason{"ambiguous_identity"}
 
 	// AuthLoginFailed is a refused login or setup attempt (wrong password, unknown account, wrong
@@ -107,7 +109,7 @@ var (
 	// ActionOutcomes is every value of dash_actions_total's outcome label.
 	ActionOutcomes = []string{ActionOK, ActionError, ActionDenied, ActionInvalid, ActionRateLimited}
 	// AuthReasons is every value of dash_auth_failures_total's reason label.
-	AuthReasons = []AuthReason{AuthUnauthenticated, AuthCSRF, AuthForbidden, AuthRateLimit, AuthNamespaceDenied, AuthStreamLimit, AuthUntrustedPeer, AuthAmbiguousIdentity, AuthLoginFailed, AuthLoginThrottled, AuthInvalidToken, AuthAmbiguousCredentials, AuthInsufficientScope}
+	AuthReasons = []AuthReason{AuthUnauthenticated, AuthCSRF, AuthForbidden, AuthRateLimit, AuthNamespaceDenied, AuthStreamLimit, AuthUntrustedPeer, AuthDirectHost, AuthAmbiguousIdentity, AuthLoginFailed, AuthLoginThrottled, AuthInvalidToken, AuthAmbiguousCredentials, AuthInsufficientScope}
 	// StreamKinds is every value of dash_sse_streams' kind label.
 	StreamKinds = []string{StreamEvents, StreamTail}
 	// PluginStates is every value of dash_plugin_state's state label.

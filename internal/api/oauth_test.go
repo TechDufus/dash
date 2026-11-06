@@ -16,6 +16,7 @@ import (
 	"github.com/TechDufus/dash/internal/config"
 	"github.com/TechDufus/dash/internal/credentials"
 	"github.com/TechDufus/dash/internal/oauth"
+	"github.com/TechDufus/dash/internal/obs"
 	"github.com/TechDufus/dash/internal/tokens"
 )
 
@@ -233,6 +234,26 @@ func TestIdentityHeadersAreRefusedOnTheDirectHost(t *testing.T) {
 	w := req{path: "/api/v1/me", header: rid}.do(s.Handler())
 	if w.Code != http.StatusOK || w.Header().Get(requestIDHeader) != "upstream-1" {
 		t.Errorf("on the public host = %d %s, request id %q", w.Code, w.Body, w.Header().Get(requestIDHeader))
+	}
+}
+
+// Identity headers refused because the Host is server.directURL's are recorded, and counted,
+// as direct_host, not as an untrusted peer: the peer is the trusted one.
+func TestDirectHostRefusalIsRecordedAsDirectHost(t *testing.T) {
+	s, dir := auditedServer(t, func(d *Deps) { d.Cfg.DirectURL = "https://dash-direct.example.com" })
+	if w := (req{path: "/api/v1/me", host: "dash-direct.example.com"}).do(s.Handler()); w.Code != http.StatusUnauthorized {
+		t.Fatalf("identity headers on the direct host = %d %s", w.Code, w.Body)
+	}
+	recs := auditRecords(t, dir)
+	if len(recs) != 1 || recs[0].Reason != obs.AuthDirectHost.String() {
+		t.Errorf("audit = %+v, want one direct_host denial", recs)
+	}
+	ss := scrapeMetrics(t, s)
+	if v, ok := seriesValue(t, ss, "dash_auth_failures_total", map[string]string{"reason": obs.AuthDirectHost.String()}); !ok || v != 1 {
+		t.Errorf("direct_host counted %v (present %v), want 1", v, ok)
+	}
+	if v, _ := seriesValue(t, ss, "dash_auth_failures_total", map[string]string{"reason": obs.AuthUntrustedPeer.String()}); v != 0 {
+		t.Errorf("untrusted_peer counted %v, want 0", v)
 	}
 }
 

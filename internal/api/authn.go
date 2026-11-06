@@ -95,12 +95,14 @@ func (s *Server) authenticate(r *http.Request) (auth.Principal, *http.Cookie, *a
 }
 
 // authDenialReason maps a Failure's machine reason to the obs label it is counted under: the
-// untrusted peer, the ambiguous identity, the invalid token and the ambiguous credentials have
-// their own, every other refusal is "unauthenticated".
+// untrusted peer, the direct host, the ambiguous identity, the invalid token and the ambiguous
+// credentials have their own, every other refusal is "unauthenticated".
 func authDenialReason(f *auth.Failure) obs.AuthReason {
 	switch f.Reason {
 	case auth.ReasonUntrustedPeer:
 		return obs.AuthUntrustedPeer
+	case auth.ReasonDirectHost:
+		return obs.AuthDirectHost
 	case auth.ReasonAmbiguousIdentity:
 		return obs.AuthAmbiguousIdentity
 	case auth.ReasonInvalidToken:

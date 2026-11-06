@@ -200,6 +200,7 @@ func TestAuthnSendsTheFailuresChallenge(t *testing.T) {
 func TestAuthDenialReasonMapsTheFailureReasons(t *testing.T) {
 	for reason, want := range map[string]obs.AuthReason{
 		auth.ReasonUntrustedPeer:        obs.AuthUntrustedPeer,
+		auth.ReasonDirectHost:           obs.AuthDirectHost,
 		auth.ReasonAmbiguousIdentity:    obs.AuthAmbiguousIdentity,
 		auth.ReasonNoIdentity:           obs.AuthUnauthenticated,
 		auth.ReasonInvalidToken:         obs.AuthInvalidToken,

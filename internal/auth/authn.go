@@ -29,6 +29,7 @@ const (
 const (
 	ReasonNoIdentity        = "no_identity"        // no identity header, or one that cannot be a user name
 	ReasonUntrustedPeer     = "untrusted_peer"     // identity headers from a peer outside the trusted set
+	ReasonDirectHost        = "direct_host"        // identity headers on server.directURL's host (DistrustPeer)
 	ReasonAmbiguousIdentity = "ambiguous_identity" // an identity header with more than one line
 	// ReasonInvalidToken is a bearer token that is unknown, expired, revoked or for another
 	// audience. An authenticator that is handed a bearer credential (the API resolves tokens
