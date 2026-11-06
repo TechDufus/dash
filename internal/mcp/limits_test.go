@@ -34,7 +34,8 @@ func TestWindowAllowsNPerMinute(t *testing.T) {
 }
 
 // The concurrency caps of design N.6, as numbers: 8 calls per token, 16 per user across their
-// tokens, 64 in all; 2 listen streams per token and 16 in all, counted apart from the calls.
+// tokens, 64 in all; 2 listen streams per token, 4 per user across their tokens and 16 in all,
+// counted apart from the calls.
 func TestSlotsBoundCallsAndListens(t *testing.T) {
 	s := newSlots()
 	take := func(key, user string, listen bool, want string) func() {
@@ -72,9 +73,16 @@ func TestSlotsBoundCallsAndListens(t *testing.T) {
 	}
 	take("fresh", "fresh", false, overAll)
 
-	// 16 listen streams in all: t1 holds 2.
+	// 4 listen streams per user across her tokens: t1 holds 2.
+	l2 := take("t2", "ann", true, "")
+	take("t2", "ann", true, "") // her 4th
+	take("t3", "ann", true, overUser)
+	l2()
+	take("t3", "ann", true, "") // a released stream is given back
+
+	// 16 listen streams in all: ann holds 4.
 	var last func()
-	for i := range 14 {
+	for i := range 12 {
 		last = take(fmt.Sprintf("l%d", i), fmt.Sprintf("u%d", i), true, "")
 	}
 	take("lfresh", "lfresh", true, overAll)

@@ -154,9 +154,10 @@ encoded.
 Per token: 120 requests a minute (`tools/call`, `resources/read`, `prompts/get`,
 `subscriptions/listen`, and the list and discovery requests), 30 log reads a minute (`dash_logs`,
 and `dash_context` when it reads logs), 8 calls in flight and 2 listen streams. Per user, across
-their tokens: 16 calls in flight. In all, 64 calls in flight and 16 listen streams. A request
-over its rate gets a `rate_limited` error; a request over a concurrency limit gets 429 with
-`Retry-After`, naming the limit. A request body is at most 1 MiB and must arrive within 10 s.
+their tokens: 16 calls in flight and 4 listen streams. In all, 64 calls in flight and 16 listen
+streams. A request over its rate gets a `rate_limited` error; a request over a concurrency limit
+gets 429 with `Retry-After`, naming the limit. A request body is at most 1 MiB and must arrive
+within 10 s.
 With protocol `2025-11-25` there is no listen stream: `subscriptions/listen` is refused, like
 `resources/subscribe`.
 

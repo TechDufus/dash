@@ -29,6 +29,7 @@ const (
 	concurrentPerToken = 8
 	concurrentPerUser  = 16 // calls across all of one user's tokens
 	listensPerToken    = 2
+	listensPerUser     = 4 // listen streams across all of one user's tokens
 	listensGlobal      = 16
 	concurrentGlobal   = 64
 	// recheckEvery is how often an open listen stream asks whether its token may still listen
@@ -103,14 +104,16 @@ func (w *window) allow(key string) bool {
 // apart.
 type slots struct {
 	mu                 sync.Mutex
-	calls              map[string]int
-	listens            map[string]int
-	users              map[string]int // calls
+	calls, listens     map[string]int // per token
+	users, listenUsers map[string]int // per user
 	total, listenTotal int
 }
 
 func newSlots() slots {
-	return slots{calls: map[string]int{}, listens: map[string]int{}, users: map[string]int{}}
+	return slots{
+		calls: map[string]int{}, listens: map[string]int{},
+		users: map[string]int{}, listenUsers: map[string]int{},
+	}
 }
 
 // The refusals of acquire: the limit a request is over.
@@ -125,35 +128,31 @@ const (
 func (s *slots) acquire(key, user string, listen bool) (release func(), refused string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	m, max, total, maxTotal := s.calls, concurrentPerToken, &s.total, concurrentGlobal
+	m, max, users, maxUser, total, maxTotal := s.calls, concurrentPerToken, s.users, concurrentPerUser, &s.total, concurrentGlobal
 	if listen {
-		m, max, total, maxTotal = s.listens, listensPerToken, &s.listenTotal, listensGlobal
+		m, max, users, maxUser, total, maxTotal = s.listens, listensPerToken, s.listenUsers, listensPerUser, &s.listenTotal, listensGlobal
 	}
 	switch {
 	case m[key] >= max:
 		return nil, overToken
-	case !listen && s.users[user] >= concurrentPerUser:
+	case users[user] >= maxUser:
 		return nil, overUser
 	case *total >= maxTotal:
 		return nil, overAll
 	}
 	m[key]++
+	users[user]++
 	*total++
-	if !listen {
-		s.users[user]++
-	}
 	return func() {
 		s.mu.Lock()
 		defer s.mu.Unlock()
 		if m[key]--; m[key] <= 0 {
 			delete(m, key)
 		}
-		*total--
-		if !listen {
-			if s.users[user]--; s.users[user] <= 0 {
-				delete(s.users, user)
-			}
+		if users[user]--; users[user] <= 0 {
+			delete(users, user)
 		}
+		*total--
 	}, ""
 }
 
@@ -208,9 +207,9 @@ func plainError(w http.ResponseWriter, status int, code, msg string) {
 	_, _ = w.Write(append(raw, '\n'))
 }
 
-// admit takes the request's concurrency slot: a listen stream (2 per token, 16 in all) or a call
-// (8 per token, 16 per user, 64 in all). A refusal is a plain 429 with Retry-After, before the
-// SDK sees the request.
+// admit takes the request's concurrency slot: a listen stream (2 per token, 4 per user, 16 in
+// all) or a call (8 per token, 16 per user, 64 in all). A refusal is a plain 429 with
+// Retry-After, before the SDK sees the request.
 func (s *Server) admit(w http.ResponseWriter, r *http.Request, p auth.Principal, method string) (func(), bool) {
 	listen := method == "subscriptions/listen"
 	release, refused := s.slots.acquire(tokenKey(p), p.User, listen)
