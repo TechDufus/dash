@@ -236,9 +236,10 @@ func (s *Server) approvalRoutes() []Route {
 	return []Route{
 		row(Route{
 			ID: "getApproval", Method: "GET", Path: "/api/v1/approvals/{id}",
-			Summary:     "Read an approval request",
-			Description: "One of the caller's approval requests, with the action's outcome once approved. 403 forbidden for another user's; 404 for an id that is not one; 410 approval_expired for one that expired or that dash does not know (requests do not survive a restart).",
-			PathParams:  id, Response: model.ApprovalInfo{}, Handler: s.getApproval,
+			Summary: "Read an approval request",
+			Description: "One of the caller's approval requests, with the action's outcome once approved. A request that was decided or expired stays readable (state approved, denied or expired) for 10 minutes after its expiry; " +
+				"403 forbidden for another user's; 404 for an id that is not one; 410 approval_expired after that, or for an id dash does not know (requests do not survive a restart).",
+			PathParams: id, Response: model.ApprovalInfo{}, Handler: s.getApproval,
 		}),
 		row(Route{
 			ID: "decideApproval", Method: "POST", Path: "/api/v1/approvals/{id}/decision",
@@ -308,7 +309,7 @@ func (s *Server) decideApproval(w http.ResponseWriter, r *http.Request) {
 	}
 	if body.Approve && req.Confirm == plugin.ConfirmTypeName && body.Confirm != req.Target.Name {
 		s.approvals.Release(id)
-		writeErr(w, http.StatusBadRequest, model.ErrCodeInvalidInput, "type the name of the target ("+req.Target.Kind+") to approve")
+		writeErr(w, http.StatusBadRequest, model.ErrCodeInvalidInput, "type the "+req.Target.Kind+"'s name ("+req.Target.Name+") to approve")
 		return
 	}
 	action := auditApprovalDeny
@@ -360,6 +361,9 @@ func (s *Server) runApproved(r *http.Request, req approvals.Request, by, confirm
 			return info, err
 		}
 		return info, errors.New("not run: " + reason)
+	}
+	if !s.mcpEnabled() {
+		return deny("MCP is off (mcp.enabled), so agents' actions do not run")
 	}
 	rv, ok := s.d.Tokens.(TokenReviver)
 	if !ok {

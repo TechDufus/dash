@@ -167,8 +167,13 @@ func TestMCPActionPendingThenPolled(t *testing.T) {
 		t.Fatalf("call = %s", resultText(res))
 	}
 	pending := structured[model.ApprovalPending](t, res)
-	if pending.Status != model.ApprovalStatusPending || pending.ApproveURL != testOrigin+"/approve/"+pending.ApprovalID || !strings.Contains(resultText(res), "dash_approval") {
+	if pending.Status != model.ApprovalStatusPending || pending.ApproveURL != testOrigin+"/approve/"+pending.ApprovalID ||
+		!strings.HasSuffix(pending.ExpiresAt.Format(time.RFC3339), "Z") {
 		t.Fatalf("pending = %+v / %s", pending, resultText(res))
+	}
+	if text := resultText(res); !strings.Contains(text, "dash_approval") || !strings.Contains(text, "Give the user this link to approve it: "+pending.ApproveURL) ||
+		!strings.Contains(text, "It expires at "+pending.ExpiresAt.Format(time.RFC3339)) {
+		t.Errorf("pending text = %s", text)
 	}
 	if n := len(e.acts()); n != 0 {
 		t.Fatalf("Act ran %d times before the approval", n)
@@ -179,9 +184,23 @@ func TestMCPActionPendingThenPolled(t *testing.T) {
 		t.Fatalf("dash_approval = %+v", info)
 	}
 	approvalOf(t, e.decide("alice", pending.ApprovalID, model.ApprovalDecision{Approve: true}))
-	info = structured[model.ApprovalInfo](t, call(t, cs, "dash_approval", map[string]any{"id": pending.ApprovalID}))
-	if info.State != model.ApprovalStateApproved || info.Outcome == nil || info.Outcome.Result != `{"restarted":"web"}` {
-		t.Fatalf("dash_approval after approval = %+v", info)
+	res = call(t, cs, "dash_approval", map[string]any{"id": pending.ApprovalID})
+	type polled struct {
+		State   string `json:"state"`
+		Outcome struct {
+			OK     bool              `json:"ok"`
+			Result map[string]string `json:"result"`
+			At     string            `json:"at"`
+		} `json:"outcome"`
+		CreatedAt string `json:"createdAt"`
+	}
+	view := structured[polled](t, res)
+	if view.State != model.ApprovalStateApproved || !view.Outcome.OK || view.Outcome.Result["restarted"] != "web" ||
+		!strings.HasSuffix(view.Outcome.At, "Z") || !strings.HasSuffix(view.CreatedAt, "Z") {
+		t.Fatalf("dash_approval after approval = %+v", view)
+	}
+	if text := resultText(res); !strings.HasPrefix(text, "Approval "+pending.ApprovalID+" (aa_restart): approved by alice; the action succeeded.\n") {
+		t.Errorf("dash_approval text = %.300s", text)
 	}
 	if calls := e.acts(); len(calls) != 1 || calls[0].input.(*restartIn).Confirm != "" {
 		t.Errorf("Act = %+v", calls)

@@ -75,21 +75,22 @@ type Request struct {
 	done      chan struct{} // closed when it leaves pending
 }
 
-// Info is the request as the API shows it.
+// Info is the request as the API shows it, every time in UTC.
 func (r *Request) Info() model.ApprovalInfo {
 	info := model.ApprovalInfo{
 		ID: r.ID, State: cmp.Or(r.state, model.ApprovalStatePending), User: r.User, TokenID: r.TokenID, GrantID: r.GrantID,
 		CredentialName: r.CredentialName, ClientName: r.ClientName, Plugin: r.Plugin, Action: r.Action, Title: r.Title,
 		Tool: r.Tool, Summary: r.Summary, Target: r.Target, Input: slices.Clone(r.Input), InputSHA256: r.InputSHA256,
-		Destructive: r.Destructive, Confirm: r.Confirm, CreatedAt: r.CreatedAt, ExpiresAt: r.ExpiresAt,
+		Destructive: r.Destructive, Confirm: r.Confirm, CreatedAt: r.CreatedAt.UTC(), ExpiresAt: r.ExpiresAt.UTC(),
 		DecidedBy: r.decidedBy, Reason: r.reason,
 	}
 	if r.decidedAt != nil {
-		t := *r.decidedAt
+		t := r.decidedAt.UTC()
 		info.DecidedAt = &t
 	}
 	if r.outcome != nil {
 		o := *r.outcome
+		o.At = o.At.UTC()
 		info.Outcome = &o
 	}
 	if info.Input == nil {

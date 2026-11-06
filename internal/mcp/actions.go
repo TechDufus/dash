@@ -185,8 +185,11 @@ func (s *Server) pendingResult(req *sdk.CallToolRequest, c caller, tool string, 
 		return s.inputRequired(c, tool, info, approveURL), nil
 	}
 	pending := model.ApprovalPending{Status: model.ApprovalStatusPending, ApprovalID: info.ID, ApproveURL: approveURL, ExpiresAt: info.ExpiresAt}
-	text := fmt.Sprintf("This action waits for its owner's approval in dash (%s), until %s. Do not call the tool again: "+
-		"call dash_approval with {\"id\": %q} to learn the decision and the result.", approveURL, info.ExpiresAt.Format(time.RFC3339), info.ID)
+	expires := info.ExpiresAt.UTC().Format(time.RFC3339)
+	text := fmt.Sprintf("This action waits for its owner's approval in dash. Give the user this link to approve it: %s. "+
+		"It expires at %s. Do not call the tool again: call dash_approval with {\"id\": %q} to learn the decision and the result.",
+		approveURL, expires, info.ID)
+	pending.ExpiresAt = info.ExpiresAt.UTC()
 	return &sdk.CallToolResult{Content: []sdk.Content{&sdk.TextContent{Text: text}}, StructuredContent: pending}, nil
 }
 
@@ -196,7 +199,7 @@ func (s *Server) inputRequired(c caller, tool string, info model.ApprovalInfo, a
 	return &sdk.CallToolResult{
 		InputRequests: sdk.InputRequestMap{"approve": &sdk.ElicitParams{
 			Mode: "url", URL: approveURL, ElicitationID: info.ID,
-			Message: "dash needs a person to approve this action: " + info.Summary,
+			Message: "dash needs a person to approve this action, before " + info.ExpiresAt.UTC().Format(time.RFC3339) + ": " + info.Summary,
 		}},
 		RequestState: s.sealState(info.ID, c.p, tool, info.ExpiresAt),
 	}
@@ -261,6 +264,56 @@ type approvalInput struct {
 	ID string `json:"id" dash:"required" doc:"The approvalId an action tool answered."`
 }
 
+// approvalView is dash_approval's answer: the request, its outcome's result decoded as JSON when
+// it parses (it is the action's answer), else kept as text.
+type approvalView struct {
+	model.ApprovalInfo
+	Outcome *outcomeView `json:"outcome,omitempty"`
+}
+
+type outcomeView struct {
+	OK        bool      `json:"ok"`
+	Result    any       `json:"result"`
+	Truncated bool      `json:"truncated"`
+	Error     string    `json:"error"`
+	At        time.Time `json:"at"`
+}
+
+func viewOf(info model.ApprovalInfo) approvalView {
+	v := approvalView{ApprovalInfo: info}
+	if o := info.Outcome; o != nil {
+		var result any = o.Result
+		if o.Result != "" && json.Valid([]byte(o.Result)) {
+			result = json.RawMessage(o.Result)
+		}
+		v.Outcome = &outcomeView{OK: o.OK, Result: result, Truncated: o.Truncated, Error: o.Error, At: o.At.UTC()}
+	}
+	return v
+}
+
+// approvalHead is dash's own line ahead of dash_approval's data: the state, who decided, and how
+// the action ran.
+func approvalHead(v any) string {
+	info := v.(approvalView).ApprovalInfo
+	line := "Approval " + info.ID + " (" + info.Tool + "): " + info.State
+	switch {
+	case info.State == model.ApprovalStatePending:
+		line += ", waiting for its owner until " + info.ExpiresAt.UTC().Format(time.RFC3339)
+	case info.DecidedBy != "":
+		line += " by " + info.DecidedBy
+	case info.Reason != "":
+		line += ": " + info.Reason
+	}
+	if o := info.Outcome; o != nil {
+		if o.OK {
+			line += "; the action succeeded"
+		} else {
+			line += "; the action failed (outcome.error says why)"
+		}
+	}
+	return line + ".\n"
+}
+
 // approvalTool is dash_approval (design N.2): an approval request's state, and the action's
 // result once it ran.
 func (s *Server) approvalTool(ab ActionBackend) tool {
@@ -273,8 +326,9 @@ func (s *Server) approvalTool(ab ActionBackend) tool {
 			if err != nil {
 				return nil, "", err
 			}
-			return info, "", nil
+			return viewOf(info), "", nil
 		},
+		head: approvalHead,
 	}
 }
 

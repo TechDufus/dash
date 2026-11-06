@@ -129,9 +129,15 @@ func TestApprovalEndToEnd(t *testing.T) {
 	if n := runs(pending.ApprovalID); n != 1 {
 		t.Errorf("the restart ran %d times, want once", n)
 	}
-	var polled model.ApprovalInfo
+	var polled struct {
+		State   string `json:"state"`
+		Outcome *struct {
+			OK     bool              `json:"ok"`
+			Result map[string]string `json:"result"`
+		} `json:"outcome"`
+	}
 	if res := call("dash_approval", map[string]any{"id": pending.ApprovalID}, &polled); res.IsError || polled.State != model.ApprovalStateApproved ||
-		polled.Outcome == nil || polled.Outcome.Result != `{"status":"accepted"}` {
+		polled.Outcome == nil || !polled.Outcome.OK || polled.Outcome.Result["status"] != "accepted" {
 		t.Fatalf("dash_approval = %+v", polled)
 	}
 

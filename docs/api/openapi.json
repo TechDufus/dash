@@ -3891,7 +3891,7 @@
   "paths": {
     "/api/v1/approvals/{id}": {
       "get": {
-        "description": "One of the caller's approval requests, with the action's outcome once approved. 403 forbidden for another user's; 404 for an id that is not one; 410 approval_expired for one that expired or that dash does not know (requests do not survive a restart).",
+        "description": "One of the caller's approval requests, with the action's outcome once approved. A request that was decided or expired stays readable (state approved, denied or expired) for 10 minutes after its expiry; 403 forbidden for another user's; 404 for an id that is not one; 410 approval_expired after that, or for an id dash does not know (requests do not survive a restart).",
         "operationId": "getApproval",
         "parameters": [
           {

@@ -326,7 +326,10 @@ func TestApprovalOfAProtectedTargetNeedsTheTypedName(t *testing.T) {
 		t.Fatalf("rule = %q", info.Confirm)
 	}
 	for _, confirm := range []string{"", "DB", "vault"} {
-		wantError(t, e.decide("alice", info.ID, model.ApprovalDecision{Approve: true, Confirm: confirm}), http.StatusBadRequest, model.ErrCodeInvalidInput)
+		got := wantError(t, e.decide("alice", info.ID, model.ApprovalDecision{Approve: true, Confirm: confirm}), http.StatusBadRequest, model.ErrCodeInvalidInput)
+		if got.Error != "type the Workload's name (db) to approve" {
+			t.Errorf("message = %q", got.Error)
+		}
 	}
 	if n := len(e.acts()); n != 0 {
 		t.Fatalf("Act ran %d times without the typed name", n)
@@ -445,6 +448,9 @@ func TestApprovalRevalidatesTheRequesterAtExecution(t *testing.T) {
 		{"actions are turned off", func(t *testing.T, e *approvalEnv, p auth.Principal) {
 			e.reconfigure(t, plugin.InstanceConfig{Name: "aa", ActionsEnabled: false})
 		}, "no longer offered"},
+		{"MCP is switched off", func(t *testing.T, e *approvalEnv, p auth.Principal) {
+			e.d.MCPEnabled = func() bool { return false }
+		}, "MCP is off"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			e := newApprovalEnv(t, nil)
