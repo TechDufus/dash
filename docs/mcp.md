@@ -123,10 +123,12 @@ log lines says why in `logsNote`: `not_applicable` (the object has no logs), or
 The Markdown starts with `` # Context: `<plugin>` `<Kind>` `` (the object's name is lab data, so
 it stays in the block) and a line with the time, the counts and, in words, why there are no log
 lines. Then comes the untrusted block: the object's ref, what the object is and its attention
-items first, then its facts, conditions, events, related refs, links, the series (numbers to 3
-significant digits, bytes and cores in their units) and the log lines, headed with whose they are
-and over what window. A `dash_context` answer cut to 64 KiB keeps that head and cuts only the
-block.
+items first, then its facts (a number whose name names a unit shown in it, the unit word dropped:
+`memBytes` reads `mem: 99.7 MiB`, `cpuRatio` a percentage, `uptimeSeconds` `13d 3h`; empty facts
+left out), conditions, events, related refs, links, the series (numbers to 3 significant digits;
+bytes, cores, watts, °C and rpm in their units; the cpu and mem ratios of nodes, hosts and VMs as
+percentages) and the log lines, headed with whose they are and over what window. A
+`dash_context` answer cut to 64 KiB keeps that head and cuts only the block.
 
 **Copy context for AI** on the pod sheet, the VM sheet, the overview's attention items and the
 alert rows fetches `format=markdown` and puts it on the clipboard; it makes no other request.

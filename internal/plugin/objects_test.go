@@ -113,10 +113,14 @@ func TestObjectStoreKeepsOnlyTheLatestPayload(t *testing.T) {
 	}
 }
 
+// A part's facts are the object's scalar fields by JSON name, its map entries as name.key and its
+// times in RFC 3339. An empty string field (here description) is no fact; an empty map entry (a
+// role label) is.
 func TestObjectStorePartHasTheFactsAndLinks(t *testing.T) {
 	s := &ObjectStore{}
 	s.Wrap(&pubHost{}).Publish("alerts", model.AlertsData{Alerts: []model.Alert{{
-		Ref: "alertmanager:Alert/f1", Name: "Down", Severity: "critical", Labels: map[string]string{"pod": "p", "namespace": "n"},
+		Ref: "alertmanager:Alert/f1", Name: "Down", Severity: "critical", Summary: "it is down",
+		Labels:   map[string]string{"pod": "p", "namespace": "n", "role": ""},
 		StartsAt: time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC),
 	}}}, nil)
 	p, err := s.StoreContext("alertmanager:Alert/f1")
@@ -127,8 +131,11 @@ func TestObjectStorePartHasTheFactsAndLinks(t *testing.T) {
 	for _, f := range p.Facts {
 		facts[f.Name] = f.Value
 	}
+	_, description := facts["description"]
+	_, role := facts["labels.role"]
 	if p.Kind != "Alert" || p.Title != "Down" || facts["severity"] != "critical" || facts["labels.pod"] != "p" ||
-		facts["startsAt"] != "2026-01-02T03:04:05Z" || facts["ref"] != "" {
+		facts["startsAt"] != "2026-01-02T03:04:05Z" || facts["ref"] != "" || facts["summary"] != "it is down" ||
+		description || !role {
 		t.Errorf("part = %+v", p)
 	}
 	if p.Events == nil || p.Related == nil || p.Series == nil || p.Conditions == nil || p.Links == nil {

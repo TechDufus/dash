@@ -173,8 +173,8 @@ func TestMarkdownSaysWhyThereAreNoLogLines(t *testing.T) {
 }
 
 // The data reads easily: what needs attention right after the summary, no {} for empty labels,
-// numbers to 3 significant digits, bytes and cores in their units, and whose logs over what
-// window.
+// numbers to 3 significant digits, a number in the unit its name names with the unit word gone
+// from the name, and whose logs over what window.
 func TestMarkdownIsReadable(t *testing.T) {
 	b := demoBundle()
 	b.Part.Summary = "health crit"
@@ -185,14 +185,16 @@ func TestMarkdownIsReadable(t *testing.T) {
 		{Name: "pod.mem", Args: map[string]string{"namespace": "media", "pod": "web-1"}, Lines: []model.SeriesLineSummary{{Min: 1536, Max: 2.5 * 1024 * 1024, Avg: 123456789, Last: 0}}},
 		{Name: "pod.cpu", Args: map[string]string{"pod": "web-1"}, Lines: []model.SeriesLineSummary{{Min: 0.012345, Max: 1.23456, Avg: 0.5, Last: 2}}},
 		{Name: "host.power", Args: map[string]string{}, Lines: []model.SeriesLineSummary{{Labels: map[string]string{}, Min: 123.456, Max: 98765.4, Avg: 0.000123456, Last: 100}}},
+		{Name: "unknown.series", Args: map[string]string{}, Lines: []model.SeriesLineSummary{{Min: 123.456, Max: 98765.4, Avg: 0.000123456, Last: 100}}},
 	}
 	data := Data(b)
 	for _, want := range []string{
 		"summary: health crit\n\nattention:\n",
-		"  usedBytes: 1.5 GiB\n", "  cpuCores: 0.123 cores\n", "  growthBytesPerDay: 1 MiB/day\n", "  restarts: 4\n", "  phase: Running\n",
+		"  used: 1.5 GiB\n", "  cpu: 0.123 cores\n", "  growth: 1 MiB/day\n", "  restarts: 4\n", "  phase: Running\n",
 		"  pod.mem {namespace=media,pod=web-1}:\n    min 1.5 KiB max 2.5 MiB avg 118 MiB last 0 B\n",
 		"    min 0.0123 cores max 1.23 cores avg 0.5 cores last 2 cores\n",
-		"  host.power:\n    min 123 max 98800 avg 0.000123 last 100\n",
+		"  host.power:\n    min 123 W max 98800 W avg 0.000123 W last 100 W\n",
+		"  unknown.series:\n    min 123 max 98800 avg 0.000123 last 100\n",
 		"\nlogs of kubernetes:Pod/media/web-1 (last 1h, oldest first):\n",
 	} {
 		if !strings.Contains(data, want) {
@@ -201,6 +203,56 @@ func TestMarkdownIsReadable(t *testing.T) {
 	}
 	if strings.Contains(data, "{}") {
 		t.Errorf("empty labels shown as {}:\n%s", data)
+	}
+}
+
+// Every unit word a plugin's fact names end in (the model's JSON names: VM, node, host, pod,
+// PVC, bucket, CNPG, etcd, gatus results, Proxmox storage and node) is shown in its unit, the
+// word dropped from the name. A word that is not the end of one (an acronym) and a value that is
+// no number stay as they are.
+func TestFactsShowTheUnitTheirNameSays(t *testing.T) {
+	for _, tc := range []struct{ name, value, want string }{
+		{"memBytes", "104546304", "mem: 99.7 MiB"},
+		{"maxMemBytes", "8589934592", "maxMem: 8 GiB"},
+		{"growthBytesPerDay", "1048576", "growth: 1 MiB/day"},
+		{"memoryMiB", "8192", "memory: 8 GiB"},
+		{"cpuCores", "0.25", "cpu: 0.25 cores"},
+		{"cpuRatio", "0.12345", "cpu: 12.3%"},
+		{"memUsedRatio", "1", "memUsed: 100%"},
+		{"lifeRemainingPct", "87.5", "lifeRemaining: 87.5%"},
+		{"uptimeSeconds", "1134000", "uptime: 13d 3h"},
+		{"lastBackupAgeSeconds", "7530.4", "lastBackupAge: 2h 5m"},
+		{"lastSuccessAgeSeconds", "250", "lastSuccessAge: 4m 10s"},
+		{"uptimeSeconds", "42", "uptime: 42s"},
+		{"durationMs", "120.5", "duration: 121 ms"},
+		{"powerWatts", "182", "power: 182 W"},
+		{"cpuTempC", "45.5", "cpuTemp: 45.5 °C"},
+		{"fanMaxRpm", "3600", "fanMax: 3600 rpm"},
+		{"cpus", "4", "cpus: 4"},
+		{"lock", "backup", "lock: backup"},
+		{"usedBytes", "n/a", "usedBytes: n/a"},
+		{"PVC", "3", "PVC: 3"},
+		{"pod.web-1", "health crit, phase Running", "pod.web-1: health crit, phase Running"},
+	} {
+		name, value := factLine(model.ContextFact{Name: tc.name, Value: tc.value})
+		if got := name + ": " + value; got != tc.want {
+			t.Errorf("%s=%s: %q, want %q", tc.name, tc.value, got, tc.want)
+		}
+	}
+}
+
+// The cpu and mem series of nodes, hosts and VMs are ratios, shown as percentages; the
+// hardware ones in their units.
+func TestSeriesShowTheirUnits(t *testing.T) {
+	for name, want := range map[string]string{
+		"vm.cpu": "12.3%", "vm.mem": "12.3%", "node.cpu": "12.3%", "node.mem": "12.3%",
+		"host.cpu": "12.3%", "host.mem": "12.3%", "host.power": "0.123 W", "host.cpuTemp": "0.123 °C",
+		"host.temps": "0.123 °C", "host.fans": "0.123 rpm", "pod.cpu": "0.123 cores", "pod.mem": "0.123 B",
+		"vm.netIn": "0.123 B/s",
+	} {
+		if got := seriesFormat(name)(0.12345); got != want {
+			t.Errorf("%s: %q, want %q", name, got, want)
+		}
 	}
 }
 

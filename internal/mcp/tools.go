@@ -198,7 +198,9 @@ func (s *Server) toolTable() []tool {
 			name: "dash_series", title: "Read a metric series", scope: "read", input: &seriesInput{},
 			desc: "A named metric series: per line its minimum, maximum, average and last value, and at most 60 " +
 				"points. Only the series dash defines, e.g. pod.cpu, pod.mem, node.cpu, node.mem, vm.cpu, vm.mem, " +
-				"host.cpu, host.mem and host.power; an unknown name is answered with every name dash serves now.",
+				"host.cpu, host.mem and host.power; an unknown name is answered with every name dash serves now. " +
+				"Values are raw: node.*, host.* and vm.* cpu and mem are ratios of 0 to 1, pod.cpu is in cores, " +
+				"pod.mem in bytes, host.power in watts.",
 			run: func(ctx context.Context, _ caller, in any) (any, string, error) {
 				q := in.(*seriesInput)
 				if !slices.Contains(seriesRanges, q.Range) {

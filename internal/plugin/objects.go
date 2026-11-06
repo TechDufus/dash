@@ -242,7 +242,8 @@ func hitOf(v reflect.Value) model.SearchHit {
 
 // factsOf lists the scalar fields of struct v by their JSON names, in field order: strings,
 // numbers, booleans and times, through pointers, and the entries of a map[string]string as
-// <name>.<key>. The ref, links and lists are not facts.
+// <name>.<key>. The ref, links and lists are not facts, nor is an empty string field (an unset
+// lock); an empty map entry is (a Kubernetes role label has no value).
 func factsOf(v reflect.Value) []model.ContextFact {
 	out := []model.ContextFact{}
 	t := v.Type()
@@ -267,7 +268,7 @@ func factsOf(v reflect.Value) []model.ContextFact {
 			}
 			continue
 		}
-		if s, ok := scalar(f); ok {
+		if s, ok := scalar(f); ok && s != "" {
 			out = append(out, model.ContextFact{Name: name, Value: s})
 		}
 	}

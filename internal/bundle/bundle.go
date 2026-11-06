@@ -132,7 +132,8 @@ func Data(b model.ContextBundle) string {
 	if len(p.Facts) > 0 {
 		line("\nfacts:")
 		for _, f := range p.Facts {
-			line("  %s: %s", f.Name, factValue(f))
+			name, value := factLine(f)
+			line("  %s: %s", name, value)
 		}
 	}
 	if len(p.Conditions) > 0 {
@@ -212,11 +213,14 @@ func labels(m map[string]string) string {
 	return "{" + strings.Join(parts, ",") + "}"
 }
 
-// seriesUnits are the units of the series whose values are bytes, bytes a second or cores;
-// the others are ratios, watts or degrees, shown as numbers.
+// seriesUnits are the units of the series, by name: the cpu and mem series of nodes, hosts and
+// VMs are ratios of 0 to 1, shown as percentages; the pod ones are cores and bytes.
 var seriesUnits = map[string]func(float64) string{
 	"pod.cpu": Cores, "pod.mem": Bytes,
+	"node.cpu": Percent, "node.mem": Percent, "host.cpu": Percent, "host.mem": Percent,
+	"vm.cpu": Percent, "vm.mem": Percent,
 	"vm.netIn": BytesPerSecond, "vm.netOut": BytesPerSecond, "vm.diskRead": BytesPerSecond, "vm.diskWrite": BytesPerSecond,
+	"host.power": Watts, "host.cpuTemp": Celsius, "host.temps": Celsius, "host.fans": RPM,
 }
 
 func seriesFormat(name string) func(float64) string {
@@ -226,22 +230,42 @@ func seriesFormat(name string) func(float64) string {
 	return Sig3
 }
 
-// factValue is a fact's value for a reader: a byte count or a number of cores humanised, by the
-// fact's name (usedBytes, cpuCores, growthBytesPerDay); anything else as it is.
-func factValue(f model.ContextFact) string {
+// factUnits humanise a numeric fact by the unit word its name ends in, longest first. The word
+// goes from the name, since the value now carries the unit: memBytes 104546304 is mem 99.7 MiB.
+var factUnits = []struct {
+	suffix string
+	format func(float64) string
+}{
+	{"BytesPerDay", func(v float64) string { return Bytes(v) + "/day" }},
+	{"Bytes", Bytes},
+	{"MiB", func(v float64) string { return Bytes(v * (1 << 20)) }},
+	{"Cores", Cores},
+	{"Ratio", Percent},
+	{"Pct", func(v float64) string { return Sig3(v) + "%" }},
+	{"Seconds", Duration},
+	{"Ms", func(v float64) string { return Sig3(v) + " ms" }},
+	{"Watts", Watts},
+	{"Rpm", RPM},
+	{"C", Celsius}, // tempC, cpuTempC: a lower-case letter before it (below)
+}
+
+// factLine is a fact's name and value for a reader: a number whose name ends in a unit word
+// (usedBytes, cpuCores, cpuRatio, uptimeSeconds, tempC) humanised, the word dropped from the
+// name; anything else as it is.
+func factLine(f model.ContextFact) (name, value string) {
 	v, err := strconv.ParseFloat(f.Value, 64)
 	if err != nil {
-		return f.Value
+		return f.Name, f.Value
 	}
-	switch {
-	case strings.HasSuffix(f.Name, "BytesPerDay"):
-		return Bytes(v) + "/day"
-	case strings.HasSuffix(f.Name, "Bytes"):
-		return Bytes(v)
-	case strings.HasSuffix(f.Name, "Cores"):
-		return Cores(v)
+	for _, u := range factUnits {
+		base, ok := strings.CutSuffix(f.Name, u.suffix)
+		// A word must end there (cpuTempC, not a name that ends in an acronym).
+		if !ok || base == "" || base[len(base)-1] < 'a' || base[len(base)-1] > 'z' {
+			continue
+		}
+		return base, u.format(v)
 	}
-	return f.Value
+	return f.Name, f.Value
 }
 
 // Sig3 is v rounded to 3 significant digits, without an exponent or trailing zeros.
@@ -274,6 +298,36 @@ func BytesPerSecond(v float64) string { return Bytes(v) + "/s" }
 
 // Cores is a CPU use in cores: 0.25 cores.
 func Cores(v float64) string { return Sig3(v) + " cores" }
+
+// Percent is a ratio of 0 to 1 as a percentage, to 3 significant digits: 12.3%.
+func Percent(v float64) string { return Sig3(v*100) + "%" }
+
+// Watts is a power: 182 W.
+func Watts(v float64) string { return Sig3(v) + " W" }
+
+// Celsius is a temperature: 45.5 °C.
+func Celsius(v float64) string { return Sig3(v) + " °C" }
+
+// RPM is a fan speed: 3600 rpm.
+func RPM(v float64) string { return Sig3(v) + " rpm" }
+
+// Duration is a number of seconds in its two largest units: 13d 3h, 2h 5m, 4m 10s, 42s.
+func Duration(v float64) string {
+	if v < 0 || math.IsNaN(v) || math.IsInf(v, 0) {
+		return Sig3(v) + "s"
+	}
+	s := int64(math.Round(v))
+	d, h, m := s/86400, s%86400/3600, s%3600/60
+	switch {
+	case d > 0:
+		return fmt.Sprintf("%dd %dh", d, h)
+	case h > 0:
+		return fmt.Sprintf("%dh %dm", h, m)
+	case m > 0:
+		return fmt.Sprintf("%dm %ds", m, s%60)
+	}
+	return fmt.Sprintf("%ds", s)
+}
 
 // Scrub returns v as a JSON tree (maps, slices, strings, json.Number, booleans and nil) with
 // scrub applied to every string and every object key. Scrubbing the encoded JSON instead would
