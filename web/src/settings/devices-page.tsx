@@ -287,7 +287,9 @@ function IOSHint(): JSX.Element {
 /**
  * Subscribing this browser: a device name, then the button. Once the browser is subscribed the
  * panel says so instead; only a stale subscription (dash's push key changed, or a logout) offers
- * the button again, as "Subscribe again", with that device's name.
+ * the button again, as "Subscribe again", with that device's name. Like the shell's automatic
+ * renewal, it replaces the stale row: once the new subscription is registered under another ID
+ * (its endpoint changed), the stale one is removed.
  */
 function SubscribePanel({
   supported,
@@ -325,8 +327,12 @@ function SubscribePanel({
         );
         return;
       }
+      const replaces = stale && mineRow ? mineRow.id : null;
       const sub = await subscribeBrowser(publicKey);
       const info = await registerSubscription(subscriptionRequest(sub, trimmed, notify));
+      if (replaces !== null && replaces !== info.id) {
+        await deleteSubscription(replaces).catch(() => undefined);
+      }
       onRegistered(info);
       toast.success(
         info.state === PushStateVerified

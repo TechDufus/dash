@@ -467,6 +467,44 @@ describe("DevicesPage", () => {
     });
   });
 
+  it("removes the stale row once Subscribe again registered the browser under a new ID", async () => {
+    const user = userEvent.setup();
+    const NEW_ID = "sub_ZYXWVUTSRQPONMLKJIHGFEDCBA";
+    localStorage.setItem(MINE_KEY, ID);
+    const stub = stubFetch(
+      routes(meWith(true), {
+        [LIST]: { subscriptions: [sub({ state: "stale" })] },
+        [REGISTER]: () => json(sub({ id: NEW_ID, state: "pending", verifiedAt: null }), 201),
+      }),
+    );
+    renderApp(<DevicesPage />);
+    const again = await screen.findByRole("button", { name: "Subscribe again" });
+    await waitFor(() => expect(again).toBeEnabled());
+    await user.click(again);
+    await waitFor(() => expect(toast.success).toHaveBeenCalledTimes(1));
+    const order = stub.calls.map((c) => `${c.method} ${c.path}`);
+    expect(stub.callsTo(`DELETE /api/v1/push/subscriptions/${ID}`)).toHaveLength(1);
+    expect(order.indexOf(`DELETE /api/v1/push/subscriptions/${ID}`)).toBeGreaterThan(
+      order.indexOf(REGISTER),
+    );
+    expect(localStorage.getItem(MINE_KEY)).toBe(NEW_ID);
+  });
+
+  it("keeps the row when Subscribe again re-registered the same endpoint", async () => {
+    const user = userEvent.setup();
+    localStorage.setItem(MINE_KEY, ID);
+    const stub = stubFetch(
+      routes(meWith(true), { [LIST]: { subscriptions: [sub({ state: "stale" })] } }),
+    );
+    renderApp(<DevicesPage />);
+    const again = await screen.findByRole("button", { name: "Subscribe again" });
+    await waitFor(() => expect(again).toBeEnabled());
+    await user.click(again);
+    await waitFor(() => expect(toast.success).toHaveBeenCalledTimes(1));
+    expect(stub.callsTo(REGISTER)).toHaveLength(1);
+    expect(stub.callsTo(`DELETE /api/v1/push/subscriptions/${ID}`)).toHaveLength(0);
+  });
+
   it("forgets the logout marker once this browser subscribes again by hand", async () => {
     const user = userEvent.setup();
     const MARKER = "dash.push.resubscribe:alice";
