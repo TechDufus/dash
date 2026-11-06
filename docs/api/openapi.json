@@ -1962,6 +1962,9 @@
           "actions": {
             "type": "boolean"
           },
+          "approvals": {
+            "type": "boolean"
+          },
           "mcp": {
             "type": "boolean"
           },

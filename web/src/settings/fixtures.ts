@@ -39,6 +39,7 @@ export function me(role: "admin" | "viewer", over: Partial<Me> = {}): Me {
       push: false,
       oauth: false,
       tokens: false,
+      approvals: false,
     },
     ui: { iconBaseUrl: "" },
     warnings: [],

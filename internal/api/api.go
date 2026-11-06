@@ -297,7 +297,7 @@ func firstOf(r *http.Request, keys ...string) string {
 // tokens, capabilities.oauth whether dash serves its OAuth authorization server (Settings ->
 // Connected apps), capabilities.mcp whether the MCP server is on (mcp.enabled, read per request,
 // and never in auth.mode none), capabilities.push whether it may register push devices
-// (Settings -> Devices).
+// (Settings -> Devices), capabilities.approvals whether it may see and decide approval requests.
 func (s *Server) me(w http.ResponseWriter, r *http.Request) {
 	p := principalFrom(r.Context())
 	scopes := []string{"read", "logs"}
@@ -323,8 +323,10 @@ func (s *Server) me(w http.ResponseWriter, r *http.Request) {
 			me.Warnings = append(me.Warnings, code)
 		}
 	}
+	mounted := false // some plugin has mounted actions, whoever may run them
 	if s.d.Plugins != nil {
 		for _, pi := range s.d.Plugins.Infos() {
+			mounted = mounted || len(pi.Actions) > 0
 			// An action the principal's role cannot run grants no capability: a viewer is not offered
 			// controls the server would refuse (design D5).
 			if !p.HasScope("actions:"+pi.ID) || !slices.ContainsFunc(pi.Actions, func(a model.ActionInfo) bool { return p.Role.AtLeast(auth.Role(a.MinRole)) }) {
@@ -337,6 +339,7 @@ func (s *Server) me(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
+	me.Capabilities.Approvals = mounted && s.approvalsAllowed(p)
 	if p.Kind == auth.KindToken {
 		me.Scopes = append([]string{}, p.Scopes...) // a token's own scopes, as it was created
 	}
@@ -362,6 +365,17 @@ func (s *Server) mcpEnabled() bool {
 // devices; a static token never holds push.
 func (s *Server) pushAllowed(p auth.Principal) bool {
 	return s.d.Push != nil && p.User != "" && p.Kind != auth.KindAnonymous && p.HasScope(model.OAuthScopePush)
+}
+
+// approvalsAllowed reports whether p may see and decide approval requests (design O.3): the MCP
+// server, which creates them, is on, and p is a signed-in person or a token with the approvals
+// scope (the dash-android grant). The requests are in memory, so no credential store is needed
+// beyond the one MCP's tokens live in.
+func (s *Server) approvalsAllowed(p auth.Principal) bool {
+	if !s.mcpEnabled() || p.User == "" || p.Kind == auth.KindAnonymous {
+		return false
+	}
+	return p.Interactive() || (p.Kind == auth.KindToken && p.HasScope(model.OAuthScopeApprovals))
 }
 
 // adminOnlyWarning reports whether Me carries the warning to administrators only.

@@ -785,6 +785,10 @@ type MeCapabilities struct {
 	// Tokens is true when the caller may create personal access tokens: an interactive principal
 	// in a mode whose credential store keeps them (a writable data dir, or dev and demo).
 	Tokens bool `json:"tokens"`
+	// Approvals is true when the caller may see and decide approval requests (the header
+	// indicator, /approve/<id>): the MCP server is on, some plugin has mounted actions, and the
+	// caller is a signed-in person or a token with the approvals scope.
+	Approvals bool `json:"approvals"`
 }
 
 // LauncherData is the payload of the launcher.links topic.

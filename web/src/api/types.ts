@@ -1041,6 +1041,12 @@ export interface MeCapabilities {
    * in a mode whose credential store keeps them (a writable data dir, or dev and demo).
    */
   tokens: boolean;
+  /**
+   * Approvals is true when the caller may see and decide approval requests (the header
+   * indicator, /approve/<id>): the MCP server is on, some plugin has mounted actions, and the
+   * caller is a signed-in person or a token with the approvals scope.
+   */
+  approvals: boolean;
 }
 /**
  * LauncherData is the payload of the launcher.links topic.

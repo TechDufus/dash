@@ -18,7 +18,14 @@ const me = (over: Partial<Me> = {}): Me => ({
   scopes: ["read"],
   audience: "api",
   version: "test",
-  capabilities: { actions: false, mcp: false, push: false, oauth: false, tokens: false },
+  capabilities: {
+    actions: false,
+    mcp: false,
+    push: false,
+    oauth: false,
+    tokens: false,
+    approvals: false,
+  },
   ui: { iconBaseUrl: "" },
   warnings: [],
   ...over,
@@ -96,7 +103,14 @@ describe("UserMenu", () => {
   });
 
   it("says what a logout does to push where push is available", async () => {
-    const push = { actions: false, mcp: false, push: true, oauth: false, tokens: false };
+    const push = {
+      actions: false,
+      mcp: false,
+      push: true,
+      oauth: false,
+      tokens: false,
+      approvals: false,
+    };
     await openMenu(me({ role: "admin", capabilities: push }));
     for (const name of ["Log out", "Log out everywhere"]) {
       expect(screen.getByRole("menuitem", { name })).toHaveAccessibleDescription(
