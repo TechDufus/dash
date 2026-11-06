@@ -322,8 +322,11 @@ async function smoke(ctx, origin, seen) {
   // 6. A verify push reaches an open Devices page, which submits the code. The page knows this
   //    browser's subscription from localStorage, under the signed-in user's key, as after a
   //    subscribe.
+  // The signed-in user (demo mode's), who owns the subscription.
+  const user = await page.evaluate(async () => (await (await fetch("/api/v1/me")).json()).user);
   const sub = {
     id: "sub_SMOKE234SMOKE234SMOKE234SM",
+    user,
     kind: "webpush",
     deviceName: "pwa-smoke",
     notify: { approvals: true, attention: "crit" },
@@ -333,9 +336,7 @@ async function smoke(ctx, origin, seen) {
     verifiedAt: null,
   };
   const verified = await fakePush(page, sub);
-  const key = await page.evaluate(
-    async () => `dash.push.subscription:${(await (await fetch("/api/v1/me")).json()).user}`,
-  );
+  const key = `dash.push.subscription:${user}`;
   await page.evaluate(([k, id]) => localStorage.setItem(k, id), [key, sub.id]);
   await page.goto(`${origin}/settings/devices`);
   await page.getByLabel(`Code for ${sub.deviceName}`).waitFor({ timeout: 15_000 });

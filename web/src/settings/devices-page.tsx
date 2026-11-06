@@ -57,6 +57,7 @@ import {
   VERIFY_MESSAGE,
   verifySubscription,
 } from "./devices-api";
+import { type Owner, OwnerFilter } from "./owner-filter";
 import { QrCode } from "./qr-code";
 
 const ATTENTION: { value: string; label: string }[] = [
@@ -65,10 +66,14 @@ const ATTENTION: { value: string; label: string }[] = [
   { value: PushAttentionOff, label: "Off" },
 ];
 
+const OWN: Owner = { kind: "own" };
+
 /**
  * /settings/devices (P7.7): the caller's push devices, subscribing this browser, and the QR code
  * the Android app scans. Open to every user where push is available (capabilities.push); anywhere
- * else the page says so and reads nothing.
+ * else the page says so and reads nothing. An administrator also lists one user's or everyone's
+ * devices and may remove them; another user's notify settings are shown read-only, and only the
+ * owner tests or verifies a device.
  *
  * Subscribing: the button (a user gesture) asks for the notification permission, subscribes the
  * browser with dash's VAPID key and registers the subscription with approvals on and attention
@@ -79,7 +84,16 @@ export function DevicesPage(): JSX.Element {
   const me = useMe();
   const available = pushAvailable(me.data);
   const supported = available && pushSupported();
-  const subs = useSubscriptions(available);
+  const admin = me.data?.role === "admin";
+  const [owner, setOwner] = useState<Owner>(OWN);
+  // A viewer only ever lists their own devices, whatever the state says.
+  const effective: Owner = admin ? owner : OWN;
+  // "One user" before a name was typed lists nobody's devices.
+  const awaitingName = effective.kind === "user" && effective.name === "";
+  // The caller's own list knows this browser's row; the shown one is the owner filter's (the
+  // same query when that is the caller's own).
+  const subs = useSubscriptions(OWN, available);
+  const shown = useSubscriptions(effective, available && !awaitingName);
   const vapid = useVapid(available);
   const queryClient = useQueryClient();
   // Whose this browser's subscription is: localStorage, read on every render under the user's
@@ -93,8 +107,8 @@ export function DevicesPage(): JSX.Element {
   const [received, setReceived] = useState<string | null>(null);
   const [removing, setRemoving] = useState<PushSubscriptionInfo | null>(null);
 
-  const list = subs.data?.subscriptions ?? [];
-  const mineRow = list.find((s) => s.id === mine);
+  const mineRow = subs.data?.subscriptions.find((s) => s.id === mine);
+  const list = shown.data?.subscriptions ?? [];
 
   const submitCode = useCallback(
     async (id: string, code: string): Promise<boolean> => {
@@ -172,20 +186,26 @@ export function DevicesPage(): JSX.Element {
         onRegistered={registered}
       />
       <Panel>
-        <PanelHeader title="Your devices" icon={<BellRing />} />
-        {subs.isPending ? (
+        <PanelHeader title={listTitle(effective)} icon={<BellRing />}>
+          {admin ? <OwnerFilter label="Whose devices" owner={owner} onChange={setOwner} /> : null}
+        </PanelHeader>
+        {awaitingName ? (
+          <Empty>Type a user name, then Show.</Empty>
+        ) : shown.isPending ? (
           <PanelSkeleton lines={3} className="border-0 shadow-none" />
-        ) : subs.isError ? (
-          <Empty>Could not read the devices: {errorMessage(subs.error)}</Empty>
+        ) : shown.isError ? (
+          <Empty>Could not read the devices: {errorMessage(shown.error)}</Empty>
         ) : list.length === 0 ? (
-          <Empty>No devices yet</Empty>
+          <Empty>{effective.kind === "own" ? "No devices yet" : "No devices"}</Empty>
         ) : (
           <ul className="divide-y divide-line">
             {list.map((s) => (
               <DeviceRow
                 key={s.id}
                 sub={s}
-                mine={s.id === mine}
+                mine={s.id === mine && s.user === user}
+                other={s.user !== user}
+                showUser={effective.kind !== "own"}
                 onVerify={submitCode}
                 onRemove={() => setRemoving(s)}
               />
@@ -198,7 +218,8 @@ export function DevicesPage(): JSX.Element {
       {vapid.isPending ? null : <AppPanel url={vapid.data?.serverUrl || window.location.origin} />}
       <RemoveDialog
         sub={removing}
-        mine={removing !== null && removing.id === mine}
+        mine={removing !== null && removing.id === mine && removing.user === user}
+        other={removing !== null && removing.user !== user}
         onClose={() => setRemoving(null)}
         onRemovedMine={() => {
           setThisBrowserID(user, null);
@@ -207,6 +228,13 @@ export function DevicesPage(): JSX.Element {
       />
     </Page>
   );
+}
+
+/** The device list's title for the owner filter. */
+function listTitle(owner: Owner): string {
+  if (owner.kind === "all") return "Everyone's devices";
+  if (owner.kind === "user" && owner.name !== "") return `Devices of ${owner.name}`;
+  return owner.kind === "own" ? "Your devices" : "Devices of one user";
 }
 
 /** Why this dash offers no push devices to `me`. */
@@ -343,15 +371,22 @@ function SubscribePanel({
   );
 }
 
-/** One device: what it is, its state, its notify settings and what can be done with it. */
+/**
+ * One device: what it is, its state, its notify settings and what can be done with it. Another
+ * user's device (an administrator's view) shows its settings read-only and can only be removed.
+ */
 function DeviceRow({
   sub,
   mine,
+  other,
+  showUser,
   onVerify,
   onRemove,
 }: {
   sub: PushSubscriptionInfo;
   mine: boolean;
+  other: boolean;
+  showUser: boolean;
   onVerify: (id: string, code: string) => Promise<boolean>;
   onRemove: () => void;
 }): JSX.Element {
@@ -373,6 +408,7 @@ function DeviceRow({
     <li className="space-y-2 px-4 py-3" data-subscription={sub.id}>
       <div className="flex flex-wrap items-center gap-2">
         <span className="font-medium text-fg">{sub.deviceName}</span>
+        {showUser ? <span className="text-sm text-muted">{sub.user}</span> : null}
         {mine ? <Badge variant="secondary">this browser</Badge> : null}
         <StateBadge state={sub.state} />
         <span className="text-xs text-muted">
@@ -380,7 +416,7 @@ function DeviceRow({
           <span className="num">{sub.endpointHost}</span>
         </span>
         <div className="ml-auto flex gap-1">
-          {sub.state === PushStateVerified ? (
+          {sub.state === PushStateVerified && !other ? (
             <Button size="sm" variant="outline" disabled={testing} onClick={() => void test()}>
               {testing ? <Loader2 className="animate-spin" /> : <Send aria-hidden="true" />}
               Send test push
@@ -389,7 +425,9 @@ function DeviceRow({
           <Button
             size="sm"
             variant="ghost"
-            aria-label={`Remove ${sub.deviceName}`}
+            aria-label={
+              other ? `Remove ${sub.deviceName} of ${sub.user}` : `Remove ${sub.deviceName}`
+            }
             onClick={onRemove}
           >
             <Trash2 aria-hidden="true" />
@@ -398,22 +436,23 @@ function DeviceRow({
         </div>
       </div>
       {sub.state === PushStateStale ? (
+        // Stale: dash's push key changed, or the owner's sessions ended (a logout).
         <p className="text-sm text-warn">
-          dash's push key changed, so this device receives nothing.{" "}
-          {mine ? "Subscribe this browser again above." : "Subscribe again on that device."}
+          This device receives nothing: dash's push key changed, or its user was logged out.{" "}
+          {mine
+            ? "Subscribe this browser again above."
+            : other
+              ? `It gets notifications again once ${sub.user} subscribes it again.`
+              : "Subscribe again on that device."}
         </p>
       ) : null}
-      {sub.state === PushStatePending ? <CodeForm sub={sub} onVerify={onVerify} /> : null}
-      {sub.state === PushStateStale ? (
-        // A stale subscription was made with dash's old key: a change would re-register it with
-        // that key, and the new code could never reach it. Subscribing again is the way back.
-        mine ? null : (
-          <NotifySummary notify={sub.notify} />
-        )
-      ) : mine ? (
+      {sub.state === PushStatePending && !other ? <CodeForm sub={sub} onVerify={onVerify} /> : null}
+      {sub.state === PushStateStale && mine ? null : mine ? (
+        // Not on a stale row: a change would re-register a subscription dash no longer trusts
+        // (made with the old key, its code could never arrive). Subscribing again is the way back.
         <NotifyEditor sub={sub} />
       ) : (
-        <NotifySummary notify={sub.notify} />
+        <NotifySummary notify={sub.notify} owner={other ? sub.user : null} />
       )}
     </li>
   );
@@ -467,12 +506,19 @@ function CodeForm({
 }
 
 /** Another device's settings: only that device can change them (it holds the endpoint). */
-function NotifySummary({ notify }: { notify: PushNotify }): JSX.Element {
+function NotifySummary({
+  notify,
+  owner,
+}: {
+  notify: PushNotify;
+  /** Another user's device: only they change it. */
+  owner: string | null;
+}): JSX.Element {
   return (
     <p className="text-sm text-muted">
       Approvals {notify.approvals ? "on" : "off"} · attention:{" "}
-      {ATTENTION.find((a) => a.value === notify.attention)?.label ?? notify.attention}. Change this
-      on the device itself.
+      {ATTENTION.find((a) => a.value === notify.attention)?.label ?? notify.attention}.{" "}
+      {owner ? `Only ${owner} changes this, on that device.` : "Change this on the device itself."}
     </p>
   );
 }
@@ -560,15 +606,20 @@ function AppPanel({ url }: { url: string }): JSX.Element {
   );
 }
 
-/** Asks before DELETE …/{id}; for this browser's row it also drops the browser's subscription. */
+/**
+ * Asks before DELETE …/{id}; for this browser's row it also drops the browser's subscription.
+ * `other`: another user's device, which an administrator removes.
+ */
 function RemoveDialog({
   sub,
   mine,
+  other,
   onClose,
   onRemovedMine,
 }: {
   sub: PushSubscriptionInfo | null;
   mine: boolean;
+  other: boolean;
   onClose: () => void;
   onRemovedMine: () => void;
 }): JSX.Element {
@@ -578,9 +629,14 @@ function RemoveDialog({
     <AlertDialog open={!!sub} onOpenChange={(o) => !o && !busy && onClose()}>
       <AlertDialogContent>
         <AlertDialogHeader>
-          <AlertDialogTitle>Remove {sub?.deviceName}?</AlertDialogTitle>
+          <AlertDialogTitle>
+            Remove {other ? `${sub?.user}'s ` : ""}
+            {sub?.deviceName}?
+          </AlertDialogTitle>
           <AlertDialogDescription>
-            It receives no more notifications from dash. Subscribe it again to get them back.
+            {other
+              ? `It receives no more notifications from dash, until ${sub?.user} subscribes it again.`
+              : "It receives no more notifications from dash. Subscribe it again to get them back."}
           </AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>
@@ -598,7 +654,9 @@ function RemoveDialog({
                   onRemovedMine();
                   await (await browserSubscription().catch(() => null))?.unsubscribe();
                 }
-                toast.success(`Removed ${sub.deviceName}`);
+                toast.success(
+                  other ? `Removed ${sub.user}'s ${sub.deviceName}` : `Removed ${sub.deviceName}`,
+                );
                 onClose();
               } catch (err) {
                 toast.error(`Removing failed: ${errorMessage(err)}`);

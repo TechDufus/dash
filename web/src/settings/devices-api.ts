@@ -11,6 +11,7 @@ import {
   type PushSubscriptionRequest,
   type PushVAPID,
 } from "@/api/types";
+import { type Owner, ownerParam } from "./owner-filter";
 
 /** The paths of /api/v1/push (P7.7). */
 export const pushPaths = {
@@ -21,10 +22,11 @@ export const pushPaths = {
   test: (id: string) => `/api/v1/push/subscriptions/${encodeURIComponent(id)}/test`,
 };
 
-/** Query keys: invalidating `pushKeys.all` refetches the list and the VAPID key. */
+/** Query keys: invalidating `pushKeys.all` refetches the lists and the VAPID key. */
 export const pushKeys = {
   all: ["push"] as const,
-  list: ["push", "subscriptions"] as const,
+  lists: ["push", "subscriptions"] as const,
+  list: (user: string | undefined) => ["push", "subscriptions", user ?? ""] as const,
   vapid: ["push", "vapid"] as const,
 };
 
@@ -34,11 +36,15 @@ export const DEFAULT_NOTIFY: PushNotify = { approvals: true, attention: PushAtte
 /** The type of the message the service worker (web/sw/sw.js) posts with a verify push's code. */
 export const VERIFY_MESSAGE = "dash-push-verify";
 
-/** GET /api/v1/push/subscriptions; never requested while `enabled` is false. */
-export function useSubscriptions(enabled: boolean) {
+/**
+ * GET /api/v1/push/subscriptions, for `owner`: the caller's own, or (administrators) one user's
+ * or everyone's; never requested while `enabled` is false.
+ */
+export function useSubscriptions(owner: Owner, enabled: boolean) {
+  const user = ownerParam(owner);
   return useQuery({
-    queryKey: pushKeys.list,
-    queryFn: () => api.get<PushSubscriptionList>(pushPaths.list),
+    queryKey: pushKeys.list(user),
+    queryFn: () => api.get<PushSubscriptionList>(pushPaths.list, { user }),
     enabled,
   });
 }
@@ -75,14 +81,14 @@ export function sendTestPush(id: string): Promise<unknown> {
   return api.post<unknown>(pushPaths.test(id));
 }
 
-/** DELETE /api/v1/push/subscriptions/{id}. */
+/** DELETE /api/v1/push/subscriptions/{id}: one's own device, or (administrators) anyone's. */
 export function deleteSubscription(id: string): Promise<void> {
   return api.del<void>(pushPaths.subscription(id));
 }
 
-/** After any write: the list is stale. */
+/** After any write: every list is stale. */
 export function invalidatePush(qc: QueryClient): Promise<void> {
-  return qc.invalidateQueries({ queryKey: pushKeys.list });
+  return qc.invalidateQueries({ queryKey: pushKeys.lists });
 }
 
 // This browser's side. The ID of the subscription this browser registered is kept in

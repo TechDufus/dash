@@ -6,7 +6,7 @@ import { encode } from "uqr";
 import { afterEach, beforeEach, describe, expect, it, type Mock, vi } from "vitest";
 import type { Me, PushSubscriptionInfo } from "@/api/types";
 import { CORE_PAGES } from "@/plugins/registry";
-import { json, renderApp, stubFetch } from "@/test/harness";
+import { type FetchCall, json, renderApp, stubFetch } from "@/test/harness";
 import { base64urlBytes } from "./devices-api";
 import { DevicesPage } from "./devices-page";
 import { me } from "./fixtures";
@@ -565,5 +565,115 @@ describe("DevicesPage", () => {
     renderApp(<UserSettingsPage />);
     expect(await screen.findByRole("link", { name: "Tokens" })).toBeInTheDocument();
     expect(screen.queryByRole("link", { name: "Devices" })).not.toBeInTheDocument();
+  });
+});
+
+describe("DevicesPage, an administrator's view of other users' devices", () => {
+  const BOB = "sub_BOBPHONEBOBPHONEBOBPHONEBO";
+  const bobPhone = sub({ id: BOB, user: "bob", deviceName: "Phone" });
+  const bobPending = sub({
+    id: "sub_BOBTABLETBOBTABLETBOBTABLE",
+    user: "bob",
+    deviceName: "Tablet",
+    state: "pending",
+    verifiedAt: null,
+  });
+  const bobStale = sub({
+    id: "sub_BOBOLDBOBOLDBOBOLDBOBOLDBO",
+    user: "bob",
+    deviceName: "Old laptop",
+    state: "stale",
+  });
+
+  /** The list per ?user=: alice's own, bob's, or everyone's. */
+  function lists(call: FetchCall) {
+    const user = call.query.get("user");
+    const bobs = [bobPhone, bobPending, bobStale];
+    if (user === "*") return { subscriptions: [sub(), ...bobs] };
+    if (user === "bob") return { subscriptions: bobs };
+    if (user === "nobody") return { subscriptions: [] };
+    return { subscriptions: [sub()] };
+  }
+
+  it("gives a viewer no owner filter, and lists only their own", async () => {
+    const stub = stubFetch(routes(meWith(true), { [LIST]: lists }));
+    renderApp(<DevicesPage />);
+    expect(await screen.findByText("Laptop")).toBeInTheDocument();
+    expect(screen.queryByRole("group", { name: "Whose devices" })).not.toBeInTheDocument();
+    expect(stub.callsTo(LIST).every((c) => !c.query.has("user"))).toBe(true);
+  });
+
+  it("lists everyone's devices, read-only for others, and removes another user's", async () => {
+    const user = userEvent.setup();
+    const stub = stubFetch(
+      routes(meWith(true, { role: "admin" }), {
+        [LIST]: lists,
+        [`DELETE /api/v1/push/subscriptions/${BOB}`]: undefined,
+      }),
+    );
+    renderApp(<DevicesPage />);
+    expect(await screen.findByRole("heading", { name: "Your devices" })).toBeInTheDocument();
+    const filter = screen.getByRole("group", { name: "Whose devices" });
+    await user.click(within(filter).getByRole("button", { name: "All users" }));
+
+    expect(await screen.findByRole("heading", { name: "Everyone's devices" })).toBeInTheDocument();
+    expect(stub.callsTo(LIST).some((c) => c.query.get("user") === "*")).toBe(true);
+    const phone = (await screen.findByText("Phone")).closest("li") as HTMLElement;
+    expect(within(phone).getByText("bob")).toBeInTheDocument();
+    // Another user's device: settings read-only, no test push, only Remove.
+    expect(within(phone).queryByRole("switch")).not.toBeInTheDocument();
+    expect(
+      within(phone).getByText(
+        /Approvals on · attention:\s*Critical\.\s*Only bob changes this, on that device\./,
+      ),
+    ).toBeInTheDocument();
+    expect(within(phone).queryByRole("button", { name: "Send test push" })).toBeNull();
+    const tablet = screen.getByText("Tablet").closest("li") as HTMLElement;
+    expect(within(tablet).queryByLabelText("Code for Tablet")).not.toBeInTheDocument();
+    const old = screen.getByText("Old laptop").closest("li") as HTMLElement;
+    expect(
+      within(old).getByText(/It gets notifications again once bob subscribes it again\./),
+    ).toBeInTheDocument();
+    // The administrator's own device keeps its own actions.
+    const laptop = screen.getByText("Laptop").closest("li") as HTMLElement;
+    expect(within(laptop).getByRole("button", { name: "Send test push" })).toBeInTheDocument();
+
+    await user.click(within(phone).getByRole("button", { name: "Remove Phone of bob" }));
+    const dialog = await screen.findByRole("alertdialog");
+    expect(within(dialog).getByText("Remove bob's Phone?")).toBeInTheDocument();
+    await user.click(within(dialog).getByRole("button", { name: "Remove" }));
+    await waitFor(() =>
+      expect(stub.callsTo(`DELETE /api/v1/push/subscriptions/${BOB}`)).toHaveLength(1),
+    );
+    expect(toast.success).toHaveBeenCalledWith("Removed bob's Phone");
+  });
+
+  it("lists one user's devices once a name is given", async () => {
+    const user = userEvent.setup();
+    const stub = stubFetch(routes(meWith(true, { role: "admin" }), { [LIST]: lists }));
+    renderApp(<DevicesPage />);
+    const filter = await screen.findByRole("group", { name: "Whose devices" });
+    await user.click(within(filter).getByRole("button", { name: "One user" }));
+    expect(screen.getByText("Type a user name, then Show.")).toBeInTheDocument();
+    const before = stub.callsTo(LIST).length;
+    expect(stub.callsTo(LIST).some((c) => c.query.has("user"))).toBe(false);
+
+    await user.type(screen.getByLabelText("User name"), "bob");
+    await user.click(screen.getByRole("button", { name: "Show" }));
+    expect(await screen.findByRole("heading", { name: "Devices of bob" })).toBeInTheDocument();
+    expect(await screen.findByText("Phone")).toBeInTheDocument();
+    expect(
+      stub
+        .callsTo(LIST)
+        .slice(before)
+        .map((c) => c.query.get("user")),
+    ).toContain("bob");
+    // This browser's card still follows the administrator's own devices.
+    expect(screen.getByRole("button", { name: "Subscribe this browser" })).toBeInTheDocument();
+
+    await user.clear(screen.getByLabelText("User name"));
+    await user.type(screen.getByLabelText("User name"), "nobody");
+    await user.click(screen.getByRole("button", { name: "Show" }));
+    expect(await screen.findByText("No devices")).toBeInTheDocument();
   });
 });
