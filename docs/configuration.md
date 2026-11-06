@@ -224,11 +224,11 @@ What the web UI is told by the server.
 
 ## `mcp`
 
-The read-only MCP server at /mcp, for AI clients holding an mcp-audience token.
+The MCP server at /mcp, for AI clients holding an mcp-audience token.
 
 | Setting | Variable | Type | Default | Description |
 |---|---|---|---|---|
-| `mcp.enabled` | `DASH_MCP_ENABLED` | boolean | - | Serve the MCP server at POST /mcp: read-only tools, resources and prompts for AI clients that present a token with the mcp audience. Off by default; when off, /mcp and /.well-known/oauth-protected-resource/mcp answer 404. Applies live and can be switched from the settings page. Never available with auth.mode none, where dash accepts no token. |
+| `mcp.enabled` | `DASH_MCP_ENABLED` | boolean | - | Serve the MCP server at POST /mcp: tools, resources and prompts for AI clients that present a token with the mcp audience, and the plugins' action tools, which wait for a person's approval unless plugins.<id>.actions.agents says otherwise. Off by default; when off, /mcp and /.well-known/oauth-protected-resource/mcp answer 404. Applies live and can be switched from the settings page. Never available with auth.mode none, where dash accepts no token. |
 
 ## `plugins.prometheus`
 

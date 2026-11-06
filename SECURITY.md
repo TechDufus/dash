@@ -72,16 +72,11 @@ model these protections make up. In particular:
 - **Push notifications:** Web Push and UnifiedPush ([docs/push.md](docs/push.md)): device
   verification, the sealing of the VAPID key and the endpoints, `push.allowPrivate`, and a push
   reaching someone who may not see what it says.
-
-### Planned, not yet built
-
-These features are designed (ADR 0002 and `docs/design/clients-and-ai.md`) and planned for a later
-release. **None of them exists in any release yet**, so there is nothing to report against them
-today. Each enters the scope above in the release that ships it:
-
-| Feature | Status |
-|---|---|
-| Human approval of agent actions | planned, not built |
+- **Agent actions and their approval** (since v0.14.10): the action tools of the MCP server,
+  `plugins.<id>.actions.agents`, the approval requests and `/api/v1/approvals`, the approval page
+  and the `approvals` scope (see [docs/mcp.md](docs/mcp.md#action-tools-and-approvals)). An agent
+  running an action nobody approved (outside `allow`), supplying a typed name itself, or a
+  request decided by someone other than its owner, is a vulnerability.
 
 ## Out of scope
 

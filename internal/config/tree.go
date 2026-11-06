@@ -26,7 +26,7 @@ type Tree struct {
 	Settings SettingsConfig `json:"settings" doc:"The settings store behind the settings page."`
 	DataDir  string         `json:"dataDir" dash:"restart" doc:"Where dash keeps its state (ui-settings.yaml, audit.jsonl, and credentials.yaml with the local account, the sessions' epochs, the personal access tokens and the push devices with the VAPID key) and looks for config.yaml. Without a writable one, sessions and tokens do not survive a restart, so creating a token is refused outside dev and demo mode, and push is off. Demo mode uses none."`
 	UI       pluginconf.UI  `json:"ui" doc:"What the web UI is told by the server."`
-	MCP      MCPConfig      `json:"mcp" doc:"The read-only MCP server at /mcp, for AI clients holding an mcp-audience token."`
+	MCP      MCPConfig      `json:"mcp" doc:"The MCP server at /mcp, for AI clients holding an mcp-audience token."`
 	Plugins  PluginsConfig  `json:"plugins" doc:"One section per plugin. An empty URL turns that source off."`
 	Push     PushConfig     `json:"push" doc:"Web Push and UnifiedPush notifications to the devices people register in Settings -> Devices. Push needs a writable data dir, DASH_SECRET_KEY and a contact (push.contact, or an https server.publicURL) in auth.mode local, oidc or proxy."`
 }
@@ -62,7 +62,7 @@ type LimitsConfig struct {
 // MCPConfig is the MCP server (design N). Its section is live: a change applies to the next
 // request, without a restart.
 type MCPConfig struct {
-	Enabled bool `json:"enabled" doc:"Serve the MCP server at POST /mcp: read-only tools, resources and prompts for AI clients that present a token with the mcp audience. Off by default; when off, /mcp and /.well-known/oauth-protected-resource/mcp answer 404. Applies live and can be switched from the settings page. Never available with auth.mode none, where dash accepts no token."`
+	Enabled bool `json:"enabled" doc:"Serve the MCP server at POST /mcp: tools, resources and prompts for AI clients that present a token with the mcp audience, and the plugins' action tools, which wait for a person's approval unless plugins.<id>.actions.agents says otherwise. Off by default; when off, /mcp and /.well-known/oauth-protected-resource/mcp answer 404. Applies live and can be switched from the settings page. Never available with auth.mode none, where dash accepts no token."`
 }
 
 var durationType = reflect.TypeFor[pluginconf.Duration]()

@@ -57,9 +57,10 @@ unknown, expired or someone else's request; 409 `grant_limit` past 20 grants),
 
 ## MCP and context bundles
 
-`POST /mcp` is the read-only MCP server for AI agents, with tokens of the `mcp` audience, and
+`POST /mcp` is the MCP server for AI agents, with tokens of the `mcp` audience, and
 `GET /api/v1/context` serves an object's context bundle as JSON or Markdown; both are described in
 [mcp.md](../mcp.md). `/mcp` is not in the OpenAPI document: it speaks MCP (JSON-RPC), not REST.
+The approval routes an agent's actions wait on (`/api/v1/approvals/{id}`) are in it.
 
 ## Plugin routes and actions
 

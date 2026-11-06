@@ -119,6 +119,23 @@ For a `pushSubscription`, `namespace` holds the push service's host name (such a
 `fcm.googleapis.com`), never the endpoint: the endpoint is a capability URL, so no record or log
 line holds it.
 
+Approvals of agent actions ([mcp.md](mcp.md#action-tools-and-approvals)) add these records. Each
+carries `approval` (the request's `appr_` ID), `plugin`, the action's target and `argsSha256`, the
+SHA-256 of the input, never its values:
+
+| Record | Action | Kind | Actor |
+|---|---|---|---|
+| a request created | `approval.create` | event | the agent's token or grant (`surface: mcp`), with `client` |
+| a request approved or denied | `approval.approve`, `approval.deny` | intent, then outcome | the person who decided |
+| the approved action's run | the action's own (`restart`, `reconcile` …) | intent, then outcome | the agent's token or grant, with `approvedBy` |
+| a request expired | `approval.expire` | event | the agent's token or grant |
+| an agent read the outcome | `approval.result` | event | the agent's token or grant |
+
+A decision whose intent cannot be written is refused with `503 audit_unavailable`; the request
+stays pending and nothing runs. When an approved request is refused because the agent's credential
+or the plugin changed, the decision's outcome is an error naming why, and no action record
+follows. Requests themselves are kept in memory only, never in a file.
+
 - **Without a writable data dir** (missing, read-only, or demo mode) the records go to stdout
   and the latest 500 records, plus 200 refusals, are kept in memory and shown on the audit
   page; dash logs one INFO line saying so.

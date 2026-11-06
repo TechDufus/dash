@@ -195,7 +195,7 @@ workflows for unsafe patterns (actionlint, zizmor).
 
 ## MCP server
 
-The read-only [MCP server](mcp.md) is off until `mcp.enabled` is set, answers 404 while it is off,
+The [MCP server](mcp.md) is off until `mcp.enabled` is set, answers 404 while it is off,
 and never runs in `auth.mode: none`. It accepts only a bearer token of the `mcp` audience, which in
 turn is refused at `/api/v1`; a present `Origin` must be the public URL's or a listed CORS origin.
 `tools/list` shows only what the token's scopes allow, `dash_logs` and log lines in bundles need
@@ -204,6 +204,30 @@ Lab-sourced text sits in a fenced block, longer than any backtick run inside it,
 untrusted-data sentence; every string is scrubbed before it is encoded; results are capped at
 64 KiB. Each token has its rate and concurrency limits, and every call is audited with surface
 `mcp` and the SHA-256 of its arguments, never the arguments.
+
+## Agent actions and approvals
+
+An agent's action tools exist only for an administrator's `mcp` token holding `actions:<plugin>`
+while the plugin's actions are enabled and its agent policy (`plugins.<id>.actions.agents`) is not
+`deny`. Under the default, `approve`, a call runs nothing: it becomes an approval request that
+only the token's owner can see and decide, from a browser session (CSRF-checked) or with the
+`approvals` scope, which only the first-party `dash-android` grant can hold. Anyone else gets 403.
+A push or a link never approves anything: the decision is a POST from the page.
+
+- **Typed names stay human.** dash drops the `confirm` an agent sends; a target that needs its
+  name typed waits for a person even under `allow`, and only the name that person types reaches
+  the action.
+- **Checked twice.** The call is checked before a request exists (role, scope, input, deny lists,
+  `actionNamespaces`), and again when it is approved, against the token or grant as it is then:
+  revoked, expired, demoted, narrowed or a plugin now `deny` ends the request denied.
+- **Once.** A request is decided once; a concurrent or later decision is 409, so an approval runs
+  the action exactly once.
+- **Audited, fail-closed.** The decision and the run each write an intent before anything happens
+  and an outcome after; without the intent the decision is 503 and nothing runs. Records hold the
+  target and the input's SHA-256, never its values.
+- **Bounded.** 10 action calls a minute per token, 20 pending requests per user, 10 minutes to
+  decide; requests live in memory and a restart forgets them. The URL-elicitation
+  `requestState` is signed with a per-process key and bound to the token and the tool.
 
 ## Push notifications
 
@@ -217,9 +241,3 @@ with `DASH_SECRET_KEY`; an endpoint is never logged or audited, only its host. P
 text, never secrets, end-to-end encrypted (RFC 8291), and dash posts only to global https
 endpoints unless `push.allowPrivate` admits a LAN one. The user's role is checked again when an
 attention push is sent. Details: [push.md](push.md).
-
-## Not built yet
-
-This feature is designed and planned, and **does not exist in any release**: human approval of
-agent actions (agents can only read today). It will be documented here when it ships.
-[SECURITY.md](../SECURITY.md#planned-not-yet-built) lists it in the reporting scope.

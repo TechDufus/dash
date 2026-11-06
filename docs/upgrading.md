@@ -123,3 +123,15 @@ The API moved under `/api/v1` and the plugins' own routes; every old path answer
   back to v0.14.8, remove `push:` from the config file first: v0.14.8 refuses a file with keys it
   does not know, while a value saved from the settings page or set in the environment only logs a
   warning there. With the chart, remove `config.push` from your values.
+- **Agent actions and rolling back (v0.14.10).** v0.14.10 gives the [MCP server](mcp.md) the
+  plugins' action tools, for administrators' `mcp` tokens holding `actions:<plugin>`, and the
+  new `plugins.<id>.actions.agents` (`deny`, `approve` or `allow`; default `approve`) on
+  kubernetes, flux and alertmanager. Under the default, an agent's action waits for its owner's
+  approval at `/approve/<id>`, so nothing runs without a person. `/api/v1/me` gains
+  `capabilities.approvals`, and the audit log gains `approval` and `approvedBy` on approval
+  records, which older releases read and ignore. Approval requests live in memory only: nothing is
+  written to `credentials.yaml` or any other file, and a restart (the rollback included) forgets
+  the pending ones. To roll back to v0.14.9, remove every `plugins.<id>.actions.agents` key from
+  the config file first: v0.14.9 refuses a file with keys it does not know, while a value saved
+  from the settings page or set in the environment (`DASH_PLUGINS_<ID>_ACTIONS_AGENTS`) only logs
+  a warning there. With the chart, remove `actions.agents` from `config.plugins.*` in your values.
