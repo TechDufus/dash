@@ -320,7 +320,8 @@ async function smoke(ctx, origin, seen) {
   );
 
   // 6. A verify push reaches an open Devices page, which submits the code. The page knows this
-  //    browser's subscription from localStorage, as after a subscribe.
+  //    browser's subscription from localStorage, under the signed-in user's key, as after a
+  //    subscribe.
   const sub = {
     id: "sub_SMOKE234SMOKE234SMOKE234SM",
     kind: "webpush",
@@ -332,7 +333,10 @@ async function smoke(ctx, origin, seen) {
     verifiedAt: null,
   };
   const verified = await fakePush(page, sub);
-  await page.evaluate((id) => localStorage.setItem("dash.push.subscription", id), sub.id);
+  const key = await page.evaluate(
+    async () => `dash.push.subscription:${(await (await fetch("/api/v1/me")).json()).user}`,
+  );
+  await page.evaluate(([k, id]) => localStorage.setItem(k, id), [key, sub.id]);
   await page.goto(`${origin}/settings/devices`);
   await page.getByLabel(`Code for ${sub.deviceName}`).waitFor({ timeout: 15_000 });
   await cdp.send("ServiceWorker.deliverPushMessage", {
@@ -350,7 +354,7 @@ async function smoke(ctx, origin, seen) {
     JSON.stringify(verified),
   );
   await page.unrouteAll();
-  await page.evaluate(() => localStorage.removeItem("dash.push.subscription"));
+  await page.evaluate((k) => localStorage.removeItem(k), key);
 
   // 7. CSP violations.
   const workerViolations =
