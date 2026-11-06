@@ -1865,8 +1865,8 @@ R3 of G5: P5.4 and P5.5. A patch: additive, the binary is unchanged.
 - [x] P6.6 ci: move CI to GitHub-hosted runners with secret and workflow scans (v0.14.3: see "v0.14.3 release notes"; the hosted pull-request acceptance items can only be shown after the flip, see the R2 deviations)
 - [x] P6.7 ci(release): publish multi-arch images and the chart to GHCR with attestations (v0.14.11: see "G6 R4 deviations (v0.14.11)")
 - [x] P6.8 docs: automate screenshots from demo mode (v0.14.3: see "v0.14.3 release notes")
-- [ ] P6.9 chore(repo): pre-publication repository settings
-- [ ] P6.10 chore(repo): execute the history decision, run final scans and make the repo public
+- [x] P6.9 chore(repo): pre-publication repository settings (v0.14.11: see the R4 deviations and the v0.14.11 notes)
+- [x] P6.10 chore(repo): execute the history decision, run final scans and make the repo public (v0.14.11: public on 2026-11-06)
 
 **Acceptance criteria:** all leaves closed; the repository is public.
 
@@ -2025,6 +2025,21 @@ R4 of G6: P6.7, and the scrub and settings of P6.9 and P6.10. The first public r
   - **Images:** every screenshot shows demo data, and no PNG carries text chunks or EXIF.
   - **The workflows:** no trigger an outsider drives with secrets; minimal permissions per job; every action pinned to a verified commit; no template injection; the create-only checks come before the pushes; actionlint and zizmor are clean.
   - **What it found:** the self-hosted runner still registered (deregistered before the flip), lab machine names in one pull request's description (edited), and design passages still promising a reviewer (marked as shipped).
+- **The flip (2026-11-06):**
+  - **Order:** the runner was deregistered first (`actions/runners` is empty), then the repository was made public. The P6.9 settings were applied at once, verified with `gh api`:
+    - the `main` and `release tags` rulesets are active;
+    - secret scanning and push protection are on;
+    - private vulnerability reporting is on;
+    - `sha_pinning_required` is true;
+    - fork pull requests from all external contributors need approval;
+    - the default token is read-only.
+  - **The first hosted-runner run** failed in `check` on the credential identity bug above, and published nothing. The fix (#43) passed every job on the hosted runner, and the `v0.14.11` tag moved to it.
+  - **Published:** `ghcr.io/techdufus/dash:0.14.11` (index `sha256:db083d522c8350c52524919c235364dc4c5475b6680ab82ed80d9508742d87d2`, linux/amd64 and linux/arm64) and `oci://ghcr.io/techdufus/charts/dash:0.14.11`. Both pull anonymously; the packages came up public with the repository, with no change by hand.
+  - **Verified:**
+    - `cosign verify` with the workflow identity on `https://github.com/TechDufus/dash/` and the GitHub OIDC issuer passes;
+    - `gh attestation verify oci://ghcr.io/techdufus/dash:0.14.11 --owner TechDufus` exits 0.
+  - **Landing page:** served by Pages at the owner's custom domain, with HTTPS enforced. The repository's homepage and description are set.
+  - **The homelab** pulls the GHCR release by digest.
 
 ### P6.1 test: replace real-lab identifiers in fixtures and add a denylist test
 
