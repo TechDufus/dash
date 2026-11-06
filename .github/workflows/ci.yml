@@ -170,8 +170,9 @@ jobs:
   # GitHub attestations (build provenance and an SPDX SBOM, once the repository is public) and a
   # keyless cosign signature of the image digest. Both pushes come first, so a later step that
   # fails leaves a complete release to sign or attest by hand rather than half of one; X.Y.Z stays
-  # create-only, so a failed push needs a new patch version. The release environment's required
-  # reviewer approves each run before it gets its token; a pull request never reaches this job.
+  # create-only, so a failed push needs a new patch version. The release environment has no
+  # required reviewer: a tag ruleset limits who can create `v*` tags, and a pull request never
+  # reaches this job.
   release:
     if: startsWith(github.ref, 'refs/tags/v')
     needs: [check, scan, smoke, kind]

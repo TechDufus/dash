@@ -1985,7 +1985,7 @@ R3 of G6: P6.3. A patch: the docs moved, nothing was removed, and no behaviour c
 
 **Correctness (`RevCode143`):** the generator is deterministic and drift-checked, with its hand-kept panel and RBAC tables tested against the web registry and the rendered chart. `make check`, `make scan` and the race suite pass. It found silent error paths in the generator, unprefixed error messages, `links.sh` without a bash-version guard, and a test race in the k8s reference test, all fixed.
 
-### G6 R4 deviations
+### G6 R4 deviations (v0.14.11)
 
 R4 (branch `ci/release-ghcr`: the release job, its docs and the allowlist cleanup) ships P6.7 and differs from it in these places.
 
@@ -1994,6 +1994,7 @@ R4 (branch `ci/release-ghcr`: the release job, its docs and the allowlist cleanu
 | Attestation actions | `attest-build-provenance` and `attest-sbom` | `actions/attest` v4 for both (no `sbom-path` gives SLSA provenance; `sbom-path` gives the SBOM attestation) | Since v4 both are wrappers of `actions/attest`, and `attest-sbom` is deprecated in its favour |
 | Action pins | Not covered | Every new action pinned by commit; `docker/login-action` v4.7.0 and `sigstore/cosign-installer` v4.1.2, not the releases of the last week | The same 7-day cooldown Dependabot keeps |
 | Create-only and order | The image's `X.Y.Z`; the chart pushed last | The image's `X.Y.Z` and the chart's version, both checked before the build; both pushes come before signing and attesting | A run that fails after its pushes leaves a complete release to sign or attest by hand; one that fails between them needs a new patch version, as create-only intends |
+| Release gate | `environment: release` with a required reviewer | `environment: release` stays, with no reviewer; a tag ruleset restricts who can create `v*` tags | The owner's decision: the ruleset is the gate, and a required reviewer needs a public repository on the Free, Pro and Team plans |
 | GitHub attestations while private | Always | Skipped while the repository is private (`!github.event.repository.private`); the cosign signature and BuildKit's provenance and SBOM still ship | GitHub offers artifact attestations to private repositories only on Enterprise Cloud, and the step would fail after the push |
 | Builder | `setup-buildx-action` defaults | The BuildKit image pinned by digest as in `check`, and `cache-binary: false` | No Actions cache on tag runs (zizmor cache-poisoning), as `mise-action` already does |
 | Annotations | Labels from `metadata-action` | The Dockerfile keeps its OCI labels (`VERSION`, `REVISION`, `CREATED` build args); `metadata-action`'s annotations go on the manifests and the index | GHCR reads a multi-arch package's source and description from the index |

@@ -63,14 +63,15 @@ pin() {
 
 build="s#(VERSION=)$o$end#\\1$new\\2#g"  # docker build --build-arg VERSION=X.Y.Z
 image="s#(/dash:)$o$end#\\1$new\\2#g"     # …/dash:X.Y.Z
+helm="s#(--version )$o$end#\\1$new\\2#g"  # helm install … --version X.Y.Z
 
 pin "$chart" \
 	"s#^version: $o\$#version: $new#" \
 	"s#^appVersion: \"$o\"\$#appVersion: \"$new\"#"
-pin README.md "$build" "$image"
+pin README.md "$build" "$image" "$helm"
 pin docs/deploy/docker.md "$build" "$image"
 pin docs/deploy/paas.md "$build" "$image"
-pin docs/deploy/kubernetes.md \
+pin docs/deploy/kubernetes.md "$helm" \
 	"s#(\\?ref=v)$o$end#\\1$new\\2#g" \
 	"s#^([[:space:]]*newTag: \")$o\"#\\1$new\"#"
 pin examples/compose/compose.yaml "s#(\\\$\\{DASH_IMAGE:-[^}]*:)$o\\}#\\1$new}#"

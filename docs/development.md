@@ -253,8 +253,9 @@ DASH_SKIP_HOOKS=1 git push
    `examples/kubernetes` with `make generate`; prose that names a past version stays. Commit the
    result and merge it: the `release` job refuses a tag whose version differs from `Chart.yaml`.
 2. On `main` with CI green: `git tag vX.Y.Z && git push origin vX.Y.Z`.
-3. CI (`release` job, on a GitHub-hosted runner) waits for approval on the `release` environment,
-   then publishes `ghcr.io/techdufus/dash:X.Y.Z` for linux/amd64 and linux/arm64 (also `X.Y` and
+3. CI (`release` job, on a GitHub-hosted runner, in the `release` environment) has no reviewer to
+   approve it: a tag ruleset limits who can create `v*` tags. It publishes
+   `ghcr.io/techdufus/dash:X.Y.Z` for linux/amd64 and linux/arm64 (also `X.Y` and
    `latest`; no `X` tag while dash is 0.x) and the chart `oci://ghcr.io/techdufus/charts/dash` at
    the same version, then signs the image digest with keyless cosign and, once the repository is
    public, adds build-provenance and SPDX SBOM attestations (GitHub offers them to private
