@@ -399,7 +399,7 @@ func TestRestartUnknownAction(t *testing.T) {
 }
 
 func TestActionSpecTargetsAndSummaries(t *testing.T) {
-	specs := actionSpecs()
+	specs := actionSpecs(&Plugin{})
 	if len(specs) != 1 {
 		t.Fatalf("%d action specs, want 1", len(specs))
 	}
@@ -416,6 +416,50 @@ func TestActionSpecTargetsAndSummaries(t *testing.T) {
 	}
 	if _, ok := s.Input().(*restartInput); !ok {
 		t.Errorf("Input() is %T", s.Input())
+	}
+}
+
+// The restart's confirmation rule (contract D49) comes from the published kubernetes.cluster:
+// typeName in a Protected namespace, the dialog in another one it lists, and typeName for
+// anything it cannot answer (not running, nothing published, a namespace it does not list).
+// The manifest's hook closes over the instance, so it reads that instance's runtime.
+func TestRestartConfirmForFollowsNamespaceProtected(t *testing.T) {
+	e := newRestartEnv(t, pluginconf.Kubernetes{})
+	confirm := e.p.Manifest().Actions[0].ConfirmFor
+	if confirm == nil {
+		t.Fatal("the restart has no ConfirmFor")
+	}
+	req := func(ns string) *restartInput { return restartReq(model.WorkloadKindDeployment, ns, "db", "") }
+	if got := confirm(context.Background(), req("apps")); got != plugin.ConfirmTypeName {
+		t.Errorf("before the first publish = %q, want typeName", got)
+	}
+
+	e.r.mu.Lock()
+	e.r.cluster = &model.ClusterData{Namespaces: []model.Namespace{{Name: "vault", Protected: true}, {Name: "apps"}}}
+	e.r.mu.Unlock()
+	for ns, want := range map[string]plugin.Confirm{
+		"vault": plugin.ConfirmTypeName,
+		"apps":  plugin.ConfirmDialog,
+		"other": plugin.ConfirmTypeName,
+	} {
+		if got := confirm(context.Background(), req(ns)); got != want {
+			t.Errorf("%s = %q, want %q", ns, got, want)
+		}
+	}
+	if got := confirm(context.Background(), "not a restart"); got != plugin.ConfirmTypeName {
+		t.Errorf("a foreign input = %q, want typeName", got)
+	}
+	if got := (&Plugin{}).Manifest().Actions[0].ConfirmFor(context.Background(), req("apps")); got != plugin.ConfirmTypeName {
+		t.Errorf("an instance that does not run = %q, want typeName", got)
+	}
+	// The demo twin is the same plugin underneath: its hook reads its own runtime.
+	tw := newTwin().(*twin)
+	tw.rt.Store(e.r)
+	if got := tw.Manifest().Actions[0].ConfirmFor(context.Background(), req("vault")); got != plugin.ConfirmTypeName {
+		t.Errorf("twin vault = %q, want typeName", got)
+	}
+	if got := tw.Manifest().Actions[0].ConfirmFor(context.Background(), req("apps")); got != plugin.ConfirmDialog {
+		t.Errorf("twin apps = %q, want dialog", got)
 	}
 }
 

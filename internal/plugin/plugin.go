@@ -106,6 +106,13 @@ type ActionSpec struct {
 	Input       func() any // zero request struct; the schema is reflected; the body is capped like decodeBody
 	Summary     func(input any) string
 	Target      func(input any) (kind, namespace, name string)
+	// ConfirmFor, when set, is the confirmation rule of one validated input, for an action whose
+	// rule depends on its target (a restart in a protected namespace needs the workload's name
+	// typed). "" falls back to Confirm. The core reads it before Act: an agent's call of a
+	// ConfirmTypeName target always waits for a person's approval, who types the name (contract
+	// D33, D49). Act still enforces the rule itself. Like Series, it is read from the manifest of
+	// the instance that runs, so it may close over the plugin.
+	ConfirmFor func(ctx context.Context, input any) Confirm
 }
 
 // SeriesArgs are the validated arguments a series expression is built from.
@@ -385,4 +392,8 @@ type ActionRef struct {
 	// approve when the section sets none. It applies to mcp-audience principals only (design O.1).
 	Agents string
 	Run    func(ctx context.Context, p auth.Principal, input any) (any, error) // recovers panics
+	// ConfirmFor is the confirmation rule of a validated input: the running instance's
+	// Spec.ConfirmFor, else Spec.Confirm. Never nil. A panic in the hook answers ConfirmTypeName,
+	// the strictest rule.
+	ConfirmFor func(ctx context.Context, input any) Confirm
 }

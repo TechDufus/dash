@@ -44,7 +44,9 @@ func (in *restartInput) Validate() error {
 	return nil
 }
 
-func actionSpecs() []plugin.ActionSpec {
+// actionSpecs are the plugin's actions. ConfirmFor closes over p: it reads the instance's last
+// kubernetes.cluster payload.
+func actionSpecs(p *Plugin) []plugin.ActionSpec {
 	return []plugin.ActionSpec{{
 		Name: actionRestart, Title: "Restart", MinRole: auth.RoleAdmin, Confirm: plugin.ConfirmDialog,
 		Destructive: true, Idempotent: false,
@@ -57,7 +59,35 @@ func actionSpecs() []plugin.ActionSpec {
 			i := in.(*restartInput)
 			return string(i.Kind), i.Namespace, i.Name
 		},
+		ConfirmFor: p.restartConfirm,
 	}}
+}
+
+// restartConfirm is the confirmation rule of a restart (contract D49): the workload's name typed
+// in a namespace the published kubernetes.cluster marks Protected, the dialog elsewhere. What
+// the payload cannot answer (no running instance, nothing published yet, a namespace it does not
+// list) is typeName, the strictest rule. Act still reads the namespace's label from the cluster
+// and refuses a protected restart without the name, whatever this answered.
+func (p *Plugin) restartConfirm(_ context.Context, input any) plugin.Confirm {
+	in, ok := input.(*restartInput)
+	r := p.rt.Load()
+	if !ok || r == nil {
+		return plugin.ConfirmTypeName
+	}
+	cl, _ := r.builtPayloads()
+	if cl == nil {
+		return plugin.ConfirmTypeName
+	}
+	for _, ns := range cl.Namespaces {
+		if ns.Name != in.Namespace {
+			continue
+		}
+		if ns.Protected {
+			return plugin.ConfirmTypeName
+		}
+		return plugin.ConfirmDialog
+	}
+	return plugin.ConfirmTypeName
 }
 
 func actionRefusal(status int, code, message string) *plugin.ActionError {

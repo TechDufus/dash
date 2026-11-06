@@ -110,8 +110,8 @@ func (p *Plugin) timing() timing {
 	return p.t
 }
 
-// Manifest is the plugin's declaration. Its series close over p, so the series the API answers
-// are those of the instance that runs.
+// Manifest is the plugin's declaration. Its series and the restart's confirmation rule close
+// over p, so what the API reads is the instance that runs.
 func (p *Plugin) Manifest() plugin.Manifest {
 	return plugin.Manifest{
 		ID:          ID,
@@ -125,7 +125,7 @@ func (p *Plugin) Manifest() plugin.Manifest {
 			{Name: topicStorage, Type: model.StorageData{}, Doc: "Volumes and backups."},
 			{Name: topicApps, Type: model.AppsData{}, Doc: "The apps behind HTTP routes."},
 		},
-		Actions: actionSpecs(),
+		Actions: actionSpecs(p),
 		Series:  p.seriesSpecs(),
 		UI: plugin.UISpec{Nav: []model.NavItem{
 			{Path: "/cluster", Label: "Cluster", Title: "Kubernetes cluster", Icon: "Boxes"},

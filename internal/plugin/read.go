@@ -2,6 +2,7 @@ package plugin
 
 import (
 	"cmp"
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -140,13 +141,49 @@ func (s *Supervisor) Action(instance ID, name string) (ActionRef, bool) {
 	if i < 0 {
 		return ActionRef{}, false
 	}
+	spec := in.man.Actions[i]
+	spec.ConfirmFor = s.liveConfirmHook(in, p, spec)
 	return ActionRef{
 		Instance:       instance,
-		Spec:           in.man.Actions[i],
+		Spec:           spec,
 		DenyNamespaces: slices.Clone(ic.DenyNamespaces),
 		Agents:         cmp.Or(ic.ActionsAgents, pluginconf.AgentsApprove),
 		Run:            s.actionRun(in, actor, name),
+		ConfirmFor:     s.actionConfirm(in, spec),
 	}, true
+}
+
+// liveConfirmHook is spec's ConfirmFor as the running plugin p declares it: Add read the manifest
+// of another instance, and a hook closes over its own. A spec without one has none; a panic in
+// Manifest answers ConfirmTypeName, as a panic in the hook does.
+func (s *Supervisor) liveConfirmHook(in *instance, p Plugin, spec ActionSpec) func(context.Context, any) Confirm {
+	if spec.ConfirmFor == nil {
+		return nil
+	}
+	var live []ActionSpec
+	if rec, _ := protect(func() { live = p.Manifest().Actions }); rec != nil {
+		s.log().Error("panic in Manifest", "plugin", in.id, "panic", fmt.Sprint(rec))
+		return func(context.Context, any) Confirm { return ConfirmTypeName }
+	}
+	if j := slices.IndexFunc(live, func(a ActionSpec) bool { return a.Name == spec.Name }); j >= 0 && live[j].ConfirmFor != nil {
+		return live[j].ConfirmFor
+	}
+	return spec.ConfirmFor
+}
+
+// actionConfirm is ActionRef.ConfirmFor: the spec's hook, "" falling back to the static rule, and
+// a panic in the hook answering ConfirmTypeName, the strictest rule.
+func (s *Supervisor) actionConfirm(in *instance, spec ActionSpec) func(context.Context, any) Confirm {
+	return func(ctx context.Context, input any) (c Confirm) {
+		if spec.ConfirmFor == nil {
+			return spec.Confirm
+		}
+		if rec, stack := protect(func() { c = spec.ConfirmFor(ctx, input) }); rec != nil {
+			s.log().Error("panic in ConfirmFor", "plugin", in.id, "action", spec.Name, "panic", fmt.Sprint(rec), "stack", string(stack))
+			return ConfirmTypeName
+		}
+		return cmp.Or(c, spec.Confirm)
+	}
 }
 
 // Router returns the routes of a running Router plugin. The handler takes the full request

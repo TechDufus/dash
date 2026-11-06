@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"reflect"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -1064,6 +1065,75 @@ func TestActionMountingAndRun(t *testing.T) {
 	e.reloadUntil(t, "stop", func() bool { return !e.sup.Running("aa") })
 	if _, ok := e.sup.Action("aa", "restart"); ok {
 		t.Fatal("an action of a stopped instance is mounted")
+	}
+}
+
+// ActionRef.ConfirmFor is the hook of the instance that runs (Add read the manifest of another
+// one): "" falls back to the static Confirm, an action without a hook answers its static Confirm,
+// and a panic in the hook answers typeName, the strictest rule.
+func TestActionConfirmForIsTheRunningInstancesHook(t *testing.T) {
+	var mu sync.Mutex
+	made := 0
+	factory := func() plugin.Plugin {
+		mu.Lock()
+		made++
+		inst := made
+		mu.Unlock()
+		f := plugintest.New("aa", func(f *plugintest.Fake) {
+			f.M.Actions = []plugin.ActionSpec{
+				{Name: "restart", Confirm: plugin.ConfirmDialog, ConfirmFor: func(_ context.Context, in any) plugin.Confirm {
+					switch in {
+					case "panic":
+						panic("kaboom")
+					case "":
+						return ""
+					}
+					return plugin.Confirm("instance-" + strconv.Itoa(inst))
+				}},
+				{Name: "plain", Confirm: plugin.ConfirmDialog},
+			}
+		})
+		f.ActionFn = func(context.Context, string, auth.Principal, any) (any, error) { return nil, nil }
+		return f
+	}
+	e := newEnv(t, nil, factory)
+	e.set.Set(plugin.InstanceConfig{Name: "aa", ActionsEnabled: true})
+	e.run(t)
+	// A reconfiguration restarts the instance with a fresh plugin: the one whose manifest Add read
+	// no longer runs.
+	e.set.Set(plugin.InstanceConfig{Name: "aa", ActionsEnabled: true, DenyNamespaces: []string{"x"}})
+	e.reloadUntil(t, "restart", func() bool {
+		ref, ok := e.sup.Action("aa", "restart")
+		mu.Lock()
+		defer mu.Unlock()
+		return made >= 2 && ok && len(ref.DenyNamespaces) == 1
+	})
+	ref, ok := e.sup.Action("aa", "restart")
+	if !ok || ref.ConfirmFor == nil {
+		t.Fatalf("ref = %+v, %v", ref, ok)
+	}
+	mu.Lock()
+	want := plugin.Confirm("instance-" + strconv.Itoa(made))
+	mu.Unlock()
+	if want == "instance-1" {
+		t.Fatal("the registered instance still runs")
+	}
+	ctx := context.Background()
+	if got := ref.ConfirmFor(ctx, "who"); got != want {
+		t.Errorf("ConfirmFor = %q, want the running instance's %q", got, want)
+	}
+	if ref.Spec.ConfirmFor == nil || ref.Spec.ConfirmFor(ctx, "who") != want {
+		t.Error("Spec.ConfirmFor is not the running instance's hook")
+	}
+	if got := ref.ConfirmFor(ctx, ""); got != plugin.ConfirmDialog {
+		t.Errorf("an empty answer = %q, want the static dialog", got)
+	}
+	if got := ref.ConfirmFor(ctx, "panic"); got != plugin.ConfirmTypeName {
+		t.Errorf("a panicking hook = %q, want typeName", got)
+	}
+	plain, _ := e.sup.Action("aa", "plain")
+	if plain.ConfirmFor == nil || plain.ConfirmFor(ctx, "who") != plugin.ConfirmDialog || plain.Spec.ConfirmFor != nil {
+		t.Errorf("an action without a hook: %+v", plain)
 	}
 }
 
