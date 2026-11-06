@@ -2167,8 +2167,8 @@ Remove the Zot push (`ci.yml:31`). README release steps are updated. There is no
 
 - [x] P7.1 feat(auth): bearer principals and personal access tokens (v0.14.6: see the R2 deviations)
 - [x] P7.2 feat(auth): built-in OAuth 2.1 authorization server (v0.14.7: see the R3 deviations)
-- [ ] P7.3 feat(mcp): read-only MCP server
-- [ ] P7.4 feat(mcp): context bundles, prompts and "Copy context for AI"
+- [x] P7.3 feat(mcp): read-only MCP server (v0.14.8: see the R5 deviations)
+- [x] P7.4 feat(mcp): context bundles, prompts and "Copy context for AI" (v0.14.8: see the R5 deviations)
 - [ ] P7.5 feat(approvals): agent action tools with human approval
 - [x] P7.6 feat(web): installable PWA (v0.14.5: see the R1 deviations)
 - [ ] P7.7 feat(push): Web Push and UnifiedPush notifications
@@ -2317,6 +2317,57 @@ R3 of G7: P7.2. A patch: additive, and nothing changes until `auth.oauth.enabled
 **UX (`RevUXG7R3`, two rounds):** the OAuth flows in local, proxy, CIMD and OIDC (a fake provider) in a headless browser, and the rollback done for real. It found no revoke-all in proxy mode, an MCP audience before the MCP server, a CIMD client posing as `dash-android`, and seven Lows; all are fixed.
 
 **Production compatibility (`RevCompatG7R2`, two rounds):** the homelab's environment against v0.14.6: 182 of 190 captured responses identical, every status code the same; 72 OAuth-probe differences, all paths turning into JSON 404s; upstream 419 of 419 requests; the startup log 18 INFO and 0 WARN; the image 488,748 bytes (0.85%) larger.
+
+### G7 R5 deviations (v0.14.8)
+
+R5 (branch `feat/g7-mcp`: the `Objects` interface, context bundles, the MCP transport and authentication, the read tools, topic resources, subscriptions and prompts, the limits, cap and audit, Copy context for AI, Settings → MCP, the docs, the metadata switch, two review-fix rounds rebased onto R3, the version, then this docs commit) ships P7.3 and P7.4 and differs from them, and from the G7 plan's decisions D35 and D36 and its G7-R5 section, in these places. [docs/mcp.md](../mcp.md) is the user-facing description.
+
+| Item | The plan said | Shipped | Why |
+|---|---|---|---|
+| Subscriptions | `subscriptions/listen` delivers updates for each readable topic | It refuses a user-scoped topic, and needs the `read` scope; under protocol `2025-11-25` there is neither `resources/subscribe` nor `subscriptions/listen` (both refused) | A user-scoped topic has one URI for every user, so its updates would tell one user when another's changed; the legacy protocol has no stream to deliver on |
+| Resource reads | `dash://topics/<topic>` returns the topic | The text is `text/markdown`: the untrusted-data sentence and the topic's JSON in a fence, as the tools render it, also when cut to 64 KiB (`truncated` set) | A resource read carried lab text without the framing of P7.3 (found by the security verification) |
+| Concurrency | 8 calls per token, at most 2 listen streams, 64 in all | Calls: 8 per token, 16 per user across their tokens, 64 in all. Listen streams, counted apart: 2 per token, 4 per user, 16 in all. A refusal is a plain 429 with `Retry-After`, naming the limit | One user's tokens could take every slot (found by the security verification; the per-user listen cap by the code review's last round) |
+| Rates | 120 calls and 30 `dash_logs` a minute per token | The list and discovery requests (`tools/list`, `resources/list`, `prompts/list`) count toward the 120 and are not audited; `dash_context` with log lines counts toward the 30 | Lists were a free way round the rate; a bundle with logs is a log read |
+| Request body | Not specified | Read whole, at most 1 MiB, under a 10 s read deadline, before the request takes a slot; the slot is chosen by the body's JSON-RPC method, not the `Mcp-Method` header; over 1 MiB is dash's own 413, before the SDK | Stalled bodies held slots, and a mislabelled header chose the wrong one (found by the security verification) |
+| Open listen streams | Not specified | Every 15 s (the heartbeat of `/api/v1/stream`) a stream re-resolves its token and checks `mcp.enabled`; a revocation, an expiry, a lost `read` scope or the off switch ends it | Streams outlived the revocation and the off switch (found by the security verification) |
+| Audit fields | Surface, token or grant, client, tool, argument hash, outcome, duration | MCP records add `argsSha256`, and `client` and `durationMs` when known; the slog sink (no data dir) keeps `surface`, `tokenID` and these | The slog line dropped them (found by the security verification) |
+| The SDK's log | Not specified | The SDK logs through dash's logger at WARN and above | At INFO it wrote a line per tool call |
+| Prompts | Embedded from `internal/mcp/prompts/*.md` | Embedded, rendered with `strings.Replacer` instead of `text/template`; the client's `ref` sits in a code span whose fence is longer than any backtick run in it. `internal/hygiene` fails when `./cmd/dash` links `text/template` or `html/template` | The template package's `reflect.MethodByName` turned off dead-code elimination: +27 MB of binary and +8 MB of RSS (found by the code review) |
+| `Objects.Search` | `Search(query, limit)` | `Search(query, kinds, limit)`: the kind filter runs inside each plugin, so the 1000-hit cap counts only matching objects; `dash_search` says `more: true` when cut, and refuses an unknown kind with `invalid_input` naming the kinds by plugin (a test keeps that list equal to the demo's) | A kind filter after the cap missed matches; an unknown kind answered empty hits, which read as "no such object" |
+| Plugins with objects | Not specified | `/api/v1/plugins` entries carry `objects: bool`; "Copy context for AI" shows only for refs whose plugin has it | The button showed on a `rustfs` attention item and answered 404 "unknown object" (found by the compatibility review) |
+| `logsNote` | Why a bundle has no log lines | A new value, `not_applicable`, for objects without logs, in the JSON and as a phrase in the Markdown summary line; the toast then names the object without a log count | "0 lines of logs" misled on a node or an alert (found by the UX review) |
+| Bundle readability | The Markdown uses the P7.3 framing | The heading holds the plugin and the Kind only (`` # Context: `<plugin>` `<Kind>` ``), the object's name and ref inside the block, as N.5 wants of lab text; attention items right after the summary; numbers to 3 significant digits; a fact whose name names a unit shown in it (`mem: 99.7 MiB`, `cpu: 12.3%`, `uptime: 13d 3h`), empty facts dropped; the cpu and mem ratios as percentages; the logs headed with whose they are and the window. A workload bundle adds its unhealthy pods' summaries and events (still at most 20) and the logs of the worst pod, one that started before a Pending one that never did | Bundles read as raw dumps, and a workload's said little (found by the UX review) |
+| Clipboard | Copy to the clipboard | When neither `ClipboardItem` nor `writeText` works, a dialog holds the Markdown, read-only and selected, with a Copy button that copies inside the click | An insecure context or a refused permission copied nothing (found by the code review) |
+| The `mcp` OAuth resource | R3: `mcpAvailable()` false until the MCP server ships | `mcpAvailable()` asks `SetMCPAvailable`, which `api.New` points at `mcp.enabled` (false in `auth.mode: none`), read per request: the authorize `resource`, the mcp metadata, the challenge and the consent text follow `/mcp` itself | One switch, so a client can never be sent to a resource that answers 404 |
+| Refresh while MCP is off | Not specified | An mcp grant still refreshes while MCP is off | Its tokens are useless at `/mcp`, and refusing refreshes would make clients drop grants a re-enable revives |
+| Settings → MCP | An enable toggle, mcp tokens and grants with revoke, the agent policy | The toggle (locked, with how to unlock, when env or the file sets it), the endpoint (`server.directURL` + `/mcp` when set), a copyable `claude mcp add` line, and a link to Settings → Tokens; the per-plugin agent policy comes with P7.5 | The Tokens page already lists and revokes mcp tokens; the policy has nothing to enforce before the action tools |
+| `dash_approval` | A read tool in P7.3 | Not shipped; it comes with the approvals of P7.5 | There is nothing to read before agent actions exist |
+| Start and stop | Not specified | One INFO, "mcp: serving /mcp" with `versions=[2026-07-28 2025-11-25]`, when MCP is on at start or turns on live, and "mcp: stopped" when it turns off | An enabled MCP logged nothing (found by the compatibility review) |
+| Protocol versions and localhost protection | Confirm whether `2025-11-25` can be served, and the SDK's localhost protection | Both `2026-07-28` and `2025-11-25` are served, statelessly; the SDK's localhost protection is off (`DisableLocalhostProtection`), as dash's Host allow-list covers DNS rebinding | Confirmed in this release, as the plan asked |
+
+#### v0.14.8 release notes
+
+R5 of G7: P7.3 and P7.4. A patch: additive, and the MCP server stays off until `mcp.enabled` is set.
+
+- **MCP server**, off by default (`mcp.enabled`, live, also from the settings page): read-only, at `POST /mcp`, for clients holding an `mcp`-audience personal access token or OAuth grant, on protocols `2026-07-28` and `2025-11-25`. Never in `auth.mode: none`.
+- **Tools:** `dash_overview`, `dash_search`, `dash_get`, `dash_topic`, `dash_series`, `dash_context`, and `dash_logs` with the `logs` scope. **Resources:** every topic the token may read, with update notifications on `2026-07-28`. **Prompts:** `dash_triage`, `dash_investigate`, `dash_daily_digest` and `dash_explain_alert`. Lab text comes inside a fenced untrusted-data block, secrets are scrubbed, and results are capped at 64 KiB.
+- **Limits:** per token 120 requests and 30 log reads a minute, 8 calls and 2 listen streams in flight; per user 16 calls and 4 streams; 64 calls and 16 streams in all. Every call is audited with surface `mcp`.
+- **Context bundles:** `GET /api/v1/context?ref=&format=json|markdown`: an object's summary, facts, events, attention items, series and, with the `logs` scope, its log lines.
+- **Copy context for AI** on the pod sheet, the VM sheet, attention items and alert rows: puts the bundle's Markdown on the clipboard, or shows it in a dialog where the clipboard is blocked.
+- **Settings → MCP:** the switch, the endpoint and a `claude mcp add` line.
+- **Dependencies:** `github.com/modelcontextprotocol/go-sdk` v1.8.0.
+- **Upgrade:** no step; nothing changes until `mcp.enabled` is set.
+- **Rollback to v0.14.7:** remove `mcp.enabled` from the config file first (v0.14.7 refuses a file with keys it does not know; a value saved from the settings page or set in the environment only logs a warning there). See `docs/upgrading.md`.
+
+**Evidence:** `make check` on every commit, each signed.
+
+**Security requirement verification (`RevSecG7R5`, two rounds):** eight requirement areas probed against the built binary with injection strings, backtick runs up to 70 000 and secret canaries. It found a crash on long backtick runs (High), listen streams outliving revocation and the off switch, unframed resource reads, stalled bodies holding slots, and the slog audit line missing its fields; all are fixed.
+
+**Correctness (`RevCodeG7R5`, three rounds):** mutation tables over the caps, limits, resources, bundles, recovery and audit. It found the same crash, `text/template` adding about 27 MB to the binary, and test gaps; then a race in a new test; all are fixed. The binary is 2.06 MB and idle RSS 2.4 MiB larger than v0.14.7.
+
+**UX (`RevUXG7R5`, two rounds):** a scripted go-sdk client on both protocol versions through every tool and prompt, and a headless browser at 390 to 1280 px. It found the Alerts layout at 390 px, a misleading "0 lines of logs", thin workload bundles, mandatory fields not `required` in the schemas, and errors that did not say what to do; all are fixed.
+
+**Production compatibility (`RevCompatG7R2`, three rounds):** the homelab's environment against v0.14.7: 177 of 190 captured responses identical (6 SPA documents and 7 responses gaining `objects` differ), every status code the same; upstream 419 of 419 requests and no extra polls; the startup log 18 INFO and 0 WARN; the image 2,771,875 bytes (4.8%) larger. It found the binary growth and a copy button on a plugin without objects (`rustfs`); both are fixed.
 
 ### P7.1 feat(auth): bearer principals and personal access tokens
 
