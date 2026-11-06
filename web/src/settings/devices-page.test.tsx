@@ -231,6 +231,37 @@ describe("DevicesPage", () => {
     });
   });
 
+  it("ignores a service worker message of another type, or without a string code", async () => {
+    localStorage.setItem(MINE_KEY, ID);
+    const stub = stubFetch(
+      routes(meWith(true), {
+        [LIST]: { subscriptions: [sub({ state: "pending", verifiedAt: null })] },
+      }),
+    );
+    renderApp(<DevicesPage />);
+    await screen.findByLabelText("Code for Laptop"); // this browser's pending row is listed
+    const VERIFY = `POST /api/v1/push/subscriptions/${ID}/verify`;
+    const post = (data: unknown) =>
+      act(() => {
+        container.dispatchEvent(new MessageEvent("message", { data }));
+      });
+
+    post({ type: "dash-push-test", code: "ABCD2345" });
+    post({ type: "dash-push-verify-x", code: "ABCD2345" });
+    post({ code: "ABCD2345" });
+    post({ type: "dash-push-verify", code: 12345678 });
+    post("dash-push-verify");
+    post(null);
+    // Nothing went out: a verify would be sent right away.
+    await new Promise((r) => setTimeout(r, 50));
+    expect(stub.callsTo(VERIFY)).toEqual([]);
+
+    // The listener is live: the right message goes through.
+    postCode("ABCD2345");
+    await waitFor(() => expect(stub.callsTo(VERIFY)).toHaveLength(1));
+    expect(stub.callsTo(VERIFY)[0]?.body).toEqual({ code: "ABCD2345" });
+  });
+
   it("registers nothing when the notification permission is refused", async () => {
     const user = userEvent.setup();
     requestPermission.mockResolvedValueOnce("denied");
