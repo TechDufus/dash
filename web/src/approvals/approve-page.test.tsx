@@ -1,12 +1,22 @@
 import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { beforeEach, describe, expect, it, type MockInstance, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, type MockInstance, vi } from "vitest";
+import { startStream, stopStream } from "@/api/stream";
 import type { ApprovalInfo, Me } from "@/api/types";
 import { browserNav } from "@/auth/handle401";
 import { PluginRoutes } from "@/plugins/routes";
 import { me as meOf, settingsError } from "@/settings/fixtures";
-import { json, renderApp, stubFetch } from "@/test/harness";
-import { ApprovePage, EXPIRED, FOREIGN, formatCountdown } from "./approve-page";
+import { envelope, installEventSource, json, renderApp, stubFetch } from "@/test/harness";
+import {
+  ApprovePage,
+  CLIENT_UNREPORTED,
+  EXPIRED,
+  FOREIGN,
+  formatCountdown,
+  GONE,
+  MALFORMED,
+  TITLE,
+} from "./approve-page";
 
 const ID = "appr_ABCDEFGHIJKLMNOPQRSTUVWXYZ";
 const GET = `GET /api/v1/approvals/${ID}`;
@@ -73,6 +83,10 @@ beforeEach(() => {
   window.history.replaceState(null, "", "/");
 });
 
+afterEach(() => {
+  stopStream();
+});
+
 describe("formatCountdown", () => {
   it("counts minutes and seconds, rounding up and never below zero", () => {
     expect(formatCountdown(9 * 60_000 + 41_500)).toBe("9:42");
@@ -87,10 +101,15 @@ describe("ApprovePage", () => {
     stubFetch(routes());
     renderApp(<ApprovePage id={ID} />);
     expect(await screen.findByRole("heading", { name: /Restart workload/ })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: TITLE })).toBeInTheDocument();
+    expect(document.title).toBe("Approval");
     expect(screen.getByText("· kubernetes")).toBeInTheDocument();
     expect(screen.getByText("Destructive")).toBeInTheDocument();
     expect(screen.getByText("Restart Deployment media/jellyfin")).toBeInTheDocument();
-    expect(screen.getByText("Claude Code")).toBeInTheDocument();
+    // The client's name is its own claim; the credential is what dash knows.
+    expect(screen.getByText("(as it names itself)").parentElement).toHaveTextContent(
+      "Claude Code (as it names itself)",
+    );
     expect(screen.getByText("Token")).toBeInTheDocument();
     expect(screen.getByText("laptop agent")).toBeInTheDocument();
     expect(screen.getByText("kubernetes_restart")).toBeInTheDocument();
@@ -105,7 +124,7 @@ describe("ApprovePage", () => {
     expect(screen.queryByLabelText(/to approve/)).toBeNull();
   });
 
-  it("names an OAuth grant a connected app, an unnamed client, and drops the badge", async () => {
+  it("names an OAuth grant a connected app, an unreported client muted, and drops the badge", async () => {
     stubFetch(
       routes({
         [GET]: approval({
@@ -119,7 +138,9 @@ describe("ApprovePage", () => {
     );
     renderApp(<ApprovePage id={ID} />);
     expect(await screen.findByText("Connected app")).toBeInTheDocument();
-    expect(screen.getByText("Unnamed client")).toBeInTheDocument();
+    expect(screen.getByText("Agent")).toBeInTheDocument();
+    expect(screen.getByText(CLIENT_UNREPORTED)).toHaveClass("text-muted");
+    expect(screen.queryByText(/as it names itself/)).toBeNull();
     expect(screen.queryByText("Destructive")).toBeNull();
   });
 
@@ -190,7 +211,7 @@ describe("ApprovePage", () => {
     const user = userEvent.setup();
     const stub = stubFetch(routes({ [GET]: approval({ confirm: "typeName" }) }));
     renderApp(<ApprovePage id={ID} />);
-    const field = await screen.findByLabelText("Type jellyfin to approve");
+    const field = await screen.findByLabelText("Type the Deployment's name (jellyfin) to approve");
     const approve = screen.getByRole("button", { name: "Approve" });
     expect(approve).toBeDisabled();
     await user.type(field, "jellyfi");
@@ -215,17 +236,21 @@ describe("ApprovePage", () => {
 
   it("shows the server's message when the typed name is refused", async () => {
     const user = userEvent.setup();
+    const refused = "type the Deployment's name (jellyfin) to approve";
     stubFetch(
       routes({
         [GET]: approval({ confirm: "typeName" }),
-        [POST]: settingsError(400, "invalid_input", "confirm must equal the target name"),
+        [POST]: settingsError(400, "invalid_input", refused),
       }),
     );
     renderApp(<ApprovePage id={ID} />);
-    await user.type(await screen.findByLabelText("Type jellyfin to approve"), "jellyfin");
+    await user.type(
+      await screen.findByLabelText("Type the Deployment's name (jellyfin) to approve"),
+      "jellyfin",
+    );
     await user.click(screen.getByRole("button", { name: "Approve" }));
     const alert = await screen.findByRole("alert");
-    expect(within(alert).getByText("confirm must equal the target name")).toBeInTheDocument();
+    expect(within(alert).getByText(refused)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Approve" })).toBeEnabled();
   });
 
@@ -258,22 +283,88 @@ describe("ApprovePage", () => {
     expect(await screen.findByText("The action ran")).toBeInTheDocument();
   });
 
-  it.each([
-    ["a 410", settingsError(410, "approval_expired", "approval expired")],
-    ["an expired state", approval({ state: "expired" })],
-  ])("says the request expired on %s, and offers nothing to decide", async (_name, answer) => {
-    stubFetch(routes({ [GET]: answer }));
+  it("says a request past its retention (410) is gone, and offers nothing to decide", async () => {
+    stubFetch(routes({ [GET]: settingsError(410, "approval_expired", "approval expired") }));
     renderApp(<ApprovePage id={ID} />);
-    expect(await screen.findByText(EXPIRED)).toBeInTheDocument();
+    expect(await screen.findByText(GONE)).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: TITLE })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Approve" })).toBeNull();
   });
 
-  it("says the request expired when the decision gets a 410", async () => {
+  it("shows an expired request with its details, and nothing to decide", async () => {
+    stubFetch(routes({ [GET]: approval({ state: "expired" }, -60_000) }));
+    renderApp(<ApprovePage id={ID} />);
+    const status = await screen.findByRole("status");
+    expect(within(status).getByText("Expired")).toBeInTheDocument();
+    expect(within(status).getByText(EXPIRED)).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: /Restart workload/ })).toBeInTheDocument();
+    expect(screen.getByText("laptop agent")).toBeInTheDocument();
+    expect(screen.getByText("kubernetes_restart")).toBeInTheDocument();
+    expect(screen.getByText("Deployment media/jellyfin")).toBeInTheDocument();
+    expect(screen.getByText("Restart Deployment media/jellyfin")).toBeInTheDocument();
+    expect(JSON.parse(screen.getByLabelText("Input").textContent ?? "")).toEqual({
+      kind: "Deployment",
+      namespace: "media",
+      name: "jellyfin",
+    });
+    expect(screen.queryByRole("timer")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Approve" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Deny" })).toBeNull();
+    expect(screen.queryByText(GONE)).toBeNull();
+  });
+
+  it("says the request is gone when the decision gets a 410", async () => {
     const user = userEvent.setup();
     stubFetch(routes({ [POST]: settingsError(410, "approval_expired", "approval expired") }));
     renderApp(<ApprovePage id={ID} />);
     await user.click(await screen.findByRole("button", { name: "Approve" }));
-    expect(await screen.findByText(EXPIRED)).toBeInTheDocument();
+    expect(await screen.findByText(GONE)).toBeInTheDocument();
+  });
+
+  it.each([
+    ["too short", "appr_ABC"],
+    ["lowercase", "appr_abcdefghijklmnopqrstuvwxyz"],
+    ["outside base32", "appr_ABCDEFGHIJKLMNOPQRSTUVWX01"],
+    ["another prefix", "tok_ABCDEFGHIJKLMNOPQRSTUVWXYZ"],
+  ])("says an id %s is not an approval link, and requests nothing for it", async (_name, id) => {
+    const stub = stubFetch(routes());
+    renderApp(<ApprovePage id={id} />);
+    expect(await screen.findByText(MALFORMED)).toBeInTheDocument();
+    await waitFor(() => expect(stub.callsTo("GET /api/v1/me")).toHaveLength(1));
+    expect(stub.calls.filter((c) => c.path.startsWith("/api/v1/approvals"))).toHaveLength(0);
+    expect(assign).not.toHaveBeenCalled();
+  });
+
+  it("says a 404 is not an approval link", async () => {
+    stubFetch(routes({ [GET]: settingsError(404, "not_found", "not found") }));
+    renderApp(<ApprovePage id={ID} />);
+    expect(await screen.findByText(MALFORMED)).toBeInTheDocument();
+    expect(screen.queryByText(GONE)).toBeNull();
+  });
+
+  it("reads the request again when core.approvals drops it, and shows what it became", async () => {
+    const ES = installEventSource();
+    startStream();
+    const es = ES.instances.at(-1);
+    if (!es) throw new Error("no EventSource");
+    es.open();
+    let reads = 0;
+    const stub = stubFetch(
+      routes({ [GET]: () => (++reads === 1 ? approval() : approved({ decidedBy: "alice" })) }),
+    );
+    renderApp(<ApprovePage id={ID} />);
+    expect(await screen.findByRole("button", { name: "Approve" })).toBeInTheDocument();
+    const listed = { ...approval(), input: null };
+    act(() => es.emit("core.approvals", envelope("core.approvals", { pending: [listed] })));
+    expect(stub.callsTo(GET)).toHaveLength(1);
+    // Approved on the phone: the list drops it, and the page reads it again.
+    act(() => es.emit("core.approvals", envelope("core.approvals", { pending: [] })));
+    expect(await screen.findByText("The action ran")).toBeInTheDocument();
+    expect(stub.callsTo(GET)).toHaveLength(2);
+    expect(screen.queryByRole("button", { name: "Approve" })).toBeNull();
+    // Another change of the list does not read it again: it is no longer pending.
+    act(() => es.emit("core.approvals", envelope("core.approvals", { pending: [] })));
+    expect(stub.callsTo(GET)).toHaveLength(2);
   });
 
   it("says another user's request belongs to another user", async () => {

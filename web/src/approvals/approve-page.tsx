@@ -1,8 +1,10 @@
-import { Ban, Bot, Check, CircleCheck, CircleX, Loader2 } from "lucide-react";
-import { type JSX, type ReactNode, useEffect, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
+import { Ban, Bot, Check, CircleCheck, CircleX, Clock, Loader2 } from "lucide-react";
+import { type JSX, type ReactNode, useEffect, useRef, useState } from "react";
 import { Link } from "wouter";
 import { errorMessage } from "@/api/client";
 import { approvalsAvailable, useMe } from "@/api/queries";
+import { useTopicData } from "@/api/stream";
 import {
   type ApprovalDecision,
   type ApprovalInfo,
@@ -24,16 +26,26 @@ import {
   approvalDecided,
   approvalForeign,
   approvalGone,
+  approvalIdValid,
+  approvalKey,
+  approvalMalformed,
   approveRoute,
   decideApproval,
-  fetchApproval,
   useApproval,
 } from "./api";
 
-/** What the screen says when the request is gone (expired, unknown, or lost in a restart). */
-export const EXPIRED = "This request expired; ask the agent again.";
+/** The page's title, in the document and as its heading. */
+export const TITLE = "Approval";
+/** What the screen says when the request is gone (past its retention, unknown, or lost in a restart). */
+export const GONE = "This request is gone; ask the agent again.";
+/** What an expired request says in place of a decision. */
+export const EXPIRED = "This request expired before anyone decided it; the action did not run.";
 /** What the screen says for another user's request (403). */
 export const FOREIGN = "This request belongs to another user.";
+/** What the screen says for an id that is not an approval id (malformed, or a 404). */
+export const MALFORMED = "Not an approval link.";
+/** What the client row says when the MCP client reported no name. */
+export const CLIENT_UNREPORTED = "not reported by the client";
 
 /** Milliseconds as `m:ss`, never below 0:00. */
 export function formatCountdown(ms: number): string {
@@ -50,34 +62,71 @@ function targetWords(info: ApprovalInfo): string {
 
 /**
  * /approve/:id (design O.3): an AI agent asked to run a plugin action as this user, and the user
- * approves or denies it here. The screen names the client and the credential it called with, the
- * action, its target and summary, and the full input that runs on approval, with a countdown to
- * the request's expiry. Signed out, the user signs in with this route as a short `next` and comes
- * back: the anonymous viewer of the local mode is sent to /login, every other mode's 401 is the
- * API client's (handle401). Where dash offers no approvals to this user (no MCP, no actions,
- * the none mode) the screen says so and reads nothing.
+ * approves or denies it here. The screen names the credential the client called with and the
+ * client's own (self-reported) name, the action, its target and summary, and the full input that
+ * runs on approval, with a countdown to the request's expiry. A request decided or expired within
+ * its retention shows the same details with what it became; only a request past its retention is
+ * gone. The page follows core.approvals: when the request leaves the pending list (decided on
+ * another device, or expired) it reads the request again. Signed out, the user signs in with this
+ * route as a short `next` and comes back: the anonymous viewer of the local mode is sent to
+ * /login, every other mode's 401 is the API client's (handle401). Where dash offers no approvals
+ * to this user (no MCP, no actions, the none mode) the screen says so and reads nothing; an id
+ * that is not an approval id is never requested.
  */
 export function ApprovePage({ id }: { id: string }): JSX.Element {
   const me = useMe();
+  const valid = approvalIdValid(id);
   const anonymous = me.data?.authMode === "local" && me.data.role === "viewer";
-  const enabled = !anonymous && approvalsAvailable(me.data);
+  const enabled = valid && !anonymous && approvalsAvailable(me.data);
   const approval = useApproval(id, enabled);
+  useFollowPending(id, enabled);
 
   useEffect(() => {
-    if (anonymous) browserNav.assign(`/login?next=${encodeURIComponent(approveRoute(id))}`);
-  }, [anonymous, id]);
+    const before = document.title;
+    document.title = TITLE;
+    return () => {
+      document.title = before;
+    };
+  }, []);
 
+  useEffect(() => {
+    if (valid && anonymous)
+      browserNav.assign(`/login?next=${encodeURIComponent(approveRoute(id))}`);
+  }, [valid, anonymous, id]);
+
+  if (!valid) return <Notice>{MALFORMED}</Notice>;
   if (me.isPending || anonymous) return <Loading />;
   if (me.isError) return <Notice>Could not read who is signed in: {errorMessage(me.error)}</Notice>;
   if (!enabled) return <Notice>Agent approvals are not available on this dash.</Notice>;
   if (approval.isPending) return <Loading />;
   if (approval.isError) {
     const err = approval.error;
-    if (approvalGone(err)) return <Notice>{EXPIRED}</Notice>;
+    if (approvalGone(err)) return <Notice>{GONE}</Notice>;
+    if (approvalMalformed(err)) return <Notice>{MALFORMED}</Notice>;
     if (approvalForeign(err)) return <Notice>{FOREIGN}</Notice>;
     return <Notice>Could not read the request: {errorMessage(err)}</Notice>;
   }
   return <ApprovalView key={approval.data.id} info={approval.data} />;
+}
+
+/**
+ * Reads the request again when core.approvals drops it from the user's pending list while the
+ * page still shows it pending: it was decided elsewhere (another tab, the phone) or it expired.
+ */
+function useFollowPending(id: string, enabled: boolean) {
+  const queryClient = useQueryClient();
+  const pending = useTopicData("core.approvals")?.pending;
+  const listed = pending?.some((a) => a.id === id);
+  const wasListed = useRef<boolean | undefined>(undefined);
+  useEffect(() => {
+    const was = wasListed.current;
+    wasListed.current = listed;
+    if (!enabled || listed !== false || was === false) return;
+    const shown = queryClient.getQueryData<ApprovalInfo>(approvalKey(id));
+    if (shown?.state === ApprovalStatePending) {
+      void queryClient.invalidateQueries({ queryKey: approvalKey(id) });
+    }
+  }, [listed, enabled, id, queryClient]);
 }
 
 function Loading(): JSX.Element {
@@ -116,6 +165,7 @@ function Notice({ children }: { children: ReactNode }): JSX.Element {
   return (
     <Frame>
       <Panel>
+        <PanelHeader title={TITLE} icon={<Bot />} />
         <Empty>
           <div role="status" className="space-y-3">
             <p>{children}</p>
@@ -129,20 +179,29 @@ function Notice({ children }: { children: ReactNode }): JSX.Element {
   );
 }
 
-function ApprovalView({ info: loaded }: { info: ApprovalInfo }): JSX.Element {
-  const [info, setInfo] = useState(loaded);
+/** The client as it names itself, or that it gave no name; the credential is the reliable part. */
+function ClientName({ name }: { name: string }): JSX.Element {
+  if (!name) return <span className="text-muted">{CLIENT_UNREPORTED}</span>;
+  return (
+    <>
+      {name} <span className="text-muted">(as it names itself)</span>
+    </>
+  );
+}
+
+function ApprovalView({ info }: { info: ApprovalInfo }): JSX.Element {
+  const queryClient = useQueryClient();
   const [typed, setTyped] = useState("");
   const [busy, setBusy] = useState<"approve" | "deny" | null>(null);
   const [failure, setFailure] = useState<string | null>(null);
   const [gone, setGone] = useState<string | null>(null);
   const now = useNow(1000).getTime();
 
-  const pending = info.state === ApprovalStatePending;
   const left = Date.parse(info.expiresAt) - now;
-  if (gone || info.state === ApprovalStateExpired) return <Notice>{gone ?? EXPIRED}</Notice>;
   // The countdown reached zero: the server expires the request on its own, so nothing is left
   // to decide (a decision already on its way still answers).
-  if (pending && left <= 0 && busy === null) return <Notice>{EXPIRED}</Notice>;
+  const pending = info.state === ApprovalStatePending && (left > 0 || busy !== null);
+  if (gone) return <Notice>{gone}</Notice>;
 
   const typeName = info.confirm === ConfirmTypeName;
   const nameMatches = !typeName || typed === info.target.name;
@@ -154,18 +213,14 @@ function ApprovalView({ info: loaded }: { info: ApprovalInfo }): JSX.Element {
     const decision: ApprovalDecision =
       approve && typeName ? { approve: true, confirm: typed } : { approve };
     try {
-      setInfo(await decideApproval(info.id, decision));
+      queryClient.setQueryData(approvalKey(info.id), await decideApproval(info.id, decision));
     } catch (err) {
-      if (approvalGone(err)) setGone(EXPIRED);
+      if (approvalGone(err)) setGone(GONE);
       else if (approvalForeign(err)) setGone(FOREIGN);
-      else if (approvalDecided(err)) {
-        // Decided elsewhere (another tab, the phone): show what it became.
-        try {
-          setInfo(await fetchApproval(info.id));
-        } catch (again) {
-          setGone(approvalGone(again) ? EXPIRED : errorMessage(again));
-        }
-      } else setFailure(errorMessage(err));
+      // Decided elsewhere (another tab, the phone): read what it became.
+      else if (approvalDecided(err))
+        await queryClient.invalidateQueries({ queryKey: approvalKey(info.id) });
+      else setFailure(errorMessage(err));
     } finally {
       setBusy(null);
     }
@@ -174,7 +229,7 @@ function ApprovalView({ info: loaded }: { info: ApprovalInfo }): JSX.Element {
   return (
     <Frame>
       <Panel>
-        <PanelHeader title="Agent approval" icon={<Bot />}>
+        <PanelHeader title={TITLE} icon={<Bot />}>
           {pending ? (
             <span role="timer" className="num text-xs text-muted">
               Expires in {formatCountdown(left)}
@@ -193,10 +248,12 @@ function ApprovalView({ info: loaded }: { info: ApprovalInfo }): JSX.Element {
           </div>
 
           <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-sm">
-            <dt className="text-muted">Client</dt>
-            <dd className="text-fg">{info.clientName || "Unnamed client"}</dd>
             <dt className="text-muted">{info.grantId ? "Connected app" : "Token"}</dt>
-            <dd className="text-fg">{info.credentialName}</dd>
+            <dd className="font-medium text-fg">{info.credentialName}</dd>
+            <dt className="text-muted">Client</dt>
+            <dd className="text-fg">
+              <ClientName name={info.clientName} />
+            </dd>
             <dt className="text-muted">Action</dt>
             <dd className="num break-all text-fg">{info.tool}</dd>
             <dt className="text-muted">Target</dt>
@@ -261,7 +318,7 @@ function Decide({
         <div className="space-y-2">
           <p className="text-xs text-warn">This target is protected.</p>
           <label htmlFor="approve-confirm" className="block text-sm text-muted">
-            Type <span className="num text-fg">{info.target.name}</span> to approve
+            {`Type the ${info.target.kind || "target"}'s name (${info.target.name}) to approve`}
           </label>
           <Input
             id="approve-confirm"
@@ -292,8 +349,23 @@ function Decide({
   );
 }
 
-/** A request that was approved (with how its action ran) or denied. */
+/**
+ * A request that was approved (with how its action ran), denied, or expired (by the server, or
+ * by the countdown reaching zero before the server's word).
+ */
 function Decided({ info }: { info: ApprovalInfo }): JSX.Element {
+  if (info.state === ApprovalStateExpired || info.state === ApprovalStatePending) {
+    return (
+      <div role="status" className="flex items-start gap-2 rounded-lg border border-line p-3">
+        <Clock aria-hidden="true" className="mt-0.5 size-4 shrink-0 text-muted" />
+        <div className="space-y-0.5 text-sm">
+          <p className="font-medium text-fg">Expired</p>
+          <p className="text-muted">{EXPIRED}</p>
+          {info.reason ? <p className="text-muted">{info.reason}</p> : null}
+        </div>
+      </div>
+    );
+  }
   if (info.state === ApprovalStateDenied) {
     return (
       <div role="status" className="flex items-start gap-2 rounded-lg border border-line p-3">

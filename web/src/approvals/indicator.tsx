@@ -53,8 +53,9 @@ export function ApprovalsIndicator({ me }: { me: Me }): JSX.Element | null {
               <span className="text-fg">
                 {a.title} <span className="num text-muted">{targetPath(a)}</span>
               </span>
+              {/* The credential, not the client's self-reported name: the page shows both. */}
               <span className="text-xs text-muted">
-                {a.clientName || a.credentialName} · {a.plugin}
+                {a.credentialName} · {a.plugin}
               </span>
             </Link>
           </DropdownMenuItem>

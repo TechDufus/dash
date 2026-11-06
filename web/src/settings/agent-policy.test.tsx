@@ -84,7 +84,16 @@ describe("AgentPolicyPanel", () => {
     );
     renderApp(<McpPage />);
     const kubernetes = await group("Kubernetes");
-    expect(within(kubernetes).getByRole("radio", { name: /^Approve/ })).toBeChecked();
+    const approve = within(kubernetes).getByRole("radio", { name: "Approve" });
+    expect(approve).toBeChecked();
+    // Each choice is named by its label alone and described by its note.
+    expect(approve).toHaveAccessibleDescription("each call waits for you to approve it here");
+    expect(within(kubernetes).getByRole("radio", { name: "Allow" })).toHaveAccessibleDescription(
+      "runs at once, except on protected targets",
+    );
+    expect(within(kubernetes).getByRole("radio", { name: "Deny" })).toHaveAccessibleDescription(
+      "agents get none of the plugin's action tools",
+    );
     expect(within(kubernetes).getByText("default")).toBeInTheDocument();
     // An unset value is the default, approve.
     expect(within(await group("Flux")).getByRole("radio", { name: /^Approve/ })).toBeChecked();
@@ -125,6 +134,10 @@ describe("AgentPolicyPanel", () => {
         }),
       ).toBeChecked(),
     );
+    // A value saved from here says so.
+    expect(
+      within(screen.getByRole("group", { name: /^Kubernetes/ })).getByText("set here"),
+    ).toBeInTheDocument();
   });
 
   it("reports a refused write and keeps the stored choice", async () => {

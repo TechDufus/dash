@@ -42,9 +42,10 @@ export function liveLockText(f: SettingField, readonly: boolean, verb: string): 
   return lockedText(f);
 }
 
-/** Where a field's value comes from, for the provenance column. */
+/** Where a field's value comes from, for the provenance column: "set here" for a value saved from the UI. */
 export function sourceText(f: SettingField): string {
   if (f.source === "default") return "default";
+  if (f.source === "ui") return "set here";
   return f.ref ? `${f.source} ${f.ref}` : f.source;
 }
 

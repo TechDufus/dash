@@ -18,6 +18,16 @@ export function approveRoute(id: string): string {
   return `/approve/${encodeURIComponent(id)}`;
 }
 
+/** The query key of one request: the page reads it, a decision and the topic replace it. */
+export function approvalKey(id: string): readonly ["approvals", string] {
+  return ["approvals", id];
+}
+
+/** Whether `id` has the form of an approval id (`appr_` and 26 base32 characters). */
+export function approvalIdValid(id: string): boolean {
+  return /^appr_[A-Z2-7]{26}$/.test(id);
+}
+
 /** GET /api/v1/approvals/{id}: the request as it is now. */
 export function fetchApproval(id: string): Promise<ApprovalInfo> {
   return api.get<ApprovalInfo>(approvalPaths.approval(id));
@@ -25,12 +35,13 @@ export function fetchApproval(id: string): Promise<ApprovalInfo> {
 
 /**
  * GET /api/v1/approvals/{id}, never requested while `enabled` is false. A request is decided once
- * and lives 10 minutes, so the answer is not refetched on its own and a failure is not retried
- * (a 410 stays a 410); the page reads it again when a decision finds it decided already.
+ * and stays readable 10 minutes after, so the answer is not refetched on its own and a failure is
+ * not retried (a 410 stays a 410); the page reads it again when a decision finds it decided
+ * already, or when core.approvals drops it from the pending list.
  */
 export function useApproval(id: string, enabled: boolean) {
   return useQuery({
-    queryKey: ["approvals", id],
+    queryKey: approvalKey(id),
     queryFn: () => fetchApproval(id),
     enabled,
     retry: false,
@@ -48,9 +59,14 @@ export function decideApproval(id: string, decision: ApprovalDecision): Promise<
   return api.post<ApprovalInfo>(approvalPaths.decision(id), decision);
 }
 
-/** Whether `err` says the request is gone: unknown, expired, or forgotten by a restart (410). */
+/** Whether `err` says the request is gone: expired past its retention, unknown, or lost (410). */
 export function approvalGone(err: unknown): boolean {
-  return err instanceof ApiError && (err.status === 410 || err.status === 404);
+  return err instanceof ApiError && err.status === 410;
+}
+
+/** Whether `err` says the id is not an approval id at all (404). */
+export function approvalMalformed(err: unknown): boolean {
+  return err instanceof ApiError && err.status === 404;
 }
 
 /** Whether `err` says the request is another user's (403 forbidden, not a CSRF failure). */

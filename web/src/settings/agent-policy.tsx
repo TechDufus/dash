@@ -59,7 +59,8 @@ function AgentPolicyRow({
   const queryClient = useQueryClient();
   const settings = useSettingsPlugin(plugin.id);
   const [pending, setPending] = useState(false);
-  const lockId = useId();
+  const baseId = useId();
+  const lockId = `${baseId}-lock`;
   if (settings.isPending) return <Skeleton className="h-20 w-full" />;
   if (settings.isError) {
     return (
@@ -106,23 +107,28 @@ function AgentPolicyRow({
         {lock ? null : <span className="text-xs font-normal text-faint">{sourceText(field)}</span>}
       </legend>
       <div className="flex flex-wrap gap-x-5 gap-y-1">
-        {POLICIES.map((p) => (
-          <label
-            key={p.value}
-            className="flex cursor-pointer items-center gap-2 text-sm has-disabled:cursor-not-allowed has-disabled:opacity-60"
-          >
-            <input
-              type="radio"
-              name={`agents-${plugin.id}`}
-              value={p.value}
-              checked={value === p.value}
-              onChange={() => void choose(p.value)}
-              className="accent-accent"
-            />
-            <span className="text-fg">{p.label}</span>
-            <span className="text-xs text-muted">{p.note}</span>
-          </label>
-        ))}
+        {POLICIES.map((p) => {
+          const noteId = `${baseId}-${p.value}`;
+          return (
+            <div key={p.value} className="flex items-center gap-2">
+              <label className="flex cursor-pointer items-center gap-2 text-sm has-disabled:cursor-not-allowed has-disabled:opacity-60">
+                <input
+                  type="radio"
+                  name={`agents-${plugin.id}`}
+                  value={p.value}
+                  checked={value === p.value}
+                  aria-describedby={noteId}
+                  onChange={() => void choose(p.value)}
+                  className="accent-accent"
+                />
+                <span className="text-fg">{p.label}</span>
+              </label>
+              <span id={noteId} className="text-xs text-muted">
+                {p.note}
+              </span>
+            </div>
+          );
+        })}
       </div>
       {lock ? (
         <p id={lockId} className="text-xs text-muted">

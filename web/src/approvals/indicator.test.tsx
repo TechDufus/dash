@@ -96,7 +96,9 @@ describe("ApprovalsIndicator", () => {
       "/approve/appr_B",
     ]);
     expect(items[0]).toHaveTextContent("Restart workload media/jellyfin");
-    expect(items[0]).toHaveTextContent("Claude Code · kubernetes");
+    // The credential names the request; the client's self-reported name is the page's.
+    expect(items[0]).toHaveTextContent("laptop agent · kubernetes");
+    expect(items[0]).not.toHaveTextContent("Claude Code");
     expect(items[1]).toHaveTextContent("Silence alert HostDown");
     expect(items[1]).toHaveTextContent("Agent · alertmanager");
   });

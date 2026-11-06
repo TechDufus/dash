@@ -56,10 +56,15 @@ describe("McpPage", () => {
     renderApp(<McpPage />);
     await waitFor(() => expect(toggle()).not.toBeChecked());
     expect(screen.getByText("not serving")).toBeInTheDocument();
+    // MCP has action tools now (behind the agent policy): the card no longer says read-only.
+    expect(screen.getByText(/^Tools, resources and prompts for AI clients/)).toBeInTheDocument();
+    expect(screen.queryByText(/read-only/i)).toBeNull();
 
     fireEvent.click(toggle());
     await waitFor(() => expect(screen.getByText("serving")).toBeInTheDocument());
     expect(toggle()).toBeChecked();
+    // A value stored from the UI says where it was set.
+    expect(screen.getByText("set here")).toBeInTheDocument();
     const puts = f.callsTo(PUT);
     expect(puts.map((c) => [c.headers.get("If-Match"), c.body])).toEqual([
       [`"${REVISION}"`, { mcp: { enabled: true } }],

@@ -109,8 +109,9 @@ export function McpPage(): JSX.Element {
         </PanelHeader>
         <div className="space-y-3 px-4 pb-4">
           <p className="text-sm text-muted">
-            Read-only tools, resources and prompts for AI clients that present a token with the mcp
-            audience.{lock ? null : " The switch applies at once, without a restart."}
+            Tools, resources and prompts for AI clients that present a token with the mcp audience.
+            Reading tools answer at once; plugin action tools follow each plugin's agent policy.
+            {lock ? null : " The switch applies at once, without a restart."}
           </p>
           {field ? (
             <div className="flex flex-wrap items-center gap-3">
