@@ -17,6 +17,31 @@ export function lockedText(f: SettingField): string | undefined {
   }
 }
 
+/** The environment variable of a dotted path: mcp.enabled is DASH_MCP_ENABLED. */
+function envNameOf(path: string): string {
+  return `DASH_${path
+    .replace(/([a-z0-9])([A-Z])/g, "$1_$2")
+    .replaceAll(".", "_")
+    .toUpperCase()}`;
+}
+
+/**
+ * Why a live setting (one dash applies without a restart) cannot be changed here, and how to
+ * change it; undefined when it can. `verb` is what its control does: "switch", "change".
+ */
+export function liveLockText(f: SettingField, readonly: boolean, verb: string): string | undefined {
+  if (f.lockedBy === "env") {
+    return `Set by the environment variable ${f.ref ?? envNameOf(f.path)}. To ${verb} it here, unset the variable and restart dash.`;
+  }
+  if (f.lockedBy === "file") {
+    return `Set in the config file${f.ref ? ` ${f.ref}` : ""}. Change it there, or remove it to ${verb} it here; dash applies the file without a restart.`;
+  }
+  if (f.lockedBy === "readonly" || readonly) {
+    return `Settings are read-only. Set ${f.path} in the config file, applied without a restart, or with ${envNameOf(f.path)} and a restart.`;
+  }
+  return lockedText(f);
+}
+
 /** Where a field's value comes from, for the provenance column. */
 export function sourceText(f: SettingField): string {
   if (f.source === "default") return "default";

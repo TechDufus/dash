@@ -5,7 +5,7 @@ import { toast } from "sonner";
 import { Link } from "wouter";
 import { api, errorMessage } from "@/api/client";
 import { useMe } from "@/api/queries";
-import type { SettingField, SettingsView } from "@/api/types";
+import type { SettingsView } from "@/api/types";
 import { Page } from "@/components/page";
 import { Panel, PanelHeader } from "@/components/panel";
 import { HealthBadge } from "@/components/status";
@@ -14,8 +14,9 @@ import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { copyElementText } from "@/lib/clipboard";
+import { AgentPolicyPanel } from "./agent-policy";
 import { invalidateSettings, settingsPaths, useSettingsView } from "./api";
-import { lockedText, sourceText } from "./list-locked";
+import { liveLockText, sourceText } from "./list-locked";
 
 /** The setting this page switches; it applies live, without a restart. */
 export const MCP_ENABLED = "mcp.enabled";
@@ -38,25 +39,11 @@ function endpointOf(view: SettingsView | undefined): string {
   return `${base.replace(/\/+$/, "")}/mcp`;
 }
 
-/** Why the switch cannot be changed here and how to change it; undefined when it can. */
-function lockOf(field: SettingField | undefined, readonly: boolean): string | undefined {
-  if (field?.lockedBy === "env") {
-    return `Set by the environment variable ${field.ref ?? "DASH_MCP_ENABLED"}. To switch it here, unset the variable and restart dash.`;
-  }
-  if (field?.lockedBy === "file") {
-    return `Set in the config file${field.ref ? ` ${field.ref}` : ""}. Change it there, or remove it to switch it here; dash applies the file without a restart.`;
-  }
-  if (field?.lockedBy === "readonly" || (readonly && field)) {
-    return "Settings are read-only. Set mcp.enabled in the config file, applied without a restart, or with DASH_MCP_ENABLED and a restart.";
-  }
-  return field ? lockedText(field) : undefined;
-}
-
 /**
- * /settings/mcp: the switch of the read-only MCP server (mcp.enabled, written through PUT
- * general with the revision of the last read), whether dash serves it now (/me's
- * capabilities.mcp), and how to connect a client. The route's gate shows it to administrators
- * only, never in demo mode, which has no settings API.
+ * /settings/mcp: the switch of the MCP server (mcp.enabled, written through PUT general with the
+ * revision of the last read), whether dash serves it now (/me's capabilities.mcp), the agent
+ * policy of each plugin with action tools (AgentPolicyPanel), and how to connect a client. The
+ * route's gate shows it to administrators only, never in demo mode, which has no settings API.
  */
 export function McpPage(): JSX.Element {
   const me = useMe();
@@ -66,7 +53,9 @@ export function McpPage(): JSX.Element {
   const field = view.data?.general.find((f) => f.path === MCP_ENABLED);
   const serving = me.data?.capabilities.mcp === true;
   const endpoint = endpointOf(view.data);
-  const lock = lockOf(field, view.data?.store.readonly === true);
+  const lock = field
+    ? liveLockText(field, view.data?.store.readonly === true, "switch")
+    : undefined;
   const command = `claude mcp add --transport http dash ${endpoint} --header "Authorization: Bearer <token>"`;
   const commandRef = useRef<HTMLElement>(null);
 
@@ -152,6 +141,7 @@ export function McpPage(): JSX.Element {
           ) : null}
         </div>
       </Panel>
+      {view.data ? <AgentPolicyPanel view={view.data} /> : null}
       <Panel>
         <PanelHeader title="Connect a client" icon={<Plug />} />
         <div className="space-y-3 px-4 pb-4 text-sm text-fg">
