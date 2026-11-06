@@ -44,7 +44,10 @@ macOS. On iPhone and iPad push needs:
 - **The QR code** holds dash's address, never a credential, for the dash Android app to scan.
   The app is not released yet.
 
-A device marked **stale** receives nothing: subscribe again on it.
+A device marked **stale** receives nothing: subscribe again on it. After you log out, dash
+subscribes this browser again at your next sign-in here, and your other browsers the next time
+they open dash, while notifications are still allowed there; otherwise a banner offers **Subscribe
+again**.
 
 ### Several people on one browser
 

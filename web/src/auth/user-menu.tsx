@@ -1,5 +1,5 @@
 import { BellRing, KeyRound, Loader2, LogIn, LogOut, UserRound, UsersRound } from "lucide-react";
-import { type JSX, useState } from "react";
+import { type JSX, useId, useState } from "react";
 import { toast } from "sonner";
 import { Link } from "wouter";
 import { pushAvailable } from "@/api/queries";
@@ -46,13 +46,17 @@ const CONFIRM: Record<Exclude<LogoutScope, "this">, { title: string; body: strin
  * page, their "Devices" page where push is available, "Log out" (this session), "Log out
  * everywhere" (every session of the user, and their connected apps) and, for an administrator,
  * "Sign out all users" (every session and every connected app of every user). Both of the latter
- * ask first; tokens survive either. Nothing in the other modes, where dash has no session to end.
- * After a logout the browser loads /login; a 401 means the session was gone already, which is the
- * same outcome. The anonymous viewer gets a "Sign in" link instead.
+ * ask first; tokens survive either. Where push is available a help line says what a logout does
+ * to it: dash stops pushing to the user's devices (every user's, for Sign out all users) until
+ * they subscribe again. Nothing in the other modes, where dash has no session to end. After a
+ * logout the browser loads /login; a 401 means the session was gone already, which is the same
+ * outcome. The anonymous viewer gets a "Sign in" link instead.
  */
 export function UserMenu({ me }: { me: Me }): JSX.Element | null {
   const [pending, setPending] = useState(false);
   const [confirming, setConfirming] = useState<Exclude<LogoutScope, "this"> | null>(null);
+  const outHelp = useId();
+  const allHelp = useId();
   if (me.authMode !== "local" && me.authMode !== "oidc") return null;
   // The anonymous viewer exists only in the local mode, whose one account is the administrator:
   // a local viewer is therefore the anonymous viewer, who has no session to end.
@@ -120,27 +124,45 @@ export function UserMenu({ me }: { me: Me }): JSX.Element | null {
               </Link>
             </DropdownMenuItem>
           ) : null}
-          <DropdownMenuItem disabled={pending} onSelect={() => void out("this")}>
+          <DropdownMenuItem
+            disabled={pending}
+            aria-describedby={pushAvailable(me) ? outHelp : undefined}
+            onSelect={() => void out("this")}
+          >
             <LogOut aria-hidden="true" />
             Log out
           </DropdownMenuItem>
           <DropdownMenuItem
             variant="destructive"
             disabled={pending}
+            aria-describedby={pushAvailable(me) ? outHelp : undefined}
             onSelect={() => setConfirming("user")}
           >
             <LogOut aria-hidden="true" />
             Log out everywhere
           </DropdownMenuItem>
+          {pushAvailable(me) ? (
+            <p id={outHelp} className="px-2 pb-1.5 text-xs text-muted">
+              Logging out stops push notifications on all your devices.
+            </p>
+          ) : null}
           {me.role === "admin" ? (
-            <DropdownMenuItem
-              variant="destructive"
-              disabled={pending}
-              onSelect={() => setConfirming("all")}
-            >
-              <UsersRound aria-hidden="true" />
-              Sign out all users
-            </DropdownMenuItem>
+            <>
+              <DropdownMenuItem
+                variant="destructive"
+                disabled={pending}
+                aria-describedby={pushAvailable(me) ? allHelp : undefined}
+                onSelect={() => setConfirming("all")}
+              >
+                <UsersRound aria-hidden="true" />
+                Sign out all users
+              </DropdownMenuItem>
+              {pushAvailable(me) ? (
+                <p id={allHelp} className="px-2 pb-1.5 text-xs text-muted">
+                  Stops push notifications on every user's devices.
+                </p>
+              ) : null}
+            </>
           ) : null}
         </DropdownMenuContent>
       </DropdownMenu>

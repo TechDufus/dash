@@ -95,6 +95,25 @@ describe("UserMenu", () => {
     expect(screen.getByRole("menuitem", { name: "Sign out all users" })).toBeInTheDocument();
   });
 
+  it("says a logout stops push on all the user's devices where push is available", async () => {
+    const push = { actions: false, mcp: false, push: true, oauth: false, tokens: false };
+    await openMenu(me({ role: "admin", capabilities: push }));
+    for (const name of ["Log out", "Log out everywhere"]) {
+      expect(screen.getByRole("menuitem", { name })).toHaveAccessibleDescription(
+        "Logging out stops push notifications on all your devices.",
+      );
+    }
+    expect(
+      screen.getByRole("menuitem", { name: "Sign out all users" }),
+    ).toHaveAccessibleDescription("Stops push notifications on every user's devices.");
+  });
+
+  it("has no push help line where push is not available", async () => {
+    await openMenu(me({ role: "admin" }));
+    expect(screen.queryByText(/stops push notifications/i)).toBeNull();
+    expect(screen.getByRole("menuitem", { name: "Log out" })).not.toHaveAccessibleDescription();
+  });
+
   it.each(["viewer", "", "Admin"])("has no Sign out all users for role %j", async (role) => {
     await openMenu(me({ authMode: "oidc", role }));
     expect(screen.getByRole("menuitem", { name: "Log out" })).toBeInTheDocument();
@@ -153,6 +172,7 @@ describe("UserMenu", () => {
   describe("this browser's push subscription", () => {
     const ID = "sub_ABCDEFGHIJKLMNOPQRSTUVWXYZ";
     const DELETE = `DELETE /api/v1/push/subscriptions/${ID}`;
+    const LIST = "GET /api/v1/push/subscriptions";
     let unsubscribe: Mock<() => Promise<boolean>>;
 
     beforeEach(() => {
@@ -171,17 +191,35 @@ describe("UserMenu", () => {
       };
     });
 
-    it("is removed and dropped before the logout when it is this user's", async () => {
+    it("is removed and dropped before the logout when it is this user's, keeping its settings", async () => {
       localStorage.setItem("dash.push.subscription:alice", ID);
-      const stub = stubFetch({ [LOGOUT]: undefined, [DELETE]: undefined });
+      const stub = stubFetch({
+        [LIST]: {
+          subscriptions: [
+            {
+              id: ID,
+              user: "alice",
+              deviceName: "Laptop",
+              notify: { approvals: false, attention: "warn" },
+            },
+          ],
+        },
+        [LOGOUT]: undefined,
+        [DELETE]: undefined,
+      });
       const u = await openMenu(me({ authMode: "oidc" }));
       await u.click(screen.getByRole("menuitem", { name: "Log out" }));
 
       await waitFor(() => expect(assign).toHaveBeenCalledWith("/login"));
       expect(unsubscribe).toHaveBeenCalledTimes(1);
       expect(localStorage.getItem("dash.push.subscription:alice")).toBeNull();
-      // The DELETE goes first, while the session still holds.
-      expect(stub.calls.map((c) => `${c.method} ${c.path}`)).toEqual([DELETE, LOGOUT]);
+      // Its name and notify settings stay for alice's next sign-in here; no ID, no endpoint.
+      expect(JSON.parse(localStorage.getItem("dash.push.resubscribe:alice") ?? "null")).toEqual({
+        deviceName: "Laptop",
+        notify: { approvals: false, attention: "warn" },
+      });
+      // The list and the DELETE go first, while the session still holds.
+      expect(stub.calls.map((c) => `${c.method} ${c.path}`)).toEqual([LIST, DELETE, LOGOUT]);
     });
 
     it("is left alone when it is another user's", async () => {

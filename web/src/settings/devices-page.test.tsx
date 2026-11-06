@@ -423,7 +423,9 @@ describe("DevicesPage", () => {
     expect(within(row).queryByRole("group", { name: "Attention" })).not.toBeInTheDocument();
     expect(within(row).queryByRole("button", { name: "Warnings" })).not.toBeInTheDocument();
     expect(within(row).queryByRole("button", { name: "Send test push" })).not.toBeInTheDocument();
-    expect(within(row).getByText(/Subscribe this browser again above/)).toBeInTheDocument();
+    expect(within(row).getByText(/Subscribe this browser again above/)).toHaveTextContent(
+      "dash's push key changed, or you logged out (logging out stops push on all your devices), so this device receives nothing. Subscribe this browser again above.",
+    );
     expect(screen.queryByText(/This browser is subscribed as/)).not.toBeInTheDocument();
 
     const again = screen.getByRole("button", { name: "Subscribe again" });
@@ -435,6 +437,51 @@ describe("DevicesPage", () => {
       userVisibleOnly: true,
       applicationServerKey: base64urlBytes(VAPID),
     });
+  });
+
+  it("prefills Subscribe again with the stale row's device name, and registers with it", async () => {
+    const user = userEvent.setup();
+    localStorage.setItem(MINE_KEY, ID);
+    const stub = stubFetch(
+      routes(meWith(true), {
+        [LIST]: {
+          subscriptions: [
+            sub({
+              state: "stale",
+              deviceName: "Work laptop",
+              notify: { approvals: false, attention: "warn" },
+            }),
+          ],
+        },
+      }),
+    );
+    renderApp(<DevicesPage />);
+    const again = await screen.findByRole("button", { name: "Subscribe again" });
+    expect(screen.getByLabelText("Device name")).toHaveValue("Work laptop");
+    await waitFor(() => expect(again).toBeEnabled());
+    await user.click(again);
+    await waitFor(() => expect(stub.callsTo(REGISTER)).toHaveLength(1));
+    expect(stub.callsTo(REGISTER)[0]?.body).toMatchObject({
+      deviceName: "Work laptop",
+      notify: { approvals: false, attention: "warn" },
+    });
+  });
+
+  it("forgets the logout marker once this browser subscribes again by hand", async () => {
+    const user = userEvent.setup();
+    const MARKER = "dash.push.resubscribe:alice";
+    localStorage.setItem(
+      MARKER,
+      JSON.stringify({ deviceName: "Laptop", notify: { approvals: true, attention: "crit" } }),
+    );
+    const stub = stubFetch(routes(meWith(true)));
+    renderApp(<DevicesPage />);
+    const button = await screen.findByRole("button", { name: "Subscribe this browser" });
+    await waitFor(() => expect(button).toBeEnabled());
+    await user.click(button);
+    await waitFor(() => expect(stub.callsTo(REGISTER)).toHaveLength(1));
+    await waitFor(() => expect(localStorage.getItem(MARKER)).toBeNull());
+    expect(localStorage.getItem(MINE_KEY)).toBe(ID);
   });
 
   it("asks before removing a device, and deletes only after the confirmation", async () => {
@@ -510,11 +557,13 @@ describe("DevicesPage", () => {
     ).toBeInTheDocument();
   });
 
-  it("says the Android app is not released yet under the QR code", async () => {
+  it("says the Android app is not released yet before the scan instruction", async () => {
     stubFetch(routes(meWith(true)));
     renderApp(<DevicesPage />);
     await qrOf(SERVER_URL);
-    expect(screen.getByText(/The dash Android app is not released yet/)).toBeInTheDocument();
+    const notYet = screen.getByText(/The dash Android app is not released yet/);
+    const scan = screen.getByText(/Scan this code in the dash app/);
+    expect(notYet.compareDocumentPosition(scan) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
   it("says so where this browser cannot receive push, and still lists the devices", async () => {
@@ -613,7 +662,7 @@ describe("DevicesPage, an administrator's view of other users' devices", () => {
     );
     renderApp(<DevicesPage />);
     expect(await screen.findByRole("heading", { name: "Your devices" })).toBeInTheDocument();
-    const filter = screen.getByRole("group", { name: "Whose devices" });
+    const filter = await screen.findByRole("group", { name: "Whose devices" });
     await user.click(within(filter).getByRole("button", { name: "All users" }));
 
     expect(await screen.findByRole("heading", { name: "Everyone's devices" })).toBeInTheDocument();
@@ -648,6 +697,33 @@ describe("DevicesPage, an administrator's view of other users' devices", () => {
     expect(toast.success).toHaveBeenCalledWith("Removed bob's Phone");
   });
 
+  it("hides the owner filter in the local mode, whose one account is the administrator", async () => {
+    const stub = stubFetch(
+      routes(meWith(true, { role: "admin", authMode: "local" }), { [LIST]: lists }),
+    );
+    renderApp(<DevicesPage />);
+    expect(await screen.findByText("Laptop")).toBeInTheDocument();
+    expect(screen.queryByRole("group", { name: "Whose devices" })).not.toBeInTheDocument();
+    expect(stub.callsTo(LIST).every((c) => !c.query.has("user"))).toBe(true);
+  });
+
+  it("hides the owner filter while no other user has a device", async () => {
+    const stub = stubFetch(
+      routes(meWith(true, { role: "admin" }), {
+        [LIST]: (call: FetchCall) =>
+          call.query.get("user") === "*" ? { subscriptions: [sub()] } : lists(call),
+      }),
+    );
+    renderApp(<DevicesPage />);
+    expect(await screen.findByText("Laptop")).toBeInTheDocument();
+    await waitFor(() =>
+      expect(stub.callsTo(LIST).some((c) => c.query.get("user") === "*")).toBe(true),
+    );
+    await new Promise((r) => setTimeout(r, 50));
+    expect(screen.queryByRole("group", { name: "Whose devices" })).not.toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Your devices" })).toBeInTheDocument();
+  });
+
   it("lists one user's devices once a name is given", async () => {
     const user = userEvent.setup();
     const stub = stubFetch(routes(meWith(true, { role: "admin" }), { [LIST]: lists }));
@@ -656,7 +732,10 @@ describe("DevicesPage, an administrator's view of other users' devices", () => {
     await user.click(within(filter).getByRole("button", { name: "One user" }));
     expect(screen.getByText("Type a user name, then Show.")).toBeInTheDocument();
     const before = stub.callsTo(LIST).length;
-    expect(stub.callsTo(LIST).some((c) => c.query.has("user"))).toBe(false);
+    // Besides one's own list, only everyone's (which shows the filter): no one user's yet.
+    expect(stub.callsTo(LIST).some((c) => c.query.has("user") && c.query.get("user") !== "*")).toBe(
+      false,
+    );
 
     await user.type(screen.getByLabelText("User name"), "bob");
     await user.click(screen.getByRole("button", { name: "Show" }));

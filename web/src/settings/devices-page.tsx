@@ -45,16 +45,18 @@ import {
   ENDPOINT_TAKEN,
   invalidatePush,
   isEndpointTaken,
+  onVerifyCode,
   pushSupported,
   registerSubscription,
+  renewingThisBrowser,
   sendTestPush,
+  setResubscribeMarker,
   setThisBrowserID,
   subscribeBrowser,
   subscriptionRequest,
   thisBrowserID,
   useSubscriptions,
   useVapid,
-  VERIFY_MESSAGE,
   verifySubscription,
 } from "./devices-api";
 import { type Owner, OwnerFilter } from "./owner-filter";
@@ -67,13 +69,15 @@ const ATTENTION: { value: string; label: string }[] = [
 ];
 
 const OWN: Owner = { kind: "own" };
+const ALL: Owner = { kind: "all" };
 
 /**
  * /settings/devices (P7.7): the caller's push devices, subscribing this browser, and the QR code
  * the Android app scans. Open to every user where push is available (capabilities.push); anywhere
  * else the page says so and reads nothing. An administrator also lists one user's or everyone's
- * devices and may remove them; another user's notify settings are shown read-only, and only the
- * owner tests or verifies a device.
+ * devices (the owner filter, shown once another user has a device; never in the local mode, whose
+ * one account is the administrator) and may remove them; another user's notify settings are shown
+ * read-only, and only the owner tests or verifies a device.
  *
  * Subscribing: the button (a user gesture) asks for the notification permission, subscribes the
  * browser with dash's VAPID key and registers the subscription with approvals on and attention
@@ -86,8 +90,14 @@ export function DevicesPage(): JSX.Element {
   const supported = available && pushSupported();
   const admin = me.data?.role === "admin";
   const [owner, setOwner] = useState<Owner>(OWN);
-  // A viewer only ever lists their own devices, whatever the state says.
-  const effective: Owner = admin ? owner : OWN;
+  // The owner filter needs other users: the local mode has one account, the administrator; in
+  // the others it shows once everyone's list holds a device of another user.
+  const multiUser = admin && me.data?.authMode !== "local";
+  const everyone = useSubscriptions(ALL, available && multiUser);
+  const showFilter =
+    multiUser && (everyone.data?.subscriptions.some((s) => s.user !== me.data?.user) ?? false);
+  // Without the filter (a viewer, or nobody else to show) the list is one's own devices.
+  const effective: Owner = showFilter ? owner : OWN;
   // "One user" before a name was typed lists nobody's devices.
   const awaitingName = effective.kind === "user" && effective.name === "";
   // The caller's own list knows this browser's row; the shown one is the owner filter's (the
@@ -126,16 +136,13 @@ export function DevicesPage(): JSX.Element {
     [queryClient],
   );
 
-  // The service worker posts a verify push's code to every window of dash.
+  // The service worker posts a verify push's code to every window of dash; while the shell
+  // subscribes this browser again by itself (renewThisBrowser), that code is its own.
   useEffect(() => {
     if (!supported) return;
-    const onMessage = (e: MessageEvent) => {
-      const d = e.data as { type?: unknown; code?: unknown } | null;
-      if (d?.type === VERIFY_MESSAGE && typeof d.code === "string") setReceived(d.code);
-    };
-    const container = navigator.serviceWorker;
-    container.addEventListener("message", onMessage);
-    return () => container.removeEventListener("message", onMessage);
+    return onVerifyCode((code) => {
+      if (!renewingThisBrowser()) setReceived(code);
+    });
   }, [supported]);
 
   // A code goes to the subscription this page registered, or else to this browser's pending one.
@@ -171,6 +178,7 @@ export function DevicesPage(): JSX.Element {
 
   function registered(info: PushSubscriptionInfo) {
     setThisBrowserID(user, info.id);
+    setResubscribeMarker(user, null);
     stored();
     if (info.state !== PushStateVerified) setAwaiting(info.id);
   }
@@ -187,7 +195,9 @@ export function DevicesPage(): JSX.Element {
       />
       <Panel>
         <PanelHeader title={listTitle(effective)} icon={<BellRing />}>
-          {admin ? <OwnerFilter label="Whose devices" owner={owner} onChange={setOwner} /> : null}
+          {showFilter ? (
+            <OwnerFilter label="Whose devices" owner={owner} onChange={setOwner} />
+          ) : null}
         </PanelHeader>
         {awaitingName ? (
           <Empty>Type a user name, then Show.</Empty>
@@ -223,6 +233,7 @@ export function DevicesPage(): JSX.Element {
         onClose={() => setRemoving(null)}
         onRemovedMine={() => {
           setThisBrowserID(user, null);
+          setResubscribeMarker(user, null);
           stored();
         }}
       />
@@ -275,8 +286,8 @@ function IOSHint(): JSX.Element {
 
 /**
  * Subscribing this browser: a device name, then the button. Once the browser is subscribed the
- * panel says so instead; only a stale subscription (dash's push key changed) offers the button
- * again, as "Subscribe again".
+ * panel says so instead; only a stale subscription (dash's push key changed, or a logout) offers
+ * the button again, as "Subscribe again", with that device's name.
  */
 function SubscribePanel({
   supported,
@@ -294,7 +305,10 @@ function SubscribePanel({
   const stale = mineRow?.state === PushStateStale;
   const notify = mineRow?.notify ?? DEFAULT_NOTIFY;
   const queryClient = useQueryClient();
-  const [name, setName] = useState(() => defaultDeviceName(navigator.userAgent));
+  // null until the field is edited: the stale row's name, or one made from the user agent.
+  const [edited, setName] = useState<string | null>(null);
+  const name =
+    edited ?? (stale && mineRow ? mineRow.deviceName : defaultDeviceName(navigator.userAgent));
   const [busy, setBusy] = useState(false);
   const trimmed = name.trim();
 
@@ -438,7 +452,9 @@ function DeviceRow({
       {sub.state === PushStateStale ? (
         // Stale: dash's push key changed, or the owner's sessions ended (a logout).
         <p className="text-sm text-warn">
-          This device receives nothing: dash's push key changed, or its user was logged out.{" "}
+          {other
+            ? `dash's push key changed, or ${sub.user} logged out (logging out stops push on all their devices), so this device receives nothing.`
+            : "dash's push key changed, or you logged out (logging out stops push on all your devices), so this device receives nothing."}{" "}
           {mine
             ? "Subscribe this browser again above."
             : other
@@ -594,9 +610,11 @@ function AppPanel({ url }: { url: string }): JSX.Element {
       <div className="flex flex-wrap items-center gap-4 px-4 pb-4">
         <QrCode value={url} className="size-44 rounded-sm" />
         <div className="space-y-1 text-sm">
-          <p className="text-fg">Scan this code in the dash app to fill in the server address.</p>
-          <p className="text-muted">
+          <p className="text-fg">
             The dash Android app is not released yet: it comes in a later release.
+          </p>
+          <p className="text-muted">
+            Scan this code in the dash app to fill in the server address.
           </p>
           <p className="num text-muted">{url}</p>
           <p className="text-muted">It holds the address only, never a credential.</p>
