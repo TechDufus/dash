@@ -95,12 +95,12 @@ describe("UserMenu", () => {
     expect(screen.getByRole("menuitem", { name: "Sign out all users" })).toBeInTheDocument();
   });
 
-  it("says a logout stops push on all the user's devices where push is available", async () => {
+  it("says what a logout does to push where push is available", async () => {
     const push = { actions: false, mcp: false, push: true, oauth: false, tokens: false };
     await openMenu(me({ role: "admin", capabilities: push }));
     for (const name of ["Log out", "Log out everywhere"]) {
       expect(screen.getByRole("menuitem", { name })).toHaveAccessibleDescription(
-        "Logging out stops push notifications on all your devices.",
+        "Log out stops push in this browser profile and on your other browsers; the dash app keeps its notifications until you log out everywhere or disconnect it.",
       );
     }
     expect(
@@ -110,7 +110,7 @@ describe("UserMenu", () => {
 
   it("has no push help line where push is not available", async () => {
     await openMenu(me({ role: "admin" }));
-    expect(screen.queryByText(/stops push notifications/i)).toBeNull();
+    expect(screen.queryByText(/stops push/i)).toBeNull();
     expect(screen.getByRole("menuitem", { name: "Log out" })).not.toHaveAccessibleDescription();
   });
 

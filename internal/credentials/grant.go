@@ -363,8 +363,9 @@ func (s *Store) RotateRefresh(token, next string, now time.Time) (Grant, error) 
 	return out, nil
 }
 
-// RevokeGrant deletes a grant and returns it; false when there is none. Like RevokePAT, the
-// revocation applies to this process even when the write fails, and the error says so.
+// RevokeGrant deletes a grant and returns it; false when there is none. The push subscriptions
+// it registered turn stale in the same write. Like RevokePAT, the revocation applies to this
+// process even when the write fails, and the error says so.
 func (s *Store) RevokeGrant(id string) (revoked Grant, ok bool, err error) {
 	err = s.update(true, func(d *document) bool {
 		revoked, ok = d.Grants[id]
@@ -375,6 +376,7 @@ func (s *Store) RevokeGrant(id string) (revoked Grant, ok bool, err error) {
 		if len(d.Grants) == 0 {
 			d.Grants = nil
 		}
+		stalePushByGrant(d)
 		return true
 	})
 	if ok && err == nil && s.fileChanged() {
@@ -408,6 +410,7 @@ func (s *Store) revokeGrantsWhere(match func(Grant) bool) (revoked []Grant, err 
 		if len(d.Grants) == 0 {
 			d.Grants = nil
 		}
+		stalePushByGrant(d)
 		return len(revoked) > 0
 	})
 	if len(revoked) > 0 && err == nil && s.fileChanged() {

@@ -424,7 +424,7 @@ describe("DevicesPage", () => {
     expect(within(row).queryByRole("button", { name: "Warnings" })).not.toBeInTheDocument();
     expect(within(row).queryByRole("button", { name: "Send test push" })).not.toBeInTheDocument();
     expect(within(row).getByText(/Subscribe this browser again above/)).toHaveTextContent(
-      "dash's push key changed, or you logged out (logging out stops push on all your devices), so this device receives nothing. Subscribe this browser again above.",
+      "dash's push key changed, you logged out (logging out stops push on your browsers), or the dash app was disconnected, so this device receives nothing. Subscribe this browser again above.",
     );
     expect(screen.queryByText(/This browser is subscribed as/)).not.toBeInTheDocument();
 

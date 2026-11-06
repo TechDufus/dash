@@ -253,9 +253,11 @@ func (s *Server) createPushSubscription(w http.ResponseWriter, r *http.Request) 
 	if !ok {
 		return
 	}
+	// A grant's access token (the dash app) ties the row to that grant; a cookie session's row
+	// follows the user's session epochs instead.
 	sub, sendCode, err := s.d.Credentials.AddPushSubscription(credentials.PushInput{
 		ID: id, User: p.User, Kind: body.Kind, DeviceName: body.DeviceName, Approvals: body.Notify.Approvals, Attention: body.Notify.Attention,
-		Endpoint: body.Endpoint, EndpointHost: host, P256dh: body.Keys.P256dh, Auth: body.Keys.Auth,
+		Endpoint: body.Endpoint, EndpointHost: host, P256dh: body.Keys.P256dh, Auth: body.Keys.Auth, GrantID: p.GrantID,
 	}, code, s.now())
 	if err == nil { // the outcome names the row the store wrote, should it differ from the intent's
 		pending = pending.WithTarget(pushTarget(sub))

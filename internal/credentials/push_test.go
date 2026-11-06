@@ -422,6 +422,90 @@ func TestPushEpochBumpsMakeSubscriptionsStale(t *testing.T) {
 	}
 }
 
+// A subscription the dash app registered with its OAuth grant follows that grant, not the
+// user's sessions: a plain logout (and a global bump alone) keeps it, while revoking the grant,
+// "Log out everywhere" (which revokes the user's grants) and the prune of an expired grant each
+// turn it stale in the same write.
+func TestPushGrantSubscriptionsFollowTheirGrant(t *testing.T) {
+	dir := t.TempDir()
+	keys := secret.NewKeyring(pushKey(t), secret.Key{})
+	s, _ := openPush(t, dir, keys)
+	state := func(id string) string {
+		sub, _ := s.PushSubscriptionByID(id)
+		return sub.State
+	}
+	device := func(endpoint, grantID string) string {
+		t.Helper()
+		in := pushIn("alice", endpoint)
+		in.GrantID = grantID
+		sub, code := addPush(t, s, in)
+		if _, err := s.VerifyPushSubscription("alice", sub.ID, code, pushT0); err != nil {
+			t.Fatal(err)
+		}
+		return sub.ID
+	}
+	grant := func() Grant {
+		t.Helper()
+		_, g, err := newGrant(t, s, "alice", pushT0)
+		must(t, err)
+		_, _, err = s.ExchangeGrant(g.ID, pushT0)
+		must(t, err)
+		return g
+	}
+
+	revoked, logout, expired := grant(), grant(), grant()
+	browser := device("https://push.example.net/browser", "")
+	app := device("https://push.example.net/app", revoked.ID)
+	if sub, _ := s.PushSubscriptionByID(app); sub.GrantID != revoked.ID {
+		t.Fatalf("the app's row names grant %q, want %q", sub.GrantID, revoked.ID)
+	}
+	must(t, s.BumpEpoch("alice"))
+	must(t, s.BumpGlobal())
+	if state(browser) != PushStale || state(app) != PushVerified {
+		t.Errorf("after a logout: browser %s, app %s, want stale and verified", state(browser), state(app))
+	}
+	must(t, s.Close())
+	s, _ = openPush(t, dir, keys)
+	if state(app) != PushVerified {
+		t.Errorf("the app after a restart: %s, want verified", state(app))
+	}
+	if _, ok, err := s.RevokeGrant(revoked.ID); !ok || err != nil {
+		t.Fatalf("RevokeGrant: %v %v", ok, err)
+	}
+	if state(app) != PushStale {
+		t.Errorf("the app after its grant's revocation: %s, want stale", state(app))
+	}
+
+	// "Log out everywhere": the user's epoch moves on and every grant of theirs is revoked.
+	app = device("https://push.example.net/app2", logout.ID)
+	other := device("https://push.example.net/app3", expired.ID)
+	must(t, s.BumpEpoch("alice"))
+	_, err := s.RevokeGrants("alice")
+	must(t, err)
+	if state(app) != PushStale || state(other) != PushStale {
+		t.Errorf("after Log out everywhere: %s %s, want stale", state(app), state(other))
+	}
+
+	// An expired grant is pruned, and its device turns stale in that write; an active one keeps
+	// its device.
+	_, live, err := newGrant(t, s, "alice", pushT0.Add(GrantIdle))
+	must(t, err)
+	_, _, err = s.ExchangeGrant(live.ID, pushT0.Add(GrantIdle))
+	must(t, err)
+	gone := grant()
+	keep, lapse := device("https://push.example.net/app4", live.ID), device("https://push.example.net/app5", gone.ID)
+	n, err := s.PruneExpired(pushT0.Add(GrantIdle + time.Hour))
+	must(t, err)
+	if n != 1 || state(keep) != PushVerified || state(lapse) != PushStale {
+		t.Errorf("prune deleted %d; live %s, expired %s, want 1, verified and stale", n, state(keep), state(lapse))
+	}
+	must(t, s.Close())
+	s, _ = openPush(t, dir, keys)
+	if state(keep) != PushVerified || state(lapse) != PushStale {
+		t.Errorf("after a restart: live %s, expired %s, want verified and stale", state(keep), state(lapse))
+	}
+}
+
 // Deleting the last subscription and holding no key returns the file to schemaVersion 1.
 func TestPushDeleteReturnsToVersion1(t *testing.T) {
 	dir := t.TempDir()

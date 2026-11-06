@@ -335,6 +335,26 @@ func TestPushSubscriptionLifecycle(t *testing.T) {
 	}
 }
 
+// A device registered with an OAuth access token (the dash app's grant) records that grant; a
+// device a person registers records none.
+func TestPushRegistrationRecordsTheGrant(t *testing.T) {
+	e := newPushEnv(t)
+	_, browser := e.subscribe(t, "alice", newPushDevice(t, e.f), "Laptop")
+	g := addGrant(t, e.store, "alice")
+	e.s.d.Auth = auth.Fixed(auth.Principal{Kind: auth.KindToken, User: "alice", Role: auth.RoleViewer, Via: "bearer",
+		GrantID: g.ID, ClientID: "dash-android", Audience: "api", Scopes: []string{"read", model.OAuthScopePush}})
+	status, app := e.subscribe(t, "alice", newPushDevice(t, e.f), "Pixel")
+	if status != http.StatusCreated {
+		t.Fatalf("the app's registration = %d", status)
+	}
+	if sub, _ := e.store.PushSubscriptionByID(app.ID); sub.GrantID != g.ID {
+		t.Errorf("the app's row names grant %q, want %q", sub.GrantID, g.ID)
+	}
+	if sub, _ := e.store.PushSubscriptionByID(browser.ID); sub.GrantID != "" {
+		t.Errorf("the browser's row names grant %q", sub.GrantID)
+	}
+}
+
 // A user sees and changes only their own devices; another user's endpoint is refused; bad
 // registrations are field errors; a token needs the push scope and skips CSRF.
 func TestPushSubscriptionAccess(t *testing.T) {

@@ -208,8 +208,9 @@ func activeOf(pats map[string]PAT, user string, now time.Time) int {
 // only grow the file and keep it at schemaVersion 2), the OAuth grants that are no longer
 // active, which no refresh can bring back, and the grants whose authorization code expired
 // unexchanged, which no client can ever use (the oauth server revokes those when it sweeps the
-// code; a restart forgets the code, so this catches them). It reports how many it deleted; like
-// a revocation, the deletion holds in this process even when the write fails.
+// code; a restart forgets the code, so this catches them). The push subscriptions of a deleted
+// grant turn stale in the same write. It reports how many it deleted; like a revocation, the
+// deletion holds in this process even when the write fails.
 func (s *Store) PruneExpired(now time.Time) (int, error) {
 	cut := now.Add(-PruneAfter)
 	stale := func(p PAT) bool { return p.ExpiresAt.Before(cut) }
@@ -241,6 +242,7 @@ func (s *Store) PruneExpired(now time.Time) (int, error) {
 		if len(d.Grants) == 0 {
 			d.Grants = nil
 		}
+		stalePushByGrant(d)
 		return n > 0
 	})
 	return n, err

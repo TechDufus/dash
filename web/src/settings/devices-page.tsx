@@ -450,11 +450,12 @@ function DeviceRow({
         </div>
       </div>
       {sub.state === PushStateStale ? (
-        // Stale: dash's push key changed, or the owner's sessions ended (a logout).
+        // Stale: dash's push key changed, the owner's sessions ended (a logout, for a browser), or
+        // the grant of the dash app that registered it is gone.
         <p className="text-sm text-warn">
           {other
-            ? `dash's push key changed, or ${sub.user} logged out (logging out stops push on all their devices), so this device receives nothing.`
-            : "dash's push key changed, or you logged out (logging out stops push on all your devices), so this device receives nothing."}{" "}
+            ? `dash's push key changed, ${sub.user} logged out (logging out stops push on their browsers), or their dash app was disconnected, so this device receives nothing.`
+            : "dash's push key changed, you logged out (logging out stops push on your browsers), or the dash app was disconnected, so this device receives nothing."}{" "}
           {mine
             ? "Subscribe this browser again above."
             : other

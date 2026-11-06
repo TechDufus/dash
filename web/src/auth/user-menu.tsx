@@ -47,10 +47,12 @@ const CONFIRM: Record<Exclude<LogoutScope, "this">, { title: string; body: strin
  * everywhere" (every session of the user, and their connected apps) and, for an administrator,
  * "Sign out all users" (every session and every connected app of every user). Both of the latter
  * ask first; tokens survive either. Where push is available a help line says what a logout does
- * to it: dash stops pushing to the user's devices (every user's, for Sign out all users) until
- * they subscribe again. Nothing in the other modes, where dash has no session to end. After a
- * logout the browser loads /login; a 401 means the session was gone already, which is the same
- * outcome. The anonymous viewer gets a "Sign in" link instead.
+ * to it: dash stops pushing to the user's browsers (every user's devices, for Sign out all users)
+ * until they subscribe again, while the dash app, which follows its grant, keeps its
+ * notifications until Log out everywhere or its disconnection. Nothing in the other modes, where
+ * dash has no session to end. After a logout the browser loads /login; a 401 means the session
+ * was gone already, which is the same outcome. The anonymous viewer gets a "Sign in" link
+ * instead.
  */
 export function UserMenu({ me }: { me: Me }): JSX.Element | null {
   const [pending, setPending] = useState(false);
@@ -143,7 +145,8 @@ export function UserMenu({ me }: { me: Me }): JSX.Element | null {
           </DropdownMenuItem>
           {pushAvailable(me) ? (
             <p id={outHelp} className="px-2 pb-1.5 text-xs text-muted">
-              Logging out stops push notifications on all your devices.
+              Log out stops push in this browser profile and on your other browsers; the dash app
+              keeps its notifications until you log out everywhere or disconnect it.
             </p>
           ) : null}
           {me.role === "admin" ? (

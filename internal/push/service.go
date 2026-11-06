@@ -413,7 +413,9 @@ func (s *Service) finish(j *job, result string) {
 }
 
 // prepare readies j's first attempt, or returns its result (obs.Push*). Only a verified
-// subscription receives anything but its verify push, and a pending one nothing else.
+// subscription receives anything but its verify push, and a pending one nothing else; a
+// subscription an OAuth grant registered (the dash app) receives nothing once that grant is
+// gone or no longer active, even before a prune turns it stale.
 func (s *Service) prepare(j *job) (result string, ok bool) {
 	t, err := s.o.Store.PushTarget(j.id)
 	if err != nil {
@@ -425,6 +427,11 @@ func (s *Service) prepare(j *job) (result string, ok bool) {
 	if want := credentials.PushVerified; j.d.msg.Type == model.PushTypeVerify && t.State != credentials.PushPending ||
 		j.d.msg.Type != model.PushTypeVerify && t.State != want {
 		return obs.PushUnverified, false
+	}
+	if t.GrantID != "" {
+		if g, held := s.o.Store.GrantByID(t.GrantID); !held || !g.Active(s.o.Now()) {
+			return obs.PushUnverified, false
+		}
 	}
 	if s.o.Secrets != nil {
 		s.o.Secrets.AddString(t.Endpoint)

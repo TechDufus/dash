@@ -1,11 +1,14 @@
 package api
 
 import (
+	"crypto/rand"
+	"encoding/base64"
 	"net/http"
 	"testing"
 
 	"github.com/TechDufus/dash/internal/audit"
 	"github.com/TechDufus/dash/internal/credentials"
+	"github.com/TechDufus/dash/internal/secret"
 	"github.com/TechDufus/dash/internal/session"
 )
 
@@ -94,5 +97,60 @@ func TestLogoutScopesRevokeGrants(t *testing.T) {
 	}
 	if _, ok := store.PATByID(pat.ID); !ok {
 		t.Error("a logout revoked a personal access token")
+	}
+}
+
+// A plain logout stops push to the browsers (their rows follow the session epochs) and keeps the
+// dash app's device, which follows its grant; "Log out everywhere" revokes that grant, and the
+// app's device turns stale with it.
+func TestLogoutAndGrantPushDevices(t *testing.T) {
+	e := newLocalEnv(t, localOpts{storedAs: localAdmin})
+	store := e.sess.Store
+	raw := make([]byte, 32)
+	_, _ = rand.Read(raw)
+	k, err := secret.ParseKey(base64.StdEncoding.EncodeToString(raw))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.OpenPush(secret.NewKeyring(k, secret.Key{})); err != nil {
+		t.Fatal(err)
+	}
+	device := func(endpoint, grantID string) string {
+		t.Helper()
+		in := credentials.PushInput{User: localAdmin, Kind: credentials.PushKindWebPush, DeviceName: "d", Attention: "crit",
+			Endpoint: endpoint, EndpointHost: "push.example.net", P256dh: "k", Auth: "a", GrantID: grantID}
+		sub, _, err := store.AddPushSubscription(in, "ABCDEFGH", fixedNow)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := store.VerifyPushSubscription(localAdmin, sub.ID, "ABCDEFGH", fixedNow); err != nil {
+			t.Fatal(err)
+		}
+		return sub.ID
+	}
+	state := func(id string) string {
+		sub, _ := store.PushSubscriptionByID(id)
+		return sub.State
+	}
+	logout := func(scope string) {
+		t.Helper()
+		w := e.login(localAdmin, localPassword)
+		if w.Code != http.StatusNoContent {
+			t.Fatalf("login: %d", w.Code)
+		}
+		if w := e.post("/auth/logout", map[string]string{"scope": scope}, sessionCookie(t, w)); w.Code != http.StatusNoContent {
+			t.Fatalf("logout %s = %d", scope, w.Code)
+		}
+	}
+	g := addGrant(t, store, localAdmin)
+	browser := device("https://push.example.net/browser", "")
+	app := device("https://push.example.net/app", g.ID)
+	logout("this")
+	if state(browser) != credentials.PushStale || state(app) != credentials.PushVerified {
+		t.Errorf("after Log out: browser %s, app %s, want stale and verified", state(browser), state(app))
+	}
+	logout("user")
+	if state(app) != credentials.PushStale {
+		t.Errorf("after Log out everywhere: app %s, want stale", state(app))
 	}
 }

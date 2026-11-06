@@ -55,16 +55,20 @@ A browser has one push subscription, and it belongs to the dash user who registe
 second person signs in on the same browser profile and subscribes, dash refuses with "another user
 registered this push endpoint": the first person removes the device under their account, or the
 second uses a browser profile of their own. In the `local` and `oidc` modes a logout turns the
-owner's devices stale, so a shared browser stops receiving the previous user's notifications when
+owner's browsers stale, so a shared browser stops receiving the previous user's notifications when
 they sign out.
 
 ## Removed and signed-out users
 
-In the `local` and `oidc` modes a device follows its owner's sessions: a logout, **Log out
-everywhere** and **Sign out all users** turn the owner's devices (all devices, for the last one)
-stale, and they get nothing until they subscribe again. When an attention push is sent, dash also
-checks that the owner may still sign in: in `local` mode only the administrator account, in `oidc`
-mode a user still in `auth.oidc.allowedUsers`.
+In the `local` and `oidc` modes a browser follows its owner's sessions: a logout, **Log out
+everywhere** and **Sign out all users** turn the owner's browsers (every user's, for the last one)
+stale, and they get nothing until they subscribe again. A device the dash app registered with its
+OAuth grant follows that grant instead: a plain logout keeps it, and it turns stale when the grant
+ends, by **Log out everywhere** or **Sign out all users** (both revoke grants), by disconnecting
+the app in Settings → Connected apps, or by the grant's expiry; dash also checks the grant before
+each push. When an attention push is sent, dash also checks that the owner may still sign in: in
+`local` mode only the administrator account, in `oidc` mode a user still in
+`auth.oidc.allowedUsers`.
 
 Two cases are beyond what dash can see. In `proxy` mode the identity proxy decides who gets in,
 and with `auth.oidc.allowedGroups` dash cannot tell without a login that a user left the group.

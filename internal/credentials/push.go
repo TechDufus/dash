@@ -114,26 +114,51 @@ type pushSubscription struct {
 	PendingSince *time.Time `json:"pendingSince,omitempty"`
 	CreatedAt    time.Time  `json:"createdAt"`
 	VerifiedAt   *time.Time `json:"verifiedAt,omitempty"`
-	// Epoch and GlobalEpoch are the user's session epoch and the global epoch when the row was
-	// registered (any bump since turned it stale, so a verified row holds them too). A bump of
-	// either (a logout, "Log out everywhere", "Sign out all users") turns the row stale: a
-	// removed or signed-out user's device gets nothing.
+	// Epoch and GlobalEpoch are the user's session epoch and the global epoch when a cookie
+	// session registered the row (any bump since turned it stale, so a verified row holds them
+	// too). A bump of either (a logout, "Log out everywhere", "Sign out all users") turns the row
+	// stale: a removed or signed-out user's device gets nothing.
 	Epoch       uint64 `json:"epoch,omitempty"`
 	GlobalEpoch uint64 `json:"globalEpoch,omitempty"`
+	// GrantID is the OAuth grant whose access token registered the row (the dash app), instead
+	// of the epochs: the row follows that grant, not the user's sessions, so a plain logout
+	// keeps it, and revoking the grant ("Log out everywhere" does) or its expiry turns it stale.
+	GrantID string `json:"grantID,omitempty"`
 }
 
-// stalePushByEpoch turns stale every subscription whose recorded epochs are no longer the
-// document's.
+// stalePush turns the subscription id stale: it gets nothing until its device subscribes again.
+func stalePush(d *document, id string, sub pushSubscription) {
+	sub.State, sub.Code, sub.Attempts, sub.PendingSince = PushStale, "", 0, nil
+	d.Push.Subscriptions[id] = sub
+}
+
+// stalePushByEpoch turns stale every subscription a cookie session registered whose recorded
+// epochs are no longer the document's. A grant's subscription follows its grant instead.
 func stalePushByEpoch(d *document) (n int) {
 	if d.Push == nil {
 		return 0
 	}
 	for id, sub := range d.Push.Subscriptions {
-		if sub.State == PushStale || sub.Epoch == d.Epochs[sub.User] && sub.GlobalEpoch == d.GlobalEpoch {
+		if sub.State == PushStale || sub.GrantID != "" || sub.Epoch == d.Epochs[sub.User] && sub.GlobalEpoch == d.GlobalEpoch {
 			continue
 		}
-		sub.State, sub.Code, sub.Attempts, sub.PendingSince = PushStale, "", 0, nil
-		d.Push.Subscriptions[id] = sub
+		stalePush(d, id, sub)
+		n++
+	}
+	return n
+}
+
+// stalePushByGrant turns stale every subscription registered with a grant the document no
+// longer holds (revoked or pruned). Each grant deletion calls it in the same update.
+func stalePushByGrant(d *document) (n int) {
+	if d.Push == nil {
+		return 0
+	}
+	for id, sub := range d.Push.Subscriptions {
+		if _, held := d.Grants[sub.GrantID]; sub.State == PushStale || sub.GrantID == "" || held {
+			continue
+		}
+		stalePush(d, id, sub)
 		n++
 	}
 	return n
@@ -179,7 +204,8 @@ func holdsPush(p *pushDoc) bool {
 func validPushSubscription(id string, p pushSubscription) error {
 	if !validPushID(id) || p.User == "" || !secret.IsEncrypted(p.Endpoint) || !secret.IsEncrypted(p.P256dh) ||
 		!secret.IsEncrypted(p.Auth) || p.EndpointHash == "" || !slices.Contains([]string{PushPending, PushVerified, PushStale}, p.State) ||
-		!slices.Contains([]string{PushKindWebPush, PushKindUnifiedPush}, p.Kind) || p.Code != "" && !secret.IsEncrypted(p.Code) {
+		!slices.Contains([]string{PushKindWebPush, PushKindUnifiedPush}, p.Kind) || p.Code != "" && !secret.IsEncrypted(p.Code) ||
+		p.GrantID != "" && !validGrantID(p.GrantID) {
 		return fmt.Errorf("push subscription %q is malformed", id)
 	}
 	return nil
@@ -197,13 +223,15 @@ type PushSubscription struct {
 	EndpointHost string
 	CreatedAt    time.Time
 	VerifiedAt   *time.Time
+	// GrantID is the OAuth grant that registered it (the dash app); "" for a browser.
+	GrantID string
 }
 
 func (p pushSubscription) view(id string) PushSubscription {
 	p = p.clone()
 	return PushSubscription{
 		ID: id, User: p.User, Kind: p.Kind, DeviceName: p.DeviceName, Approvals: p.Approvals, Attention: p.Attention,
-		State: p.State, EndpointHost: p.EndpointHost, CreatedAt: p.CreatedAt, VerifiedAt: p.VerifiedAt,
+		State: p.State, EndpointHost: p.EndpointHost, CreatedAt: p.CreatedAt, VerifiedAt: p.VerifiedAt, GrantID: p.GrantID,
 	}
 }
 
@@ -225,6 +253,9 @@ type PushInput struct {
 	Endpoint               string // https URL; checked by the caller
 	EndpointHost           string
 	P256dh, Auth           string // checked by the caller (push.DecodeKeys)
+	// GrantID is the OAuth grant of the registering access token; "" for a cookie session,
+	// whose row records the session epochs instead.
+	GrantID string
 }
 
 // PushOpen is what OpenPush found.
@@ -238,7 +269,8 @@ type PushOpen struct {
 	// Resealed is how many sealed values moved from DASH_SECRET_KEY_PREVIOUS to DASH_SECRET_KEY.
 	Resealed int
 	// SignedOut is how many subscriptions turned stale because their owner's session epoch or
-	// the global one moved on since they were registered (a bump this file missed).
+	// the global one moved on since they were registered (a bump this file missed), or because
+	// the grant that registered them is gone.
 	SignedOut int
 }
 
@@ -298,7 +330,8 @@ func (s *Store) OpenPush(keys *secret.Keyring) (PushOpen, error) {
 			}
 			p.Subscriptions[id] = sub
 		}
-		if res.SignedOut = stalePushByEpoch(d); res.SignedOut > 0 {
+		res.SignedOut = stalePushByEpoch(d) + stalePushByGrant(d)
+		if res.SignedOut > 0 {
 			changed = true
 		}
 		return changed
@@ -514,7 +547,10 @@ func (s *Store) AddPushSubscription(in PushInput, code string, now time.Time) (s
 		row = pushSubscription{
 			User: in.User, Kind: in.Kind, DeviceName: in.DeviceName, Approvals: in.Approvals, Attention: in.Attention,
 			EndpointHash: endpointHash, KeysHash: keysHash, EndpointHost: in.EndpointHost, CreatedAt: now,
-			Epoch: d.Epochs[in.User], GlobalEpoch: d.GlobalEpoch,
+			GrantID: in.GrantID,
+		}
+		if in.GrantID == "" {
+			row.Epoch, row.GlobalEpoch = d.Epochs[in.User], d.GlobalEpoch
 		}
 		if replacing {
 			row.CreatedAt = prev.CreatedAt

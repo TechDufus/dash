@@ -260,6 +260,45 @@ func TestUnverifiedSubscriptionReceivesNothing(t *testing.T) {
 	}
 }
 
+// A device the dash app registered with its OAuth grant receives pushes while that grant is
+// active, and nothing once it expires, before any prune has turned the row stale.
+func TestGrantDeviceNeedsAnActiveGrantAtSendTime(t *testing.T) {
+	f := newFakeService(t)
+	e := newEnv(t, f, loopback)
+	id, err := credentials.NewGrantID()
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, hash, err := credentials.NewRefreshToken(id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := e.clock()
+	if err := e.store.AddGrant(credentials.Grant{ID: id, User: "alice", ClientID: "dash-android", ClientKind: "builtin", Audience: "api",
+		Scopes: []string{"read", "push"}, RefreshHash: hash, CreatedAt: now, ExpiresAt: now.Add(credentials.GrantLifetime), RefreshedAt: now}); err != nil {
+		t.Fatal(err)
+	}
+	d := e.subscribe(f, "alice", false, func(in *credentials.PushInput) { in.GrantID = id })
+	msg := model.PushMessage{Type: model.PushTypeAttention, ID: "item", Title: "t", Body: "b", URL: "https://dash.example.com/"}
+	e.svc.Attention(d.id, msg, true)
+	e.svc.Wait()
+	if got := len(f.requests()); got != 1 {
+		t.Fatalf("with the grant active: %d pushes, want 1", got)
+	}
+	e.advance(credentials.GrantIdle + time.Minute)
+	if sub, _ := e.store.PushSubscriptionByID(d.id); sub.State != credentials.PushVerified {
+		t.Fatalf("the row is %s before any prune, want verified", sub.State)
+	}
+	e.svc.Attention(d.id, msg, true)
+	e.svc.Wait()
+	if got := len(f.requests()); got != 1 {
+		t.Errorf("after the grant expired: %d pushes, want still 1", got)
+	}
+	if e.sent(obs.PushAttention, obs.PushUnverified) != 1 {
+		t.Error("the refused push is not counted as unverified")
+	}
+}
+
 // One approval request sends one push per verified device that takes approvals; the request
 // carries the RFC 8030 headers and a VAPID signature for the endpoint's origin, and only the
 // device decrypts it.
