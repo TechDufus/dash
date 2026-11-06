@@ -751,3 +751,38 @@ func TestCheckEndpoint(t *testing.T) {
 		}
 	}
 }
+
+// Every endpoint dash opens is registered with the secret scrubber, so an error that wraps one
+// (a log line, an audit error) comes out without it.
+func TestEndpointIsRegisteredWithTheScrubber(t *testing.T) {
+	f := newFakeService(t)
+	e := newEnv(t, f, loopback)
+	d := e.subscribe(f, "alice", false, nil)
+	if err := e.svc.SendTest(d.id); err != nil {
+		t.Fatal(err)
+	}
+	e.svc.Wait()
+	wrapped := errors.Join(errors.New("push"), errors.New(`Post "`+d.endpoint+`": connection reset`)).Error()
+	if got := e.svc.o.Secrets.Scrub(wrapped); strings.Contains(got, "secret-capability-") {
+		t.Errorf("scrubbed = %q", got)
+	}
+}
+
+// A stored endpoint that is not https is never posted to.
+func TestDeliverRefusesPlainHTTP(t *testing.T) {
+	tls := newFakeService(t)
+	plain := &fakeService{Server: httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Errorf("a plain http request reached %s", r.URL.Path)
+		w.WriteHeader(http.StatusCreated)
+	})), header: http.Header{}}
+	t.Cleanup(plain.Close)
+	e := newEnv(t, tls, loopback)
+	d := e.subscribe(plain, "alice", false, nil)
+	if err := e.svc.SendTest(d.id); err != nil {
+		t.Fatal(err)
+	}
+	e.svc.Wait()
+	if got := e.sent(obs.PushTest, obs.PushFailed); got != 1 {
+		t.Errorf("failed = %v, want 1", got)
+	}
+}

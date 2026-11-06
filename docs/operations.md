@@ -104,6 +104,19 @@ API tokens add these records:
 
 `authMode` is always the server's mode. No record holds a token's secret.
 
+Push devices ([push.md](push.md)) add these records, each an intent, then an outcome:
+
+| Record | Action | Target | Actor |
+|---|---|---|---|
+| a device registered (or registered again) | `push.subscribe` | `{kind: pushSubscription, namespace: <push service host>, name: <subscription ID>}` | the device's owner |
+| a device verified | `push.verify` | as above | the device's owner |
+| a test push | `push.test` | as above | the device's owner |
+| a device removed | `push.unsubscribe` | as above | the owner, or an administrator |
+
+For a `pushSubscription`, `namespace` holds the push service's host name (such as
+`fcm.googleapis.com`), never the endpoint: the endpoint is a capability URL, so no record or log
+line holds it.
+
 - **Without a writable data dir** (missing, read-only, or demo mode) the records go to stdout
   and the latest 500 records, plus 200 refusals, are kept in memory and shown on the audit
   page; dash logs one INFO line saying so.

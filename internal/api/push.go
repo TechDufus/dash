@@ -21,8 +21,8 @@ import (
 )
 
 // The audit actions of the push routes. A record names the subscription by its ID and the push
-// service by its host (target namespace), never by the endpoint: anyone holding that URL can
-// post to the device.
+// service by its host (the target's namespace field, as operations.md documents), never by the
+// endpoint: anyone holding that URL can post to the device.
 const (
 	auditPushSubscribe   = "push.subscribe"
 	auditPushVerify      = "push.verify"
@@ -249,6 +249,9 @@ func (s *Server) createPushSubscription(w http.ResponseWriter, r *http.Request) 
 		ID: id, User: p.User, Kind: body.Kind, DeviceName: body.DeviceName, Approvals: body.Notify.Approvals, Attention: body.Notify.Attention,
 		Endpoint: body.Endpoint, EndpointHost: host, P256dh: body.Keys.P256dh, Auth: body.Keys.Auth,
 	}, code, s.now())
+	if err == nil { // the outcome names the row the store wrote, should it differ from the intent's
+		pending = pending.WithTarget(pushTarget(sub))
+	}
 	pending.Outcome(err)
 	switch {
 	case errors.Is(err, credentials.ErrPushEndpointTaken):
