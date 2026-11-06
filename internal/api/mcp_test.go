@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"slices"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"github.com/TechDufus/dash/internal/audit"
@@ -20,7 +21,7 @@ const mcpInit = `{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protoc
 type mcpEnv struct {
 	s       *Server
 	f       *tokenFixture
-	on      bool
+	on      atomic.Bool // read by the server's listen ticker while tests flip it
 	mcpTok  string
 	apiTok  string
 	readTok string
@@ -28,7 +29,8 @@ type mcpEnv struct {
 
 func newMCPEnv(t *testing.T, mod ...func(*Deps)) *mcpEnv {
 	t.Helper()
-	e := &mcpEnv{on: true}
+	e := &mcpEnv{}
+	e.on.Store(true)
 	f := newTokenFixture(t)
 	e.f = f
 	e.mcpTok, _ = f.pat(t, "bob", "mcp", []string{"read", "logs"})
@@ -36,7 +38,7 @@ func newMCPEnv(t *testing.T, mod ...func(*Deps)) *mcpEnv {
 	e.apiTok, _ = f.pat(t, "bob", "api", []string{"read", "logs"})
 	e.s = newServer(func(d *Deps) {
 		f.deps(d)
-		d.MCPEnabled = func() bool { return e.on }
+		d.MCPEnabled = e.on.Load
 		d.Cfg.CORSOrigins = []string{"https://inspector.example.com"}
 		for _, m := range mod {
 			m(d)
@@ -69,7 +71,7 @@ func withBearer(token string, more ...string) map[string]string {
 // protected-resource metadata; switching it on takes effect at the next request.
 func TestMCPDisabledIs404(t *testing.T) {
 	e := newMCPEnv(t)
-	e.on = false
+	e.on.Store(false)
 	for name, h := range map[string]map[string]string{
 		"a valid token": withBearer(e.mcpTok), "no token": nil, "a bad origin": withBearer(e.mcpTok, "Origin", "https://evil.example.com"),
 	} {
@@ -88,7 +90,7 @@ func TestMCPDisabledIs404(t *testing.T) {
 	if w := (req{path: "/.well-known/oauth-protected-resource/mcp"}).do(e.s.Handler()); w.Code != http.StatusNotFound {
 		t.Errorf("metadata: %d", w.Code)
 	}
-	e.on = true
+	e.on.Store(true)
 	if w := e.post(withBearer(e.mcpTok)); w.Code != http.StatusOK {
 		t.Errorf("after enabling: %d %s", w.Code, w.Body)
 	}

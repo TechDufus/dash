@@ -92,6 +92,6 @@ func TestMCPListenStreamsEndOnRevocationAndTheOffSwitch(t *testing.T) {
 	ended(t, gone, "the stream after the revocation")
 	stillOpen(t, kept, 100*time.Millisecond, "another token's stream")
 
-	e.on = false
+	e.on.Store(false)
 	ended(t, kept, "the stream after MCP was switched off")
 }
