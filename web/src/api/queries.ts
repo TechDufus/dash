@@ -96,6 +96,16 @@ export function pushAvailable(me: Me | undefined): boolean {
   return me?.capabilities?.push === true;
 }
 
+/**
+ * Whether the principal may see and decide agent approvals (P7.5): capabilities.approvals, which
+ * dash sets for a signed-in person (or a token with the approvals scope) where MCP is on and some
+ * plugin offers actions. The anonymous viewer of the local mode and the none mode never hold a
+ * request. Without it nothing requests /api/v1/approvals.
+ */
+export function approvalsAvailable(me: Me | undefined): boolean {
+  return canManageTokens(me) && me?.capabilities?.approvals === true;
+}
+
 /** Whether a user who is not an administrator has a settings page of their own (D8). */
 export function userSettingsAvailable(me: Me | undefined): boolean {
   return tokensAvailable(me) || connectedAppsAvailable(me) || pushAvailable(me);

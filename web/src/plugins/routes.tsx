@@ -41,6 +41,10 @@ const UserSettingsPage = lazy(() =>
 const ConsentPage = lazy(() =>
   import("@/oauth/consent-page").then((m) => ({ default: m.ConsentPage })),
 );
+// An agent's approval link and an approval notification open this (design O.3).
+const ApprovePage = lazy(() =>
+  import("@/approvals/approve-page").then((m) => ({ default: m.ApprovePage })),
+);
 
 export function PageLoading() {
   return (
@@ -259,6 +263,14 @@ export function PluginRoutes() {
           // Keyed by request: a decision on one must not carry over to the next.
           <RouteBoundary key={params.id}>
             <ConsentPage id={params.id ?? ""} />
+          </RouteBoundary>
+        )}
+      </Route>
+      <Route path="/approve/:id">
+        {(params) => (
+          // Keyed by request: a decision on one must not carry over to the next.
+          <RouteBoundary key={params.id}>
+            <ApprovePage id={params.id ?? ""} />
           </RouteBoundary>
         )}
       </Route>
