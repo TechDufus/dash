@@ -5,6 +5,9 @@ with its own icon, without the address bar. There is nothing to turn on. Behind 
 such as the [oauth2-proxy sidecar](deploy/kubernetes.md) the browser fetches the app's manifest
 with the proxy's session cookie, so install from a signed-in tab.
 
+A native Android app is planned in a separate repository and is not released yet; what it needs
+from dash is in [the Android app contract](clients/android.md).
+
 ## Requirements
 
 - **HTTPS.** Browsers install, and run the service worker, only on a secure origin: `https://`, or

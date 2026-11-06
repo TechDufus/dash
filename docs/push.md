@@ -2,8 +2,8 @@
 
 dash can notify a phone or a browser when something in the lab needs attention, even with dash
 closed: Web Push to browsers and installed apps, and UnifiedPush (for example through ntfy) to the
-dash Android app, which is not released yet. Each person registers their own devices in
-**Settings → Devices** and chooses what reaches each one.
+dash Android app, which is not released yet ([its contract](clients/android.md#push)). Each
+person registers their own devices in **Settings → Devices** and chooses what reaches each one.
 
 ## What push needs
 

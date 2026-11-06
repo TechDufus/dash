@@ -128,6 +128,10 @@ The deploy guides cover each path in full: [Docker and Compose](docs/deploy/dock
 - [Installing dash as an app](docs/app.md): the PWA, iOS and rolling back.
 - [MCP server and context bundles](docs/mcp.md): read-only access for AI agents, and
   "Copy context for AI".
+- [Connecting MCP clients](docs/agents/mcp.md): Claude Code, Claude Desktop and claude.ai, VS Code
+  and omp, and [the dash skill](docs/agents/dash-skill/SKILL.md) for agents.
+- [The Android app contract](docs/clients/android.md): what the native app (not released yet)
+  needs from dash.
 - [Push notifications](docs/push.md): Web Push and UnifiedPush to the devices in Settings → Devices.
 - [Security model](docs/security.md), and how to report a vulnerability: [SECURITY.md](SECURITY.md).
 - Deploy: [Docker](docs/deploy/docker.md), [Kubernetes](docs/deploy/kubernetes.md),

@@ -51,7 +51,8 @@ tool.
 - **Behind an identity proxy** (`auth.mode: proxy`) the agent needs a route to dash that does not
   go through the proxy, as every bearer client does ([auth.md](auth.md)).
 
-With Claude Code:
+With Claude Code (every client, Claude Desktop and claude.ai over OAuth included, is in
+[Connecting MCP clients](agents/mcp.md)):
 
 ```sh
 claude mcp add --transport http dash https://dash.example.com/mcp --header "Authorization: Bearer <token>"
