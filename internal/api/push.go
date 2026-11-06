@@ -237,7 +237,7 @@ func (s *Server) createPushSubscription(w http.ResponseWriter, r *http.Request) 
 	if !ok {
 		return
 	}
-	sub, needsCode, err := s.d.Credentials.AddPushSubscription(credentials.PushInput{
+	sub, sendCode, err := s.d.Credentials.AddPushSubscription(credentials.PushInput{
 		ID: id, User: p.User, Kind: body.Kind, DeviceName: body.DeviceName, Approvals: body.Notify.Approvals, Attention: body.Notify.Attention,
 		Endpoint: body.Endpoint, EndpointHost: host, P256dh: body.Keys.P256dh, Auth: body.Keys.Auth,
 	}, code, s.now())
@@ -254,8 +254,8 @@ func (s *Server) createPushSubscription(w http.ResponseWriter, r *http.Request) 
 		writeErr(w, http.StatusInternalServerError, model.ErrCodeInternal, "the subscription could not be stored")
 		return
 	}
-	if needsCode {
-		s.d.Push.SendVerify(sub.ID, code)
+	if sendCode != "" {
+		s.d.Push.SendVerify(sub.ID, sendCode)
 	}
 	status := http.StatusCreated
 	if replacing {

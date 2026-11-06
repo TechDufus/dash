@@ -158,8 +158,8 @@ func TestPushResealsOnOpen(t *testing.T) {
 	_ = s.Close()
 
 	s, res := openPush(t, dir, secret.NewKeyring(b, a))
-	if res != (PushOpen{Resealed: 4}) {
-		t.Errorf("rotation = %+v, want the key and three fields resealed", res)
+	if res != (PushOpen{Resealed: 5}) {
+		t.Errorf("rotation = %+v, want the key and four fields (the pending code included) resealed", res)
 	}
 	_ = s.Close()
 	s, res = openPush(t, dir, secret.NewKeyring(b, secret.Key{}))
@@ -227,9 +227,9 @@ func TestPushLostKeyMarksSubscriptionsStale(t *testing.T) {
 	if subs := s.PushSubscriptions("alice"); len(subs) != 2 || subs[0].State != PushStale || subs[1].State != PushStale {
 		t.Errorf("subscriptions = %+v, want both stale", subs)
 	}
-	again, needsCode, err := s.AddPushSubscription(pushIn("alice", "https://push.example.net/web"), "ABCDEFGH", pushT0)
-	if err != nil || again.ID != web.ID || !needsCode || again.State != PushPending {
-		t.Errorf("re-registering = %+v %v %v, want the same ID pending", again, needsCode, err)
+	again, sendCode, err := s.AddPushSubscription(pushIn("alice", "https://push.example.net/web"), "ABCDEFGH", pushT0)
+	if err != nil || again.ID != web.ID || sendCode != "ABCDEFGH" || again.State != PushPending {
+		t.Errorf("re-registering = %+v %q %v, want the same ID pending", again, sendCode, err)
 	}
 	if tgt, err := s.PushTarget(web.ID); err != nil || tgt.Endpoint != "https://push.example.net/web" {
 		t.Errorf("PushTarget after re-registering: %v", err)
@@ -246,17 +246,17 @@ func TestPushReplaceAndLimits(t *testing.T) {
 	}
 	renamed := pushIn("alice", "https://push.example.net/1")
 	renamed.DeviceName, renamed.Attention, renamed.Approvals = "Phone", "warn", false
-	sub, needsCode, err := s.AddPushSubscription(renamed, "IGNORED0", pushT0.Add(time.Minute))
-	if err != nil || needsCode || sub.ID != first.ID || sub.State != PushVerified || sub.DeviceName != "Phone" || sub.Attention != "warn" || sub.Approvals {
-		t.Errorf("same keys = %+v %v %v, want the same row verified with the new settings", sub, needsCode, err)
+	sub, sendCode, err := s.AddPushSubscription(renamed, "IGNORED0", pushT0.Add(time.Minute))
+	if err != nil || sendCode != "" || sub.ID != first.ID || sub.State != PushVerified || sub.DeviceName != "Phone" || sub.Attention != "warn" || sub.Approvals {
+		t.Errorf("same keys = %+v %q %v, want the same row verified with the new settings", sub, sendCode, err)
 	}
 	if !sub.CreatedAt.Equal(first.CreatedAt) || sub.VerifiedAt == nil {
 		t.Errorf("the row lost its creation or verification time: %+v", sub)
 	}
 	rekeyed := pushIn("alice", "https://push.example.net/1")
 	rekeyed.Auth = "another-auth"
-	if sub, needsCode, err := s.AddPushSubscription(rekeyed, "ABCDEFGH", pushT0); err != nil || !needsCode || sub.ID != first.ID || sub.State != PushPending {
-		t.Errorf("new keys = %+v %v %v, want the same row pending", sub, needsCode, err)
+	if sub, sendCode, err := s.AddPushSubscription(rekeyed, "ABCDEFGH", pushT0); err != nil || sendCode != "ABCDEFGH" || sub.ID != first.ID || sub.State != PushPending {
+		t.Errorf("new keys = %+v %q %v, want the same row pending", sub, sendCode, err)
 	}
 	if _, _, err := s.AddPushSubscription(pushIn("bob", "https://push.example.net/1"), "ABCDEFGH", pushT0); !errors.Is(err, ErrPushEndpointTaken) {
 		t.Errorf("bob takes alice's endpoint: %v", err)
@@ -436,5 +436,94 @@ func TestPushDeleteReturnsToVersion1(t *testing.T) {
 	}
 	if _, ok, _ := s.DeletePushSubscription(sub.ID); ok {
 		t.Error("deleted twice")
+	}
+}
+
+// Registering a pending device again pushes its current code once more and keeps its wrong
+// attempts and its ten minutes: repeating the registration resets nothing.
+func TestPushReRegistrationKeepsThePendingCode(t *testing.T) {
+	dir := t.TempDir()
+	keys := secret.NewKeyring(pushKey(t), secret.Key{})
+	s, _ := openPush(t, dir, keys)
+	in := pushIn("alice", "https://push.example.net/a")
+	sub, sendCode, err := s.AddPushSubscription(in, "AAAAAAAA", pushT0)
+	if err != nil || sendCode != "AAAAAAAA" {
+		t.Fatalf("first registration: %q %v", sendCode, err)
+	}
+	if _, err := s.VerifyPushSubscription("alice", sub.ID, "ZZZZZZZZ", pushT0); !errors.Is(err, ErrPushWrongCode) {
+		t.Fatal(err)
+	}
+	must(t, s.Close())
+	s, _ = openPush(t, dir, keys) // the code survives a restart, sealed
+	if f := fileOf(t, dir); strings.Contains(f, "AAAAAAAA") {
+		t.Error("the code is in the file in clear")
+	}
+	again, sendCode, err := s.AddPushSubscription(in, "BBBBBBBB", pushT0.Add(9*time.Minute))
+	if err != nil || again.ID != sub.ID || sendCode != "AAAAAAAA" {
+		t.Fatalf("registering again: %+v %q %v, want the same row and its code", again, sendCode, err)
+	}
+	if _, err := s.VerifyPushSubscription("alice", sub.ID, "BBBBBBBB", pushT0); !errors.Is(err, ErrPushWrongCode) {
+		t.Errorf("the new code verified: %v", err)
+	}
+	for range PushVerifyAttempts - 3 {
+		if _, err := s.VerifyPushSubscription("alice", sub.ID, "ZZZZZZZZ", pushT0); !errors.Is(err, ErrPushWrongCode) {
+			t.Fatal(err)
+		}
+	}
+	if _, err := s.VerifyPushSubscription("alice", sub.ID, "ZZZZZZZZ", pushT0); !errors.Is(err, ErrPushCodeExhausted) {
+		t.Errorf("the fifth wrong code across both registrations: %v", err)
+	}
+
+	// The ten minutes run from the first registration.
+	other, _, err := s.AddPushSubscription(pushIn("alice", "https://push.example.net/b"), "CCCCCCCC", pushT0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := s.AddPushSubscription(pushIn("alice", "https://push.example.net/b"), "DDDDDDDD", pushT0.Add(9*time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	if swept, err := s.SweepPushSubscriptions(pushT0.Add(PushVerifyWindow + time.Second)); err != nil || len(swept) != 1 || swept[0].ID != other.ID {
+		t.Errorf("sweep = %+v %v, want the re-registered pending row", swept, err)
+	}
+}
+
+// Two spellings of one endpoint are one endpoint.
+func TestPushEndpointIsNormalized(t *testing.T) {
+	s, _ := openPush(t, t.TempDir(), secret.NewKeyring(pushKey(t), secret.Key{}))
+	first, _ := addPush(t, s, pushIn("alice", "https://push.example.net/a/c"))
+	for _, spelling := range []string{
+		"HTTPS://Push.Example.NET/a/c",
+		"https://push.example.net./a/c",
+		"https://push.example.net:443/a/c",
+		"https://push.example.net/a/./b/../c",
+	} {
+		if got, ok := s.PushSubscriptionByEndpoint(spelling); !ok || got.ID != first.ID {
+			t.Errorf("%s: %+v %v, want the first row", spelling, got, ok)
+		}
+		if _, _, err := s.AddPushSubscription(pushIn("bob", spelling), "ABCDEFGH", pushT0); !errors.Is(err, ErrPushEndpointTaken) {
+			t.Errorf("bob registers %s: %v, want it taken", spelling, err)
+		}
+	}
+	if _, ok := s.PushSubscriptionByEndpoint("https://push.example.net:8443/a/c"); ok {
+		t.Error("another port is the same endpoint")
+	}
+}
+
+// The stored code hash is keyed with the store's salt, not a plain digest of the code.
+func TestPushCodeHashIsKeyed(t *testing.T) {
+	s, _ := openPush(t, t.TempDir(), secret.NewKeyring(pushKey(t), secret.Key{}))
+	sub, _, err := s.AddPushSubscription(pushIn("alice", "https://push.example.net/a"), "ABCDEFGH", pushT0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s.mu.RLock()
+	stored := s.doc.Push.Subscriptions[sub.ID].CodeHash
+	s.mu.RUnlock()
+	if stored == "" || stored == hashHex("ABCDEFGH") || stored == hashHex(normalizeCode("ABCDEFGH")) {
+		t.Errorf("code hash %q is a plain digest of the code", stored)
+	}
+	other, _ := openPush(t, t.TempDir(), secret.NewKeyring(pushKey(t), secret.Key{}))
+	if other.pushCodeHash(sub.ID, "ABCDEFGH") == stored {
+		t.Error("another store's salt gives the same hash")
 	}
 }

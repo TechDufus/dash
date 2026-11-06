@@ -401,6 +401,23 @@ func TestPushReRegistrationsAreLimited(t *testing.T) {
 	wantError(t, e.do(as("bob", req{method: http.MethodPost, path: "/api/v1/push/subscriptions", body: d.request("d")})), http.StatusTooManyRequests, model.ErrCodeRateLimited)
 }
 
+// Registering a pending device again pushes the same code again (200), and that code verifies.
+func TestPushReRegistrationResendsTheCode(t *testing.T) {
+	e := newPushEnv(t)
+	d := newPushDevice(t, e.f)
+	_, sub := e.subscribe(t, "bob", d, "Phone")
+	first := e.code(t, d)
+	if status, again := e.subscribe(t, "bob", d, "Phone"); status != http.StatusOK || again.ID != sub.ID {
+		t.Fatalf("again: %d %+v", status, again)
+	}
+	if second := e.code(t, d); second != first || len(d.messages(t, e.f)) != 2 {
+		t.Fatalf("second code %q, first %q", second, first)
+	}
+	if w := e.verify("bob", sub.ID, first); w.Code != http.StatusOK {
+		t.Errorf("verify = %d %s", w.Code, w.Body)
+	}
+}
+
 // An administrator lists one user's devices or everyone's and removes another user's; a viewer
 // lists only their own (403 for another's) and cannot remove, verify or test another's (404).
 // An administrator still cannot verify or test another user's device.

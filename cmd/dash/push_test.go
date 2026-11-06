@@ -56,7 +56,7 @@ func TestPushKeysAtStart(t *testing.T) {
 	pa.close()
 
 	pa, logs := start(secret.NewKeyring(b, a))
-	if got := logs.with(t, "INFO", "push: re-sealed with the current DASH_SECRET_KEY"); len(got) != 1 || got[0]["values"] != float64(4) {
+	if got := logs.with(t, "INFO", "push: re-sealed with the current DASH_SECRET_KEY"); len(got) != 1 || got[0]["values"] != float64(5) { // the VAPID key, the endpoint, its keys and the pending code
 		t.Errorf("re-seal INFO = %v\n%s", got, &logs.buf)
 	}
 	pa.close()

@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/ecdsa"
 	"crypto/elliptic"
+	"crypto/hmac"
 	"crypto/rand"
 	"crypto/sha256"
 	"crypto/subtle"
@@ -11,6 +12,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"net/url"
 	"slices"
 	"strings"
 	"time"
@@ -94,8 +96,9 @@ type pushSubscription struct {
 	DeviceName string `json:"deviceName"`
 	Approvals  bool   `json:"approvals"`
 	Attention  string `json:"attention"`
-	// Endpoint, P256dh and Auth are sealed. EndpointHash (sha256 hex of the endpoint) finds a
-	// re-registration without opening every row; KeysHash says whether the keys changed.
+	// Endpoint, P256dh and Auth are sealed. EndpointHash (sha256 hex of the endpoint as
+	// endpointKey writes it) finds a re-registration without opening every row; KeysHash says
+	// whether the keys changed.
 	Endpoint     string `json:"endpoint"`
 	P256dh       string `json:"p256dh"`
 	Auth         string `json:"auth"`
@@ -104,9 +107,11 @@ type pushSubscription struct {
 	// EndpointHost is the push service's host, what the API and the audit may show.
 	EndpointHost string `json:"endpointHost"`
 	State        string `json:"state"`
-	// CodeHash is sha256 hex of the pending code; Attempts counts wrong ones. Both are cleared on
-	// verification.
+	// CodeHash is the HMAC of the pending code (pushCodeHash), Code the code itself sealed, so a
+	// registration again pushes the same one; Attempts counts wrong ones. All three are cleared
+	// on verification.
 	CodeHash     string     `json:"codeHash,omitempty"`
+	Code         string     `json:"code,omitempty"`
 	Attempts     int        `json:"attempts,omitempty"`
 	PendingSince *time.Time `json:"pendingSince,omitempty"`
 	CreatedAt    time.Time  `json:"createdAt"`
@@ -129,7 +134,7 @@ func stalePushByEpoch(d *document) {
 		if sub.State == PushStale || sub.Epoch == d.Epochs[sub.User] && sub.GlobalEpoch == d.GlobalEpoch {
 			continue
 		}
-		sub.State, sub.CodeHash, sub.Attempts, sub.PendingSince = PushStale, "", 0, nil
+		sub.State, sub.CodeHash, sub.Code, sub.Attempts, sub.PendingSince = PushStale, "", "", 0, nil
 		d.Push.Subscriptions[id] = sub
 	}
 }
@@ -174,7 +179,7 @@ func holdsPush(p *pushDoc) bool {
 func validPushSubscription(id string, p pushSubscription) error {
 	if !validPushID(id) || p.User == "" || !secret.IsEncrypted(p.Endpoint) || !secret.IsEncrypted(p.P256dh) ||
 		!secret.IsEncrypted(p.Auth) || p.EndpointHash == "" || !slices.Contains([]string{PushPending, PushVerified, PushStale}, p.State) ||
-		!slices.Contains([]string{PushKindWebPush, PushKindUnifiedPush}, p.Kind) {
+		!slices.Contains([]string{PushKindWebPush, PushKindUnifiedPush}, p.Kind) || p.Code != "" && !secret.IsEncrypted(p.Code) {
 		return fmt.Errorf("push subscription %q is malformed", id)
 	}
 	return nil
@@ -280,8 +285,11 @@ func (s *Store) OpenPush(keys *secret.Keyring) (PushOpen, error) {
 			ok := open(pushFieldPath(id, "endpoint"), &sub.Endpoint)
 			ok = open(pushFieldPath(id, "p256dh"), &sub.P256dh) && ok
 			ok = open(pushFieldPath(id, "auth"), &sub.Auth) && ok
+			if sub.Code != "" {
+				ok = open(pushFieldPath(id, "code"), &sub.Code) && ok
+			}
 			if sub.State != PushStale && (!ok || res.Lost && sub.Kind == PushKindWebPush) {
-				sub.State, sub.CodeHash, sub.Attempts, sub.PendingSince = PushStale, "", 0, nil
+				sub.State, sub.CodeHash, sub.Code, sub.Attempts, sub.PendingSince = PushStale, "", "", 0, nil
 				res.Stale++
 				changed = true
 			}
@@ -424,28 +432,56 @@ func hashHex(parts ...string) string {
 	return hex.EncodeToString(h.Sum(nil))
 }
 
-// AddPushSubscription registers a subscription and reports it with needsCode: whether it is
-// pending, so the caller pushes code (a fresh one, whose hash is kept) as its only push.
+// pushCodeHash is the HMAC-SHA256 hex of subscription id's code, keyed with the store's random
+// salt: a copy of credentials.yaml alone does not let anyone test codes offline.
+func (s *Store) pushCodeHash(id, code string) string {
+	m := hmac.New(sha256.New, s.salt)
+	m.Write([]byte("dash push code\x00" + id + "\x00" + normalizeCode(code)))
+	return hex.EncodeToString(m.Sum(nil))
+}
+
+// endpointKey is the endpoint as dash compares it: the scheme (url.Parse lowercases it) and the
+// host lowercased, the host without a trailing dot, no :443 on https, the dot segments of the
+// path resolved. Two spellings of one URL are one endpoint.
+func endpointKey(endpoint string) string {
+	u, err := url.Parse(endpoint)
+	if err != nil || u.Host == "" {
+		return endpoint
+	}
+	host, port := strings.TrimSuffix(strings.ToLower(u.Hostname()), "."), u.Port()
+	if strings.Contains(host, ":") {
+		host = "[" + host + "]"
+	}
+	if port != "" && !(port == "443" && u.Scheme == "https") {
+		host += ":" + port
+	}
+	u.Host = host
+	return u.ResolveReference(u).String()
+}
+
+// AddPushSubscription registers a subscription and reports the code the caller must push to it
+// as its only push, or "" when it needs none.
 //
-// The same endpoint for the same user replaces that row and keeps its ID; it stays verified
-// when the keys are unchanged and the row was verified (only the name, kind and notify settings
-// change), and is pending again otherwise. The same endpoint for another user is
-// ErrPushEndpointTaken; a new row past MaxPushSubscriptions is ErrTooManyPushSubscriptions.
-// Nothing changes when the write fails.
-func (s *Store) AddPushSubscription(in PushInput, code string, now time.Time) (sub PushSubscription, needsCode bool, err error) {
+// The same endpoint for the same user replaces that row and keeps its ID. A verified row stays
+// verified when the keys are unchanged (only the name, kind and notify settings change); a
+// pending row stays pending with its code, its wrong attempts and its ten minutes, and that
+// code is pushed again; any other row is pending again with code. The same endpoint for another
+// user is ErrPushEndpointTaken; a new row past MaxPushSubscriptions is
+// ErrTooManyPushSubscriptions. Nothing changes when the write fails.
+func (s *Store) AddPushSubscription(in PushInput, code string, now time.Time) (sub PushSubscription, sendCode string, err error) {
 	keys, err := s.pushKeyring()
 	if err != nil {
-		return PushSubscription{}, false, err
+		return PushSubscription{}, "", err
 	}
 	now = now.UTC().Truncate(time.Second)
-	endpointHash, keysHash := hashHex(in.Endpoint), hashHex(in.P256dh, in.Auth)
+	endpointHash, keysHash := hashHex(endpointKey(in.Endpoint)), hashHex(in.P256dh, in.Auth)
 	newID := in.ID
 	if newID == "" {
 		if newID, err = NewPushID(); err != nil {
-			return PushSubscription{}, false, err
+			return PushSubscription{}, "", err
 		}
 	} else if !validPushID(newID) {
-		return PushSubscription{}, false, fmt.Errorf("credentials: %q is not a push subscription ID", newID)
+		return PushSubscription{}, "", fmt.Errorf("credentials: %q is not a push subscription ID", newID)
 	}
 	var refusal error
 	var id string
@@ -455,7 +491,7 @@ func (s *Store) AddPushSubscription(in PushInput, code string, now time.Time) (s
 			d.Push = &pushDoc{}
 		}
 		subs := d.Push.Subscriptions
-		id = ""
+		id, sendCode = "", ""
 		count := 0
 		for sid, sub := range subs {
 			if sub.EndpointHash == endpointHash {
@@ -485,11 +521,29 @@ func (s *Store) AddPushSubscription(in PushInput, code string, now time.Time) (s
 		if replacing {
 			row.CreatedAt = prev.CreatedAt
 		}
-		if replacing && prev.State == PushVerified && prev.KeysHash == keysHash {
+		switch {
+		case replacing && prev.State == PushVerified && prev.KeysHash == keysHash:
 			row.State, row.VerifiedAt = PushVerified, prev.VerifiedAt
-		} else {
+		case replacing && prev.State == PushPending && prev.Code != "":
+			current, oerr := keys.Decrypt(pushFieldPath(id, "code"), prev.Code)
+			if oerr == nil {
+				row.State, row.CodeHash, row.Code, row.Attempts, row.PendingSince = PushPending, prev.CodeHash, prev.Code, prev.Attempts, prev.PendingSince
+				sendCode = current
+				break
+			}
+			fallthrough
+		default:
+			sealed, serr := keys.Encrypt(pushFieldPath(id, "code"), code)
+			if serr != nil {
+				refusal = serr
+				return false
+			}
 			t := now
-			row.State, row.CodeHash, row.PendingSince = PushPending, hashHex(normalizeCode(code)), &t
+			row.State, row.CodeHash, row.Code, row.PendingSince = PushPending, s.pushCodeHash(id, code), sealed, &t
+			if replacing && prev.State == PushPending {
+				row.Attempts = prev.Attempts
+			}
+			sendCode = code
 		}
 		for field, v := range map[string]struct {
 			dst   *string
@@ -509,17 +563,17 @@ func (s *Store) AddPushSubscription(in PushInput, code string, now time.Time) (s
 		return true
 	})
 	if refusal != nil {
-		return PushSubscription{}, false, refusal
+		return PushSubscription{}, "", refusal
 	}
 	if err != nil {
-		return PushSubscription{}, false, err
+		return PushSubscription{}, "", err
 	}
-	return row.view(id), row.State == PushPending, nil
+	return row.view(id), sendCode, nil
 }
 
 // PushSubscriptionByEndpoint returns the subscription registered with endpoint, whoever holds it.
 func (s *Store) PushSubscriptionByEndpoint(endpoint string) (PushSubscription, bool) {
-	h := hashHex(endpoint)
+	h := hashHex(endpointKey(endpoint))
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	if s.doc.Push != nil {
@@ -548,7 +602,7 @@ func (s *Store) VerifyPushSubscription(user, id, code string, now time.Time) (Pu
 			result = ErrPushNotPending
 			return false
 		}
-		if subtle.ConstantTimeCompare([]byte(hashHex(normalizeCode(code))), []byte(sub.CodeHash)) != 1 {
+		if subtle.ConstantTimeCompare([]byte(s.pushCodeHash(id, code)), []byte(sub.CodeHash)) != 1 {
 			sub.Attempts++
 			if sub.Attempts >= PushVerifyAttempts {
 				deletePushRow(d, id)
@@ -560,7 +614,7 @@ func (s *Store) VerifyPushSubscription(user, id, code string, now time.Time) (Pu
 			return true
 		}
 		t := now.UTC().Truncate(time.Second)
-		sub.State, sub.VerifiedAt, sub.CodeHash, sub.Attempts, sub.PendingSince = PushVerified, &t, "", 0, nil
+		sub.State, sub.VerifiedAt, sub.CodeHash, sub.Code, sub.Attempts, sub.PendingSince = PushVerified, &t, "", "", 0, nil
 		d.Push.Subscriptions[id] = sub
 		out = sub.view(id)
 		return true
