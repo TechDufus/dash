@@ -164,6 +164,108 @@ func TestAttentionHourlyCapAndSummary(t *testing.T) {
 	}
 }
 
+// A warning pushed to the warn devices that turns critical is pushed once to the crit devices,
+// and not again to the warn ones; it is not pushed a third time while it stands.
+func TestAttentionEscalationReachesCritDevices(t *testing.T) {
+	f := newFakeService(t)
+	e := newEnv(t, f, loopback)
+	warn := e.subscribe(f, "alice", false, func(in *credentials.PushInput) { in.Attention = model.PushAttentionWarn })
+	crit := e.subscribe(f, "alice", false, func(in *credentials.PushInput) { in.Attention = model.PushAttentionCrit })
+	n := newNotifier(e, nil)
+	tick := func() { n.Tick(); e.svc.Wait() }
+
+	n.Observe([]model.AttentionItem{item("db", model.SeverityWarn)})
+	e.advance(AttentionDelay)
+	tick()
+	if len(pushed(t, f, warn)) != 1 || len(pushed(t, f, crit)) != 0 {
+		t.Fatalf("the warning: warn %d, crit %d pushes", len(pushed(t, f, warn)), len(pushed(t, f, crit)))
+	}
+	n.Observe([]model.AttentionItem{item("db", model.SeverityCrit)})
+	tick()
+	got := pushed(t, f, crit)
+	if len(got) != 1 || got[0].ID != "db" || len(pushed(t, f, warn)) != 1 {
+		t.Fatalf("the escalation: crit %+v, warn %d pushes", got, len(pushed(t, f, warn)))
+	}
+	n.Observe([]model.AttentionItem{item("db", model.SeverityWarn)})
+	tick()
+	n.Observe([]model.AttentionItem{item("db", model.SeverityCrit)})
+	tick()
+	if len(pushed(t, f, crit)) != 1 || len(pushed(t, f, warn)) != 1 {
+		t.Errorf("a standing item flapping between warn and crit was pushed again")
+	}
+}
+
+// The hour's summary reaches each device with the count of the held-back items its threshold
+// covers: a crit device hears only of the critical ones.
+func TestAttentionSummaryFollowsThresholds(t *testing.T) {
+	f := newFakeService(t)
+	e := newEnv(t, f, loopback)
+	warn := e.subscribe(f, "alice", false, func(in *credentials.PushInput) { in.Attention = model.PushAttentionWarn })
+	crit := e.subscribe(f, "alice", false, func(in *credentials.PushInput) { in.Attention = model.PushAttentionCrit })
+	n := newNotifier(e, nil)
+	var items []model.AttentionItem
+	for i := range AttentionHourlyLimit {
+		items = append(items, item(fmt.Sprintf("a%02d", i), model.SeverityWarn))
+	}
+	items = append(items, item("b0", model.SeverityWarn), item("b1", model.SeverityWarn), item("c0", model.SeverityCrit))
+	n.Observe(items)
+	e.advance(AttentionDelay)
+	n.Tick()
+	e.svc.Wait() // the hour's pushes arrive first: deliveries run in parallel
+	e.advance(time.Hour)
+	n.Tick()
+	e.svc.Wait()
+	last := func(d device) model.PushMessage {
+		got := pushed(t, f, d)
+		if len(got) == 0 {
+			t.Fatal("no push")
+		}
+		return got[len(got)-1]
+	}
+	if m := last(warn); !strings.Contains(m.Title, "3 more items need attention") || len(pushed(t, f, warn)) != AttentionHourlyLimit+1 {
+		t.Errorf("the warn device's summary = %q", m.Title)
+	}
+	if got := pushed(t, f, crit); len(got) != 1 || !strings.Contains(got[0].Title, "1 more items need attention") {
+		t.Errorf("the crit device got %+v, want only a summary of the one critical item", got)
+	}
+}
+
+// An hour that held nothing back ends without a summary, and so does it for a device whose
+// threshold covers none of the held-back items.
+func TestAttentionNoSummaryWithoutExcess(t *testing.T) {
+	f := newFakeService(t)
+	e := newEnv(t, f, loopback)
+	d := e.subscribe(f, "alice", false, nil)
+	crit := e.subscribe(f, "bob", false, func(in *credentials.PushInput) { in.Attention = model.PushAttentionCrit })
+	e.subscribe(f, "bob", false, func(in *credentials.PushInput) { in.Attention = model.PushAttentionWarn })
+	n := newNotifier(e, func(user string) bool { return user != "bob" })
+	n.Observe([]model.AttentionItem{item("x", model.SeverityWarn), item("y", model.SeverityCrit)})
+	e.advance(AttentionDelay)
+	n.Tick()
+	e.advance(time.Hour)
+	n.Tick()
+	e.svc.Wait()
+	if got := pushed(t, f, d); len(got) != 2 {
+		t.Errorf("%d pushes, want the two items and no summary: %+v", len(got), got)
+	}
+
+	// bob may see the overview from now on; more warnings than the cap, no critical item.
+	n.o.MayNotify = func(string) bool { return true }
+	var items []model.AttentionItem
+	for i := range AttentionHourlyLimit + 2 {
+		items = append(items, item(fmt.Sprintf("w%02d", i), model.SeverityWarn))
+	}
+	n.Observe(items)
+	e.advance(AttentionDelay)
+	n.Tick()
+	e.advance(time.Hour)
+	n.Tick()
+	e.svc.Wait()
+	if got := pushed(t, f, crit); len(got) != 0 {
+		t.Errorf("the crit device got %+v, want nothing: no critical item was held back", got)
+	}
+}
+
 // Run reads core.overview from the hub: its snapshot and every later publish.
 func TestNotifierFollowsTheOverview(t *testing.T) {
 	f := newFakeService(t)

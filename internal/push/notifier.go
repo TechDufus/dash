@@ -40,8 +40,10 @@ type NotifierOptions struct {
 
 // Notifier turns the overview's attention items into pushes: an item at or above a
 // subscription's threshold that is still present AttentionDelay after dash first saw it is
-// pushed once to that subscription; it is pushed again only after it cleared and came back.
-// Each user receives at most AttentionHourlyLimit attention pushes an hour, then one summary.
+// pushed once to that subscription; it is pushed again only after it cleared and came back. A
+// warning pushed as such that turns critical is pushed once more, to the devices that take
+// critical items only. Each user receives at most AttentionHourlyLimit attention pushes an hour,
+// then one summary per device of the items its threshold covers.
 type Notifier struct {
 	o   NotifierOptions
 	log *slog.Logger
@@ -55,14 +57,27 @@ type Notifier struct {
 type tracked struct {
 	item      model.AttentionItem
 	firstSeen time.Time
-	notified  bool
+	pushed    model.Severity // the highest severity pushed; "" before the first push
 }
 
-// hourWindow counts one user's attention pushes from the first one of the hour.
+// hourWindow counts one user's attention pushes from the first one of the hour, and the items
+// held back past the cap: forWarn those a warn device would have received, forCrit those a crit
+// device would have.
 type hourWindow struct {
-	start      time.Time
-	sent       int
-	suppressed int
+	start            time.Time
+	sent             int
+	forWarn, forCrit int
+}
+
+// rank orders severities: none, warn, crit.
+func rank(s model.Severity) int {
+	switch s {
+	case "":
+		return 0
+	case model.SeverityCrit:
+		return 2
+	}
+	return 1
 }
 
 // NewNotifier builds the notifier; Run feeds it.
@@ -117,13 +132,13 @@ func (n *Notifier) Tick() {
 			continue
 		}
 		delete(n.users, user)
-		if w.suppressed > 0 && n.o.MayNotify(user) {
-			n.summary(user, w.suppressed, subs[user])
+		if n.o.MayNotify(user) {
+			n.summary(user, w, subs[user])
 		}
 	}
 	var due []*tracked
 	for _, t := range n.items {
-		if !t.notified && !now.Before(t.firstSeen.Add(AttentionDelay)) {
+		if rank(t.item.Severity) > rank(t.pushed) && !now.Before(t.firstSeen.Add(AttentionDelay)) {
 			due = append(due, t)
 		}
 	}
@@ -136,14 +151,23 @@ func (n *Notifier) Tick() {
 	}
 	slices.Sort(users)
 	for _, t := range due {
-		t.notified = true
+		// An escalation goes only to the devices the earlier push skipped: those taking crit.
+		escalation := t.pushed != ""
+		t.pushed = t.item.Severity
 		crit := t.item.Severity == model.SeverityCrit
 		for _, user := range users {
 			var targets []credentials.PushSubscription
+			toWarn, toCrit := false, false
 			for _, s := range subs[user] {
-				if s.Attention == model.PushAttentionWarn || s.Attention == model.PushAttentionCrit && crit {
-					targets = append(targets, s)
+				switch {
+				case s.Attention == model.PushAttentionWarn && !escalation:
+					toWarn = true
+				case s.Attention == model.PushAttentionCrit && crit:
+					toCrit = true
+				default:
+					continue
 				}
+				targets = append(targets, s)
 			}
 			if len(targets) == 0 || !n.o.MayNotify(user) {
 				continue
@@ -154,7 +178,12 @@ func (n *Notifier) Tick() {
 				n.users[user] = w
 			}
 			if w.sent >= AttentionHourlyLimit {
-				w.suppressed++
+				if toWarn {
+					w.forWarn++
+				}
+				if toCrit {
+					w.forCrit++
+				}
 				continue
 			}
 			w.sent++
@@ -191,16 +220,27 @@ func (n *Notifier) message(it model.AttentionItem) model.PushMessage {
 	}
 }
 
-// summary is the push that closes a user's hour: how many items did not get their own.
-func (n *Notifier) summary(user string, count int, subs []credentials.PushSubscription) {
-	msg := model.PushMessage{
-		Type: model.PushTypeAttention, ID: "attention-summary", Title: "dash: " + strconv.Itoa(count) + " more items need attention",
-		Body: "Open dash for the whole list.", URL: n.o.Service.URL("/"),
-	}
+// summary is the push that closes a user's hour: each device hears how many of the items its
+// threshold covers did not get their own push.
+func (n *Notifier) summary(user string, w *hourWindow, subs []credentials.PushSubscription) {
+	devices := 0
 	for _, s := range subs {
-		n.o.Service.Attention(s.ID, msg, false)
+		count := w.forWarn
+		if s.Attention == model.PushAttentionCrit {
+			count = w.forCrit
+		}
+		if count == 0 {
+			continue
+		}
+		n.o.Service.Attention(s.ID, model.PushMessage{
+			Type: model.PushTypeAttention, ID: "attention-summary", Title: "dash: " + strconv.Itoa(count) + " more items need attention",
+			Body: "Open dash for the whole list.", URL: n.o.Service.URL("/"),
+		}, false)
+		devices++
 	}
-	n.log.Info("push: attention summary", "user", user, "items", count, "devices", len(subs))
+	if devices > 0 {
+		n.log.Info("push: attention summary", "user", user, "items", max(w.forWarn, w.forCrit), "devices", devices)
+	}
 }
 
 // Run follows core.overview on h until ctx ends, and ticks every 15 seconds. A subscription
