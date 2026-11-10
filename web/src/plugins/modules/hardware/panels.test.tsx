@@ -25,7 +25,7 @@ const overview = (kpiList: unknown[]): OverviewData =>
     status: "ok",
     attention: [],
     kpiList,
-    topology: { host: {}, vms: [], groups: [] },
+    topology: { hosts: [], vms: [], groups: [] },
   }) as unknown as OverviewData;
 
 const kpi = (key: string, value: number, health = "ok", plugin = "hardware") => ({

@@ -16,6 +16,7 @@
 package hardware
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"slices"
@@ -138,7 +139,8 @@ func (rt *runtime) endpoints() svc.EndpointHealth {
 	return nil
 }
 
-// proxmoxNode is the node the proxmox plugin reads, once it is known.
+// proxmoxNode is the node the proxmox plugin names as the host's: plugins.proxmox.node, or the only
+// node of a one-node cluster.
 func (rt *runtime) proxmoxNode() (string, bool) {
 	if v, ok := rt.h.Service("proxmox"); ok {
 		if n, ok := v.(svc.NodeName); ok {
@@ -148,6 +150,45 @@ func (rt *runtime) proxmoxNode() (string, bool) {
 		}
 	}
 	return "", false
+}
+
+// clusterNodes are the nodes of the Proxmox cluster, once the proxmox plugin knows them.
+func (rt *runtime) clusterNodes() ([]string, bool) {
+	if v, ok := rt.h.Service("proxmox"); ok {
+		if c, ok := v.(svc.ClusterNodes); ok {
+			return c.Nodes()
+		}
+	}
+	return nil, false
+}
+
+// nodenameHint says what names the host's node while it is unknown although the proxmox plugin has
+// read the cluster: plugins.proxmox.node is unset in a cluster of several nodes, or names no node
+// of the cluster, which the proxmox row reports. This plugin cannot tell the two apart, so the hint
+// covers both. It is empty otherwise.
+func (rt *runtime) nodenameHint() string {
+	if !rt.hasHost() {
+		return ""
+	}
+	if _, ok := rt.nodename(); ok {
+		return ""
+	}
+	nodes, ok := rt.clusterNodes()
+	if !ok || len(nodes) == 0 {
+		return ""
+	}
+	return fmt.Sprintf("nothing names the Hardware page's host among the Proxmox nodes (%s): plugins.proxmox.node is unset or names none of them (the proxmox row says which), and plugins.hardware.hosts[0].nodename is unset",
+		strings.Join(nodes, ", "))
+}
+
+// pveNode is the Proxmox node the host is: the node the proxmox plugin names when it names one,
+// else the nodename (a node-exporter labelled with the Proxmox node's name). The Hardware page
+// shows that node's facts, and its shell link is that node's.
+func (rt *runtime) pveNode(nodename string) string {
+	if n, ok := rt.proxmoxNode(); ok {
+		return n
+	}
+	return nodename
 }
 
 // nodename is the nodename label of the host's series: hosts[0].nodename, else the Proxmox node.
@@ -294,9 +335,11 @@ func notConfigured(name string) model.SourceStatus {
 }
 
 // Status. Unavailable (hidden) while nothing can run and nothing has been published: "not
-// configured: set plugins.prometheus.url" or "waiting for the Proxmox node name", a setting name
-// only. Otherwise starting until each half that can run has finished a poll, then healthy, or
-// degraded when some source fails and error when every one does.
+// configured: set plugins.prometheus.url", "waiting for the Proxmox node name", or, once the
+// Proxmox cluster is read and nothing names the host's node among its nodes, which settings name
+// it. Otherwise starting until each half that can run has finished a poll, then healthy, or
+// degraded when some source fails and error when every one does; the message then also says
+// which settings name the host's node.
 func (p *Plugin) Status() plugin.Status {
 	rt := p.rt.Load()
 	if rt == nil {
@@ -349,7 +392,17 @@ func (p *Plugin) Status() plugin.Status {
 	if (av.host && !hostPolled) || (av.prom && !machPolled) || gatusWaiting {
 		return plugin.Status{State: plugin.StateStarting, Message: "waiting for the first poll", Sources: srcs}
 	}
-	return plugin.Status{State: stateOf(srcs), Message: failures(srcs), Sources: srcs}
+	msg := failures(srcs)
+	if hint := rt.nodenameHint(); hint != "" {
+		// The proxmox source reads not_configured because nothing names the host's node: the hint
+		// says what to set instead.
+		others := failures(slices.DeleteFunc(slices.Clone(srcs), func(s model.SourceStatus) bool { return s.Name == sourceProxmox }))
+		msg = hint
+		if others != "" {
+			msg += "; " + others
+		}
+	}
+	return plugin.Status{State: stateOf(srcs), Message: msg, Sources: srcs}
 }
 
 // unavailableMessage names what is missing for the plugin to run at all. The first thing it
@@ -359,7 +412,7 @@ func unavailableMessage(rt *runtime, av availability) string {
 	case rt.hasHost() && !av.querier:
 		return "not configured: set plugins.prometheus.url"
 	case rt.hasHost() && !av.nodename:
-		return "waiting for the Proxmox node name"
+		return cmp.Or(rt.nodenameHint(), "waiting for the Proxmox node name")
 	case slices.ContainsFunc(rt.cfg.Machines, isPrometheus) && !av.querier:
 		return "not configured: set plugins.prometheus.url"
 	case slices.ContainsFunc(rt.cfg.Machines, isGatus) && !av.gatus:

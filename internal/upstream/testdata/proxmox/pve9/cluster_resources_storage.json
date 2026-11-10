@@ -1,0 +1,8 @@
+{"data":[
+  {"id":"storage/pve-2/nas","type":"storage","storage":"nas","node":"pve-2","shared":1,"status":"available","plugintype":"nfs","content":"backup","disk":"2000000000000","maxdisk":"8000000000000"},
+  {"id":"storage/pve-1/local","type":"storage","storage":"local","node":"pve-1","shared":0,"status":"available","plugintype":"dir","content":"iso,vztmpl,backup","disk":5415053824,"maxdisk":100861726720},
+  {"id":"storage/pve-1/local-zfs","type":"storage","storage":"local-zfs","node":"pve-1","shared":0,"status":"available","plugintype":"zfspool","content":"images,rootdir","disk":"651000000000","maxdisk":"1829000000000"},
+  {"id":"storage/pve-1/nas","type":"storage","storage":"nas","node":"pve-1","shared":1,"status":"available","plugintype":"nfs","content":"backup","disk":2000000000000,"maxdisk":8000000000000},
+  {"id":"storage/pve-2/tank","type":"storage","storage":"tank","node":"pve-2","shared":0,"status":"available","plugintype":"zfspool","content":"images","disk":4100000000000,"maxdisk":10900000000000},
+  {"id":"storage/pve-2/local","type":"storage","storage":"local","node":"pve-2","shared":0,"status":"unknown","plugintype":"dir","content":"iso,vztmpl,backup"}
+]}

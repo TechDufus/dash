@@ -1,6 +1,6 @@
 import { Network, Server } from "lucide-react";
 import { useReducedMotion } from "motion/react";
-import { type RefObject, useCallback, useRef, useState } from "react";
+import { type RefObject, useCallback, useMemo, useRef, useState } from "react";
 import type {
   Health,
   SourceStatus,
@@ -52,7 +52,17 @@ function gradientOpacityClass(strength: number): string {
   return "opacity-100";
 }
 
+/**
+ * A host only Proxmox describes (no hardware plugin for its machine) reports no power or
+ * temperature, and no memory once its node is not online: a zero reading is no reading, shown as
+ * a dash, never as 0 W, 0 °C or 0 %.
+ */
+function reading(value: number, format: (v: number) => string): string {
+  return value > 0 ? format(value) : "–";
+}
+
 function HostCard({ host, className }: { host: TopologyHost; className?: string }) {
+  const memRatio = host.memUsedRatio > 0 ? host.memUsedRatio : undefined;
   return (
     <Panel className={cn("relative z-10 space-y-3 p-3", className)}>
       <div className="flex items-center gap-2">
@@ -63,23 +73,23 @@ function HostCard({ host, className }: { host: TopologyHost; className?: string 
       <dl className="grid grid-cols-2 gap-2 text-xs">
         <div>
           <dt className="text-muted">Power</dt>
-          <dd className="num text-fg">{formatWatts(host.powerWatts)}</dd>
+          <dd className="num text-fg">{reading(host.powerWatts, formatWatts)}</dd>
         </div>
         <div>
           <dt className="text-muted">CPU temp</dt>
           <dd className={cn("num", HEALTH_TEXT[host.cpuTempHealth])}>
-            {formatCelsius(host.cpuTempC)}
+            {reading(host.cpuTempC, formatCelsius)}
           </dd>
         </div>
       </dl>
       <div>
         <div className="mb-1 flex items-baseline justify-between text-xs">
           <span className="text-muted">Memory</span>
-          <span className={cn("num", HEALTH_TEXT[ratioHealth(host.memUsedRatio)])}>
-            {formatPercent(host.memUsedRatio)}
+          <span className={cn("num", HEALTH_TEXT[ratioHealth(memRatio)])}>
+            {reading(host.memUsedRatio, formatPercent)}
           </span>
         </div>
-        <BytesBar used={host.memUsedRatio} total={1} compact label="Host memory" />
+        <BytesBar used={memRatio} total={1} compact label="Host memory" />
       </div>
     </Panel>
   );
@@ -171,18 +181,57 @@ function nodeShare(group: TopologyGroup, node: string): number {
   return (group.podsByNode[node] ?? 0) / all;
 }
 
+function hostKey(host: TopologyHost): string {
+  return `host:${host.node}:${host.name}`;
+}
+
+interface PlacedVM {
+  vm: TopologyVM;
+  /** The ref key of the host the VM runs on; undefined when no host is its node. */
+  host?: string;
+  /** Its place among its host's VMs, so a host's beams fan out in card order. */
+  slot: number;
+  count: number;
+}
+
+/**
+ * Each VM with the host whose node it runs on, ordered host by host (in the hosts' order) so the
+ * beams of one host do not cross another's. VMs on a node no host stands for come last.
+ */
+function placeVMs(topology: Topology): PlacedVM[] {
+  const hosts = topology.hosts.filter((h) => h.node !== "");
+  const byHost = new Map<number, TopologyVM[]>();
+  for (const vm of topology.vms) {
+    const hi = hosts.findIndex((h) => h.node === vm.node);
+    const at = hi === -1 ? hosts.length : hi;
+    byHost.set(at, [...(byHost.get(at) ?? []), vm]);
+  }
+  const placed: PlacedVM[] = [];
+  for (let hi = 0; hi <= hosts.length; hi++) {
+    const vms = byHost.get(hi) ?? [];
+    const host = hosts[hi] ? hostKey(hosts[hi]) : undefined;
+    vms.forEach((vm, slot) => {
+      placed.push({ vm, host, slot, count: vms.length });
+    });
+  }
+  return placed;
+}
+
 function Beams({
   topology,
+  placed,
   container,
   getRef: ref,
 }: {
   topology: Topology;
+  placed: PlacedVM[];
   container: RefObject<HTMLDivElement | null>;
   getRef: (key: string) => CardRef;
 }) {
   const reduced = useReducedMotion();
   const animated = !reduced;
-  const { host, vms, groups } = topology;
+  const { groups } = topology;
+  const vms = placed.map((p) => p.vm);
   // Kubernetes beams: each VM fans out to the groups it runs pods of, each group fans in from
   // those VMs. Slots follow the cards' top-to-bottom order, so the fans do not cross at a card.
   const links = vms
@@ -195,14 +244,15 @@ function Beams({
     );
   return (
     <>
-      {vms.map((vm, vi) =>
-        vm.running ? (
+      {placed.map(({ vm, host, slot, count }, vi) => {
+        if (!host) return null;
+        return vm.running ? (
           <AnimatedBeam
             key={`host-${vm.vmid}`}
             containerRef={container}
-            fromRef={ref(`host:${host.name}`)}
+            fromRef={ref(host)}
             toRef={ref(`vm:${vm.vmid}`)}
-            fromSlot={{ index: vi, count: vms.length }}
+            fromSlot={{ index: slot, count }}
             pathColor={ACCENT_HEX}
             pathOpacity={0.25}
             gradientStartColor={ACCENT_HEX}
@@ -215,16 +265,16 @@ function Beams({
           <AnimatedBeam
             key={`host-${vm.vmid}`}
             containerRef={container}
-            fromRef={ref(`host:${host.name}`)}
+            fromRef={ref(host)}
             toRef={ref(`vm:${vm.vmid}`)}
-            fromSlot={{ index: vi, count: vms.length }}
+            fromSlot={{ index: slot, count }}
             pathColor={ACCENT_HEX}
             pathOpacity={0.25}
             animated={false}
             dashed
           />
-        ),
-      )}
+        );
+      })}
       {links.map(({ vm, vi, group, gi, share }) => {
         const out = links.filter((l) => l.vm === vm);
         const into = links.filter((l) => l.group === group);
@@ -253,13 +303,25 @@ function Beams({
   );
 }
 
-function CompactTopology({ topology }: { topology: Topology }) {
+/** One row per host with the VMs on it below, then the VMs no host stands for, then the groups. */
+function CompactTopology({ topology, placed }: { topology: Topology; placed: PlacedVM[] }) {
   return (
     <div className="space-y-2 px-4 pb-4">
-      <HostRow host={topology.host} />
-      {topology.vms.map((vm) => (
-        <VMRow key={vm.vmid} vm={vm} />
-      ))}
+      {topology.hosts.map((h) => {
+        const key = hostKey(h);
+        return (
+          <div key={key} className="space-y-2">
+            <HostRow host={h} />
+            {h.node !== "" &&
+              placed.filter((p) => p.host === key).map((p) => <VMRow key={p.vm.vmid} vm={p.vm} />)}
+          </div>
+        );
+      })}
+      {placed
+        .filter((p) => !p.host)
+        .map((p) => (
+          <VMRow key={p.vm.vmid} vm={p.vm} />
+        ))}
       {topology.groups.map((g) => (
         <GroupCard key={g.name} group={g} className="z-0" />
       ))}
@@ -273,11 +335,11 @@ function HostRow({ host }: { host: TopologyHost }) {
       <Server className="size-4 text-accent" aria-hidden="true" />
       <span className="text-sm font-medium text-fg">{host.name}</span>
       <StatusDot health={host.health} />
-      <span className="num ml-auto text-fg">{formatWatts(host.powerWatts)}</span>
+      <span className="num ml-auto text-fg">{reading(host.powerWatts, formatWatts)}</span>
       <span className={cn("num", HEALTH_TEXT[host.cpuTempHealth])}>
-        {formatCelsius(host.cpuTempC)}
+        {reading(host.cpuTempC, formatCelsius)}
       </span>
-      <span className="num text-muted">mem {formatPercent(host.memUsedRatio)}</span>
+      <span className="num text-muted">mem {reading(host.memUsedRatio, formatPercent)}</span>
     </Panel>
   );
 }
@@ -314,14 +376,15 @@ interface TopologyPanelProps {
 }
 
 /**
- * Host -> VMs -> workload groups, joined by animated beams (list without beams below 768 px).
- * The beams run in the gutters on a layer below the cards, and the cards have an opaque base, so
- * no beam is drawn over or seen through a card.
+ * Hosts -> VMs -> workload groups, joined by animated beams (list without beams below 768 px).
+ * Each VM's beam starts at the host of its node. The beams run in the gutters on a layer below
+ * the cards, and the cards have an opaque base, so no beam is drawn over or seen through a card.
  */
 export function TopologyPanel({ topology, sources, className }: TopologyPanelProps) {
   const isDesktop = useIsDesktop();
   const container = useRef<HTMLDivElement | null>(null);
   const ref = useRefRegistry();
+  const placed = useMemo(() => placeVMs(topology), [topology]);
   const card = "relative rounded-2xl bg-panel-solid";
   return (
     <Panel className={className}>
@@ -329,16 +392,18 @@ export function TopologyPanel({ topology, sources, className }: TopologyPanelPro
       {isDesktop ? (
         <div ref={container} className="relative px-4 pb-4">
           <div className="pointer-events-none absolute inset-0 z-0">
-            <Beams topology={topology} container={container} getRef={ref} />
+            <Beams topology={topology} placed={placed} container={container} getRef={ref} />
           </div>
           <div className="relative z-10 grid grid-cols-3 gap-x-12 2xl:gap-x-16">
-            <div className="flex flex-col justify-center">
-              <div ref={ref(`host:${topology.host.name}`)} className={card}>
-                <HostCard host={topology.host} className="z-auto" />
-              </div>
+            <div className="flex flex-col justify-center gap-3">
+              {topology.hosts.map((h) => (
+                <div key={hostKey(h)} ref={ref(hostKey(h))} className={card}>
+                  <HostCard host={h} className="z-auto" />
+                </div>
+              ))}
             </div>
             <div className="flex flex-col justify-center gap-3">
-              {topology.vms.map((vm) => (
+              {placed.map(({ vm }) => (
                 <div
                   key={vm.vmid}
                   ref={ref(`vm:${vm.vmid}`)}
@@ -359,7 +424,7 @@ export function TopologyPanel({ topology, sources, className }: TopologyPanelPro
           </div>
         </div>
       ) : (
-        <CompactTopology topology={topology} />
+        <CompactTopology topology={topology} placed={placed} />
       )}
     </Panel>
   );

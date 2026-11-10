@@ -198,7 +198,7 @@ describe("the overview tile and the rail badge", () => {
       kpiList: [
         { key: "firing", plugin: "alertmanager", label: "Alerts firing", unit: "", value, health },
       ],
-      topology: { host: {}, vms: [], groups: [] },
+      topology: { hosts: [], vms: [], groups: [] },
     }) as unknown as OverviewData;
 
   it("draws one tile from the firing KPI", async () => {

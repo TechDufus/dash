@@ -1,7 +1,8 @@
-// Package proxmox is the Proxmox VE plugin (design F.0, P3.6): the guests of the node dash reads,
-// the node's own facts and its storages as the proxmox.vms, proxmox.node and proxmox.storage
-// topics, the detail of one VM, the links into the Proxmox UI, the VM charts, and the VM share of
-// the overview (attention items, KPIs, topology).
+// Package proxmox is the Proxmox VE plugin (design F.0, P3.6): the guests of the cluster dash reads
+// through one connection, the cluster with every node's usage and facts, and every node's storages
+// as the proxmox.vms, proxmox.cluster and proxmox.storage topics, the detail of one VM, the links
+// into the Proxmox UI, the VM charts, and the Proxmox share of the overview (attention items, KPIs,
+// topology). A standalone server is a cluster of one and takes the same path.
 //
 // It reads Proxmox through internal/upstream and the settings through internal/pluginconf; like
 // every plugin it imports neither internal/config nor internal/api, nor another plugin.
@@ -21,18 +22,21 @@ import (
 	"github.com/TechDufus/dash/internal/upstream"
 )
 
-// ID is the plugin's id and its instance name: plugins.proxmox, topics proxmox.vms, proxmox.node
+// ID is the plugin's id and its instance name: plugins.proxmox, topics proxmox.vms, proxmox.cluster
 // and proxmox.storage.
 const ID plugin.ID = "proxmox"
 
 const (
 	// The manifest names of the topics; they are published as "proxmox.<name>".
 	topicVMs     = "vms"
-	topicNode    = "node"
+	topicCluster = "cluster"
 	topicStorage = "storage"
 
 	// sourceName names Proxmox in the sources of the topics, the status and the overview.
 	sourceName = "proxmox"
+	// sourceClusterStatus names /cluster/status when it fails on its own: the token lacks Sys.Audit
+	// on /, so the cluster's name and quorum are unknown while everything else is read.
+	sourceClusterStatus = "cluster status"
 	// sourcePrometheus names the metrics source of proxmox.storage when it reads the pve-exporter.
 	sourcePrometheus = "prometheus"
 	// sourceInsecure is the note that certificate verification is off: it shows in the row's
@@ -45,19 +49,12 @@ const (
 
 // timing holds the intervals of the plugin; tests shorten them.
 type timing struct {
-	vms, node, storage time.Duration // the three pollers
-	watch              time.Duration // how often the node index is looked at
-	// Node discovery: the retry starts at backoff and doubles up to backoffMax; after grace has
-	// passed without a node it is retried every steady and the row shows an error.
-	backoff, backoffMax, grace, steady time.Duration
+	vms, cluster, storage time.Duration // the three pollers
+	watch                 time.Duration // how often the node index is looked at
 }
 
 func defaultTiming() timing {
-	return timing{
-		vms: 15 * time.Second, node: 30 * time.Second, storage: 60 * time.Second,
-		watch:   time.Second,
-		backoff: time.Second, backoffMax: 8 * time.Second, grace: time.Minute, steady: 30 * time.Second,
-	}
+	return timing{vms: 15 * time.Second, cluster: 30 * time.Second, storage: 60 * time.Second, watch: time.Second}
 }
 
 // Plugin reads Proxmox. The supervisor makes a fresh one for every start of the instance.
@@ -89,8 +86,8 @@ func (p *Plugin) Manifest() plugin.Manifest {
 		Config:      func() any { return &pluginconf.Proxmox{} },
 		Topics: []plugin.TopicSpec{
 			{Name: topicVMs, Type: model.VMsData{}, Doc: "Virtual machines and containers, and the recent tasks."},
-			{Name: topicNode, Type: pvemodel.NodeData{}, Doc: "The facts of the Proxmox node: version, kernel, CPU and uptime."},
-			{Name: topicStorage, Type: pvemodel.PVEStorageData{}, Doc: "The storages of the Proxmox node with their usage."},
+			{Name: topicCluster, Type: pvemodel.PVEClusterData{}, Doc: "The Proxmox cluster: its name and quorum, every node with its usage and facts, and the totals over the online nodes."},
+			{Name: topicStorage, Type: pvemodel.PVEStorageData{}, Doc: "The storages of every node with their usage, each shared storage once, and their totals."},
 		},
 		Series: p.seriesSpecs(),
 		UI: plugin.UISpec{Nav: []model.NavItem{
@@ -132,10 +129,9 @@ func (p *Plugin) Validate(cfg any) error {
 	return c.Validate()
 }
 
-// Start builds the clients and launches the pollers; it does not wait for a poll. A configured
-// node is known at once, so the service answers from the moment Start returns; an empty one is
-// discovered in the background (an error from Start would show the generic "failed to start"
-// row and retry only on a configuration change).
+// Start builds the client and launches the pollers; it does not wait for a poll. One client reads
+// the whole cluster through whichever node the URL reaches, and addresses a node by name where a
+// call needs one (a node's facts, a VM's detail).
 func (p *Plugin) Start(ctx context.Context, h plugin.Host, cfg any) error {
 	h = p.Wrap(h)
 	c, err := settings(cfg)
@@ -154,23 +150,16 @@ func (p *Plugin) Start(ctx context.Context, h plugin.Host, cfg any) error {
 		transport: hc.Transport,
 		// The transport carries TLS and the dial guard; the timeout and the redirect policy of hc
 		// ride as options, because a client built from the transport alone loses them (design D7).
-		opts:      []upstream.Option{upstream.Timeout(hc.Timeout), upstream.CheckRedirect(hc.CheckRedirect), upstream.Cut(h.CutLog)},
-		nodeReady: make(chan struct{}),
-		logged:    map[string]string{},
+		opts:   []upstream.Option{upstream.Timeout(hc.Timeout), upstream.CheckRedirect(hc.CheckRedirect), upstream.Cut(h.CutLog)},
+		facts:  map[string]upstream.PVEHost{},
+		logged: map[string]string{},
 	}
-	// The nodeless client lists the cluster's nodes and nothing else; the node client is built the
-	// moment the node is known, over the same transport, options and token handle, so a rotated
-	// secret reaches both.
-	r.nodeless = upstream.NewProxmox(c.URL, "", c.TokenID, c.TokenSecret, r.transport, r.opts...)
+	r.client = upstream.NewProxmox(c.URL, c.TokenID, c.TokenSecret, r.transport, r.opts...)
+	r.detail = r.client
 	p.rt.Store(r)
 
-	if c.Node != "" {
-		r.setNode(c.Node)
-	} else {
-		r.spawn("discover node", r.discover)
-	}
 	r.spawn("poll vms", func() { r.every(r.t.vms, r.pollVMs) })
-	r.spawn("poll node", func() { r.every(r.t.node, r.pollNode) })
+	r.spawn("poll cluster", func() { r.every(r.t.cluster, r.pollCluster) })
 	r.spawn("poll storage", r.storageLoop)
 	r.spawn("watch node index", r.watchIndex)
 	return nil
@@ -193,9 +182,8 @@ func (p *Plugin) Stop(ctx context.Context) error {
 	}
 }
 
-// Status follows design 5.3: starting until the node is known and the first VM poll has ended,
-// then healthy, degraded (some source fails) or error (all of them, or discovery failed). The
-// messages carry categories only.
+// Status follows design 5.3: starting until the first VM poll has ended, then healthy, degraded
+// (some source fails) or error (all of them). The messages carry categories only.
 func (p *Plugin) Status() plugin.Status {
 	r := p.rt.Load()
 	if r == nil {
@@ -204,19 +192,25 @@ func (p *Plugin) Status() plugin.Status {
 	return r.status()
 }
 
-// Service exports svc.NodeName; it is nil before Start.
+// Service exports svc.NodeName and svc.ClusterNodes (one object); it is nil before Start.
 func (p *Plugin) Service() any {
 	r := p.rt.Load()
 	if r == nil {
 		return nil
 	}
-	return svc.NodeName(nodeName{r})
+	return service{r}
 }
 
-// nodeName is the svc.NodeName of one run.
-type nodeName struct{ r *runtime }
+// service is the svc.NodeName and svc.ClusterNodes of one run.
+type service struct{ r *runtime }
 
-func (n nodeName) NodeName() (string, bool) { return n.r.nodeName() }
+func (s service) NodeName() (string, bool) { return s.r.nodeName() }
+func (s service) Nodes() ([]string, bool)  { return s.r.clusterNodes() }
+
+var (
+	_ svc.NodeName     = service{}
+	_ svc.ClusterNodes = service{}
+)
 
 // Demo implements plugin.Demo.
 func (p *Plugin) Demo() plugin.Plugin { return newTwin() }

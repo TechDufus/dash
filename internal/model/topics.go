@@ -16,7 +16,7 @@ func TopicTypes() map[Topic]reflect.Type {
 		TopicOverview:         reflect.TypeFor[OverviewData](),
 		TopicHost:             reflect.TypeFor[HostData](),
 		TopicVMs:              reflect.TypeFor[VMsData](),
-		TopicProxmoxNode:      reflect.TypeFor[pvemodel.NodeData](),
+		TopicProxmoxCluster:   reflect.TypeFor[pvemodel.PVEClusterData](),
 		TopicProxmoxStorage:   reflect.TypeFor[pvemodel.PVEStorageData](),
 		TopicHardwareMachines: reflect.TypeFor[hwmodel.MachinesData](),
 		TopicCluster:          reflect.TypeFor[ClusterData](),

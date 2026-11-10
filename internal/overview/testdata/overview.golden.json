@@ -407,18 +407,31 @@
     }
   ],
   "topology": {
-    "host": {
-      "name": "pve-demo",
-      "health": "crit",
-      "powerWatts": 412,
-      "cpuTempC": 91.5,
-      "cpuTempHealth": "crit",
-      "memUsedRatio": 0.375
-    },
+    "hosts": [
+      {
+        "name": "pve-demo",
+        "node": "pve-demo",
+        "health": "crit",
+        "powerWatts": 412,
+        "cpuTempC": 91.5,
+        "cpuTempHealth": "crit",
+        "memUsedRatio": 0.375
+      },
+      {
+        "name": "pve-demo-2",
+        "node": "pve-demo-2",
+        "health": "ok",
+        "powerWatts": 0,
+        "cpuTempC": 0,
+        "cpuTempHealth": "unknown",
+        "memUsedRatio": 0.25
+      }
+    ],
     "vms": [
       {
         "vmid": 100,
         "name": "k8s-node-1",
+        "node": "pve-demo",
         "health": "ok",
         "cpuRatio": 0.4,
         "memRatio": 0.75,
@@ -428,6 +441,7 @@
       {
         "vmid": 101,
         "name": "k8s-node-2",
+        "node": "pve-demo-2",
         "health": "warn",
         "cpuRatio": 0.9,
         "memRatio": 0.875,
@@ -437,6 +451,7 @@
       {
         "vmid": 3000,
         "name": "scratch",
+        "node": "pve-demo",
         "health": "warn",
         "cpuRatio": 0,
         "memRatio": 0,

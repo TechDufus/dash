@@ -287,15 +287,15 @@ func TestReloadRotatesSecretsInPlace(t *testing.T) {
 		mu.Lock()
 		auth = append(auth, r.Header.Get("Authorization"))
 		mu.Unlock()
-		fmt.Fprint(w, `{"data":[{"node":"pve","status":"online"}]}`)
+		fmt.Fprint(w, `{"data":[{"type":"node","name":"pve","online":1}]}`)
 	}))
 	defer pve.Close()
 
 	g := newReloadRig(t, headlampConfig("https://hl-a.example.com"), "DASH_PLUGINS_PROXMOX_URL="+pve.URL)
 	held := g.res.Tree.Plugins.Proxmox.TokenSecret
 	p := g.res.Tree.Plugins.Proxmox
-	client := upstream.NewProxmox(p.URL, "", p.TokenID, held, nil)
-	if _, err := client.Nodes(context.Background()); err != nil {
+	client := upstream.NewProxmox(p.URL, p.TokenID, held, nil)
+	if _, err := client.ClusterStatus(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 
@@ -304,7 +304,7 @@ func TestReloadRotatesSecretsInPlace(t *testing.T) {
 	if held.Reveal() != "token-two-9876543210" || g.res.Tree.Plugins.Proxmox.TokenSecret.Reveal() != "token-two-9876543210" {
 		t.Fatal("every holder of the Value must see the rotated secret")
 	}
-	if _, err := client.Nodes(context.Background()); err != nil {
+	if _, err := client.ClusterStatus(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 	mu.Lock()

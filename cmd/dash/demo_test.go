@@ -149,8 +149,17 @@ func TestDemoOverviewIsComposedFromTheTwins(t *testing.T) {
 	if hk["power"].Unit != "W" || hk["power"].Value <= 0 || hk["cpuTemp"].Unit != "°C" || hk["cpuTemp"].Value <= 0 {
 		t.Errorf("hardware KPIs %+v", hk)
 	}
-	if h := d.Topology.Host; h.Name == "" || h.PowerWatts != hk["power"].Value || h.CPUTempC != hk["cpuTemp"].Value {
+	// The proxmox twin names both nodes of the fake cluster; the hardware twin's host is the first,
+	// and the overview merges the two contributions for it into one host.
+	if hs := d.Topology.Hosts; len(hs) != 2 || hs[0].Node != "pve-demo" || hs[1].Node != "pve-demo-2" {
+		t.Errorf("topology hosts %+v, want pve-demo and pve-demo-2", hs)
+	} else if h := hs[0]; h.Name == "" || h.PowerWatts != hk["power"].Value || h.CPUTempC != hk["cpuTemp"].Value || h.MemUsedRatio <= 0 {
 		t.Errorf("topology host %+v does not agree with the KPIs %+v", h, hk)
+	}
+	for _, vm := range d.Topology.VMs {
+		if vm.Node != "pve-demo" && vm.Node != "pve-demo-2" {
+			t.Errorf("topology VM %s runs on %q, which is no host", vm.Name, vm.Node)
+		}
 	}
 
 	// kubernetes: the node and PVC tiles, the three groups, and items with refs.

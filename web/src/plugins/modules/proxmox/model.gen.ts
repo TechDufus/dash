@@ -10,22 +10,133 @@ A payload that needs a core type (Link, Health, SourceStatus) stays in internal/
 */
 
 /**
- * NodeData is the proxmox.node topic: the facts of the Proxmox node the plugin reads.
+ * PVEClusterData is the proxmox.cluster topic: the Proxmox VE cluster the plugin reads through
+ * whichever node its URL reaches, every node with its usage and facts, and the totals over the
+ * online nodes. A standalone server is a cluster of one. It is not called ClusterData because that
+ * name is taken in internal/model, and the OpenAPI generator qualifies a name two packages share.
+ */
+export interface PVEClusterData {
+  /**
+   * Ref is proxmox:Cluster/<name>; a standalone server's is proxmox:Cluster/<node>.
+   */
+  ref: string;
+  /**
+   * Name is the cluster's name; empty for a standalone server.
+   */
+  name: string;
+  /**
+   * Standalone is true for a server in no cluster: its only node is the server itself.
+   */
+  standalone: boolean;
+  /**
+   * QuorumKnown is false while dash cannot read the cluster's quorum: the token lacks Sys.Audit
+   * on /, or the cluster has not answered yet. Quorate means nothing then. Always true for a
+   * standalone server.
+   */
+  quorumKnown: boolean;
+  /**
+   * Quorate is false while the cluster has lost quorum: its guests keep running, but nothing can
+   * be started, stopped or changed until quorum returns. Always true for a standalone server.
+   */
+  quorate: boolean;
+  /**
+   * Nodes are every node of the cluster, sorted by name; never null.
+   */
+  nodes: NodeData[];
+  /**
+   * Totals add up the online nodes.
+   */
+  totals: PVEClusterTotals;
+}
+/**
+ * NodeStatus is a node's state in the cluster.
+ */
+export type NodeStatus = string;
+/**
+ * NodeOnline is a node the cluster sees and whose status daemon reports.
+ */
+export const NodeOnline: NodeStatus = "online";
+/**
+ * NodeOffline is a node the cluster has lost.
+ */
+export const NodeOffline: NodeStatus = "offline";
+/**
+ * NodeUnknown is a member whose status daemon has not reported for a while: the cluster
+ * knows nothing of its usage, so it is neither counted as online nor as down.
+ */
+export const NodeUnknown: NodeStatus = "unknown";
+/**
+ * NodeData is one node of the cluster: its usage, as the cluster reports it, and its facts, as the
+ * node itself reports them.
  */
 export interface NodeData {
   ref: string; // proxmox:Node/<node>
   node: string;
+  /**
+   * Status is the node's state in the cluster. A node that is not online reports no usage and
+   * keeps the facts it last reported.
+   */
+  status: NodeStatus;
+  /**
+   * CPURatio is the node's CPU use, 0 to 1 of all its threads; Threads counts its logical CPUs.
+   */
+  cpuRatio: number /* float64 */;
+  threads: number /* int */;
+  memUsedBytes: number /* int64 */;
+  memTotalBytes: number /* int64 */;
+  /**
+   * RootUsedBytes and RootTotalBytes are the node's root file system.
+   */
+  rootUsedBytes: number /* int64 */;
+  rootTotalBytes: number /* int64 */;
+  uptimeSeconds: number /* int64 */;
+  /**
+   * The facts below come from the node itself and stay empty until it has answered once.
+   */
   version: string; // pve-manager version, "9.2.2"
   kernel: string;
   cpuModel: string;
-  uptimeSeconds: number /* int64 */;
+  /**
+   * CPUSockets and CPUCores are the node's CPU sockets and its physical cores over all of them.
+   */
+  cpuSockets: number /* int */;
+  cpuCores: number /* int */;
+}
+/**
+ * PVEClusterTotals add up the online nodes of the cluster.
+ */
+export interface PVEClusterTotals {
+  nodes: number /* int */;
+  /**
+   * NodesOnline counts the nodes whose status is online.
+   */
+  nodesOnline: number /* int */;
+  threads: number /* int */;
+  /**
+   * CPURatio is the CPU use over all those threads, 0 to 1: each node weighs by its threads.
+   */
+  cpuRatio: number /* float64 */;
+  memUsedBytes: number /* int64 */;
+  memTotalBytes: number /* int64 */;
 }
 /**
  * PVEStorage is one Proxmox storage with its usage.
  */
 export interface PVEStorage {
-  ref: string; // proxmox:Storage/<name>
+  /**
+   * Ref is proxmox:Storage/<node>/<name>; a shared storage, listed once for the cluster, is
+   * proxmox:Storage/<name>.
+   */
+  ref: string;
   name: string;
+  /**
+   * Node is the node the storage belongs to; empty for a shared storage.
+   */
+  node: string;
+  /**
+   * Shared marks a storage every node reaches (NFS, Ceph...): it is listed and counted once.
+   */
+  shared: boolean;
   usedBytes: number /* int64 */;
   sizeBytes: number /* int64 */;
 }
@@ -34,5 +145,13 @@ export interface PVEStorage {
  * is taken in internal/model, and the OpenAPI generator qualifies a name two packages share.
  */
 export interface PVEStorageData {
-  storages: PVEStorage[]; // never null
+  /**
+   * Storages are the shared storages first, then every node's own, by node and name; never null.
+   */
+  storages: PVEStorage[];
+  /**
+   * UsedBytes and SizeBytes add up the storages, each shared one once.
+   */
+  usedBytes: number /* int64 */;
+  sizeBytes: number /* int64 */;
 }

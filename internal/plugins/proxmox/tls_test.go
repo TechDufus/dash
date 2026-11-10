@@ -129,8 +129,8 @@ func TestProxmoxDoesNotLeakTheTokenOrTheURL(t *testing.T) {
 	reg.Add(tok)
 	pve := newFakePVE(t, false)
 	pve.echoErrors()
-	pve.fail("/nodes/pve-1/status", http.StatusInternalServerError)
-	pve.fail("/nodes/pve-1/storage", http.StatusInternalServerError)
+	pve.fail("/cluster/status", http.StatusInternalServerError)
+	pve.fail("/cluster/resources?type=storage", http.StatusInternalServerError)
 	pve.fail("/nodes/pve-1/qemu/101/config", http.StatusInternalServerError)
 	e := newEnv(t, envOpts{pve: pve, scrub: reg.ScrubLogLine, cfg: func(c *pluginconf.Proxmox) { c.TokenSecret = tok }})
 	e.vms(t, "the guests", func(d model.VMsData) bool { return len(d.VMs) == 4 })
@@ -152,7 +152,7 @@ func TestProxmoxDoesNotLeakTheTokenOrTheURL(t *testing.T) {
 	for _, s := range e.current().Status().Sources {
 		check("a source", s.Name+" "+s.Error)
 	}
-	for _, topic := range []string{"proxmox.vms", "proxmox.node", "proxmox.storage"} {
+	for _, topic := range []string{"proxmox.vms", "proxmox.cluster", "proxmox.storage"} {
 		waitFor(t, topic, func() bool { _, ok := e.hub.Latest("", model.Topic(topic)); return ok })
 		ev, _ := e.hub.Latest("", model.Topic(topic))
 		// The VM links hold the configured URL on purpose (they are links into Proxmox); what must

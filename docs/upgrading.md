@@ -80,6 +80,33 @@ The API moved under `/api/v1` and the plugins' own routes; every old path answer
 - **The Hardware plugin reads the host's node from the running Proxmox plugin.** v0.7.0 used
   `plugins.proxmox.node` as the host's node even without a Proxmox token; set
   `plugins.hardware.hosts[0].nodename` to run Hardware without one.
+- **Proxmox clusters (v0.15.0).** The proxmox plugin reads the whole cluster through its one
+  `url`: every node, every node's guests and storages, and the tasks of all of them.
+  - The topic `proxmox.node` is gone; `proxmox.cluster` carries the cluster's name and quorum,
+    every node with its usage and facts, and the totals of the online nodes. Each node has a
+    `status`: `online`, `offline`, or `unknown` (a member whose status daemon has not reported for
+    a while; no usage, not counted online, no item). `quorumKnown` is false while dash cannot read
+    the quorum (the token lacks `Sys.Audit` on `/`, or `/cluster/status` has not answered yet);
+    `quorate` means nothing then.
+  - VMs and tasks carry `node`. Storage refs carry the node (`proxmox:Storage/<node>/<name>`), and
+    a shared storage is listed once as `proxmox:Storage/<name>`; `proxmox.storage` gains its
+    totals. With `storage.source: prometheus`, an exporter without `pve_storage_shared` lists a
+    shared storage once per node.
+  - `core.overview`'s topology has `hosts` (a list, one per node) instead of `host`.
+  - New critical items: `pve-node:<node>` for an offline node and `pve-cluster:quorum` for lost
+    quorum. A guest of an offline node shows health `unknown` and raises no item of its own.
+  - `plugins.proxmox.node` no longer selects what is read, and a cluster of several nodes no
+    longer needs it for the plugin to run (node discovery and its "set plugins.proxmox.node" error
+    are gone). It now names the node that is the Hardware page's host; a value that is no node of
+    the cluster leaves the row degraded.
+  - The Hardware page in a cluster of several nodes needs `plugins.proxmox.node` (or
+    `plugins.hardware.hosts[0].nodename`): until one is set its row names the nodes and says what
+    to set.
+  - The cluster's name and quorum come from `/cluster/status`, which needs `Sys.Audit` on `/`
+    (`PVEAuditor` on `/` has it). Without it the row is degraded with `cluster status: auth` and
+    everything else is read.
+  - Rolling back to v0.14.11 needs no settings change, but a cluster of several nodes then needs
+    `plugins.proxmox.node` again for the plugin to run.
 - **The web UI registers a service worker** (since v0.14.5, which makes dash an installable app).
   Rolling back past it leaves the worker in each browser: an old worker keeps serving its
   precached files until it updates, which an older dash cannot offer. Pages and data still come

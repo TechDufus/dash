@@ -34,14 +34,23 @@ function VmsTile({ data }: SlotProps["overview.kpis"]) {
 function ProxmoxStoragePanel(_: SlotProps["storage"]) {
   const env = useTopic("proxmox.storage");
   if (!env) return <PanelSkeleton lines={3} />;
-  const { storages } = env.data;
+  const { storages, usedBytes, sizeBytes } = env.data;
   return (
     <Panel className="h-full">
       <PanelHeader title="Proxmox storage" icon={<Server />} />
       <div className="space-y-4 px-4 pb-4">
         {storages.length === 0 && <Empty className="py-4">No storages.</Empty>}
+        {storages.length > 0 && (
+          // Each shared storage counts once here, however many nodes reach it.
+          <BytesBar used={usedBytes} total={sizeBytes} label="Total" />
+        )}
         {storages.map((s) => (
-          <BytesBar key={s.name} used={s.usedBytes} total={s.sizeBytes} label={s.name} />
+          <BytesBar
+            key={s.ref}
+            used={s.usedBytes}
+            total={s.sizeBytes}
+            label={`${s.name} · ${s.shared ? "shared" : s.node}`}
+          />
         ))}
       </div>
     </Panel>
@@ -59,14 +68,20 @@ function Fact({ label, value, title }: { label: string; value: string; title?: s
   );
 }
 
-/** The Proxmox node's facts, drawn inside the Hardware page's System panel. */
-function NodeFacts(_: SlotProps["hardware.facts"]) {
-  const env = useTopic("proxmox.node");
-  if (!env) return null;
-  const node = env.data;
+/**
+ * The facts of the Proxmox node the Hardware page's host is, drawn inside its System panel. A host
+ * that is no node of the cluster gets none: another node's facts would describe another machine.
+ */
+function NodeFacts({ host }: SlotProps["hardware.facts"]) {
+  const env = useTopic("proxmox.cluster");
+  const node = host?.node ? env?.data.nodes.find((n) => n.node === host.node) : undefined;
+  if (!node) return null;
   return (
     <dl className="grid grid-cols-2 gap-x-4 gap-y-3">
-      <Fact label="Uptime" value={formatDuration(node.uptimeSeconds)} />
+      <Fact
+        label="Uptime"
+        value={node.status === "online" ? formatDuration(node.uptimeSeconds) : node.status}
+      />
       <Fact label="Proxmox VE" value={node.version || "–"} />
       <Fact label="Kernel" value={node.kernel || "–"} />
       <Fact label="CPU" value={node.cpuModel || "–"} />
@@ -85,6 +100,6 @@ export const panels: ModulePanels = {
     },
   ],
   "hardware.facts": [
-    { id: "proxmox-node", order: 10, reads: ["proxmox.node"], component: NodeFacts },
+    { id: "proxmox-node", order: 10, reads: ["proxmox.cluster"], component: NodeFacts },
   ],
 };

@@ -1,6 +1,7 @@
 package overview
 
 import (
+	"cmp"
 	"slices"
 	"sort"
 	"strings"
@@ -89,18 +90,11 @@ func mergeSources(base, extra []model.SourceStatus) []model.SourceStatus {
 	return out
 }
 
-// mergeTopology merges the topologies the contributions describe, in contribution order.
+// mergeTopology merges the topologies the contributions describe, in contribution order. The hosts
+// several contributions name for one node are one host (mergeHosts); the VMs are appended; the
+// groups are merged by name.
 func mergeTopology(ts []model.Topology) model.Topology {
-	out := model.Topology{VMs: []model.TopologyVM{}, Groups: []model.TopologyGroup{}}
-	if len(ts) > 0 {
-		out.Host = ts[0].Host
-	}
-	for _, t := range ts {
-		if t.Host.Name != "" {
-			out.Host = t.Host
-			break
-		}
-	}
+	out := model.Topology{Hosts: mergeHosts(ts), VMs: []model.TopologyVM{}, Groups: []model.TopologyGroup{}}
 	index := map[model.Group]int{}
 	for _, t := range ts {
 		out.VMs = append(out.VMs, t.VMs...)
@@ -127,5 +121,50 @@ func mergeTopology(ts []model.Topology) model.Topology {
 	for i := range out.Groups {
 		slices.SortStableFunc(out.Groups[i].Namespaces, func(a, b model.TopologyNamespace) int { return strings.Compare(a.Name, b.Name) })
 	}
+	return out
+}
+
+// mergeHosts is the hosts of every contribution, sorted by name and never nil. The hosts with one
+// Node are one host, merged in contribution order: each field takes the first non-zero value and
+// the health the worst. Its name is one that differs from the node when any contribution gives one
+// (an operator's display name, e.g. hardware's hosts[].name), else the node. A host without a node
+// matches nothing and stays as it comes.
+func mergeHosts(ts []model.Topology) []model.TopologyHost {
+	out := []model.TopologyHost{}
+	byNode := map[string]int{}
+	for _, t := range ts {
+		for _, h := range t.Hosts {
+			if h.Node == "" {
+				out = append(out, h)
+				continue
+			}
+			i, seen := byNode[h.Node]
+			if !seen {
+				byNode[h.Node] = len(out)
+				out = append(out, h)
+				continue
+			}
+			m := &out[i]
+			if m.Name == "" || (m.Name == m.Node && h.Name != "" && h.Name != h.Node) {
+				m.Name = h.Name
+			}
+			m.Health = worst(m.Health, h.Health)
+			m.PowerWatts = cmp.Or(m.PowerWatts, h.PowerWatts)
+			m.CPUTempC = cmp.Or(m.CPUTempC, h.CPUTempC)
+			m.CPUTempHealth = cmp.Or(m.CPUTempHealth, h.CPUTempHealth)
+			m.MemUsedRatio = cmp.Or(m.MemUsedRatio, h.MemUsedRatio)
+		}
+	}
+	for i := range out {
+		if out[i].Name == "" {
+			out[i].Name = out[i].Node
+		}
+		// A host only Proxmox describes has no temperature reading: its health is unknown, not an
+		// empty value outside the Health enum.
+		if out[i].CPUTempHealth == "" {
+			out[i].CPUTempHealth = model.HealthUnknown
+		}
+	}
+	slices.SortStableFunc(out, func(a, b model.TopologyHost) int { return strings.Compare(a.Name, b.Name) })
 	return out
 }

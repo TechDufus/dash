@@ -50,7 +50,7 @@ func (p *Plugin) Attention(now time.Time) []model.AttentionItem {
 	if !ok {
 		return nil
 	}
-	return attentionOf(d, shellLinks(rt.h))
+	return attentionOf(d, shellLinks(rt.h, d.Node))
 }
 
 // attentionOf is the rule table over a host payload, in the order pools, disks, CPU. links is
@@ -132,10 +132,10 @@ func topologyOf(d model.HostData, items []model.AttentionItem) model.Topology {
 		mem = float64(d.MemUsedBytes) / float64(d.MemTotalBytes)
 	}
 	return model.Topology{
-		Host: model.TopologyHost{
-			Name: d.Name, Health: health, PowerWatts: d.PowerWatts, CPUTempC: maxOf(d.PackageTempsC),
+		Hosts: []model.TopologyHost{{
+			Name: d.Name, Node: d.Node, Health: health, PowerWatts: d.PowerWatts, CPUTempC: maxOf(d.PackageTempsC),
 			MemUsedRatio: mem, CPUTempHealth: d.CPUTempHealth,
-		},
+		}},
 		VMs:    []model.TopologyVM{},
 		Groups: []model.TopologyGroup{},
 	}

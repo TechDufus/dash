@@ -231,8 +231,8 @@ func TestTopologyOfAnEmptyClusterHasTheThreeGroups(t *testing.T) {
 			t.Errorf("group %s = %+v, want ok with empty non-nil members", g.Name, g)
 		}
 	}
-	if topo.VMs == nil || topo.Host != (model.TopologyHost{}) {
-		t.Errorf("vms = %#v, host = %+v: the plugin has neither", topo.VMs, topo.Host)
+	if topo.VMs == nil || len(topo.Hosts) != 0 {
+		t.Errorf("vms = %#v, hosts = %+v: the plugin has neither", topo.VMs, topo.Hosts)
 	}
 }
 

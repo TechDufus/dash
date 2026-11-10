@@ -49,7 +49,7 @@ func TestUpstreamErrorBodyKeepsNoPartOfASecretInEveryPlugin(t *testing.T) {
 			c.URL = up.URL
 			return []plugin.InstanceConfig{{Name: "gatus", Type: "gatus", Config: &c}}
 		}, []factoryOf{factoryFunc(gatus.New)}},
-		{"proxmox", "proxmox node discovery failed", func() []plugin.InstanceConfig {
+		{"proxmox", "upstream source failed", func() []plugin.InstanceConfig {
 			c := pluginconf.DefaultProxmox()
 			c.URL, c.TokenID, c.TokenSecret = up.URL, "dash@pve!t", secret.New("token-secret-value", "")
 			return []plugin.InstanceConfig{{Name: "proxmox", Type: "proxmox", Config: &c}}

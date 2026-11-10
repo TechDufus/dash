@@ -151,6 +151,36 @@ func TestHardwareUnavailableUntilTheNodeIsKnown(t *testing.T) {
 	}
 }
 
+// A Proxmox cluster whose node nothing names, because plugins.proxmox.node is unset in a cluster
+// of several nodes or names none of a cluster's nodes: the row lists the nodes and the settings,
+// and does not claim the setting is unset.
+func TestUnnamedProxmoxNodeSaysWhatNamesIt(t *testing.T) {
+	for _, nodes := range [][]string{{"pve-1", "pve-2"}, {"pve-1"}} {
+		r := newRig(t, rigOpts{cfg: withHost(pluginconf.HardwareHost{}), nodeUnknown: true})
+		r.node.setNodes(nodes...)
+		st := r.waitState(model.PluginUnavailable)
+		want := "nothing names the Hardware page's host among the Proxmox nodes (" + strings.Join(nodes, ", ") +
+			"): plugins.proxmox.node is unset or names none of them (the proxmox row says which), and plugins.hardware.hosts[0].nodename is unset"
+		if st.Message != want {
+			t.Errorf("message = %q, want %q", st.Message, want)
+		}
+	}
+}
+
+// The host's node is the Proxmox node the proxmox plugin names, even where the node-exporter's
+// nodename differs; the series still read the nodename. Without a Proxmox node it is the nodename.
+func TestHostNodeIsTheProxmoxNode(t *testing.T) {
+	r := newRig(t, rigOpts{cfg: withHost(pluginconf.HardwareHost{Nodename: "box-9"})})
+	r.q.fillHost(r.ex, "box-9", "")
+	r.node.set("pve-1", true)
+	waitTopic(t, r.hub, "hardware.hosts", func(d model.HostData) bool { return d.PowerWatts > 0 && d.Node == "pve-1" })
+	if h := hostOf(contributor(t, r).Topology.Topology()); h.Node != "pve-1" || h.Name != "pve-1" {
+		t.Errorf("topology host = %+v, want the Proxmox node", h)
+	}
+	r.node.set("", false)
+	waitTopic(t, r.hub, "hardware.hosts", func(d model.HostData) bool { return d.Node == "box-9" })
+}
+
 // Without the prometheus plugin the host half cannot run: unavailable, naming the setting; when
 // prometheus starts later (a reload) the plugin goes on without a restart and publishes.
 func TestHardwareWaitsForPrometheus(t *testing.T) {

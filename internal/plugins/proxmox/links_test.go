@@ -7,6 +7,7 @@ import (
 	"github.com/TechDufus/dash/internal/model"
 	"github.com/TechDufus/dash/internal/plugin"
 	"github.com/TechDufus/dash/internal/pluginconf"
+	"github.com/TechDufus/dash/internal/svc"
 )
 
 const (
@@ -57,11 +58,12 @@ func TestUnconfiguredToolsGiveNoLinks(t *testing.T) {
 	}
 }
 
-// The plugin answers the three kinds through the resolver, with the node it reads, and nothing
-// for a kind that is not its own.
+// The plugin answers the three kinds through the resolver: a VM's console on the node it runs on, a
+// named node's shell (the host node's without a name), and nothing for a kind that is not its own.
 func TestLinkProviderKinds(t *testing.T) {
 	e := newEnv(t, envOpts{})
 	e.state(t, plugin.StateHealthy)
+	waitFor(t, "the cluster", func() bool { _, ok := e.current().Service().(svc.ClusterNodes).Nodes(); return ok })
 	r := e.sup.Links()
 	href := func(req plugin.LinkRequest) []string {
 		var out []string
@@ -81,14 +83,25 @@ func TestLinkProviderKinds(t *testing.T) {
 	if got := href(plugin.LinkRequest{Kind: "VM", ID: "101", Name: "k8s-cp-1"}); !slices.Equal(got, want) {
 		t.Errorf("VM: %v, want %v", got, want)
 	}
+	want = []string{
+		"Console " + base + "/?console=kvm&novnc=1&vmid=102&vmname=db-1&node=pve-2&resize=off&cmd=",
+		"Proxmox UI " + base + "/",
+	}
+	if got := href(plugin.LinkRequest{Kind: "VM", ID: "102", Name: "db-1"}); !slices.Equal(got, want) {
+		t.Errorf("a VM on pve-2: %v, want %v", got, want)
+	}
 	if got := href(plugin.LinkRequest{Kind: "HostShell"}); !slices.Equal(got, []string{"Host shell " + base + "/?console=shell&novnc=1&node=pve-1&resize=off&cmd="}) {
 		t.Errorf("HostShell: %v", got)
+	}
+	if got := href(plugin.LinkRequest{Kind: "HostShell", Name: "pve-2"}); !slices.Equal(got, []string{"Host shell " + base + "/?console=shell&novnc=1&node=pve-2&resize=off&cmd="}) {
+		t.Errorf("HostShell of pve-2: %v", got)
 	}
 	if got := href(plugin.LinkRequest{Kind: "ProxmoxUI"}); !slices.Equal(got, []string{"Proxmox UI " + base + "/"}) {
 		t.Errorf("ProxmoxUI: %v", got)
 	}
 	for _, req := range []plugin.LinkRequest{
 		{Kind: "Pod", Namespace: "media", Name: "app-0"}, {Kind: "Host"}, {Kind: "VM", ID: "nope"}, {Kind: "VM"}, {Kind: "VM", ID: "-4"},
+		{Kind: "HostShell", Name: "pve-9"},
 	} {
 		if got := href(req); len(got) != 0 {
 			t.Errorf("%+v: %v, want nothing", req, got)
@@ -96,28 +109,17 @@ func TestLinkProviderKinds(t *testing.T) {
 	}
 }
 
-// The links follow the node the plugin found: with the node unset they appear after discovery,
-// not before, and the config is never mutated (the links read the plugin's own node).
-func TestLinksReadTheDiscoveredNode(t *testing.T) {
-	pve := newFakePVE(t, false)
-	pve.fail("/nodes", 500)
-	cfg := func(c *pluginconf.Proxmox) { c.Node = "" }
-	e := newEnv(t, envOpts{pve: pve, cfg: cfg})
-	waitFor(t, "discovery to retry", func() bool { return pve.count("/nodes") >= 2 })
-	console := func() int {
-		n := 0
-		for _, l := range e.sup.Links().Resolve(plugin.LinkRequest{Kind: "HostShell"}) {
-			if l.Label == "Host shell" {
-				n++
-			}
-		}
-		return n
+// Without plugins.proxmox.node a cluster of several nodes has no host node: a shell request without
+// a name gets nothing, a named node its shell, and the config is never mutated.
+func TestHostShellWithoutAHostNode(t *testing.T) {
+	e := newEnv(t, envOpts{cfg: func(c *pluginconf.Proxmox) { c.Node = "" }})
+	waitFor(t, "the cluster", func() bool { _, ok := e.current().Service().(svc.ClusterNodes).Nodes(); return ok })
+	shells := func(name string) int {
+		return len(e.sup.Links().Resolve(plugin.LinkRequest{Kind: "HostShell", Name: name}))
 	}
-	if console() != 0 {
-		t.Error("a shell link before the node is known")
+	if shells("") != 0 || shells("pve-2") != 1 {
+		t.Errorf("shells: %d without a name, %d for pve-2; want 0 and 1", shells(""), shells("pve-2"))
 	}
-	pve.heal("/nodes")
-	waitFor(t, "the shell link", func() bool { return console() == 1 })
 	if e.cfg.Node != "" {
 		t.Errorf("the configuration was mutated: node = %q", e.cfg.Node)
 	}

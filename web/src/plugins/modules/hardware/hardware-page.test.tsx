@@ -22,11 +22,12 @@ const hardware = (state = "healthy"): PluginInfo =>
   });
 
 const proxmox = (): PluginInfo =>
-  pluginInfo({ id: "proxmox", topics: ["proxmox.vms", "proxmox.node", "proxmox.storage"] });
+  pluginInfo({ id: "proxmox", topics: ["proxmox.vms", "proxmox.cluster", "proxmox.storage"] });
 
 const host = (over: Partial<HostData> = {}): HostData => ({
   model: "",
   ref: "hardware:Host/pve-1",
+  node: "pve-1",
   bays: 0,
   fanMaxRpm: 0,
   sensorAliases: { inlet: "inlet", exhaust: "exhaust" },
@@ -275,16 +276,31 @@ describe("the Hardware page", () => {
     });
   });
 
-  it("draws the Proxmox facts through the hardware.facts slot", async () => {
+  it("draws the facts of the host's Proxmox node through the hardware.facts slot", async () => {
     draw(host());
-    stream.send("proxmox.node", {
-      version: "8.4.1",
-      kernel: "6.8.12-1-pve",
-      cpuModel: "Xeon",
-      uptimeSeconds: 3600,
+    stream.send("proxmox.cluster", {
+      nodes: [
+        {
+          node: "pve-1",
+          status: "online",
+          version: "8.4.1",
+          kernel: "6.8.12-1-pve",
+          cpuModel: "Example CPU",
+          uptimeSeconds: 3600,
+        },
+        {
+          node: "pve-2",
+          status: "online",
+          version: "9.2.2",
+          kernel: "6.14.8-2-pve",
+          cpuModel: "Example CPU",
+          uptimeSeconds: 3600,
+        },
+      ],
     });
     expect(await screen.findByText("Proxmox VE")).toBeInTheDocument();
     expect(screen.getByText("8.4.1")).toBeInTheDocument();
+    expect(screen.queryByText("9.2.2")).toBeNull();
   });
 
   it("uses vendor-neutral words for the management controller's log", () => {

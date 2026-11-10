@@ -11,6 +11,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -26,6 +27,9 @@ var (
 type StatusError struct {
 	Code int
 	Body string // at most maxErrorText characters (a straddling secret ends it as "[redacted]")
+	// Text is the reason phrase of the status line, cut and scrubbed like Body: some upstreams
+	// (Proxmox before libpve-http-server-perl 5.2.0) put their message there and not in the body.
+	Text string
 }
 
 func (e *StatusError) Error() string {
@@ -109,7 +113,8 @@ func (c client) open(ctx context.Context, method, path string, q url.Values, bod
 		defer resp.Body.Close()
 		b, _ := io.ReadAll(io.LimitReader(resp.Body, maxErrorBody))
 		body, _ := c.cut(strings.TrimSpace(string(b)), maxErrorText)
-		return nil, &StatusError{Code: resp.StatusCode, Body: body}
+		text, _ := c.cut(strings.TrimSpace(strings.TrimPrefix(resp.Status, strconv.Itoa(resp.StatusCode))), maxErrorText)
+		return nil, &StatusError{Code: resp.StatusCode, Body: body, Text: text}
 	}
 	return resp, nil
 }

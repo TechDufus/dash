@@ -178,12 +178,14 @@ describe("schema-driven form", () => {
     const { user } = open();
     const more = await screen.findByRole("button", { name: "More about node" });
     const doc = more.parentElement?.querySelector("p");
-    expect(doc).toHaveTextContent(/^The Proxmox node to read\.$/);
+    expect(doc).toHaveTextContent(/^The Proxmox node the Hardware page's host is\.$/);
     expect(more).toHaveAttribute("aria-expanded", "false");
     await user.click(more);
     const less = screen.getByRole("button", { name: "Less about node" });
     expect(less).toHaveAttribute("aria-expanded", "true");
-    expect(doc).toHaveTextContent(/^The Proxmox node to read\. Empty is discovered/);
+    expect(doc).toHaveTextContent(
+      /^The Proxmox node the Hardware page's host is\. The page's Proxmox facts, its shell link/,
+    );
   });
 
   it("keeps a locked field read-only and shows what locks it", async () => {

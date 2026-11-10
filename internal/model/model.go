@@ -44,9 +44,9 @@ const (
 	// TopicHost is the host's facts (HostData), published by the hardware plugin.
 	TopicHost Topic = "hardware.hosts"
 	TopicVMs  Topic = "proxmox.vms"
-	// TopicProxmoxNode is the Proxmox node's facts (proxmox/model.NodeData), TopicProxmoxStorage
-	// its storages (PVEStorageData): both published by the proxmox plugin.
-	TopicProxmoxNode      Topic = "proxmox.node"
+	// TopicProxmoxCluster is the Proxmox cluster with its nodes (proxmox/model.PVEClusterData),
+	// TopicProxmoxStorage its storages (PVEStorageData): both published by the proxmox plugin.
+	TopicProxmoxCluster   Topic = "proxmox.cluster"
 	TopicProxmoxStorage   Topic = "proxmox.storage"
 	TopicHardwareMachines Topic = "hardware.machines"
 	// TopicCluster, TopicStorage and TopicApps are the kubernetes plugin's topics (ClusterData,
@@ -119,7 +119,10 @@ type AttentionItem struct {
 }
 
 type TopologyHost struct {
-	Name       string  `json:"name"`
+	Name string `json:"name"`
+	// Node is the Proxmox node (or node-exporter nodename) the host is: the overview merges the
+	// hosts every contribution names for one node, and draws each VM under the host of its node.
+	Node       string  `json:"node"`
 	Health     Health  `json:"health"`
 	PowerWatts float64 `json:"powerWatts"`
 	CPUTempC   float64 `json:"cpuTempC"`
@@ -130,8 +133,10 @@ type TopologyHost struct {
 }
 
 type TopologyVM struct {
-	VMID      int     `json:"vmid"`
-	Name      string  `json:"name"`
+	VMID int    `json:"vmid"`
+	Name string `json:"name"`
+	// Node is the Proxmox node the VM runs on.
+	Node      string  `json:"node"`
 	Health    Health  `json:"health"`
 	CPURatio  float64 `json:"cpuRatio"`
 	MemRatio  float64 `json:"memRatio"`
@@ -163,7 +168,8 @@ type TopologyGroup struct {
 }
 
 type Topology struct {
-	Host   TopologyHost    `json:"host"`
+	// Hosts are the hypervisor hosts, one per node, sorted by name; never null.
+	Hosts  []TopologyHost  `json:"hosts"`
 	VMs    []TopologyVM    `json:"vms"`
 	Groups []TopologyGroup `json:"groups"`
 }
@@ -223,6 +229,10 @@ type Disk struct {
 type HostData struct {
 	// Ref is hardware:Host/<node> (design L.6).
 	Ref string `json:"ref"`
+	// Node is the Proxmox node the host is: the node the proxmox plugin names (plugins.proxmox.node,
+	// or the only node of a one-node cluster), else plugins.hardware.hosts[0].nodename. The Hardware
+	// page shows that Proxmox node's facts.
+	Node string `json:"node"`
 	// Model is shown next to the host's name, e.g. "Example 2U server"; empty shows nothing. The hardware
 	// plugin fills it from plugins.hardware.hosts[0].model.
 	Model string `json:"model"`
@@ -267,8 +277,10 @@ type K8sNodeRef struct {
 
 type VM struct {
 	// Ref is proxmox:VM/<vmid> (design L.6).
-	Ref    string `json:"ref"`
-	VMID   int    `json:"vmid"`
+	Ref  string `json:"ref"`
+	VMID int    `json:"vmid"`
+	// Node is the Proxmox node the guest runs on.
+	Node   string `json:"node"`
 	Name   string `json:"name"`
 	Status string `json:"status"`
 	Health Health `json:"health"`
@@ -290,7 +302,9 @@ type VM struct {
 }
 
 type PVETask struct {
-	UPID      string     `json:"upid"`
+	UPID string `json:"upid"`
+	// Node is the node the task ran on.
+	Node      string     `json:"node"`
 	Type      string     `json:"type"`
 	ID        string     `json:"id"`
 	User      string     `json:"user"`

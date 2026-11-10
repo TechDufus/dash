@@ -4,14 +4,17 @@
 
 Plugin ID `proxmox`. Virtual machines, containers and the hypervisor.
 
-The VMs page lists the virtual machines and containers of one Proxmox VE node with their state,
-their Kubernetes node, configuration, snapshots and charts, with a link to each console. A
-stopped VM is an attention item on the Overview: critical when `plugins.proxmox.criticalVMs`
-names it, a warning otherwise. The topology on the Overview runs from the host through its VMs
-to the cluster. The plugin runs once `url`, `tokenID` and `tokenSecret` are all set; with
-`storage.source: api` (the default) the token needs the `Datastore.Audit` privilege on
-`/storage` for the storage list. The client is tested against API answers of Proxmox VE 8 and 9
-(`internal/upstream/testdata/proxmox`).
+The VMs page shows a Proxmox VE cluster through one connection: the cluster's name and quorum,
+every node with its usage and facts, the totals of the online nodes, and the virtual machines and
+containers of every node with their state, their node, their Kubernetes node, configuration,
+snapshots and charts, with a link to each console. `url` may point at any node of the cluster: it
+answers for all of them, and a VM's detail and console go to the node the VM runs on. A
+standalone server is a cluster of one. A stopped VM is an attention item on the Overview:
+critical when `plugins.proxmox.criticalVMs` names it, a warning otherwise. A node the cluster
+reports offline and a cluster that has lost quorum are critical items. The topology on the
+Overview has a host per node, each with its VMs, down to the Kubernetes cluster. The plugin runs
+once `url`, `tokenID` and `tokenSecret` are all set. The client is tested against API answers of
+Proxmox VE 8 and 9 (`internal/upstream/testdata/proxmox`).
 
 ## What it shows
 
@@ -40,8 +43,8 @@ Published on `/api/v1/stream` and `/api/v1/topics/{topic}`:
 | Topic | Payload | What |
 |---|---|---|
 | `proxmox.vms` | `VMsData` | Virtual machines and containers, and the recent tasks. |
-| `proxmox.node` | `NodeData` | The facts of the Proxmox node: version, kernel, CPU and uptime. |
-| `proxmox.storage` | `PVEStorageData` | The storages of the Proxmox node with their usage. |
+| `proxmox.cluster` | `PVEClusterData` | The Proxmox cluster: its name and quorum, every node with its usage and facts, and the totals over the online nodes. |
+| `proxmox.storage` | `PVEStorageData` | The storages of every node with their usage, each shared storage once, and their totals. |
 
 ### API routes
 
@@ -70,16 +73,22 @@ Every setting is under `plugins.proxmox` in the config file and is also in the [
 | `plugins.proxmox.type` | `DASH_PLUGINS_PROXMOX_TYPE` | string | - | no | no | The plugin type. dash runs one instance per type, so this is empty or the section name. |
 | `plugins.proxmox.enabled` | `DASH_PLUGINS_PROXMOX_ENABLED` | boolean | - | no | no | false turns the plugin off: its topics are removed, and the web UI drops its rail entry, palette entries, overview tiles and panels and shows a switched-off page at its address. Unset turns it on when it has the settings it needs (rustfs is off unless enabled: true, because nothing in its settings says an object store exists); a plugin without them is disabled ("not configured: set plugins.<id>.url", naming the setting to make) and the web UI hides its pages. true with settings missing or invalid makes it unconfigured, which hides its pages too. This is how prometheus, alertmanager, gatus, victorialogs, proxmox, hardware, kubernetes, flux, cnpg, rustfs, grafana, headlamp and launcher behave, and a change to any of their settings applies live: that plugin restarts, and so do the plugins that use or require it (a prometheus change restarts proxmox, hardware, kubernetes, cnpg and rustfs; a gatus change restarts hardware and kubernetes; a proxmox change restarts hardware; a kubernetes change restarts proxmox, flux and cnpg; a grafana change restarts alertmanager). |
 | `plugins.proxmox.url` | `DASH_PLUGINS_PROXMOX_URL` | string | - | no | no | Base URL of the Proxmox API, e.g. https://pve.example.com:8006. Required with a token; a URL alone leaves Proxmox disabled. |
-| `plugins.proxmox.node` | `DASH_PLUGINS_PROXMOX_NODE` | string | - | no | no | The Proxmox node to read. Empty is discovered from the API when the cluster has exactly one node; set it for several nodes or to skip discovery. The hardware plugin reads the host's node from the running proxmox plugin, so without hosts[0].nodename it needs Proxmox to run (url, tokenID and tokenSecret all set). |
+| `plugins.proxmox.node` | `DASH_PLUGINS_PROXMOX_NODE` | string | - | no | no | The Proxmox node the Hardware page's host is. The page's Proxmox facts, its shell link and its place in the topology come from that node, and its series use the node as their nodename unless plugins.hardware.hosts[0].nodename names another. Empty takes the only node of a one-node cluster; a cluster of several nodes needs it for the Hardware page. dash reads every node of the cluster either way. |
 | `plugins.proxmox.tokenID` | `DASH_PLUGINS_PROXMOX_TOKEN_ID` | string | - | no | no | API token ID, user@realm!tokenname. Proxmox runs only with url, tokenID and tokenSecret all set and is disabled with none of the token set. A token ID without tokenSecret, a tokenSecret without tokenID, or a token without url is a configuration error that stops dash at startup. |
 | `plugins.proxmox.tokenSecret` | `DASH_PLUGINS_PROXMOX_TOKEN_SECRET` | string | - | yes | no | API token secret: a literal, env:NAME, file:/path or k8s:<namespace>/<name>#<key> (read from that Kubernetes Secret by the kubernetes plugin, which must run and be allowed to read it). Set together with tokenID: one without the other is a configuration error. |
 | `plugins.proxmox.tls.caFile` | `DASH_PLUGINS_PROXMOX_TLS_CA_FILE` | string | - | no | no | Path of a PEM file with the certificate authority that signed the service's certificate, added to the system roots. Empty uses the system roots only. |
 | `plugins.proxmox.tls.insecureSkipVerify` | `DASH_PLUGINS_PROXMOX_TLS_INSECURE_SKIP_VERIFY` | boolean | - | no | no | Skip verifying the service's certificate and host name. Anyone on the network path can then impersonate the service: prefer caFile. |
 | `plugins.proxmox.criticalVMs.ids` | `DASH_PLUGINS_PROXMOX_CRITICAL_VMS_IDS` | list of integers (JSON) | - | no | no | VM ids that are critical. A stopped critical VM is a critical attention item; any other stopped VM is a warning. A JSON list of integers in the environment. |
 | `plugins.proxmox.criticalVMs.tags` | `DASH_PLUGINS_PROXMOX_CRITICAL_VMS_TAGS` | list of strings (JSON) | - | no | no | VM tags that make a VM critical (compared without regard to case). A JSON list in the environment. |
-| `plugins.proxmox.storage.source` | `DASH_PLUGINS_PROXMOX_STORAGE_SOURCE` | string | `api` | no | no | Where the storage list comes from: api reads the node's storages from the Proxmox API (the API token needs the Datastore.Audit privilege on /storage); prometheus reads the pve-exporter series pve_disk_usage_bytes, pve_disk_size_bytes and pve_storage_info through the prometheus plugin. |
+| `plugins.proxmox.storage.source` | `DASH_PLUGINS_PROXMOX_STORAGE_SOURCE` | string | `api` | no | no | Where the storage list comes from: api reads every node's storages from the Proxmox API (the API token needs the Datastore.Audit privilege); prometheus reads the pve-exporter series pve_disk_usage_bytes, pve_disk_size_bytes, pve_storage_info and pve_storage_shared through the prometheus plugin. A shared storage is listed and counted once, except with prometheus and an exporter without pve_storage_shared, which lists it once per node. |
 | `plugins.proxmox.series.vmSelector` | `DASH_PLUGINS_PROXMOX_SERIES_VM_SELECTOR` | string | `id="qemu/{vmid}"` | no | no | The label matcher that selects one VM in the pve-exporter series of the VM charts: one label, = or =~, and a quoted value with {vmid} once, e.g. id="qemu/{vmid}". |
 
+- `node` no longer selects what dash reads: dash reads every node. It names the node that is the
+  Hardware page's host (its facts, its shell link and its place in the topology), whatever
+  `plugins.hardware.hosts[0].nodename` says; empty takes the only node of a one-node cluster.
+  `hosts[0].nodename` is the label of the host's series, and the Proxmox node only while this
+  plugin names none. A `node` that is not a node of the cluster leaves the row degraded, saying
+  which nodes there are.
 - With a `k8s:` token still being read, the row says it waits for a Kubernetes Secret.
 - `plugins.proxmox.tls.insecureSkipVerify` makes dash log a startup WARN and list an `ok` source
   named `tls: verification disabled` in the Overview's sources (not on the Proxmox row, and drawn
@@ -89,6 +98,42 @@ Every setting is under `plugins.proxmox` in the config file and is also in the [
 ## Actions
 
 None: the plugin only reads.
+
+## What it reads
+
+- `GET /cluster/resources?type=node` every 30 s: the node list, each node's state and usage. A
+  node's status in `proxmox.cluster` is `online`, `offline` (the cluster lost it), or `unknown`
+  (a member whose status daemon has not reported for a while, and any state Proxmox does not
+  name). Only an online node has usage and counts in the totals; only an offline one is an item.
+- `GET /nodes/{node}/status` for every online node, with each cluster poll: version, kernel, CPU
+  model, sockets and cores. A node that does not answer keeps the facts it last reported.
+- `GET /cluster/status` with each cluster poll: the cluster's name and quorum. It needs
+  `Sys.Audit` on `/`; without it everything else is read, the name stays empty, `quorumKnown` is
+  false (no quorum is claimed and no quorum item is raised), and the row is degraded with
+  `cluster status: auth`. A failed call once it has answered keeps the last name and quorum, so a
+  lost quorum stays raised.
+- `GET /cluster/resources?type=vm` and `GET /cluster/tasks` every 15 s: the guests and the recent
+  tasks, each with its node.
+- `GET /cluster/resources?type=storage` every 60 s with `storage.source: api` (the default).
+- A VM's detail reads `/nodes/{node}/qemu/{vmid}/config`, `/snapshot` and
+  `/agent/network-get-interfaces` on the VM's own node. The detail is for qemu guests: a
+  container's answers 404.
+
+The `PVEAuditor` role on `/` holds every privilege the plugin needs (`Sys.Audit`, `VM.Audit`,
+`Datastore.Audit`).
+
+## Nodes and storages
+
+- An offline node stays on the page with no usage and the facts it last reported. Its guests show
+  health `unknown` and raise no item of their own (the node's item covers them); after a few
+  minutes the cluster forgets their names and sizes, and dash shows the ones it last saw. Their
+  detail answers 503 until the node is back.
+- A shared storage (NFS, Ceph, anything Proxmox marks `shared`) is listed and counted once,
+  without a node; every other storage is listed per node (`proxmox:Storage/<node>/<name>`). An
+  offline node's storages leave the list, because the cluster no longer knows their sizes.
+- With `storage.source: prometheus` one pve-exporter covers every node. A storage is shared when
+  `pve_storage_shared` says so; an exporter without that series lists every storage once per
+  node, a shared one included.
 
 ## Demo twin
 

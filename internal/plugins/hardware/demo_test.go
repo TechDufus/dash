@@ -83,7 +83,7 @@ func TestDemoTwinContributesAndAnswersSeries(t *testing.T) {
 	if kpis["power"].Value <= 0 || kpis["power"].Unit != "W" || kpis["cpuTemp"].Value <= 0 || kpis["cpuTemp"].Unit != "°C" {
 		t.Errorf("kpis = %+v", kpis)
 	}
-	if h := c.Topology.Topology().Host; h.Name != world.HostName || h.PowerWatts <= 0 || h.Health != model.HealthOK {
+	if h := hostOf(c.Topology.Topology()); h.Name != world.HostName || h.PowerWatts <= 0 || h.Health != model.HealthOK {
 		t.Errorf("topology host = %+v", h)
 	}
 	if items := c.Attention.Attention(time.Now()); len(items) != 0 {

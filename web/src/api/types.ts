@@ -248,10 +248,10 @@ export const TopicOverview = "core.overview";
 export const TopicHost = "hardware.hosts";
 export const TopicVMs = "proxmox.vms";
 /**
- * TopicProxmoxNode is the Proxmox node's facts (proxmox/model.NodeData), TopicProxmoxStorage
- * its storages (PVEStorageData): both published by the proxmox plugin.
+ * TopicProxmoxCluster is the Proxmox cluster with its nodes (proxmox/model.PVEClusterData),
+ * TopicProxmoxStorage its storages (PVEStorageData): both published by the proxmox plugin.
  */
-export const TopicProxmoxNode = "proxmox.node";
+export const TopicProxmoxCluster = "proxmox.cluster";
 export const TopicProxmoxStorage = "proxmox.storage";
 export const TopicHardwareMachines = "hardware.machines";
 /**
@@ -293,7 +293,7 @@ export const TopicPlugins = "core.plugins";
  * per user (hub.PublishFor): a user's stream and snapshot carry that user's requests only.
  */
 export const TopicApprovals = "core.approvals";
-export type Topic = typeof TopicOverview | typeof TopicHost | typeof TopicVMs | typeof TopicProxmoxNode | typeof TopicProxmoxStorage | typeof TopicHardwareMachines | typeof TopicCluster | typeof TopicStorage | typeof TopicCNPGClusters | typeof TopicRustFSUsage | typeof TopicApps | typeof TopicFlux | typeof TopicAlerts | typeof TopicStatus | typeof TopicLauncherLinks | typeof TopicPlugins | typeof TopicApprovals;
+export type Topic = typeof TopicOverview | typeof TopicHost | typeof TopicVMs | typeof TopicProxmoxCluster | typeof TopicProxmoxStorage | typeof TopicHardwareMachines | typeof TopicCluster | typeof TopicStorage | typeof TopicCNPGClusters | typeof TopicRustFSUsage | typeof TopicApps | typeof TopicFlux | typeof TopicAlerts | typeof TopicStatus | typeof TopicLauncherLinks | typeof TopicPlugins | typeof TopicApprovals;
 export interface Link {
   label: string;
   href: string;
@@ -344,6 +344,11 @@ export interface AttentionItem {
 }
 export interface TopologyHost {
   name: string;
+  /**
+   * Node is the Proxmox node (or node-exporter nodename) the host is: the overview merges the
+   * hosts every contribution names for one node, and draws each VM under the host of its node.
+   */
+  node: string;
   health: Health;
   powerWatts: number /* float64 */;
   cpuTempC: number /* float64 */;
@@ -357,6 +362,10 @@ export interface TopologyHost {
 export interface TopologyVM {
   vmid: number /* int */;
   name: string;
+  /**
+   * Node is the Proxmox node the VM runs on.
+   */
+  node: string;
   health: Health;
   cpuRatio: number /* float64 */;
   memRatio: number /* float64 */;
@@ -385,7 +394,10 @@ export interface TopologyGroup {
   podsByNode: { [key: string]: number /* int */};
 }
 export interface Topology {
-  host: TopologyHost;
+  /**
+   * Hosts are the hypervisor hosts, one per node, sorted by name; never null.
+   */
+  hosts: TopologyHost[];
   vms: TopologyVM[];
   groups: TopologyGroup[];
 }
@@ -446,6 +458,12 @@ export interface HostData {
    */
   ref: string;
   /**
+   * Node is the Proxmox node the host is: the node the proxmox plugin names (plugins.proxmox.node,
+   * or the only node of a one-node cluster), else plugins.hardware.hosts[0].nodename. The Hardware
+   * page shows that Proxmox node's facts.
+   */
+  node: string;
+  /**
    * Model is shown next to the host's name, e.g. "Example 2U server"; empty shows nothing. The hardware
    * plugin fills it from plugins.hardware.hosts[0].model.
    */
@@ -503,6 +521,10 @@ export interface VM {
    */
   ref: string;
   vmid: number /* int */;
+  /**
+   * Node is the Proxmox node the guest runs on.
+   */
+  node: string;
   name: string;
   status: string;
   health: Health;
@@ -526,6 +548,10 @@ export interface VM {
 }
 export interface PVETask {
   upid: string;
+  /**
+   * Node is the node the task ran on.
+   */
+  node: string;
   type: string;
   id: string;
   user: string;

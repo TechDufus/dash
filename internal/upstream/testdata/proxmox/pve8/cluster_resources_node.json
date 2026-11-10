@@ -1,0 +1,4 @@
+{"data":[
+  {"id":"node/pve-2","type":"node","node":"pve-2","status":"offline","level":"","cgroup-mode":2},
+  {"id":"node/pve-1","type":"node","node":"pve-1","status":"online","cpu":0.0312,"maxcpu":8,"mem":9123348480,"maxmem":33564844032,"disk":4415053824,"maxdisk":100861726720,"uptime":864203,"level":"","cgroup-mode":2}
+]}

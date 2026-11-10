@@ -1,9 +1,9 @@
 package proxmox
 
 import (
+	"cmp"
 	"context"
 	"errors"
-	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -16,12 +16,18 @@ import (
 	"github.com/TechDufus/dash/internal/upstream"
 )
 
-// The pve-exporter series storage.source: prometheus reads.
+// The pve-exporter series storage.source: prometheus reads. pve_storage_shared is newer than the
+// others: an exporter without it answers an empty result, and every storage then counts as the
+// node's own.
 const (
-	exprStorageUsed = `pve_disk_usage_bytes{id=~"storage/.+"}`
-	exprStorageSize = `pve_disk_size_bytes{id=~"storage/.+"}`
-	exprStorageInfo = `pve_storage_info`
+	exprStorageUsed   = `pve_disk_usage_bytes{id=~"storage/.+"}`
+	exprStorageSize   = `pve_disk_size_bytes{id=~"storage/.+"}`
+	exprStorageInfo   = `pve_storage_info`
+	exprStorageShared = `pve_storage_shared{id=~"storage/.+"}`
 )
+
+// promStorage is what pve_storage_info says about one storage id.
+type promStorage struct{ name, node string }
 
 // pollStorage reads the storages from the configured source and publishes them. A failed poll
 // publishes the last good list with the failing source.
@@ -40,43 +46,119 @@ func (r *runtime) pollStorage(ctx context.Context) {
 	}
 	r.mu.Lock()
 	r.storOut = outcome{polled: true, cat: upstream.Category(err), at: r.h.Now()}
-	data, out := pvemodel.PVEStorageData{Storages: append([]pvemodel.PVEStorage{}, r.storages...)}, r.storOut
+	data, out := storageData(r.storages), r.storOut
 	r.mu.Unlock()
 	r.note("storage", err)
 	r.h.Publish(topicStorage, data, []model.SourceStatus{src(name, out)})
 }
 
-func (r *runtime) storageFromAPI(ctx context.Context) error {
-	client := r.nodeClient()
-	if client == nil {
-		return upstream.ErrDisabled
+// storageData is the proxmox.storage payload of a list: its totals count each storage once, which
+// the list already holds a shared storage as.
+func storageData(list []pvemodel.PVEStorage) pvemodel.PVEStorageData {
+	d := pvemodel.PVEStorageData{Storages: append([]pvemodel.PVEStorage{}, list...)}
+	for _, s := range list {
+		d.UsedBytes += s.UsedBytes
+		d.SizeBytes += s.SizeBytes
 	}
-	list, err := client.Storages(ctx)
+	return d
+}
+
+// storageEntry is one storage of one node as a source reports it; key identifies it when it has
+// no node to tell it from another of the same name. trusted is an entry whose node is online and
+// reaches the storage: of a shared storage's entries, its usage is the one to show.
+type storageEntry struct {
+	name, node, key      string
+	shared, trusted      bool
+	usedBytes, sizeBytes int64
+}
+
+// storageList turns every node's storages (those that report a size) into the proxmox.storage
+// list. A shared storage (NFS, Ceph...) appears once per node with the same usage: it is listed
+// once, without a node, so neither the list nor the totals count it twice; its usage is that of a
+// trusted entry first, then of the largest, then of the first node by name, so it does not depend
+// on the order of the answer. The shared ones come first by name, then every node's own by node
+// and name.
+func storageList(entries []storageEntry) []pvemodel.PVEStorage {
+	sort.SliceStable(entries, func(i, j int) bool {
+		a, b := entries[i], entries[j]
+		if a.shared != b.shared {
+			return a.shared
+		}
+		if a.shared && a.name != b.name {
+			return a.name < b.name
+		}
+		if a.shared {
+			if a.trusted != b.trusted {
+				return a.trusted
+			}
+			if a.sizeBytes != b.sizeBytes {
+				return a.sizeBytes > b.sizeBytes
+			}
+		}
+		if a.node != b.node {
+			return a.node < b.node
+		}
+		if a.name != b.name {
+			return a.name < b.name
+		}
+		return a.key < b.key
+	})
+	out := make([]pvemodel.PVEStorage, 0, len(entries))
+	seen := map[string]bool{}
+	for _, e := range entries {
+		var ref string
+		switch {
+		case e.shared:
+			ref = plugin.Ref(ID, "Storage", e.name)
+			e.node = ""
+		case e.node != "":
+			ref = plugin.Ref(ID, "Storage", e.node, e.name)
+		default:
+			ref = plugin.Ref(ID, "Storage", cmp.Or(e.key, e.name))
+		}
+		if seen[ref] {
+			continue
+		}
+		seen[ref] = true
+		out = append(out, pvemodel.PVEStorage{
+			Ref: ref, Name: e.name, Node: e.node, Shared: e.shared, UsedBytes: e.usedBytes, SizeBytes: e.sizeBytes,
+		})
+	}
+	return out
+}
+
+func (r *runtime) storageFromAPI(ctx context.Context) error {
+	list, err := r.client.Storages(ctx)
 	if err != nil {
 		return err
 	}
-	out := make([]pvemodel.PVEStorage, len(list))
+	offline := r.offlineNodes()
+	entries := make([]storageEntry, len(list))
 	for i, s := range list {
-		out[i] = pvemodel.PVEStorage{Ref: plugin.Ref(ID, "Storage", s.Name), Name: s.Name, UsedBytes: s.UsedBytes, SizeBytes: s.SizeBytes}
+		entries[i] = storageEntry{
+			name: s.Name, node: s.Node, shared: s.Shared, trusted: !offline[s.Node] && s.Status == "available",
+			usedBytes: s.UsedBytes, sizeBytes: s.SizeBytes,
+		}
 	}
+	out := storageList(entries)
 	r.mu.Lock()
 	r.storages = out
 	r.mu.Unlock()
 	return nil
 }
 
-// storageFromPrometheus runs the three queries together. A query that fails leaves its last
-// values in place and the poll reports the first error (in query order); the others still update,
-// as the Manager's did.
+// storageFromPrometheus runs the queries together. A query that fails leaves its last values in
+// place and the poll reports the first error (in query order); the others still update, as the
+// Manager's did.
 func (r *runtime) storageFromPrometheus(ctx context.Context) error {
 	q := r.querier()
 	if q == nil {
 		return upstream.ErrDisabled
 	}
-	exprs := [3]string{exprStorageUsed, exprStorageSize, exprStorageInfo}
+	exprs := [4]string{exprStorageUsed, exprStorageSize, exprStorageInfo, exprStorageShared}
 	var (
-		res  [3][]svc.Sample
-		errs [3]error
+		res  [4][]svc.Sample
+		errs [4]error
 		wg   sync.WaitGroup
 	)
 	for i, e := range exprs {
@@ -97,61 +179,44 @@ func (r *runtime) storageFromPrometheus(ctx context.Context) error {
 		r.promSize = byLabel(res[1], "id")
 	}
 	if errs[2] == nil {
-		r.promNames = map[string]string{}
+		r.promInfo = map[string]promStorage{}
 		for _, s := range res[2] {
-			r.promNames[s.Labels["id"]] = s.Labels["storage"]
+			r.promInfo[s.Labels["id"]] = promStorage{name: s.Labels["storage"], node: s.Labels["node"]}
 		}
 	}
-	r.storages = prometheusStorages(r.node, r.promUsed, r.promSize, r.promNames)
+	if errs[3] == nil {
+		r.promShared = byLabel(res[3], "id")
+	}
+	r.storages = prometheusStorages(r.promUsed, r.promSize, r.promShared, r.promInfo, notOnline(r.cluster.Nodes))
 	return errors.Join(errs[:]...)
 }
 
-// prometheusStorages assembles the storages from the exporter's series, which are keyed by the
-// "storage/<node>/<name>" id: the name comes from pve_storage_info, or is the id when there is
-// none. The list is by name.
-//
-// An exporter that reports several nodes carries every node's storages. When any id belongs to
-// this plugin's node, only those are kept, as the API source lists only this node's; when none
-// does (the exporter names its nodes differently), all of them stay. A ref is the name, except
-// for a name that more than one remaining storage has: those use their id, so refs never repeat.
-func prometheusStorages(node string, used, size map[string]float64, names map[string]string) []pvemodel.PVEStorage {
-	ids := make([]string, 0, len(size))
-	mine := false
+// prometheusStorages assembles every node's storages from the exporter's series, which are keyed
+// by the "storage/<node>/<name>" id: one exporter covers the whole cluster. The name and the node
+// come from pve_storage_info, else from the id; an id of another shape is its own name. A storage
+// is shared when pve_storage_shared says so; an exporter without that series lists every storage
+// once per node, a shared one included. A storage without a size is left out, as the API source
+// leaves it out.
+func prometheusStorages(used, size, shared map[string]float64, info map[string]promStorage, offline map[string]bool) []pvemodel.PVEStorage {
+	entries := make([]storageEntry, 0, len(size))
 	for id := range size {
-		ids = append(ids, id)
-		mine = mine || (node != "" && strings.HasPrefix(id, "storage/"+node+"/"))
-	}
-	if mine {
-		ids = slices.DeleteFunc(ids, func(id string) bool { return !strings.HasPrefix(id, "storage/"+node+"/") })
-	}
-	nameOf := func(id string) string {
-		if n := names[id]; n != "" {
-			return n
+		if size[id] <= 0 {
+			continue
 		}
-		return id
-	}
-	count := map[string]int{}
-	for _, id := range ids {
-		count[nameOf(id)]++
-	}
-	sort.Slice(ids, func(i, j int) bool {
-		if a, b := nameOf(ids[i]), nameOf(ids[j]); a != b {
-			return a < b
+		e := storageEntry{key: id, shared: shared[id] != 0, usedBytes: int64(used[id]), sizeBytes: int64(size[id])}
+		if parts := strings.SplitN(id, "/", 3); len(parts) == 3 && parts[0] == "storage" {
+			e.node, e.name = parts[1], parts[2]
 		}
-		return ids[i] < ids[j]
-	})
-	out := make([]pvemodel.PVEStorage, 0, len(ids))
-	for _, id := range ids {
-		name := nameOf(id)
-		key := name
-		if count[name] > 1 {
-			key = id
+		i := info[id]
+		e.name = cmp.Or(i.name, e.name, id)
+		e.node = cmp.Or(i.node, e.node)
+		if e.node != "" && !upstream.ValidNodeName(e.node) {
+			continue
 		}
-		out = append(out, pvemodel.PVEStorage{
-			Ref: plugin.Ref(ID, "Storage", key), Name: name, UsedBytes: int64(used[id]), SizeBytes: int64(size[id]),
-		})
+		e.trusted = !offline[e.node]
+		entries = append(entries, e)
 	}
-	return out
+	return storageList(entries)
 }
 
 // byLabel indexes sample values by one label (later samples of the same label win).

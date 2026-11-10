@@ -70,12 +70,21 @@ type NodeIndex interface {
 	Revision() uint64
 }
 
-// NodeName is what the proxmox plugin exports: the node it reads, for the plugins that need the
-// Proxmox node's name (the host half of the hardware plugin).
+// NodeName is what the proxmox plugin exports: the node that is the Hardware page's host, for the
+// plugins that need the Proxmox node's name (the host half of the hardware plugin).
 type NodeName interface {
-	// NodeName is the configured node, or the one discovery found. ok is false until it is
-	// known. The service is non-nil from the plugin's Start, so ok is the only signal.
+	// NodeName is plugins.proxmox.node when it is set, else the only node of a one-node cluster.
+	// ok is false until it is known, and for a cluster of several nodes without the setting. The
+	// service is non-nil from the plugin's Start, so ok is the only signal.
 	NodeName() (name string, ok bool)
+}
+
+// ClusterNodes is what the proxmox plugin's service object also implements: every node of the
+// cluster it reads, so a consumer that needs one node can say which ones there are.
+type ClusterNodes interface {
+	// Nodes are the cluster's node names, sorted. ok is false until the first cluster poll has
+	// succeeded.
+	Nodes() (names []string, ok bool)
 }
 
 // Cluster is what the kubernetes plugin exports: the informer caches and the dynamic client, for

@@ -6,7 +6,6 @@ import (
 
 	"github.com/TechDufus/dash/internal/model"
 	"github.com/TechDufus/dash/internal/plugin"
-	pvemodel "github.com/TechDufus/dash/internal/plugins/proxmox/model"
 )
 
 // maxTasks bounds the recent tasks a VM's context lists.
@@ -42,10 +41,8 @@ func (p *Plugin) Context(_ context.Context, ref string, _ model.ContextOptions) 
 			})
 		}
 	}
-	if v, ok := p.Latest(topicNode); ok {
-		if d, ok := v.(pvemodel.NodeData); ok && d.Ref != "" {
-			part.Related = append(part.Related, d.Ref)
-		}
+	if vm.Node != "" {
+		part.Related = append(part.Related, plugin.Ref(ID, "Node", vm.Node))
 	}
 	if vm.K8sNode != nil && vm.K8sNode.Name != "" {
 		part.Related = append(part.Related, "kubernetes:Node/"+vm.K8sNode.Name)

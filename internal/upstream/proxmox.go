@@ -20,6 +20,9 @@ import (
 )
 
 var (
+	// pveNodeRe is the rule Proxmox applies to node (and cluster) names. A name from the API that
+	// breaks it is not used in a path, a ref, a link or a message.
+	pveNodeRe = regexp.MustCompile(`^[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?$`)
 	pveDiskRe = regexp.MustCompile(`^(scsi|virtio|sata|ide|efidisk|tpmstate)\d*$`)
 	pveNICRe  = regexp.MustCompile(`^net\d+$`)
 	keyNumRe  = regexp.MustCompile(`^(\D+)(\d*)$`)
@@ -27,13 +30,18 @@ var (
 
 const maxPVETasks = 20
 
+// PVEHost is what a node reports about itself (GET /nodes/{node}/status).
 type PVEHost struct {
 	UptimeSeconds                int64
 	PVEVersion, Kernel, CPUModel string
+	// Sockets and Cores are its CPU sockets and its physical cores over all of them.
+	Sockets, Cores int
 }
 
+// PVEVM is one guest of the cluster; Node is the node it runs on and Type is qemu or lxc.
 type PVEVM struct {
 	VMID                                                          int
+	Node, Type                                                    string
 	Name, Status                                                  string
 	Tags                                                          []string
 	CPUs, CPURatio                                                float64
@@ -42,23 +50,33 @@ type PVEVM struct {
 	Lock                                                          string
 }
 
-// Proxmox reads the Proxmox VE API with an API token.
+// Proxmox reads the Proxmox VE API of a cluster (or a standalone server) with an API token, through
+// whichever node its URL reaches: any node answers the cluster calls and proxies a node's own calls.
 type Proxmox struct {
 	c           client
-	node        string
 	tokenID     string       // "user@realm!name"
 	tokenSecret secret.Value // read per request, so a rotated secret file applies without a restart
 }
 
-// NewProxmox builds the client. node may be empty for a client that only lists the cluster's nodes
-// (Nodes), the VM list and the tasks: every call that addresses a node refuses with ErrInvalid.
-// Requests time out after 5s unless opts say otherwise (Timeout).
-func NewProxmox(baseURL, node, tokenID string, tokenSecret secret.Value, rt http.RoundTripper, opts ...Option) *Proxmox {
-	return &Proxmox{c: newClient(baseURL, rt, 5*time.Second, opts...), node: node, tokenID: tokenID, tokenSecret: tokenSecret}
+// NewProxmox builds the client. Requests time out after 5s unless opts say otherwise (Timeout).
+func NewProxmox(baseURL, tokenID string, tokenSecret secret.Value, rt http.RoundTripper, opts ...Option) *Proxmox {
+	return &Proxmox{c: newClient(baseURL, rt, 5*time.Second, opts...), tokenID: tokenID, tokenSecret: tokenSecret}
 }
 
-// errNoNode is what a call that addresses a node returns on a client built without one.
-var errNoNode = fmt.Errorf("%w: the client has no node", ErrInvalid)
+// errNoNode is what a call that addresses a node returns when it is given none, or a name Proxmox
+// would not give a node.
+var errNoNode = fmt.Errorf("%w: no node", ErrInvalid)
+
+// ValidNodeName reports whether name follows the Proxmox rule for node names.
+func ValidNodeName(name string) bool { return pveNodeRe.MatchString(name) }
+
+// nodeOrEmpty is name when it is a valid node name, else empty.
+func nodeOrEmpty(name string) string {
+	if ValidNodeName(name) {
+		return name
+	}
+	return ""
+}
 
 // Enabled reports whether a token is configured.
 func (p *Proxmox) Enabled() bool { return p.tokenID != "" && p.tokenSecret.IsSet() }
@@ -107,37 +125,125 @@ func (p *Proxmox) get(ctx context.Context, path string, out any) error {
 	return nil
 }
 
-func (p *Proxmox) nodePath(suffix string) string {
-	return "/api2/json/nodes/" + url.PathEscape(p.node) + suffix
+func nodePath(node, suffix string) string {
+	return "/api2/json/nodes/" + url.PathEscape(node) + suffix
 }
 
-func (p *Proxmox) vmPath(vmid int, suffix string) (string, error) {
-	if p.node == "" {
+// vmPath addresses a guest on its own node: another node answers that the guest's config does not
+// exist.
+func vmPath(node string, vmid int, suffix string) (string, error) {
+	if !ValidNodeName(node) {
 		return "", errNoNode
 	}
 	if vmid <= 0 {
 		return "", fmt.Errorf("%w: bad vmid", ErrInvalid)
 	}
-	return p.nodePath("/qemu/" + strconv.Itoa(vmid) + suffix), nil
+	return nodePath(node, "/qemu/"+strconv.Itoa(vmid)+suffix), nil
 }
 
-// Nodes lists the names of the Proxmox cluster's nodes (GET /api2/json/nodes).
-func (p *Proxmox) Nodes(ctx context.Context) ([]string, error) {
+// PVEClusterStatus is the cluster as GET /cluster/status reports it. A standalone server is a
+// cluster of one: no name, always quorate. Transient marks an answer without the "cluster" entry
+// from a server that is not standalone (the cluster is being formed, or its file system is
+// restarting): its name and quorum are unknown.
+type PVEClusterStatus struct {
+	Name       string
+	Standalone bool
+	Transient  bool
+	Quorate    bool
+	Nodes      []PVEClusterNode // sorted by name
+}
+
+// PVEClusterNode is one node of the cluster as /cluster/status lists it. NodeID is 0 for a
+// standalone server.
+type PVEClusterNode struct {
+	Name   string
+	NodeID int
+	Online bool
+}
+
+// ClusterStatus reads the cluster's name, its quorum and its nodes (GET /cluster/status; the token
+// needs Sys.Audit on /). A standalone server answers with its node entry only, node id 0, and no
+// "cluster" entry. Names that break the Proxmox rule are dropped.
+func (p *Proxmox) ClusterStatus(ctx context.Context) (PVEClusterStatus, error) {
 	var raw []struct {
-		Node string `json:"node"`
+		Type    string `json:"type"`
+		Name    string `json:"name"`
+		NodeID  flex   `json:"nodeid"`
+		Quorate flex   `json:"quorate"`
+		Online  flex   `json:"online"`
 	}
-	if err := p.get(ctx, "/api2/json/nodes", &raw); err != nil {
-		return nil, err
+	if err := p.get(ctx, "/api2/json/cluster/status", &raw); err != nil {
+		return PVEClusterStatus{}, err
 	}
-	out := make([]string, 0, len(raw))
-	for _, n := range raw {
-		out = append(out, n.Node)
+	out := PVEClusterStatus{Nodes: []PVEClusterNode{}}
+	cluster := false
+	for _, r := range raw {
+		switch r.Type {
+		case "cluster":
+			cluster = true
+			out.Name, out.Quorate = nodeOrEmpty(r.Name), r.Quorate != 0
+		case "node":
+			if ValidNodeName(r.Name) {
+				out.Nodes = append(out.Nodes, PVEClusterNode{Name: r.Name, NodeID: int(r.NodeID), Online: r.Online != 0})
+			}
+		}
+	}
+	sort.Slice(out.Nodes, func(i, j int) bool { return out.Nodes[i].Name < out.Nodes[j].Name })
+	if !cluster {
+		if len(out.Nodes) == 1 && out.Nodes[0].NodeID == 0 {
+			out.Standalone, out.Quorate = true, true
+		} else {
+			out.Transient = true
+		}
 	}
 	return out, nil
 }
 
-// NodeStatus returns the host facts shown on the Host page.
-func (p *Proxmox) NodeStatus(ctx context.Context) (PVEHost, error) {
+// PVENodeUsage is one node's usage as the cluster state reports it. Status is "online", "offline" or
+// "unknown"; an offline node is still listed, without usage.
+type PVENodeUsage struct {
+	Node, Status                       string
+	CPURatio                           float64 // 0..1 of all its threads
+	Threads                            int
+	Mem, MaxMem, Disk, MaxDisk, Uptime int64
+}
+
+// NodeUsage lists every node of the cluster with its usage (GET /cluster/resources?type=node),
+// sorted by name: the cluster state lists an offline node too. Names that break the Proxmox rule
+// are dropped.
+func (p *Proxmox) NodeUsage(ctx context.Context) ([]PVENodeUsage, error) {
+	var raw []struct {
+		Node    string `json:"node"`
+		Status  string `json:"status"`
+		CPU     flex   `json:"cpu"`
+		MaxCPU  flex   `json:"maxcpu"`
+		Mem     flex   `json:"mem"`
+		MaxMem  flex   `json:"maxmem"`
+		Disk    flex   `json:"disk"`
+		MaxDisk flex   `json:"maxdisk"`
+		Uptime  flex   `json:"uptime"`
+	}
+	if err := p.get(ctx, "/api2/json/cluster/resources?type=node", &raw); err != nil {
+		return nil, err
+	}
+	out := make([]PVENodeUsage, 0, len(raw))
+	for _, r := range raw {
+		if !ValidNodeName(r.Node) {
+			continue
+		}
+		out = append(out, PVENodeUsage{
+			Node: r.Node, Status: r.Status, CPURatio: float64(r.CPU), Threads: int(r.MaxCPU),
+			Mem: r.Mem.int64(), MaxMem: r.MaxMem.int64(), Disk: r.Disk.int64(), MaxDisk: r.MaxDisk.int64(),
+			Uptime: r.Uptime.int64(),
+		})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Node < out[j].Node })
+	return out, nil
+}
+
+// NodeStatus returns what a node reports about itself. Any node proxies the call to the node named;
+// a node that is down answers HTTP 595 through the one asked.
+func (p *Proxmox) NodeStatus(ctx context.Context, node string) (PVEHost, error) {
 	var d struct {
 		Uptime        flex   `json:"uptime"`
 		PVEVersion    string `json:"pveversion"`
@@ -146,16 +252,21 @@ func (p *Proxmox) NodeStatus(ctx context.Context) (PVEHost, error) {
 			Release string `json:"release"`
 		} `json:"current-kernel"`
 		CPUInfo struct {
-			Model string `json:"model"`
+			Model   string `json:"model"`
+			Sockets flex   `json:"sockets"`
+			Cores   flex   `json:"cores"`
 		} `json:"cpuinfo"`
 	}
-	if p.node == "" {
+	if !ValidNodeName(node) {
 		return PVEHost{}, errNoNode
 	}
-	if err := p.get(ctx, p.nodePath("/status"), &d); err != nil {
+	if err := p.get(ctx, nodePath(node, "/status"), &d); err != nil {
 		return PVEHost{}, err
 	}
-	h := PVEHost{UptimeSeconds: d.Uptime.int64(), PVEVersion: d.PVEVersion, Kernel: d.CurrentKernel.Release, CPUModel: d.CPUInfo.Model}
+	h := PVEHost{
+		UptimeSeconds: d.Uptime.int64(), PVEVersion: d.PVEVersion, Kernel: d.CurrentKernel.Release, CPUModel: d.CPUInfo.Model,
+		Sockets: int(d.CPUInfo.Sockets), Cores: int(d.CPUInfo.Cores),
+	}
 	// "pve-manager/9.2.2/b9984c6d90a4bd80" -> "9.2.2"
 	if parts := strings.Split(d.PVEVersion, "/"); len(parts) >= 2 {
 		h.PVEVersion = parts[1]
@@ -166,41 +277,53 @@ func (p *Proxmox) NodeStatus(ctx context.Context) (PVEHost, error) {
 	return h, nil
 }
 
-// PVEStorage is one storage of the node with its usage.
+// PVEStorage is one storage of one node with its usage. A shared storage (NFS, Ceph...) is listed
+// once per node, each time with the same usage. Status is "available" while the node reaches it.
 type PVEStorage struct {
-	Name                 string
+	Name, Node, Status   string
+	Shared               bool
 	UsedBytes, SizeBytes int64
 }
 
-// Storages lists the node's storages that report a size (GET /nodes/{node}/storage); a storage
-// that is not active on the node has none and is left out. The token needs Datastore.Audit.
+// Storages lists every node's storages that report a size (GET /cluster/resources?type=storage),
+// sorted by node and name; a storage that is not active on a node has none there and is left out,
+// and so are an offline node's, whose sizes the cluster forgets. The token needs Datastore.Audit.
 func (p *Proxmox) Storages(ctx context.Context) ([]PVEStorage, error) {
-	if p.node == "" {
-		return nil, errNoNode
-	}
 	var raw []struct {
 		Storage string `json:"storage"`
-		Used    flex   `json:"used"`
-		Total   flex   `json:"total"`
+		Node    string `json:"node"`
+		Status  string `json:"status"`
+		Shared  flex   `json:"shared"`
+		Disk    flex   `json:"disk"`
+		MaxDisk flex   `json:"maxdisk"`
 	}
-	if err := p.get(ctx, p.nodePath("/storage"), &raw); err != nil {
+	if err := p.get(ctx, "/api2/json/cluster/resources?type=storage", &raw); err != nil {
 		return nil, err
 	}
 	out := make([]PVEStorage, 0, len(raw))
 	for _, r := range raw {
-		if r.Storage == "" || r.Total <= 0 {
+		if r.Storage == "" || r.MaxDisk <= 0 || !ValidNodeName(r.Node) {
 			continue
 		}
-		out = append(out, PVEStorage{Name: r.Storage, UsedBytes: r.Used.int64(), SizeBytes: r.Total.int64()})
+		out = append(out, PVEStorage{Name: r.Storage, Node: r.Node, Status: r.Status, Shared: r.Shared != 0, UsedBytes: r.Disk.int64(), SizeBytes: r.MaxDisk.int64()})
 	}
-	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Node != out[j].Node {
+			return out[i].Node < out[j].Node
+		}
+		return out[i].Name < out[j].Name
+	})
 	return out, nil
 }
 
-// VMs lists qemu guests (including templates) of the whole cluster.
+// VMs lists the guests (including templates) of the whole cluster, each with its node (empty when
+// the API names one that breaks the Proxmox rule). A guest of a node that has been offline for a
+// while comes back with status "unknown" and without its name, template flag and memory size.
 func (p *Proxmox) VMs(ctx context.Context) ([]PVEVM, error) {
 	var raw []struct {
 		VMID     flex   `json:"vmid"`
+		Node     string `json:"node"`
+		Type     string `json:"type"`
 		Name     string `json:"name"`
 		Status   string `json:"status"`
 		Tags     string `json:"tags"`
@@ -220,7 +343,7 @@ func (p *Proxmox) VMs(ctx context.Context) ([]PVEVM, error) {
 	out := make([]PVEVM, 0, len(raw))
 	for _, r := range raw {
 		out = append(out, PVEVM{
-			VMID: int(r.VMID), Name: r.Name, Status: r.Status, Tags: splitTags(r.Tags),
+			VMID: int(r.VMID), Node: nodeOrEmpty(r.Node), Type: r.Type, Name: r.Name, Status: r.Status, Tags: splitTags(r.Tags),
 			CPUs: float64(r.MaxCPU), CPURatio: float64(r.CPU),
 			MemBytes: r.Mem.int64(), MaxMemBytes: r.MaxMem.int64(), UptimeSeconds: r.Uptime.int64(),
 			NetInBytes: r.NetIn.int64(), NetOutBytes: r.NetOut.int64(),
@@ -242,6 +365,7 @@ func splitTags(s string) []string {
 func (p *Proxmox) Tasks(ctx context.Context) ([]model.PVETask, error) {
 	var raw []struct {
 		UPID      string `json:"upid"`
+		Node      string `json:"node"`
 		Type      string `json:"type"`
 		ID        string `json:"id"`
 		User      string `json:"user"`
@@ -259,7 +383,7 @@ func (p *Proxmox) Tasks(ctx context.Context) ([]model.PVETask, error) {
 	out := make([]model.PVETask, 0, len(raw))
 	for _, r := range raw {
 		t := model.PVETask{
-			UPID: r.UPID, Type: r.Type, ID: r.ID, User: r.User, Status: r.Status,
+			UPID: r.UPID, Node: nodeOrEmpty(r.Node), Type: r.Type, ID: r.ID, User: r.User, Status: r.Status,
 			StartTime: time.Unix(r.StartTime.int64(), 0).UTC(),
 		}
 		if r.EndTime > 0 {
@@ -273,9 +397,9 @@ func (p *Proxmox) Tasks(ctx context.Context) ([]model.PVETask, error) {
 	return out, nil
 }
 
-// VMConfig returns the parts of a guest's config the VM detail shows.
-func (p *Proxmox) VMConfig(ctx context.Context, vmid int) (model.VMConfig, error) {
-	path, err := p.vmPath(vmid, "/config")
+// VMConfig returns the parts of a guest's config the VM detail shows; node is the node it runs on.
+func (p *Proxmox) VMConfig(ctx context.Context, node string, vmid int) (model.VMConfig, error) {
+	path, err := vmPath(node, vmid, "/config")
 	if err != nil {
 		return model.VMConfig{}, err
 	}
@@ -341,11 +465,11 @@ func sortKeySpecs(s []model.KeySpec) {
 	})
 }
 
-// VMIPs lists guest-agent addresses; any failure (no agent, VM stopped) gives
+// VMIPs lists guest-agent addresses of a guest on node; any failure (no agent, VM stopped) gives
 // an empty list.
-func (p *Proxmox) VMIPs(ctx context.Context, vmid int) []model.IfaceAddr {
+func (p *Proxmox) VMIPs(ctx context.Context, node string, vmid int) []model.IfaceAddr {
 	out := []model.IfaceAddr{}
-	path, err := p.vmPath(vmid, "/agent/network-get-interfaces")
+	path, err := vmPath(node, vmid, "/agent/network-get-interfaces")
 	if err != nil {
 		return out
 	}
@@ -373,9 +497,9 @@ func (p *Proxmox) VMIPs(ctx context.Context, vmid int) []model.IfaceAddr {
 	return out
 }
 
-// Snapshots lists a guest's snapshots, without the "current" pseudo entry.
-func (p *Proxmox) Snapshots(ctx context.Context, vmid int) ([]model.Snapshot, error) {
-	path, err := p.vmPath(vmid, "/snapshot")
+// Snapshots lists the snapshots of a guest on node, without the "current" pseudo entry.
+func (p *Proxmox) Snapshots(ctx context.Context, node string, vmid int) ([]model.Snapshot, error) {
+	path, err := vmPath(node, vmid, "/snapshot")
 	if err != nil {
 		return nil, err
 	}

@@ -51,7 +51,7 @@ func TestCategory(t *testing.T) {
 		{"query error status", func() error { _, err := NewProm(badStatus.URL, nil).Instant(ctx, "x"); return err }, "invalid_response"},
 		{"proxmox data that does not decode", func() error {
 			s := serve(t, func(w http.ResponseWriter, _ *http.Request) { io.WriteString(w, `{"data":"x"}`) })
-			_, err := NewProxmox(s.URL, "n", "u@pve!t", secret.New("s", ""), nil).VMs(ctx)
+			_, err := NewProxmox(s.URL, "u@pve!t", secret.New("s", ""), nil).VMs(ctx)
 			return err
 		}, "invalid_response"},
 		{"wrapped", func() error { return fmt.Errorf("poll: %w", &StatusError{Code: 502}) }, "http_502"},

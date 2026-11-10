@@ -127,11 +127,24 @@ func (f *fakeQuerier) fillHost(x exprs, n, scrubPrefix string) {
 	}
 }
 
-// fakeNode is the proxmox plugin's service.
+// fakeNode is the proxmox plugin's service: svc.NodeName and svc.ClusterNodes.
 type fakeNode struct {
-	mu   sync.Mutex
-	name string
-	ok   bool
+	mu    sync.Mutex
+	name  string
+	ok    bool
+	nodes []string // the cluster's nodes; nil while unknown
+}
+
+func (f *fakeNode) Nodes() ([]string, bool) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.nodes, f.nodes != nil
+}
+
+func (f *fakeNode) setNodes(nodes ...string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.nodes = nodes
 }
 
 func (f *fakeNode) NodeName() (string, bool) {

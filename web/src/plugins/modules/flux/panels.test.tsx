@@ -34,7 +34,7 @@ const overview = (kpiList: KPI[]): OverviewData =>
     status: "ok",
     attention: [],
     kpiList,
-    topology: { host: {}, vms: [], groups: [] },
+    topology: { hosts: [], vms: [], groups: [] },
   }) as unknown as OverviewData;
 
 const LINK = { name: "GitOps 8 of 9 ready. Open GitOps" };

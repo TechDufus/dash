@@ -100,15 +100,16 @@ func (goldenGatus) Attention(time.Time) []model.AttentionItem {
 // goldenVMs is the lab's guests as the proxmox plugin publishes them.
 func goldenVMs() []model.VM {
 	return []model.VM{
-		{Ref: "proxmox:VM/100", VMID: 100, Name: "k8s-node-1", Status: "running", Health: model.HealthOK, CPURatio: 0.4, MemBytes: 6 << 30, MaxMemBytes: 8 << 30, K8sNode: &model.K8sNodeRef{Name: "cp-1", Ready: true}},
-		{Ref: "proxmox:VM/101", VMID: 101, Name: "k8s-node-2", Status: "running", Health: model.HealthWarn, CPURatio: 0.9, MemBytes: 7 << 30, MaxMemBytes: 8 << 30, K8sNode: &model.K8sNodeRef{Name: "cp-2", Ready: false}},
-		{Ref: "proxmox:VM/3000", VMID: 3000, Name: "scratch", Status: "stopped", Health: model.HealthWarn, Links: []model.Link{}},
-		{Ref: "proxmox:VM/9000", VMID: 9000, Name: "template", Status: "stopped", Template: true},
+		{Ref: "proxmox:VM/100", VMID: 100, Node: "pve-demo", Name: "k8s-node-1", Status: "running", Health: model.HealthOK, CPURatio: 0.4, MemBytes: 6 << 30, MaxMemBytes: 8 << 30, K8sNode: &model.K8sNodeRef{Name: "cp-1", Ready: true}},
+		{Ref: "proxmox:VM/101", VMID: 101, Node: "pve-demo-2", Name: "k8s-node-2", Status: "running", Health: model.HealthWarn, CPURatio: 0.9, MemBytes: 7 << 30, MaxMemBytes: 8 << 30, K8sNode: &model.K8sNodeRef{Name: "cp-2", Ready: false}},
+		{Ref: "proxmox:VM/3000", VMID: 3000, Node: "pve-demo", Name: "scratch", Status: "stopped", Health: model.HealthWarn, Links: []model.Link{}},
+		{Ref: "proxmox:VM/9000", VMID: 9000, Node: "pve-demo", Name: "template", Status: "stopped", Template: true},
 	}
 }
 
 // goldenProxmox stands in for the running proxmox plugin: the attention items, KPIs and topology
-// VMs it derives from the lab's guests (the rules are the plugin's, tested there).
+// it derives from the lab's two-node cluster and its guests (the rules are the plugin's, tested
+// there). Its host for pve-demo merges with the hardware plugin's.
 type goldenProxmox struct{ vms []model.VM }
 
 func (g goldenProxmox) Attention(time.Time) []model.AttentionItem {
@@ -126,13 +127,19 @@ func (g goldenProxmox) KPIs() []model.KPI {
 }
 
 func (g goldenProxmox) Topology() model.Topology {
-	t := model.Topology{VMs: []model.TopologyVM{}, Groups: []model.TopologyGroup{}}
+	t := model.Topology{
+		Hosts: []model.TopologyHost{
+			{Name: "pve-demo", Node: "pve-demo", Health: model.HealthOK, MemUsedRatio: 96.0 / 256.0},
+			{Name: "pve-demo-2", Node: "pve-demo-2", Health: model.HealthOK, MemUsedRatio: 0.25},
+		},
+		VMs: []model.TopologyVM{}, Groups: []model.TopologyGroup{},
+	}
 	for _, vm := range g.vms {
 		if vm.Template {
 			continue
 		}
 		t.VMs = append(t.VMs, model.TopologyVM{
-			VMID: vm.VMID, Name: vm.Name, Health: vm.Health, CPURatio: vm.CPURatio, MemRatio: float64(vm.MemBytes) / max(float64(vm.MaxMemBytes), 1),
+			VMID: vm.VMID, Name: vm.Name, Node: vm.Node, Health: vm.Health, CPURatio: vm.CPURatio, MemRatio: float64(vm.MemBytes) / max(float64(vm.MaxMemBytes), 1),
 			IsK8sNode: vm.K8sNode != nil, Running: vm.Status == "running",
 		})
 	}
@@ -167,8 +174,8 @@ func (goldenHardware) KPIs() []model.KPI {
 
 func (goldenHardware) Topology() model.Topology {
 	return model.Topology{
-		Host: model.TopologyHost{Name: "pve-demo", Health: model.HealthCrit, PowerWatts: 412, CPUTempC: 91.5,
-			CPUTempHealth: model.HealthCrit, MemUsedRatio: 96.0 / 256.0},
+		Hosts: []model.TopologyHost{{Name: "pve-demo", Node: "pve-demo", Health: model.HealthCrit, PowerWatts: 412, CPUTempC: 91.5,
+			CPUTempHealth: model.HealthCrit, MemUsedRatio: 96.0 / 256.0}},
 		VMs: []model.TopologyVM{}, Groups: []model.TopologyGroup{},
 	}
 }
@@ -240,7 +247,9 @@ func (goldenRustFS) Attention(time.Time) []model.AttentionItem {
 // alertmanager contribution, and Kpis.alertsFiring is gone (its tile is the plugin's KPI). The
 // last rule of the legacy Manager left with flux (P3.11): its items carry the plugin's ids and its KPIs are
 // the plugin's four in kpiList, and the fixed `kpis` object is gone. The bucket item moved to the
-// rustfs plugin (P3.12): its plugin is rustfs and it has the ref rustfs:Bucket/backups. The whole
+// rustfs plugin (P3.12): its plugin is rustfs and it has the ref rustfs:Bucket/backups. The
+// topology's host became hosts, one per Proxmox node: the proxmox contribution names both nodes of
+// the cluster and the hardware one's host merges into pve-demo; the VMs carry their node. The whole
 // document is compared, kpiList and the order of the items included.
 func TestOverviewOutputIsUnchanged(t *testing.T) {
 	gp := goldenProxmox{vms: goldenVMs()}

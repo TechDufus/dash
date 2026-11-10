@@ -115,25 +115,26 @@ func (p *Plugin) publishHost(rt *runtime) {
 	if !ok {
 		return
 	}
-	d.Links = hostLinks(rt.h)
+	d.Links = hostLinks(rt.h, d.Node)
 	p.publish(rt, topicHosts, d, []model.SourceStatus{{Name: sourcePrometheus, OK: cat == "", Error: cat, CheckedAt: rt.h.Now().UTC()}})
 }
 
-// hostLinks are the deep links of the host: its hypervisor UI and shell, then Grafana. The
-// providers decide which exist; a plugin never imports another.
-func hostLinks(h plugin.Host) []model.Link {
+// hostLinks are the deep links of the host: its hypervisor UI and the shell of its node, then
+// Grafana. The providers decide which exist; a plugin never imports another.
+func hostLinks(h plugin.Host, node string) []model.Link {
 	r := h.Links()
 	out := []model.Link{}
 	for _, kind := range []string{"ProxmoxUI", "HostShell", "Host"} {
-		out = append(out, r.Resolve(plugin.LinkRequest{Kind: kind})...)
+		out = append(out, r.Resolve(plugin.LinkRequest{Kind: kind, Name: node})...)
 	}
 	return out
 }
 
-// shellLinks are the links the attention items carry: the hypervisor UI and shell.
-func shellLinks(h plugin.Host) []model.Link {
+// shellLinks are the links the attention items carry: the hypervisor UI and the shell of the
+// host's node.
+func shellLinks(h plugin.Host, node string) []model.Link {
 	r := h.Links()
-	return append(r.Resolve(plugin.LinkRequest{Kind: "ProxmoxUI"}), r.Resolve(plugin.LinkRequest{Kind: "HostShell"})...)
+	return append(r.Resolve(plugin.LinkRequest{Kind: "ProxmoxUI"}), r.Resolve(plugin.LinkRequest{Kind: "HostShell", Name: node})...)
 }
 
 // hostData is the topic's payload without its links: the last good values with the settings and
@@ -146,16 +147,16 @@ func (p *Plugin) hostData(rt *runtime) (model.HostData, bool) {
 	p.mu.Lock()
 	vals := p.host.vals
 	p.mu.Unlock()
-	return buildHostData(vals, rt.cfg, rt.hostName(n)), true
+	return buildHostData(vals, rt.cfg, rt.hostName(n), rt.pveNode(n)), true
 }
 
-// buildHostData adds to the polled values what the plugin owns: the name and ref, the model,
+// buildHostData adds to the polled values what the plugin owns: the name, node and ref, the model,
 // the layout settings, the thresholds and the health they give, and a ref on every pool and
 // disk. Lists that were never filled are empty, not null. vals is not changed.
-func buildHostData(vals model.HostData, cfg pluginconf.Hardware, name string) model.HostData {
+func buildHostData(vals model.HostData, cfg pluginconf.Hardware, name, node string) model.HostData {
 	d := vals
 	h := cfg.Hosts[0]
-	d.Name, d.Ref, d.Model = name, plugin.Ref(ID, "Host", name), h.Model
+	d.Name, d.Node, d.Ref, d.Model = name, node, plugin.Ref(ID, "Host", name), h.Model
 	d.Bays, d.FanMaxRPM = h.Bays, h.FanMaxRPM
 	d.SensorAliases = model.SensorAliases{Inlet: h.SensorAliases.Inlet, Exhaust: h.SensorAliases.Exhaust}
 	d.TempWarnC, d.TempCritC = cfg.TempThresholds.Warn, cfg.TempThresholds.Crit

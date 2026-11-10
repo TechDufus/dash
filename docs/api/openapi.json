@@ -1322,12 +1322,12 @@
         ],
         "type": "object"
       },
-      "Envelope.proxmox.node": {
+      "Envelope.proxmox.cluster": {
         "additionalProperties": false,
-        "description": "The envelope of the proxmox.node topic.",
+        "description": "The envelope of the proxmox.cluster topic.",
         "properties": {
           "data": {
-            "$ref": "#/components/schemas/NodeData"
+            "$ref": "#/components/schemas/PVEClusterData"
           },
           "sources": {
             "items": {
@@ -1336,7 +1336,7 @@
             "type": "array"
           },
           "topic": {
-            "const": "proxmox.node"
+            "const": "proxmox.cluster"
           },
           "updatedAt": {
             "format": "date-time",
@@ -1696,6 +1696,9 @@
             "type": "string"
           },
           "name": {
+            "type": "string"
+          },
+          "node": {
             "type": "string"
           },
           "packageTempsC": {
@@ -2101,17 +2104,44 @@
       "NodeData": {
         "additionalProperties": false,
         "properties": {
+          "cpuCores": {
+            "type": "integer"
+          },
           "cpuModel": {
             "type": "string"
           },
+          "cpuRatio": {
+            "type": "number"
+          },
+          "cpuSockets": {
+            "type": "integer"
+          },
           "kernel": {
             "type": "string"
+          },
+          "memTotalBytes": {
+            "type": "integer"
+          },
+          "memUsedBytes": {
+            "type": "integer"
           },
           "node": {
             "type": "string"
           },
           "ref": {
             "type": "string"
+          },
+          "rootTotalBytes": {
+            "type": "integer"
+          },
+          "rootUsedBytes": {
+            "type": "integer"
+          },
+          "status": {
+            "type": "string"
+          },
+          "threads": {
+            "type": "integer"
           },
           "uptimeSeconds": {
             "type": "integer"
@@ -2386,14 +2416,74 @@
         },
         "type": "object"
       },
+      "PVEClusterData": {
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "nodes": {
+            "items": {
+              "$ref": "#/components/schemas/NodeData"
+            },
+            "type": "array"
+          },
+          "quorate": {
+            "type": "boolean"
+          },
+          "quorumKnown": {
+            "type": "boolean"
+          },
+          "ref": {
+            "type": "string"
+          },
+          "standalone": {
+            "type": "boolean"
+          },
+          "totals": {
+            "$ref": "#/components/schemas/PVEClusterTotals"
+          }
+        },
+        "type": "object"
+      },
+      "PVEClusterTotals": {
+        "additionalProperties": false,
+        "properties": {
+          "cpuRatio": {
+            "type": "number"
+          },
+          "memTotalBytes": {
+            "type": "integer"
+          },
+          "memUsedBytes": {
+            "type": "integer"
+          },
+          "nodes": {
+            "type": "integer"
+          },
+          "nodesOnline": {
+            "type": "integer"
+          },
+          "threads": {
+            "type": "integer"
+          }
+        },
+        "type": "object"
+      },
       "PVEStorage": {
         "additionalProperties": false,
         "properties": {
           "name": {
             "type": "string"
           },
+          "node": {
+            "type": "string"
+          },
           "ref": {
             "type": "string"
+          },
+          "shared": {
+            "type": "boolean"
           },
           "sizeBytes": {
             "type": "integer"
@@ -2407,11 +2497,17 @@
       "PVEStorageData": {
         "additionalProperties": false,
         "properties": {
+          "sizeBytes": {
+            "type": "integer"
+          },
           "storages": {
             "items": {
               "$ref": "#/components/schemas/PVEStorage"
             },
             "type": "array"
+          },
+          "usedBytes": {
+            "type": "integer"
           }
         },
         "type": "object"
@@ -2424,6 +2520,9 @@
             "type": "string"
           },
           "id": {
+            "type": "string"
+          },
+          "node": {
             "type": "string"
           },
           "startTime": {
@@ -3443,8 +3542,11 @@
             },
             "type": "array"
           },
-          "host": {
-            "$ref": "#/components/schemas/TopologyHost"
+          "hosts": {
+            "items": {
+              "$ref": "#/components/schemas/TopologyHost"
+            },
+            "type": "array"
           },
           "vms": {
             "items": {
@@ -3497,6 +3599,9 @@
           "name": {
             "type": "string"
           },
+          "node": {
+            "type": "string"
+          },
           "powerWatts": {
             "type": "number"
           }
@@ -3534,6 +3639,9 @@
             "type": "number"
           },
           "name": {
+            "type": "string"
+          },
+          "node": {
             "type": "string"
           },
           "running": {
@@ -3598,6 +3706,9 @@
           },
           "netOutBytes": {
             "type": "integer"
+          },
+          "node": {
+            "type": "string"
           },
           "ref": {
             "type": "string"
@@ -6040,7 +6151,7 @@
                       "$ref": "#/components/schemas/Envelope.launcher.links"
                     },
                     {
-                      "$ref": "#/components/schemas/Envelope.proxmox.node"
+                      "$ref": "#/components/schemas/Envelope.proxmox.cluster"
                     },
                     {
                       "$ref": "#/components/schemas/Envelope.proxmox.storage"

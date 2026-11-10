@@ -8,6 +8,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/TechDufus/dash/internal/model"
 	"github.com/TechDufus/dash/internal/plugin"
@@ -69,8 +70,8 @@ func TestVMDetailAnswers(t *testing.T) {
 	}
 }
 
-// The body is what v0.7.0 answered at /api/vms/{vmid}, once vm.ref and vm.critical, the two fields
-// the leaf adds, are dropped. The golden file is that answer for the fake cluster.
+// The body is what v0.7.0 answered at /api/vms/{vmid}, once vm.ref, vm.critical and vm.node, the
+// fields added since, are dropped. The golden file is that answer for the fake cluster.
 func TestVMDetailBodyMatchesV07(t *testing.T) {
 	e := newEnv(t, envOpts{})
 	e.vms(t, "the guests", func(d model.VMsData) bool { return len(d.VMs) == 4 })
@@ -90,7 +91,7 @@ func TestVMDetailBodyMatchesV07(t *testing.T) {
 		t.Fatal(err)
 	}
 	vm := got["vm"].(map[string]any)
-	for _, added := range []string{"ref", "critical"} {
+	for _, added := range []string{"ref", "critical", "node"} {
 		if _, ok := vm[added]; !ok {
 			t.Errorf("vm.%s is missing from the body", added)
 		}
@@ -145,10 +146,85 @@ func TestVMDetailErrors(t *testing.T) {
 	}
 }
 
+// A VM's detail is asked of the node it runs on: another node answers that its config does not
+// exist.
+func TestVMDetailAsksTheVMsNode(t *testing.T) {
+	pve := newFakePVE(t, false)
+	pve.set("/nodes/pve-2/qemu/102/config", pveConfig)
+	pve.set("/nodes/pve-2/qemu/102/snapshot", `{"data":[]}`)
+	e := newEnv(t, envOpts{pve: pve})
+	e.vms(t, "the guests", func(d model.VMsData) bool { return len(d.VMs) == 4 })
+	w := e.get(t, "/vms/102")
+	if w.Code != http.StatusOK {
+		t.Fatalf("status %d: %s", w.Code, w.Body)
+	}
+	var d model.VMDetail
+	if err := json.Unmarshal(w.Body.Bytes(), &d); err != nil {
+		t.Fatal(err)
+	}
+	if d.VM.Node != "pve-2" || d.Config.Cores != 4 {
+		t.Errorf("detail = %+v", d)
+	}
+	if paths := pve.pathsWith("/nodes/pve-1/qemu/102"); len(paths) != 0 {
+		t.Errorf("another node was asked about the VM: %v", paths)
+	}
+	if pve.count("/nodes/pve-2/qemu/102/config") != 1 || pve.count("/nodes/pve-2/qemu/102/snapshot") != 1 ||
+		pve.count("/nodes/pve-2/qemu/102/agent/network-get-interfaces") != 1 {
+		t.Errorf("pve-2 was asked for %v", pve.pathsWith("/nodes/pve-2/qemu/102"))
+	}
+}
+
+// A guest that moved since the list was read: its old node answers that the config does not exist,
+// in the body or (before PVE 8.4) in the status line alone, the list is read again once, and the
+// detail comes from the new node. A container gets a clear 404 and a guest without a node a 404,
+// both without a request about them.
+func TestVMDetailFollowsAMoveAndRefusesWhatItCannotRead(t *testing.T) {
+	for _, inStatusLine := range []bool{false, true} {
+		pve := newFakePVE(t, false)
+		e := newEnv(t, envOpts{pve: pve, timing: func(tm *timing) { tm.vms = time.Hour }})
+		e.vms(t, "the guests", func(d model.VMsData) bool { return len(d.VMs) == 4 })
+
+		pve.mu.Lock()
+		pve.status["/api2/json/nodes/pve-1/qemu/101/config"] = http.StatusInternalServerError
+		pve.mu.Unlock()
+		pve.echoMissing(inStatusLine)
+		pve.set("/cluster/resources?type=vm", strings.Replace(pveVMs, `"node":"pve-1","vmid":101`, `"node":"pve-2","vmid":101`, 1))
+		pve.set("/nodes/pve-2/qemu/101/config", pveConfig)
+		pve.set("/nodes/pve-2/qemu/101/snapshot", `{"data":[]}`)
+		w := e.get(t, "/vms/101")
+		if w.Code != http.StatusOK {
+			t.Fatalf("a moved guest (message in the status line: %v): %d %s", inStatusLine, w.Code, w.Body)
+		}
+		var d model.VMDetail
+		if err := json.Unmarshal(w.Body.Bytes(), &d); err != nil {
+			t.Fatal(err)
+		}
+		if d.VM.Node != "pve-2" || d.Config.Cores != 4 || pve.count("/nodes/pve-2/qemu/101/config") != 1 {
+			t.Errorf("detail of the moved guest = %+v", d)
+		}
+	}
+
+	pve := newFakePVE(t, false)
+
+	pve.set("/cluster/resources?type=vm", `{"data":[{"vmid":200,"type":"lxc","node":"pve-1","name":"ct","status":"running"},
+	  {"vmid":201,"type":"qemu","node":"bad/node","name":"odd","status":"running"}]}`)
+	e2 := newEnv(t, envOpts{pve: pve})
+	e2.vms(t, "the container", func(d model.VMsData) bool { return len(d.VMs) == 2 })
+	if w := e2.get(t, "/vms/200"); w.Code != http.StatusNotFound || !strings.Contains(w.Body.String(), "detail is for qemu guests") {
+		t.Errorf("a container: %d %s", w.Code, w.Body)
+	}
+	if w := e2.get(t, "/vms/201"); w.Code != http.StatusNotFound {
+		t.Errorf("a guest without a node: %d %s", w.Code, w.Body)
+	}
+	if paths := append(pve.pathsWith("/200/"), pve.pathsWith("/201/")...); len(paths) != 0 {
+		t.Errorf("Proxmox was asked about them: %v", paths)
+	}
+}
+
 // Before the first poll there is no VM to describe: 404, not a hang.
 func TestVMDetailBeforeAnyPollIsNotFound(t *testing.T) {
 	pve := newFakePVE(t, false)
-	pve.fail("/cluster/resources", http.StatusServiceUnavailable)
+	pve.fail("/cluster/resources?type=vm", http.StatusServiceUnavailable)
 	e := newEnv(t, envOpts{pve: pve})
 	e.state(t, plugin.StateDegraded)
 	if w := e.get(t, "/vms/101"); w.Code != http.StatusNotFound || errBody(t, w).Code != "not_found" {

@@ -3,6 +3,7 @@ package overview
 import (
 	"context"
 	"encoding/json"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -121,7 +122,7 @@ func TestOverviewOfAnIdleContributorIsEmpty(t *testing.T) {
 	m := testPublisherWith(plugintest.AllRunning(h), contributing("fake", &source{}))
 	m.rebuild()
 	ov := overviewOf(t, h)
-	if ov.Status != model.HealthOK || len(ov.Attention) != 0 || len(ov.KPIList) != 0 || ov.Topology.Host.Name != "" || len(ov.Topology.Groups) != 0 || len(ov.Topology.VMs) != 0 {
+	if ov.Status != model.HealthOK || len(ov.Attention) != 0 || len(ov.KPIList) != 0 || ov.Topology.Hosts == nil || len(ov.Topology.Hosts) != 0 || len(ov.Topology.Groups) != 0 || len(ov.Topology.VMs) != 0 {
 		t.Errorf("the idle overview should be the zero-valued one: %+v", ov)
 	}
 	if env := mustEnvelope(t, h, model.TopicOverview); strings.Contains(string(env.Data), ":null") {
@@ -247,7 +248,11 @@ func TestComposeOrdersAndStampsAttention(t *testing.T) {
 
 func TestKPIListAndTopologyMerge(t *testing.T) {
 	tp := func(host string, vms []model.TopologyVM, groups ...model.TopologyGroup) *model.Topology {
-		return &model.Topology{Host: model.TopologyHost{Name: host, Health: model.HealthOK}, VMs: vms, Groups: groups}
+		t := &model.Topology{Hosts: []model.TopologyHost{}, VMs: vms, Groups: groups}
+		if host != "" {
+			t.Hosts = append(t.Hosts, model.TopologyHost{Name: host, Node: host, Health: model.HealthOK})
+		}
+		return t
 	}
 	grp := func(name model.Group, h model.Health, pods map[string]int, ns ...string) model.TopologyGroup {
 		g := model.TopologyGroup{Name: name, Health: h, PodsByNode: pods, Namespaces: []model.TopologyNamespace{}}
@@ -272,8 +277,8 @@ func TestKPIListAndTopologyMerge(t *testing.T) {
 	if got := strings.Join(keys, " "); got != "pa.z pb.a pb.b" {
 		t.Errorf("kpiList = %q, want ordered by plugin then key, stamped with the contributor", got)
 	}
-	if ov.Topology.Host.Name != "pve" {
-		t.Errorf("host = %q, want the first one that names itself", ov.Topology.Host.Name)
+	if len(ov.Topology.Hosts) != 2 || ov.Topology.Hosts[0].Name != "other" || ov.Topology.Hosts[1].Name != "pve" {
+		t.Errorf("hosts = %+v, want every contribution's, by name", ov.Topology.Hosts)
 	}
 	if len(ov.Topology.VMs) != 2 || ov.Topology.VMs[0].VMID != 1 || ov.Topology.VMs[1].VMID != 2 {
 		t.Errorf("vms = %+v, want appended in contribution order", ov.Topology.VMs)
@@ -296,19 +301,39 @@ func TestKPIListAndTopologyMerge(t *testing.T) {
 	// With nothing at all the collections are still empty, never null.
 	empty := compose(nil)
 	b, _ := json.Marshal(empty)
-	for _, null := range []string{`"attention":null`, `"kpiList":null`, `"vms":null`, `"groups":null`} {
+	for _, null := range []string{`"attention":null`, `"kpiList":null`, `"hosts":null`, `"vms":null`, `"groups":null`} {
 		if strings.Contains(string(b), null) {
 			t.Errorf("empty overview has %s: %s", null, b)
 		}
 	}
 }
 
-// The host falls back to the first topology when none names one, so a contribution that computes
-// a host without a name keeps it.
-func TestTopologyKeepsTheFirstHostWhenNoOneNamesIt(t *testing.T) {
-	unnamed := model.TopologyHost{Health: model.HealthWarn, PowerWatts: 12}
-	ov := compose([]contribution{{plugin: "h", topology: &model.Topology{Host: unnamed}}, {plugin: "p", topology: &model.Topology{}}})
-	if ov.Topology.Host != unnamed {
-		t.Errorf("host = %+v, want %+v", ov.Topology.Host, unnamed)
+// The hosts the contributions name for one node are one host: each field from the first
+// contribution that has it, the worst health, and the operator's display name over the node's own.
+// A host without a node is kept as it comes, a host no contribution gives a temperature has an
+// unknown temperature health, and the list is by name.
+func TestTopologyMergesHostsByNode(t *testing.T) {
+	proxmox := &model.Topology{Hosts: []model.TopologyHost{
+		{Name: "pve-1", Node: "pve-1", Health: model.HealthOK, MemUsedRatio: 0.25},
+		{Name: "pve-2", Node: "pve-2", Health: model.HealthCrit, MemUsedRatio: 0},
+	}}
+	hardware := &model.Topology{Hosts: []model.TopologyHost{
+		{Name: "Rack 1", Node: "pve-1", Health: model.HealthWarn, PowerWatts: 210, CPUTempC: 61, CPUTempHealth: model.HealthOK, MemUsedRatio: 0.5},
+	}}
+	other := &model.Topology{Hosts: []model.TopologyHost{{Name: "bare", PowerWatts: 12}, {Node: "pve-3", Health: model.HealthOK}}}
+	ov := compose([]contribution{{plugin: "proxmox", topology: proxmox}, {plugin: "hardware", topology: hardware}, {plugin: "x", topology: other}})
+	want := []model.TopologyHost{
+		{Name: "Rack 1", Node: "pve-1", Health: model.HealthWarn, PowerWatts: 210, CPUTempC: 61, CPUTempHealth: model.HealthOK, MemUsedRatio: 0.25},
+		{Name: "bare", PowerWatts: 12, CPUTempHealth: model.HealthUnknown},
+		{Name: "pve-2", Node: "pve-2", Health: model.HealthCrit, CPUTempHealth: model.HealthUnknown},
+		{Name: "pve-3", Node: "pve-3", Health: model.HealthOK, CPUTempHealth: model.HealthUnknown},
+	}
+	if !slices.Equal(ov.Topology.Hosts, want) {
+		t.Errorf("hosts = %+v\nwant    %+v", ov.Topology.Hosts, want)
+	}
+	// The order of the contributions does not change the display name.
+	ov = compose([]contribution{{plugin: "hardware", topology: hardware}, {plugin: "proxmox", topology: proxmox}})
+	if h := ov.Topology.Hosts[0]; h.Name != "Rack 1" || h.MemUsedRatio != 0.5 {
+		t.Errorf("hardware first: %+v, want its name and its memory", h)
 	}
 }

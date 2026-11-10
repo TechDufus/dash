@@ -3,6 +3,7 @@ package proxmox
 import (
 	"context"
 	"net/http"
+	"reflect"
 	goruntime "runtime"
 	"slices"
 	"strings"
@@ -37,8 +38,8 @@ func TestManifest(t *testing.T) {
 	for _, tp := range m.Topics {
 		names = append(names, tp.Name)
 	}
-	if !slices.Equal(names, []string{"vms", "node", "storage"}) {
-		t.Errorf("topics = %v, want the wire order vms, node, storage", names)
+	if !slices.Equal(names, []string{"vms", "cluster", "storage"}) {
+		t.Errorf("topics = %v, want the wire order vms, cluster, storage", names)
 	}
 	var series []string
 	for _, s := range m.Series {
@@ -118,8 +119,8 @@ func TestVisibilityRuleA(t *testing.T) {
 	plugintest.AssertTopicsReachOpenStream(t, func() plugin.Plugin { return &Plugin{t: fastTiming()} }, off, on)
 }
 
-// The status follows design 5.3: starting until the node is known and the first VM poll has ended,
-// healthy when every source answers, degraded when some do not, error when none does.
+// The status follows design 5.3: starting until the first VM poll has ended, healthy when every
+// source answers, degraded when some do not, error when none does.
 func TestStatusStates(t *testing.T) {
 	t.Run("healthy and the sources", func(t *testing.T) {
 		e := newEnv(t, envOpts{})
@@ -131,10 +132,10 @@ func TestStatusStates(t *testing.T) {
 	})
 	t.Run("degraded when a source fails, with the category", func(t *testing.T) {
 		pve := newFakePVE(t, false)
-		pve.fail("/nodes/pve-1/status", http.StatusForbidden)
+		pve.fail("/cluster/resources?type=node", http.StatusForbidden)
 		e := newEnv(t, envOpts{pve: pve})
 		pi := e.state(t, plugin.StateDegraded)
-		if !strings.Contains(pi.Message, "node: auth") || strings.Contains(pi.Message, "vms") {
+		if !strings.Contains(pi.Message, "cluster: auth") || strings.Contains(pi.Message, "vms") {
 			t.Errorf("message = %q", pi.Message)
 		}
 		if srcs := e.current().Status().Sources; len(srcs) != 1 || srcs[0].OK || srcs[0].Error != "auth" {
@@ -143,7 +144,7 @@ func TestStatusStates(t *testing.T) {
 	})
 	t.Run("error when every source fails", func(t *testing.T) {
 		pve := newFakePVE(t, false)
-		for _, p := range []string{"/cluster/resources", "/nodes/pve-1/status", "/nodes/pve-1/storage"} {
+		for _, p := range []string{"/cluster/resources?type=vm", "/cluster/resources?type=node", "/cluster/resources?type=storage"} {
 			pve.fail(p, http.StatusBadGateway)
 		}
 		e := newEnv(t, envOpts{pve: pve})
@@ -152,12 +153,45 @@ func TestStatusStates(t *testing.T) {
 			t.Errorf("message = %q", pi.Message)
 		}
 	})
+	t.Run("a token without Sys.Audit on / reads the cluster all the same", func(t *testing.T) {
+		pve := newFakePVE(t, false)
+		pve.fail("/cluster/status", http.StatusForbidden)
+		e := newEnv(t, envOpts{pve: pve})
+		pi := e.state(t, plugin.StateDegraded)
+		if pi.Message != "cluster status: auth" {
+			t.Errorf("message = %q", pi.Message)
+		}
+		srcs := e.current().Status().Sources
+		if len(srcs) != 2 || srcs[0].Name != "proxmox" || !srcs[0].OK || srcs[1].Name != "cluster status" || srcs[1].Error != "auth" {
+			t.Errorf("sources = %+v, want proxmox ok and the cluster status failing with auth", srcs)
+		}
+		var c pvemodel.PVEClusterData
+		waitFor(t, "the cluster", func() bool { e.payload(t, "proxmox.cluster", &c); return len(c.Nodes) == 2 })
+		if c.Name != "" || c.QuorumKnown || c.Quorate || c.Standalone {
+			t.Errorf("cluster without its status = %+v, want no name and an unknown quorum", c)
+		}
+		for _, it := range e.current().Attention(time.Now()) {
+			if strings.HasPrefix(it.ID, "pve-cluster:") {
+				t.Errorf("an unknown quorum raised %+v", it)
+			}
+		}
+	})
+	t.Run("plugins.proxmox.node naming no node of the cluster", func(t *testing.T) {
+		e := newEnv(t, envOpts{cfg: func(c *pluginconf.Proxmox) { c.Node = "pve-9" }})
+		pi := e.state(t, plugin.StateDegraded)
+		if pi.Message != "plugins.proxmox.node names pve-9, which is not a node of cluster lab (pve-1, pve-2)" {
+			t.Errorf("message = %q", pi.Message)
+		}
+		if n, ok := e.current().Service().(svc.NodeName).NodeName(); ok {
+			t.Errorf("NodeName = %q, want none for a node the cluster does not have", n)
+		}
+	})
 	t.Run("never unavailable while it runs", func(t *testing.T) {
 		pve := newFakePVE(t, false)
-		pve.fail("/cluster/resources", http.StatusInternalServerError)
+		pve.fail("/cluster/resources?type=vm", http.StatusInternalServerError)
 		e := newEnv(t, envOpts{pve: pve})
 		e.state(t, plugin.StateDegraded)
-		pve.heal("/cluster/resources")
+		pve.heal("/cluster/resources?type=vm")
 		e.state(t, plugin.StateHealthy)
 	})
 	t.Run("starting before the first poll", func(t *testing.T) {
@@ -174,7 +208,7 @@ func TestAFailedPollKeepsTheLastGoodPayload(t *testing.T) {
 	e := newEnv(t, envOpts{pve: pve})
 	e.vms(t, "the first payload", func(d model.VMsData) bool { return len(d.VMs) == 4 })
 
-	pve.fail("/cluster/resources", http.StatusBadGateway)
+	pve.fail("/cluster/resources?type=vm", http.StatusBadGateway)
 	d, srcs := e.vms(t, "a failing source", func(model.VMsData) bool {
 		var cur model.VMsData
 		s, _ := e.payload(t, "proxmox.vms", &cur)
@@ -186,19 +220,19 @@ func TestAFailedPollKeepsTheLastGoodPayload(t *testing.T) {
 	if len(kept.VMs) != 4 || srcs[0].Name != "proxmox" || srcs[0].Error != "http_502" {
 		t.Errorf("after a failed poll: %d VMs, sources %+v; want the last good four and http_502", len(kept.VMs), srcs)
 	}
-	pve.heal("/cluster/resources")
+	pve.heal("/cluster/resources?type=vm")
 	waitFor(t, "the source to recover", func() bool {
 		s, _ := e.payload(t, "proxmox.vms", &kept)
 		return len(s) == 1 && s[0].OK
 	})
 }
 
-// The envelope of each topic names its own source only: proxmox for the guests and the node, and
-// the kubernetes source that proxmox.vms carried is gone.
+// The envelope of each topic names its own source only: proxmox for the guests, the cluster and the
+// storages, and the kubernetes source that proxmox.vms carried is gone.
 func TestEnvelopeSourcesNameOnlyTheirOwn(t *testing.T) {
 	e := newEnv(t, envOpts{})
 	e.state(t, plugin.StateHealthy)
-	for _, topic := range []string{"proxmox.vms", "proxmox.node", "proxmox.storage"} {
+	for _, topic := range []string{"proxmox.vms", "proxmox.cluster", "proxmox.storage"} {
 		var any_ map[string]any
 		waitFor(t, topic, func() bool { _, ok := e.payload(t, topic, &any_); return ok })
 		srcs, _ := e.payload(t, topic, &any_)
@@ -208,21 +242,128 @@ func TestEnvelopeSourcesNameOnlyTheirOwn(t *testing.T) {
 	}
 }
 
-func TestNodeTopicCarriesTheFacts(t *testing.T) {
+// proxmox.cluster carries the cluster, every node with the usage the cluster reports and the facts
+// the node reports, and the totals: CPU weighed by threads.
+func TestClusterTopicCarriesEveryNode(t *testing.T) {
 	e := newEnv(t, envOpts{})
-	var n pvemodel.NodeData
-	waitFor(t, "node facts", func() bool {
-		e.payload(t, "proxmox.node", &n)
-		return n.Version != ""
+	var c pvemodel.PVEClusterData
+	waitFor(t, "the cluster", func() bool {
+		e.payload(t, "proxmox.cluster", &c)
+		return len(c.Nodes) == 2 && c.Nodes[1].Version != ""
 	})
-	want := pvemodel.NodeData{
-		Ref: "proxmox:Node/pve-1", Node: "pve-1", Version: "9.0.5", Kernel: "6.8.12-4-pve",
-		CPUModel: "Example CPU @ 2.10GHz", UptimeSeconds: 2422190,
+	want := pvemodel.PVEClusterData{
+		Ref: "proxmox:Cluster/lab", Name: "lab", QuorumKnown: true, Quorate: true,
+		Nodes: []pvemodel.NodeData{
+			{
+				Ref: "proxmox:Node/pve-1", Node: "pve-1", Status: pvemodel.NodeOnline, CPURatio: 0.5, Threads: 8,
+				MemUsedBytes: 4000, MemTotalBytes: 16000, RootUsedBytes: 10, RootTotalBytes: 100, UptimeSeconds: 2422190,
+				Version: "9.0.5", Kernel: "6.8.12-4-pve", CPUModel: "Example CPU @ 2.10GHz", CPUSockets: 1, CPUCores: 4,
+			},
+			{
+				Ref: "proxmox:Node/pve-2", Node: "pve-2", Status: pvemodel.NodeOnline, CPURatio: 0.25, Threads: 24,
+				MemUsedBytes: 6000, MemTotalBytes: 48000, RootUsedBytes: 20, RootTotalBytes: 200, UptimeSeconds: 7200,
+				Version: "9.0.6", Kernel: "6.8.12-5-pve", CPUModel: "Example CPU @ 3.00GHz", CPUSockets: 2, CPUCores: 12,
+			},
+		},
+		// (0.5*8 + 0.25*24) / 32
+		Totals: pvemodel.PVEClusterTotals{Nodes: 2, NodesOnline: 2, Threads: 32, CPURatio: 0.3125, MemUsedBytes: 10000, MemTotalBytes: 64000},
 	}
-	if n != want {
-		t.Errorf("node = %+v, want %+v", n, want)
+	if !reflect.DeepEqual(c, want) {
+		t.Errorf("cluster = %+v\nwant      %+v", c, want)
 	}
-	plugintest.AssertRefs(t, e.sup, ID, n, pvemodel.NodeData{})
+	plugintest.AssertRefs(t, e.sup, ID, c, pvemodel.PVEClusterData{})
+	plugintest.AssertRefs(t, e.sup, ID, c, pvemodel.NodeData{})
+}
+
+// An offline node stays in the list with no usage and the facts it last reported, its own status is
+// no longer asked for, and the totals count the online nodes only. A node whose status fails while
+// the cluster sees it online keeps its last facts, and the poll does not fail.
+func TestClusterWithAnOfflineNode(t *testing.T) {
+	pve := newFakePVE(t, false)
+	e := newEnv(t, envOpts{pve: pve})
+	var c pvemodel.PVEClusterData
+	waitFor(t, "pve-2's facts", func() bool {
+		e.payload(t, "proxmox.cluster", &c)
+		return len(c.Nodes) == 2 && c.Nodes[1].Version == "9.0.6"
+	})
+
+	before := pve.count("/nodes/pve-2/status")
+	pve.fail("/nodes/pve-2/status", 595)
+	waitFor(t, "polls after pve-2's status failed", func() bool { return pve.count("/nodes/pve-2/status") > before+1 })
+	e.state(t, plugin.StateHealthy)
+
+	// pve-2 has been offline for a while: the cluster forgot its guests' details and its storages'
+	// sizes.
+	pve.set("/cluster/resources?type=vm", `{"data":[
+	  {"id":"qemu/101","type":"qemu","node":"pve-1","vmid":101,"name":"k8s-cp-1","status":"running","maxcpu":4,"maxmem":8589934592},
+	  {"id":"qemu/102","type":"qemu","node":"pve-2","vmid":102,"status":"unknown"},
+	  {"id":"qemu/103","type":"qemu","node":"pve-2","vmid":103,"status":"unknown"},
+	  {"id":"qemu/9000","type":"qemu","node":"pve-1","vmid":9000,"name":"k8s-template","status":"stopped","template":1}]}`)
+	pve.set("/cluster/resources?type=storage", `{"data":[
+	  {"id":"storage/pve-1/local","storage":"local","node":"pve-1","shared":0,"status":"available","disk":1000,"maxdisk":4000},
+	  {"id":"storage/pve-2/local","storage":"local","node":"pve-2","shared":0,"status":"unknown"}]}`)
+	pve.set("/cluster/resources?type=node", `{"data":[
+	  {"id":"node/pve-1","type":"node","node":"pve-1","status":"online","cpu":0.5,"maxcpu":8,"mem":4000,"maxmem":16000,"disk":10,"maxdisk":100,"uptime":2422190},
+	  {"id":"node/pve-2","type":"node","node":"pve-2","status":"offline"}]}`)
+	waitFor(t, "pve-2 offline", func() bool {
+		e.payload(t, "proxmox.cluster", &c)
+		return len(c.Nodes) == 2 && c.Nodes[1].Status == pvemodel.NodeOffline
+	})
+	off := c.Nodes[1]
+	if off.Version != "9.0.6" || off.CPUModel != "Example CPU @ 3.00GHz" || off.CPURatio != 0 || off.Threads != 0 || off.MemUsedBytes != 0 {
+		t.Errorf("offline node = %+v, want its last facts and no usage", off)
+	}
+	if tt := c.Totals; tt != (pvemodel.PVEClusterTotals{Nodes: 2, NodesOnline: 1, Threads: 8, CPURatio: 0.5, MemUsedBytes: 4000, MemTotalBytes: 16000}) {
+		t.Errorf("totals = %+v, want pve-1's alone", tt)
+	}
+	d, _ := e.vms(t, "pve-2's guests unknown", func(d model.VMsData) bool { return byID(d, 102).Health == model.HealthUnknown })
+	if vm := byID(d, 102); vm.Name != "db-1" || vm.MaxMemBytes != 4294967296 || vm.Node != "pve-2" {
+		t.Errorf("a guest of the offline node = %+v, want its last name and memory", vm)
+	}
+	for _, it := range e.current().Attention(time.Now()) {
+		if strings.HasPrefix(it.ID, "vm:") {
+			t.Errorf("a guest of the offline node raised %+v: the node's item covers it", it)
+		}
+	}
+	if w := e.get(t, "/vms/102"); w.Code != http.StatusServiceUnavailable || !strings.Contains(w.Body.String(), "node pve-2 is offline") {
+		t.Errorf("detail of a guest of the offline node: %d %s", w.Code, w.Body)
+	}
+	if paths := pve.pathsWith("/qemu/102"); len(paths) != 0 {
+		t.Errorf("Proxmox was asked about a guest of the offline node: %v", paths)
+	}
+	var st pvemodel.PVEStorageData
+	waitFor(t, "pve-2's storages gone", func() bool { e.payload(t, "proxmox.storage", &st); return len(st.Storages) == 1 })
+	if st.Storages[0].Ref != "proxmox:Storage/pve-1/local" {
+		t.Errorf("storages = %+v, want pve-1's alone: an offline node's sizes are unknown", st.Storages)
+	}
+
+	asked := pve.count("/nodes/pve-2/status")
+	n := pve.count("/cluster/status")
+	waitFor(t, "two more cluster polls", func() bool { return pve.count("/cluster/status") >= n+2 })
+	if got := pve.count("/nodes/pve-2/status"); got > asked+1 {
+		t.Errorf("an offline node's status was asked %d more times", got-asked)
+	}
+}
+
+// A standalone server is a cluster of one: no name, quorate, its ref the node's, and svc.NodeName
+// names its node without plugins.proxmox.node.
+func TestStandaloneServerIsAClusterOfOne(t *testing.T) {
+	pve := newFakePVE(t, false)
+	pve.set("/cluster/status", `{"data":[{"type":"node","id":"node/pve-1","name":"pve-1","nodeid":0,"online":1,"local":1}]}`)
+	pve.set("/cluster/resources?type=node", `{"data":[{"id":"node/pve-1","node":"pve-1","status":"online","cpu":0.5,"maxcpu":8,"mem":4000,"maxmem":16000}]}`)
+	e := newEnv(t, envOpts{pve: pve, cfg: func(c *pluginconf.Proxmox) { c.Node = "" }})
+	var c pvemodel.PVEClusterData
+	waitFor(t, "the server", func() bool { e.payload(t, "proxmox.cluster", &c); return len(c.Nodes) == 1 })
+	if c.Ref != "proxmox:Cluster/pve-1" || c.Name != "" || !c.Standalone || !c.QuorumKnown || !c.Quorate {
+		t.Errorf("standalone = %+v", c)
+	}
+	s := e.current().Service()
+	if n, ok := s.(svc.NodeName).NodeName(); !ok || n != "pve-1" {
+		t.Errorf("NodeName = %q, %v; want the only node", n, ok)
+	}
+	if nodes, ok := s.(svc.ClusterNodes).Nodes(); !ok || !slices.Equal(nodes, []string{"pve-1"}) {
+		t.Errorf("Nodes = %v, %v", nodes, ok)
+	}
 }
 
 func TestVMsTopic(t *testing.T) {
@@ -236,70 +377,111 @@ func TestVMsTopic(t *testing.T) {
 		t.Errorf("ids = %v, want them in order", ids)
 	}
 	vm := d.VMs[0]
-	if vm.Ref != "proxmox:VM/101" || vm.Name != "k8s-cp-1" || vm.Status != "running" || !slices.Equal(vm.Tags, []string{"k8s", "control-plane"}) {
+	if vm.Ref != "proxmox:VM/101" || vm.Node != "pve-1" || vm.Name != "k8s-cp-1" || vm.Status != "running" || !slices.Equal(vm.Tags, []string{"k8s", "control-plane"}) {
 		t.Errorf("vm = %+v", vm)
 	}
 	if vm.K8sNode == nil || vm.K8sNode.Name != "k8s-cp-1" || !vm.K8sNode.Ready {
 		t.Errorf("k8sNode = %+v, want the index's node", vm.K8sNode)
 	}
-	if d.VMs[1].K8sNode != nil {
-		t.Errorf("db-1 is not a node: %+v", d.VMs[1].K8sNode)
+	if d.VMs[1].K8sNode != nil || d.VMs[1].Node != "pve-2" {
+		t.Errorf("db-1 is no Kubernetes node and runs on pve-2: %+v", d.VMs[1])
 	}
-	if len(d.Tasks) != 1 || d.Tasks[0].Type != "qmstart" {
+	if len(d.Tasks) != 1 || d.Tasks[0].Type != "qmstart" || d.Tasks[0].Node != "pve-1" {
 		t.Errorf("tasks = %+v", d.Tasks)
 	}
 	plugintest.AssertRefs(t, e.sup, ID, d, model.VM{})
 }
 
-func TestStorageTopicFromTheAPISkipsInactiveStorages(t *testing.T) {
+// The API source lists every node's storages that report a size; the shared one, which every node
+// lists, comes first, once and without a node, and the totals count it once.
+func TestStorageTopicFromTheAPI(t *testing.T) {
 	e := newEnv(t, envOpts{})
 	var s pvemodel.PVEStorageData
 	waitFor(t, "storages", func() bool { e.payload(t, "proxmox.storage", &s); return len(s.Storages) > 0 })
 	want := []pvemodel.PVEStorage{
-		{Ref: "proxmox:Storage/local", Name: "local", UsedBytes: 1000, SizeBytes: 4000},
-		{Ref: "proxmox:Storage/tank", Name: "tank", UsedBytes: 50, SizeBytes: 100},
-	}
-	if !slices.Equal(s.Storages, want) {
-		t.Errorf("storages = %+v, want %+v", s.Storages, want)
-	}
-	plugintest.AssertRefs(t, e.sup, ID, s, pvemodel.PVEStorage{})
-}
-
-// Both sources fill proxmox.storage, and the Prometheus one assembles exactly what the Manager's
-// builder did for the same samples: the name from pve_storage_info (the id when there is none),
-// usage by id, sorted by name.
-func TestStorageSourceAPIAndPrometheus(t *testing.T) {
-	e := newEnv(t, envOpts{
-		cfg: func(c *pluginconf.Proxmox) { c.Storage.Source = pluginconf.ProxmoxStoragePrometheus },
-		// Loaded before the plugin starts: a poll that ran in the middle of loading it published
-		// three storages without their names, and the wait below saw them.
-		prefill: func(e *env) {
-			e.prom.set(exprStorageUsed,
-				sample(1000, "id", "storage/pve-1/local"), sample(50, "id", "storage/pve-1/tank"), sample(7, "id", "storage/pve-1/nameless"))
-			e.prom.set(exprStorageSize,
-				sample(4000, "id", "storage/pve-1/local"), sample(100, "id", "storage/pve-1/tank"), sample(70, "id", "storage/pve-1/nameless"))
-			e.prom.set(exprStorageInfo,
-				sample(1, "id", "storage/pve-1/local", "storage", "local"), sample(1, "id", "storage/pve-1/tank", "storage", "tank"))
-		},
-	})
-	var s pvemodel.PVEStorageData
-	var srcs []model.SourceStatus
-	waitFor(t, "storages from prometheus", func() bool {
-		srcs, _ = e.payload(t, "proxmox.storage", &s)
-		return len(s.Storages) == 3
-	})
-	want := []pvemodel.PVEStorage{
-		{Ref: "proxmox:Storage/local", Name: "local", UsedBytes: 1000, SizeBytes: 4000},
-		{Ref: "proxmox:Storage/storage/pve-1/nameless", Name: "storage/pve-1/nameless", UsedBytes: 7, SizeBytes: 70},
-		{Ref: "proxmox:Storage/tank", Name: "tank", UsedBytes: 50, SizeBytes: 100},
+		{Ref: "proxmox:Storage/nas", Name: "nas", Shared: true, UsedBytes: 300, SizeBytes: 900},
+		{Ref: "proxmox:Storage/pve-1/local", Name: "local", Node: "pve-1", UsedBytes: 1000, SizeBytes: 4000},
+		{Ref: "proxmox:Storage/pve-1/tank", Name: "tank", Node: "pve-1", UsedBytes: 50, SizeBytes: 100},
+		{Ref: "proxmox:Storage/pve-2/local", Name: "local", Node: "pve-2", UsedBytes: 2000, SizeBytes: 4000},
 	}
 	if !slices.Equal(s.Storages, want) {
 		t.Errorf("storages = %+v\nwant      %+v", s.Storages, want)
 	}
+	if s.UsedBytes != 3350 || s.SizeBytes != 9000 {
+		t.Errorf("totals used %d size %d, want 3350 and 9000 (the shared storage once)", s.UsedBytes, s.SizeBytes)
+	}
+	plugintest.AssertRefs(t, e.sup, ID, s, pvemodel.PVEStorage{})
+}
+
+// A shared storage takes its usage from an entry whose node is online and reaches it, then from
+// the largest, then from the first node by name, whatever the order of the answer.
+func TestSharedStorageUsageIsChosenDeterministically(t *testing.T) {
+	entries := func() []storageEntry {
+		return []storageEntry{
+			{name: "nas", node: "pve-1", shared: true, usedBytes: 1, sizeBytes: 900},
+			{name: "nas", node: "pve-3", shared: true, trusted: true, usedBytes: 3, sizeBytes: 800},
+			{name: "nas", node: "pve-2", shared: true, trusted: true, usedBytes: 2, sizeBytes: 800},
+			{name: "ceph", node: "pve-2", shared: true, trusted: true, usedBytes: 5, sizeBytes: 500},
+			{name: "ceph", node: "pve-1", shared: true, trusted: true, usedBytes: 6, sizeBytes: 600},
+		}
+	}
+	want := []pvemodel.PVEStorage{
+		{Ref: "proxmox:Storage/ceph", Name: "ceph", Shared: true, UsedBytes: 6, SizeBytes: 600},
+		{Ref: "proxmox:Storage/nas", Name: "nas", Shared: true, UsedBytes: 2, SizeBytes: 800},
+	}
+	in := entries()
+	if got := storageList(in); !slices.Equal(got, want) {
+		t.Errorf("storages = %+v\nwant      %+v", got, want)
+	}
+	slices.Reverse(in)
+	if got := storageList(in); !slices.Equal(got, want) {
+		t.Errorf("reversed: %+v", got)
+	}
+}
+
+// The Prometheus source assembles every node's storages from the exporter's series: the name and
+// node from pve_storage_info (else from the id), usage by id, a storage that pve_storage_shared
+// marks listed once and first, and the rest by node and name.
+func TestStorageSourceAPIAndPrometheus(t *testing.T) {
+	e := newEnv(t, envOpts{
+		cfg: func(c *pluginconf.Proxmox) { c.Storage.Source = pluginconf.ProxmoxStoragePrometheus },
+		// Loaded before the plugin starts: a poll that ran in the middle of loading it published
+		// the storages without their names, and the wait below saw them.
+		prefill: func(e *env) {
+			e.prom.set(exprStorageUsed,
+				sample(1000, "id", "storage/pve-1/local"), sample(50, "id", "storage/pve-1/tank"), sample(7, "id", "storage/pve-1/nameless"),
+				sample(2000, "id", "storage/pve-2/local"), sample(300, "id", "storage/pve-1/nas"), sample(300, "id", "storage/pve-2/nas"))
+			e.prom.set(exprStorageSize,
+				sample(4000, "id", "storage/pve-1/local"), sample(100, "id", "storage/pve-1/tank"), sample(70, "id", "storage/pve-1/nameless"),
+				sample(8000, "id", "storage/pve-2/local"), sample(900, "id", "storage/pve-1/nas"), sample(900, "id", "storage/pve-2/nas"))
+			e.prom.set(exprStorageInfo,
+				sample(1, "id", "storage/pve-1/local", "storage", "local", "node", "pve-1"), sample(1, "id", "storage/pve-1/tank", "storage", "tank", "node", "pve-1"),
+				sample(1, "id", "storage/pve-2/local", "storage", "local", "node", "pve-2"),
+				sample(1, "id", "storage/pve-1/nas", "storage", "nas", "node", "pve-1"), sample(1, "id", "storage/pve-2/nas", "storage", "nas", "node", "pve-2"))
+			e.prom.set(exprStorageShared,
+				sample(0, "id", "storage/pve-1/local"), sample(1, "id", "storage/pve-1/nas"), sample(1, "id", "storage/pve-2/nas"))
+		},
+	})
+	var s pvemodel.PVEStorageData
+	var srcs []model.SourceStatus
+	want := []pvemodel.PVEStorage{
+		{Ref: "proxmox:Storage/nas", Name: "nas", Shared: true, UsedBytes: 300, SizeBytes: 900},
+		{Ref: "proxmox:Storage/pve-1/local", Name: "local", Node: "pve-1", UsedBytes: 1000, SizeBytes: 4000},
+		{Ref: "proxmox:Storage/pve-1/nameless", Name: "nameless", Node: "pve-1", UsedBytes: 7, SizeBytes: 70},
+		{Ref: "proxmox:Storage/pve-1/tank", Name: "tank", Node: "pve-1", UsedBytes: 50, SizeBytes: 100},
+		{Ref: "proxmox:Storage/pve-2/local", Name: "local", Node: "pve-2", UsedBytes: 2000, SizeBytes: 8000},
+	}
+	waitFor(t, "storages from prometheus", func() bool {
+		srcs, _ = e.payload(t, "proxmox.storage", &s)
+		return slices.Equal(s.Storages, want)
+	})
+	if s.UsedBytes != 3357 || s.SizeBytes != 13070 {
+		t.Errorf("totals used %d size %d, want 3357 and 13070", s.UsedBytes, s.SizeBytes)
+	}
 	if len(srcs) != 1 || srcs[0].Name != "prometheus" || !srcs[0].OK {
 		t.Errorf("sources = %+v, want one ok prometheus source", srcs)
 	}
-	if e.pve.count("/nodes/pve-1/storage") != 0 {
+	if e.pve.count("/cluster/resources?type=storage") != 0 {
 		t.Error("the prometheus source asked the Proxmox API for the storages")
 	}
 	// A failing query leaves the other values and its own old ones; the source fails.
@@ -316,63 +498,27 @@ func TestStorageSourceAPIAndPrometheus(t *testing.T) {
 	}
 }
 
-// An exporter that reports the storages of several nodes: this node's are listed, with its own
-// numbers, and no ref repeats.
-func TestStoragePrometheusSelectsThisNodesStorages(t *testing.T) {
+// An exporter without pve_storage_shared (an empty answer) or without pve_storage_info lists every
+// storage as its node's own, the node and the name taken from the id; an id of another shape is its
+// own name, and no ref repeats.
+func TestStoragePrometheusWithoutSharedOrInfo(t *testing.T) {
 	e := newEnv(t, envOpts{
-		cfg:     func(c *pluginconf.Proxmox) { c.Storage.Source = pluginconf.ProxmoxStoragePrometheus },
-		prefill: twoNodeStorages,
-	})
-	want := []pvemodel.PVEStorage{
-		{Ref: "proxmox:Storage/local", Name: "local", UsedBytes: 1000, SizeBytes: 4000},
-		{Ref: "proxmox:Storage/tank", Name: "tank", UsedBytes: 50, SizeBytes: 100},
-	}
-	var s pvemodel.PVEStorageData
-	waitFor(t, "this node's storages", func() bool { e.payload(t, "proxmox.storage", &s); return len(s.Storages) > 0 })
-	if !slices.Equal(s.Storages, want) {
-		t.Errorf("storages = %+v\nwant      %+v", s.Storages, want)
-	}
-}
-
-// When no id carries this node's name, every storage stays and the ones that share a name get
-// their id as the ref, each with its own numbers.
-func TestStoragePrometheusRefsNeverRepeat(t *testing.T) {
-	e := newEnv(t, envOpts{
-		cfg: func(c *pluginconf.Proxmox) {
-			c.Storage.Source = pluginconf.ProxmoxStoragePrometheus
-			c.Node = "pve-9"
+		cfg: func(c *pluginconf.Proxmox) { c.Storage.Source = pluginconf.ProxmoxStoragePrometheus },
+		prefill: func(e *env) {
+			e.prom.set(exprStorageUsed, sample(1000, "id", "storage/pve-1/local"), sample(2000, "id", "storage/pve-2/local"), sample(5, "id", "odd"))
+			e.prom.set(exprStorageSize, sample(4000, "id", "storage/pve-1/local"), sample(8000, "id", "storage/pve-2/local"), sample(9, "id", "odd"))
 		},
-		prefill: twoNodeStorages,
 	})
 	want := []pvemodel.PVEStorage{
-		{Ref: "proxmox:Storage/storage/pve-1/local", Name: "local", UsedBytes: 1000, SizeBytes: 4000},
-		{Ref: "proxmox:Storage/storage/pve-2/local", Name: "local", UsedBytes: 2000, SizeBytes: 8000},
-		{Ref: "proxmox:Storage/tank", Name: "tank", UsedBytes: 50, SizeBytes: 100},
+		{Ref: "proxmox:Storage/odd", Name: "odd", UsedBytes: 5, SizeBytes: 9},
+		{Ref: "proxmox:Storage/pve-1/local", Name: "local", Node: "pve-1", UsedBytes: 1000, SizeBytes: 4000},
+		{Ref: "proxmox:Storage/pve-2/local", Name: "local", Node: "pve-2", UsedBytes: 2000, SizeBytes: 8000},
 	}
 	var s pvemodel.PVEStorageData
 	waitFor(t, "every node's storages", func() bool { e.payload(t, "proxmox.storage", &s); return len(s.Storages) > 0 })
 	if !slices.Equal(s.Storages, want) {
 		t.Errorf("storages = %+v\nwant      %+v", s.Storages, want)
 	}
-	refs := map[string]bool{}
-	for _, st := range s.Storages {
-		if refs[st.Ref] {
-			t.Errorf("ref %s repeats", st.Ref)
-		}
-		refs[st.Ref] = true
-	}
-}
-
-// twoNodeStorages loads pve-1 and pve-2: both have a "local" with different numbers, and only
-// pve-1 has "tank".
-func twoNodeStorages(e *env) {
-	e.prom.set(exprStorageUsed,
-		sample(1000, "id", "storage/pve-1/local"), sample(2000, "id", "storage/pve-2/local"), sample(50, "id", "storage/pve-1/tank"))
-	e.prom.set(exprStorageSize,
-		sample(4000, "id", "storage/pve-1/local"), sample(8000, "id", "storage/pve-2/local"), sample(100, "id", "storage/pve-1/tank"))
-	e.prom.set(exprStorageInfo,
-		sample(1, "id", "storage/pve-1/local", "storage", "local"), sample(1, "id", "storage/pve-2/local", "storage", "local"),
-		sample(1, "id", "storage/pve-1/tank", "storage", "tank"))
 }
 
 func TestStoragePrometheusWithoutPrometheusIsNotConfigured(t *testing.T) {
@@ -415,10 +561,10 @@ func TestStoragePollsAtOnceWhenPrometheusAppears(t *testing.T) {
 	})
 }
 
-// The configured node is known from Start, with a PVE that never answers /nodes.
+// The configured node is known from Start, before any poll has answered.
 func TestNodeNameIsOKFromStartWhenConfigured(t *testing.T) {
 	pve := newFakePVE(t, false)
-	pve.fail("/nodes", http.StatusInternalServerError)
+	pve.fail("/cluster/status", http.StatusInternalServerError)
 	e := newEnv(t, envOpts{pve: pve})
 	n, ok := e.current().Service().(svc.NodeName).NodeName()
 	if !ok || n != "pve-1" {
@@ -432,8 +578,23 @@ func TestNodeNameIsOKFromStartWhenConfigured(t *testing.T) {
 	if n, ok := v.(svc.NodeName).NodeName(); !ok || n != "pve-1" {
 		t.Errorf("Supervisor.Service: %q %v", n, ok)
 	}
-	if pve.count("/nodes") != 0 {
-		t.Errorf("a configured node asked /nodes %d times", pve.count("/nodes"))
+	if nodes, ok := v.(svc.ClusterNodes).Nodes(); ok {
+		t.Errorf("Nodes = %v before a cluster poll succeeded", nodes)
+	}
+}
+
+// A cluster of several nodes without plugins.proxmox.node runs (it reads every node), but names no
+// host node; ClusterNodes says which nodes there are.
+func TestSeveralNodesWithoutTheSettingNameNoHostNode(t *testing.T) {
+	e := newEnv(t, envOpts{cfg: func(c *pluginconf.Proxmox) { c.Node = "" }})
+	e.state(t, plugin.StateHealthy)
+	s := e.current().Service()
+	waitFor(t, "the cluster's nodes", func() bool { _, ok := s.(svc.ClusterNodes).Nodes(); return ok })
+	if nodes, _ := s.(svc.ClusterNodes).Nodes(); !slices.Equal(nodes, []string{"pve-1", "pve-2"}) {
+		t.Errorf("Nodes = %v", nodes)
+	}
+	if n, ok := s.(svc.NodeName).NodeName(); ok {
+		t.Errorf("NodeName = %q with two nodes and no setting", n)
 	}
 }
 
@@ -444,24 +605,11 @@ func TestNoServiceBeforeStart(t *testing.T) {
 	}
 }
 
-func TestExplicitNodeSkipsDiscovery(t *testing.T) {
-	pve := newFakePVE(t, false)
-	e := newEnv(t, envOpts{pve: pve, cfg: func(c *pluginconf.Proxmox) { c.Node = "pve-1" }})
-	e.state(t, plugin.StateHealthy)
-	if pve.count("/nodes") != 0 {
-		t.Errorf("GET /nodes was called %d times with a node configured", pve.count("/nodes"))
-	}
-	// Every request of the node client names the configured node.
-	if pve.count("/nodes/pve-1/status") == 0 {
-		t.Error("the status of the configured node was never read")
-	}
-}
-
-// A rotated token reaches the nodeless client and the node client at once, without a restart.
+// A rotated token reaches the client at once, without a restart.
 func TestReloadedSecretReachesTheProxmoxClient(t *testing.T) {
 	pve := newFakePVE(t, false)
 	tok := secret.New("first-secret-value", "")
-	e := newEnv(t, envOpts{pve: pve, cfg: func(c *pluginconf.Proxmox) { c.Node = ""; c.TokenSecret = tok }})
+	e := newEnv(t, envOpts{pve: pve, cfg: func(c *pluginconf.Proxmox) { c.TokenSecret = tok }})
 	e.state(t, plugin.StateHealthy)
 	for _, a := range pve.authHeaders() {
 		if a != "PVEAPIToken="+testTokenID+"=first-secret-value" {
@@ -469,22 +617,14 @@ func TestReloadedSecretReachesTheProxmoxClient(t *testing.T) {
 		}
 	}
 	tok.Update("rotated-secret-value")
-	waitFor(t, "the rotated secret on the node client", func() bool {
+	waitFor(t, "the rotated secret on the client", func() bool {
 		hs := pve.authHeaders()
 		return len(hs) > 0 && hs[len(hs)-1] == "PVEAPIToken="+testTokenID+"=rotated-secret-value"
 	})
-	// The nodeless client (discovery) holds the same handle.
-	if _, err := e.current().rt.Load().nodeless.Nodes(context.Background()); err != nil {
-		t.Fatal(err)
-	}
-	hs := pve.authHeaders()
-	if hs[len(hs)-1] != "PVEAPIToken="+testTokenID+"=rotated-secret-value" {
-		t.Errorf("the nodeless client sent %q", hs[len(hs)-1])
-	}
 }
 
 // runtimeGoroutines counts the goroutines whose stack has a frame of the plugin's runtime: the
-// pollers, the node index watcher and discovery, and anything they started.
+// pollers, the node index watcher, and anything they started.
 func runtimeGoroutines() int {
 	buf := make([]byte, 1<<20)
 	for {
@@ -509,7 +649,7 @@ func runtimeGoroutines() int {
 func TestStopEndsEveryGoroutine(t *testing.T) {
 	before := runtimeGoroutines()
 	pve := newFakePVE(t, false)
-	e := newEnv(t, envOpts{pve: pve, cfg: func(c *pluginconf.Proxmox) { c.Node = "" }}) // discovery too
+	e := newEnv(t, envOpts{pve: pve})
 	e.state(t, plugin.StateHealthy)
 	p := e.current()
 	if running := runtimeGoroutines(); running < before+4 {

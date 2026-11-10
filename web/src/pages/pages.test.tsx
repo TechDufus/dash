@@ -88,7 +88,7 @@ const overview = (extra: Partial<OverviewData> = {}): OverviewData =>
       { key: "suspended", plugin: "flux", label: "Suspended", unit: "", value: 0, health: "ok" },
       { key: "verified", plugin: "flux", label: "Verified", unit: "", value: 1, health: "ok" },
     ],
-    topology: { host: {}, vms: [], groups: [] },
+    topology: { hosts: [], vms: [], groups: [] },
     ...extra,
   }) as unknown as OverviewData;
 

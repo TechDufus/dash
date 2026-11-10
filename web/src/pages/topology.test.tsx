@@ -1,7 +1,7 @@
 import { act, screen, waitFor } from "@testing-library/react";
 import type * as Motion from "motion/react";
 import { afterEach, beforeEach, describe, expect, it, type MockInstance, vi } from "vitest";
-import type { Group, Health, Topology, TopologyGroup, TopologyVM } from "@/api/types";
+import type { Group, Health, Topology, TopologyGroup, TopologyHost, TopologyVM } from "@/api/types";
 import { formatCelsius } from "@/lib/format";
 import { renderApp } from "@/test/harness";
 import { TopologyPanel } from "./topology";
@@ -14,15 +14,19 @@ vi.mock("motion/react", async (importOriginal) => ({
   useReducedMotion: () => motionPrefs.reduced,
 }));
 
+const host = (name: string, over: Partial<TopologyHost> = {}): TopologyHost => ({
+  name,
+  node: name,
+  health: "ok",
+  powerWatts: 200,
+  cpuTempC: 50,
+  cpuTempHealth: "ok",
+  memUsedRatio: 0.4,
+  ...over,
+});
+
 const topology = (cpuTempHealth: Health, cpuTempC: number): Topology => ({
-  host: {
-    name: "pve-1",
-    health: "ok",
-    powerWatts: 200,
-    cpuTempC,
-    cpuTempHealth,
-    memUsedRatio: 0.4,
-  },
+  hosts: [host("pve-1", { cpuTempC, cpuTempHealth })],
   vms: [],
   groups: [],
 });
@@ -62,6 +66,30 @@ describe.each([
   it("shows a warning CPU temperature as a warning", () => {
     expect(draw("warn", 70)).toHaveClass("text-warn");
   });
+
+  // A node no hardware plugin describes has no power or temperature reading, and no memory once it
+  // is not online: a dash, not 0 W, 0 °C or a healthy-looking 0 %.
+  it("shows a host without readings as dashes, not zeros", () => {
+    window.matchMedia = (query: string) => ({ ...realMatchMedia(query), matches: isDesktop });
+    const bare = host("pve-2", {
+      powerWatts: 0,
+      cpuTempC: 0,
+      cpuTempHealth: "unknown",
+      memUsedRatio: 0,
+    });
+    renderApp(<TopologyPanel topology={{ hosts: [bare], vms: [], groups: [] }} />);
+    if (isDesktop) {
+      const dashes = screen.getAllByText("–");
+      expect(dashes).toHaveLength(3);
+      for (const dash of dashes) expect(dash).not.toHaveClass("text-ok");
+    } else {
+      expect(screen.getAllByText("–")).toHaveLength(2);
+      expect(screen.getByText("mem –")).toBeInTheDocument();
+    }
+    expect(screen.queryByText(/0%$/)).toBeNull();
+    expect(screen.queryByText(formatCelsius(0))).toBeNull();
+    expect(screen.queryByText(/^0 W$/)).toBeNull();
+  });
 });
 
 // One running Kubernetes node feeding one group, and one stopped VM: three beams.
@@ -70,6 +98,7 @@ const beamTopology: Topology = {
   vms: [
     {
       vmid: 101,
+      node: "pve-1",
       name: "node-1",
       health: "ok",
       cpuRatio: 0.2,
@@ -79,6 +108,7 @@ const beamTopology: Topology = {
     },
     {
       vmid: 120,
+      node: "pve-1",
       name: "spare",
       health: "unknown",
       cpuRatio: 0,
@@ -129,6 +159,62 @@ describe("the topology beams", () => {
   });
 });
 
+const k8sNode = (vmid: number, name: string, node = "pve-1"): TopologyVM => ({
+  vmid,
+  name,
+  node,
+  health: "ok",
+  cpuRatio: 0.2,
+  memRatio: 0.5,
+  isK8sNode: true,
+  running: true,
+});
+// Two hosts, a VM on each and one more on pve-1, and a VM on a node no host stands for.
+const clusterTopology: Topology = {
+  hosts: [host("pve-1"), host("pve-2")],
+  vms: [
+    k8sNode(101, "vm-a", "pve-1"),
+    k8sNode(102, "vm-b", "pve-2"),
+    k8sNode(103, "vm-c", "pve-1"),
+    k8sNode(104, "vm-d", "pve-9"),
+  ],
+  groups: [],
+};
+
+describe("a topology with several hosts", () => {
+  const draw = (isDesktop: boolean) => {
+    motionPrefs.reduced = true;
+    window.matchMedia = (query: string) => ({ ...realMatchMedia(query), matches: isDesktop });
+    return renderApp(<TopologyPanel topology={clusterTopology} />);
+  };
+  const order = (names: string[]) =>
+    names
+      .map((name) => screen.getByText(name))
+      .sort((a, b) => (a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING ? -1 : 1))
+      .map((el) => el.textContent);
+
+  it("draws a card per host, groups the VMs host by host and beams only to a known host's VMs", () => {
+    const { container } = draw(true);
+    expect(screen.getByText("pve-1")).toBeInTheDocument();
+    expect(screen.getByText("pve-2")).toBeInTheDocument();
+    expect(order(["vm-a", "vm-b", "vm-c", "vm-d"])).toEqual(["vm-a", "vm-c", "vm-b", "vm-d"]);
+    // vm-d keeps its card, but no host stands for its node, so it has no beam.
+    expect(container.querySelectorAll('svg[data-slot="beam"]')).toHaveLength(3);
+  });
+
+  it("lists each host's row with its VMs below it, then the VMs no host stands for", () => {
+    draw(false);
+    expect(order(["pve-1", "pve-2", "vm-a", "vm-b", "vm-c", "vm-d"])).toEqual([
+      "pve-1",
+      "vm-a",
+      "vm-c",
+      "pve-2",
+      "vm-b",
+      "vm-d",
+    ]);
+  });
+});
+
 // jsdom has no layout: these tests give every card a fixed box and fire ResizeObserver
 // themselves, the way the browser does when an observed element changes size.
 interface Box {
@@ -168,15 +254,6 @@ function fireResize(el: Element) {
   });
 }
 
-const k8sNode = (vmid: number, name: string): TopologyVM => ({
-  vmid,
-  name,
-  health: "ok",
-  cpuRatio: 0.2,
-  memRatio: 0.5,
-  isK8sNode: true,
-  running: true,
-});
 const spreadGroup = (name: Group, namespace: string): TopologyGroup => ({
   name,
   health: "ok",
@@ -369,5 +446,46 @@ describe("the topology beams between laid-out cards", () => {
     fireResize(added);
     expect(intoTenants()).toEqual(before.map((y) => y - 75));
     added.remove();
+  });
+
+  it("draws each VM's beam from the host of its node", () => {
+    motionPrefs.reduced = true;
+    window.matchMedia = (query: string) => ({
+      ...realMatchMedia(query),
+      matches: query.includes("min-width"),
+    });
+    renderApp(<TopologyPanel topology={clusterTopology} />);
+    const card = (name: string) => {
+      const wrapper = screen.getByText(name).closest('[data-slot="panel"]')?.parentElement;
+      if (!wrapper) throw new Error(`no card for ${name}`);
+      return wrapper;
+    };
+    const hosts = { "pve-1": card("pve-1"), "pve-2": card("pve-2") };
+    const vms = {
+      "vm-a": card("vm-a"),
+      "vm-c": card("vm-c"),
+      "vm-b": card("vm-b"),
+      "vm-d": card("vm-d"),
+    };
+    const beams = [...document.querySelectorAll('svg[data-slot="beam"]')];
+    const container = beams[0].parentElement?.parentElement as Element;
+    boxes.set(container, { left: 0, top: 0, width: 696, height: 560 });
+    boxes.set(hosts["pve-1"], { left: 0, top: 80, width: 200, height: 120 });
+    boxes.set(hosts["pve-2"], { left: 0, top: 320, width: 200, height: 120 });
+    for (const [i, c] of Object.values(vms).entries()) {
+      boxes.set(c, { left: 248, top: 10 + i * 130, width: 200, height: 120 });
+    }
+    fireResize(container);
+
+    const drawn = beams.map(ends);
+    expect(drawn).toHaveLength(3);
+    const from = (vm: keyof typeof vms) => {
+      const beam = drawn.find((b) => inside(b.to[1], vms[vm]));
+      return Object.entries(hosts).find(([, h]) => beam && inside(beam.from[1], h))?.[0];
+    };
+    expect(from("vm-a")).toBe("pve-1");
+    expect(from("vm-c")).toBe("pve-1");
+    expect(from("vm-b")).toBe("pve-2");
+    expect(from("vm-d")).toBeUndefined();
   });
 });

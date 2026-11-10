@@ -122,13 +122,12 @@ func TestWorldIsCoherent(t *testing.T) {
 	}
 }
 
-// PVENode, PVEStorages and Machines are the parts the proxmox and hardware twins publish.
+// PVECluster, PVEStorages and Machines are the parts the proxmox and hardware twins publish.
 func TestSplitPartsAreWellFormed(t *testing.T) {
 	w := testWorld()
 
-	n := w.PVENode()
-	if n.Node != HostName || n.Version == "" || n.Kernel == "" || n.CPUModel == "" || n.UptimeSeconds <= 0 {
-		t.Errorf("PVENode = %+v", n)
+	if n := w.PVECluster().Nodes[0]; n.Node != HostName || n.Version == "" || n.Kernel == "" || n.CPUModel == "" || n.UptimeSeconds <= 0 {
+		t.Errorf("the hardware host's node = %+v", n)
 	}
 	ps := w.PVEStorages()
 	if len(ps) == 0 {
@@ -160,9 +159,16 @@ func TestSplitPartsCarryRefs(t *testing.T) {
 			t.Errorf("ref %q = %s %s %s (%v), want %s %s %s", ref, gotID, gotKind, gotName, ok, id, kind, name)
 		}
 	}
-	check(w.PVENode().Ref, "proxmox", "Node", HostName)
+	check(w.PVECluster().Ref, "proxmox", "Cluster", ClusterName)
+	for _, n := range w.PVECluster().Nodes {
+		check(n.Ref, "proxmox", "Node", n.Node)
+	}
 	for _, p := range w.PVEStorages() {
-		check(p.Ref, "proxmox", "Storage", p.Name)
+		id := p.Name
+		if !p.Shared {
+			id = p.Node + "/" + p.Name
+		}
+		check(p.Ref, "proxmox", "Storage", id)
 	}
 	for _, m := range w.Machines() {
 		check(m.Ref, "hardware", "Machine", m.Name)

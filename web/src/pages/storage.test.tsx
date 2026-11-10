@@ -17,7 +17,7 @@ type States = Partial<Record<Id, string>>;
 
 const TOPICS: Record<Id, string[]> = {
   kubernetes: ["kubernetes.cluster", "kubernetes.storage", "kubernetes.apps"],
-  proxmox: ["proxmox.vms", "proxmox.node", "proxmox.storage"],
+  proxmox: ["proxmox.vms", "proxmox.cluster", "proxmox.storage"],
   cnpg: ["cnpg.clusters"],
   rustfs: ["rustfs.usage"],
 };
@@ -56,11 +56,20 @@ const DATA: Record<
     topic: "proxmox.storage",
     payload: (): PVEStorageData => ({
       storages: [
-        { ref: "proxmox:Storage/local-zfs", name: "local-zfs", usedBytes: 1, sizeBytes: 2 },
+        {
+          ref: "proxmox:Storage/pve-1/local-zfs",
+          name: "local-zfs",
+          node: "pve-1",
+          shared: false,
+          usedBytes: 1,
+          sizeBytes: 2,
+        },
       ],
+      usedBytes: 1,
+      sizeBytes: 2,
     }),
     headings: ["Proxmox storage"],
-    shown: "local-zfs",
+    shown: "local-zfs · pve-1",
   },
   cnpg: {
     topic: "cnpg.clusters",
@@ -239,7 +248,7 @@ describe("Storage", () => {
     it("is absent when kubernetes is off and Proxmox is on", () => {
       open({ kubernetes: "disabled", cnpg: "disabled", rustfs: "disabled" });
       expect(panelNames()).toEqual(["Proxmox storage"]);
-      expect(screen.getByText("local-zfs")).toBeInTheDocument();
+      expect(screen.getByText("local-zfs · pve-1")).toBeInTheDocument();
       expect(screen.queryByText(NO_STORAGE)).toBeNull();
       expect(busy()).toBe(0);
     });

@@ -62,8 +62,8 @@ func writeTestFile(t *testing.T, path, body string) {
 	}
 }
 
-// fakePVE is a Proxmox API with one node and one VM that records the Authorization header of
-// every request.
+// fakePVE is a Proxmox API, a standalone server with one VM, that records the Authorization header
+// of every request.
 type fakePVE struct {
 	*httptest.Server
 	mu   sync.Mutex
@@ -77,11 +77,12 @@ func newFakePVEFor(t *testing.T, node string) *fakePVE {
 	t.Helper()
 	n := "/api2/json/nodes/" + node
 	bodies := map[string]string{
-		"/api2/json/nodes":             `{"data":[{"node":"` + node + `","status":"online"}]}`,
-		n + "/status":                  `{"data":{"uptime":1,"pveversion":"pve-manager/9.0.5/x","current-kernel":{"release":"6.8"},"cpuinfo":{"model":"Example CPU"}}}`,
-		"/api2/json/cluster/resources": `{"data":[{"id":"qemu/101","vmid":101,"name":"vm-101","status":"running","template":0,"maxcpu":2,"maxmem":1073741824}]}`,
-		"/api2/json/cluster/tasks":     `{"data":[]}`,
-		n + "/storage":                 `{"data":[]}`,
+		"/api2/json/cluster/status":                 `{"data":[{"type":"node","name":"` + node + `","nodeid":0,"online":1,"local":1}]}`,
+		"/api2/json/cluster/resources?type=node":    `{"data":[{"node":"` + node + `","status":"online","maxcpu":2,"maxmem":1073741824}]}`,
+		"/api2/json/cluster/resources?type=vm":      `{"data":[{"id":"qemu/101","type":"qemu","node":"` + node + `","vmid":101,"name":"vm-101","status":"running","template":0,"maxcpu":2,"maxmem":1073741824}]}`,
+		"/api2/json/cluster/resources?type=storage": `{"data":[]}`,
+		"/api2/json/cluster/tasks":                  `{"data":[]}`,
+		n + "/status":                               `{"data":{"uptime":1,"pveversion":"pve-manager/9.0.5/x","current-kernel":{"release":"6.8"},"cpuinfo":{"model":"Example CPU"}}}`,
 
 		n + "/qemu/101/config":                       `{"data":{"name":"vm-101","cores":2,"memory":"1024"}}`,
 		n + "/qemu/101/agent/network-get-interfaces": `{"data":{"result":[]}}`,
@@ -92,7 +93,11 @@ func newFakePVEFor(t *testing.T, node string) *fakePVE {
 		f.mu.Lock()
 		f.auth = append(f.auth, r.Header.Get("Authorization"))
 		f.mu.Unlock()
-		body, ok := bodies[r.URL.Path]
+		key := r.URL.Path
+		if r.URL.RawQuery != "" {
+			key += "?" + r.URL.RawQuery
+		}
+		body, ok := bodies[key]
 		if !ok {
 			http.NotFound(w, r)
 			return

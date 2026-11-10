@@ -23,17 +23,21 @@ func TestDemoRunsTheTwinAndContactsNoUpstream(t *testing.T) {
 		t.Errorf("message = %q", e.info(t).Message)
 	}
 	d, _ := e.vms(t, "the demo guests", func(d model.VMsData) bool { return len(d.VMs) > 0 })
-	var n pvemodel.NodeData
+	var c pvemodel.PVEClusterData
 	var s pvemodel.PVEStorageData
-	waitFor(t, "the node and the storages", func() bool {
-		e.payload(t, "proxmox.node", &n)
+	waitFor(t, "the cluster and the storages", func() bool {
+		e.payload(t, "proxmox.cluster", &c)
 		e.payload(t, "proxmox.storage", &s)
-		return n.Node != "" && len(s.Storages) > 0
+		return len(c.Nodes) > 0 && len(s.Storages) > 0
 	})
+	if len(c.Nodes) != 2 || c.Totals.NodesOnline != 2 || s.SizeBytes <= 0 {
+		t.Errorf("cluster = %+v, storage totals %d", c, s.SizeBytes)
+	}
 
 	// The same refs and flags the real plugin gives.
 	plugintest.AssertRefs(t, e.sup, ID, d, model.VM{})
-	plugintest.AssertRefs(t, e.sup, ID, n, pvemodel.NodeData{})
+	plugintest.AssertRefs(t, e.sup, ID, c, pvemodel.PVEClusterData{})
+	plugintest.AssertRefs(t, e.sup, ID, c, pvemodel.NodeData{})
 	plugintest.AssertRefs(t, e.sup, ID, s, pvemodel.PVEStorage{})
 	if c := byID(d, 101); !c.Critical || c.Ref != "proxmox:VM/101" {
 		t.Errorf("k8s-cp-1 = %+v, want the critical flag the demo setting gives control-plane VMs", c)
@@ -66,6 +70,10 @@ func TestDemoRunsTheTwinAndContactsNoUpstream(t *testing.T) {
 	if det.VM.VMID != 101 || len(det.Config.Disks) != 1 || len(det.IPs) != 1 || len(det.Snapshots) != 1 {
 		t.Errorf("detail = %+v", det)
 	}
+	// A guest on the second node answers too: the twin, like Proxmox, knows it on its own node.
+	if w := e.get(t, "/vms/102"); w.Code != http.StatusOK || !strings.Contains(w.Body.String(), `"node":"pve-demo-2"`) {
+		t.Errorf("detail of a guest on pve-demo-2: %d %s", w.Code, w.Body)
+	}
 	if w := e.get(t, "/vms/12345"); w.Code != http.StatusNotFound {
 		t.Errorf("an unknown demo VM answered %d", w.Code)
 	}
@@ -92,7 +100,7 @@ func TestDemoRunsTheTwinAndContactsNoUpstream(t *testing.T) {
 // Every ref of every envelope the twin publishes is set: no placeholder is left empty.
 func TestPayloadsCarryNoEmptyRef(t *testing.T) {
 	e := newEnv(t, envOpts{demo: true})
-	for _, topic := range []string{"proxmox.vms", "proxmox.node", "proxmox.storage"} {
+	for _, topic := range []string{"proxmox.vms", "proxmox.cluster", "proxmox.storage"} {
 		waitFor(t, topic, func() bool { _, ok := e.hub.Latest("", model.Topic(topic)); return ok })
 		ev, _ := e.hub.Latest("", model.Topic(topic))
 		var env model.Envelope

@@ -1,5 +1,6 @@
 {"data":[
   {"id":"qemu/101","type":"qemu","vmid":101,"name":"k8s-cp-1","node":"pve-1","status":"running","template":0,"maxcpu":4,"cpu":0.0873,"mem":4017299456,"maxmem":8589934592,"disk":0,"maxdisk":68719476736,"diskread":2048,"diskwrite":4096,"netin":1250000,"netout":730000,"uptime":86400,"tags":"k8s;control-plane","hastate":"started"},
-  {"id":"qemu/102","type":"qemu","vmid":"102","name":"db-1","node":"pve-1","status":"stopped","template":0,"maxcpu":"2","cpu":0,"mem":0,"maxmem":"4294967296","disk":0,"maxdisk":34359738368,"netin":0,"netout":0,"uptime":0,"tags":"lab","lock":"backup"},
+  {"id":"qemu/102","type":"qemu","vmid":"102","name":"db-1","node":"pve-2","status":"stopped","template":0,"maxcpu":"2","cpu":0,"mem":0,"maxmem":"4294967296","disk":0,"maxdisk":34359738368,"netin":0,"netout":0,"uptime":0,"tags":"lab","lock":"backup"},
+  {"id":"qemu/104","type":"qemu","vmid":104,"node":"pve-2","status":"unknown","template":0},
   {"id":"qemu/9000","type":"qemu","vmid":9000,"name":"k8s-template","node":"pve-1","status":"stopped","template":true,"maxcpu":2,"mem":0,"maxmem":2147483648,"uptime":0,"tags":"template"}
 ]}

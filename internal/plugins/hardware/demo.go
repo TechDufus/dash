@@ -134,7 +134,7 @@ func (t *twin) host() (model.HostData, plugin.Host, bool) {
 	if h == nil {
 		return model.HostData{}, nil, false
 	}
-	return buildHostData(w.Host(), c, world.HostName), h, true
+	return buildHostData(w.Host(), c, world.HostName, world.HostName), h, true
 }
 
 func (t *twin) publish() {
@@ -142,7 +142,7 @@ func (t *twin) publish() {
 	if !ok {
 		return
 	}
-	d.Links = hostLinks(h)
+	d.Links = hostLinks(h, d.Node)
 	now := h.Now().UTC()
 	t.mu.Lock()
 	w := t.w
@@ -156,7 +156,7 @@ func (t *twin) Attention(now time.Time) []model.AttentionItem {
 	if !ok {
 		return nil
 	}
-	return attentionOf(d, shellLinks(h))
+	return attentionOf(d, shellLinks(h, d.Node))
 }
 
 func (t *twin) KPIs() []model.KPI {

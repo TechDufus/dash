@@ -243,7 +243,7 @@ func TestTempThresholdsDriveEveryHealth(t *testing.T) {
 		if kpi == nil || kpi.Health != c.want || kpi.Value != c.temp || kpi.Unit != "°C" {
 			t.Errorf("%d/%d at %v: KPI = %+v, want health %s", c.warn, c.crit, c.temp, kpi, c.want)
 		}
-		if got := con.Topology.Topology().Host.CPUTempHealth; got != c.want {
+		if got := hostOf(con.Topology.Topology()).CPUTempHealth; got != c.want {
 			t.Errorf("%d/%d at %v: topology cpuTempHealth = %s, want %s", c.warn, c.crit, c.temp, got, c.want)
 		}
 		items := con.Attention.Attention(time.Now())
@@ -315,7 +315,7 @@ func TestBuildHostDataDoesNotChangeItsInput(t *testing.T) {
 	cfg := pluginconf.DefaultHardware()
 	cfg.Hosts = []pluginconf.HardwareHost{{Model: "M", Bays: 4}}
 	cfg = cfg.Normalized()
-	d := buildHostData(vals, cfg, "h1")
+	d := buildHostData(vals, cfg, "h1", "h1")
 	if d.Pools[0].Ref != "hardware:Pool/h1/tank" || d.Disks[0].Ref != "hardware:Disk/h1/bay-3" || d.Bays != 4 {
 		t.Errorf("built = %+v", d)
 	}

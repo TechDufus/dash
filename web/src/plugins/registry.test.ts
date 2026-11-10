@@ -31,7 +31,7 @@ describe("module registry", () => {
       "kubernetes.cluster",
       "kubernetes.storage",
       "launcher.links",
-      "proxmox.node",
+      "proxmox.cluster",
       "proxmox.storage",
       "proxmox.vms",
       "rustfs.usage",

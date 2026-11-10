@@ -30,7 +30,7 @@ type CriticalVMs struct {
 
 // ProxmoxStorage is where the storage list comes from.
 type ProxmoxStorage struct {
-	Source string `json:"source" dash:"enum=api|prometheus" doc:"Where the storage list comes from: api reads the node's storages from the Proxmox API (the API token needs the Datastore.Audit privilege on /storage); prometheus reads the pve-exporter series pve_disk_usage_bytes, pve_disk_size_bytes and pve_storage_info through the prometheus plugin."`
+	Source string `json:"source" dash:"enum=api|prometheus" doc:"Where the storage list comes from: api reads every node's storages from the Proxmox API (the API token needs the Datastore.Audit privilege); prometheus reads the pve-exporter series pve_disk_usage_bytes, pve_disk_size_bytes, pve_storage_info and pve_storage_shared through the prometheus plugin. A shared storage is listed and counted once, except with prometheus and an exporter without pve_storage_shared, which lists it once per node."`
 }
 
 // ProxmoxSeries shapes the metric queries behind the VM charts.
@@ -43,7 +43,7 @@ type ProxmoxSeries struct {
 type Proxmox struct {
 	PluginBase
 	URL         string         `json:"url" dash:"url" doc:"Base URL of the Proxmox API, e.g. https://pve.example.com:8006. Required with a token; a URL alone leaves Proxmox disabled."`
-	Node        string         `json:"node" doc:"The Proxmox node to read. Empty is discovered from the API when the cluster has exactly one node; set it for several nodes or to skip discovery. The hardware plugin reads the host's node from the running proxmox plugin, so without hosts[0].nodename it needs Proxmox to run (url, tokenID and tokenSecret all set)."`
+	Node        string         `json:"node" doc:"The Proxmox node the Hardware page's host is. The page's Proxmox facts, its shell link and its place in the topology come from that node, and its series use the node as their nodename unless plugins.hardware.hosts[0].nodename names another. Empty takes the only node of a one-node cluster; a cluster of several nodes needs it for the Hardware page. dash reads every node of the cluster either way."`
 	TokenID     string         `json:"tokenID" doc:"API token ID, user@realm!tokenname. Proxmox runs only with url, tokenID and tokenSecret all set and is disabled with none of the token set. A token ID without tokenSecret, a tokenSecret without tokenID, or a token without url is a configuration error that stops dash at startup."`
 	TokenSecret secret.Value   `json:"tokenSecret" dash:"secret" doc:"API token secret: a literal, env:NAME, file:/path or k8s:<namespace>/<name>#<key> (read from that Kubernetes Secret by the kubernetes plugin, which must run and be allowed to read it). Set together with tokenID: one without the other is a configuration error."`
 	TLS         TLS            `json:"tls" doc:"How dash verifies the Proxmox API's certificate."`

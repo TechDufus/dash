@@ -24,20 +24,33 @@ import (
 	"github.com/TechDufus/dash/internal/svc"
 )
 
-// The fake cluster the tests read: neutral names, documentation addresses.
+// The fake cluster the tests read: neutral names, documentation addresses. It has two nodes, both
+// online; the guests run on both.
 const (
-	pveNodes   = `{"data":[{"node":"pve-1","status":"online"}]}`
-	pveStatus  = `{"data":{"uptime":2422190,"kversion":"Linux 6.8.12-4-pve #1","pveversion":"pve-manager/9.0.5/b9984c6d","current-kernel":{"release":"6.8.12-4-pve"},"cpuinfo":{"model":"Example CPU @ 2.10GHz","cpus":8}}}`
-	pveTasks   = `{"data":[{"upid":"UPID:pve-1:0001:qmstart","type":"qmstart","id":"101","user":"root@pam","status":"OK","starttime":1793390000,"endtime":1793390005}]}`
-	pveStorage = `{"data":[{"storage":"tank","type":"zfspool","used":50,"total":100,"active":1},{"storage":"local","type":"dir","used":1000,"total":4000,"active":1},{"storage":"offline","type":"nfs","active":0}]}`
-	pveConfig  = `{"data":{"name":"k8s-cp-1","ostype":"l26","cores":4,"sockets":1,"memory":"8192","balloon":0,"agent":"enabled=1","scsi0":"local-zfs:vm-101-disk-0,size=64G","net0":"virtio=02:00:5e:00:53:01,bridge=vmbr0"}}`
-	pveIPs     = `{"data":{"result":[{"name":"lo","ip-addresses":[{"ip-address-type":"ipv4","prefix":8,"ip-address":"127.0.0.1"}]},{"name":"eth0","ip-addresses":[{"ip-address-type":"ipv4","prefix":24,"ip-address":"192.0.2.21"}]}]}}`
-	pveSnaps   = `{"data":[{"name":"pre-upgrade","description":"before the upgrade","snaptime":1793300000},{"name":"current","description":"You are here!"}]}`
-	pveVMs     = `{"data":[
-	  {"id":"qemu/101","vmid":101,"name":"k8s-cp-1","status":"running","template":0,"maxcpu":4,"cpu":0.25,"mem":4294967296,"maxmem":8589934592,"uptime":3600,"netin":100,"netout":200,"tags":"k8s;control-plane"},
-	  {"id":"qemu/102","vmid":102,"name":"db-1","status":"stopped","template":0,"maxcpu":2,"maxmem":4294967296,"tags":"lab;Critical"},
-	  {"id":"qemu/103","vmid":103,"name":"scratch","status":"stopped","template":0,"maxcpu":1,"maxmem":1073741824,"tags":"lab"},
-	  {"id":"qemu/9000","vmid":9000,"name":"k8s-template","status":"stopped","template":1,"maxcpu":1,"maxmem":1073741824,"tags":"template"}]}`
+	pveCluster = `{"data":[{"type":"cluster","id":"cluster","name":"lab","nodes":2,"quorate":1,"version":2},
+	  {"type":"node","id":"node/pve-1","name":"pve-1","nodeid":1,"online":1,"local":1,"ip":"192.0.2.11"},
+	  {"type":"node","id":"node/pve-2","name":"pve-2","nodeid":2,"online":1,"local":0,"ip":"192.0.2.12"}]}`
+	pveUsage = `{"data":[
+	  {"id":"node/pve-1","type":"node","node":"pve-1","status":"online","cpu":0.5,"maxcpu":8,"mem":4000,"maxmem":16000,"disk":10,"maxdisk":100,"uptime":2422190},
+	  {"id":"node/pve-2","type":"node","node":"pve-2","status":"online","cpu":0.25,"maxcpu":24,"mem":6000,"maxmem":48000,"disk":20,"maxdisk":200,"uptime":7200}]}`
+	pveStatus  = `{"data":{"uptime":2422190,"kversion":"Linux 6.8.12-4-pve #1","pveversion":"pve-manager/9.0.5/b9984c6d","current-kernel":{"release":"6.8.12-4-pve"},"cpuinfo":{"model":"Example CPU @ 2.10GHz","cpus":8,"sockets":1,"cores":4}}}`
+	pveStatus2 = `{"data":{"uptime":7200,"pveversion":"pve-manager/9.0.6/c0ffee00","current-kernel":{"release":"6.8.12-5-pve"},"cpuinfo":{"model":"Example CPU @ 3.00GHz","cpus":24,"sockets":2,"cores":12}}}`
+	pveTasks   = `{"data":[{"upid":"UPID:pve-1:0001:qmstart","node":"pve-1","type":"qmstart","id":"101","user":"root@pam","status":"OK","starttime":1793390000,"endtime":1793390005}]}`
+	pveStorage = `{"data":[
+	  {"id":"storage/pve-1/tank","storage":"tank","node":"pve-1","shared":0,"disk":50,"maxdisk":100},
+	  {"id":"storage/pve-1/local","storage":"local","node":"pve-1","shared":0,"disk":1000,"maxdisk":4000},
+	  {"id":"storage/pve-1/nas","storage":"nas","node":"pve-1","shared":1,"disk":300,"maxdisk":900},
+	  {"id":"storage/pve-2/local","storage":"local","node":"pve-2","shared":0,"disk":2000,"maxdisk":4000},
+	  {"id":"storage/pve-2/nas","storage":"nas","node":"pve-2","shared":1,"disk":300,"maxdisk":900},
+	  {"id":"storage/pve-2/offline","storage":"offline","node":"pve-2","shared":0,"status":"unknown"}]}`
+	pveConfig = `{"data":{"name":"k8s-cp-1","ostype":"l26","cores":4,"sockets":1,"memory":"8192","balloon":0,"agent":"enabled=1","scsi0":"local-zfs:vm-101-disk-0,size=64G","net0":"virtio=02:00:5e:00:53:01,bridge=vmbr0"}}`
+	pveIPs    = `{"data":{"result":[{"name":"lo","ip-addresses":[{"ip-address-type":"ipv4","prefix":8,"ip-address":"127.0.0.1"}]},{"name":"eth0","ip-addresses":[{"ip-address-type":"ipv4","prefix":24,"ip-address":"192.0.2.21"}]}]}}`
+	pveSnaps  = `{"data":[{"name":"pre-upgrade","description":"before the upgrade","snaptime":1793300000},{"name":"current","description":"You are here!"}]}`
+	pveVMs    = `{"data":[
+	  {"id":"qemu/101","type":"qemu","node":"pve-1","vmid":101,"name":"k8s-cp-1","status":"running","template":0,"maxcpu":4,"cpu":0.25,"mem":4294967296,"maxmem":8589934592,"uptime":3600,"netin":100,"netout":200,"tags":"k8s;control-plane"},
+	  {"id":"qemu/102","type":"qemu","node":"pve-2","vmid":102,"name":"db-1","status":"stopped","template":0,"maxcpu":2,"maxmem":4294967296,"tags":"lab;Critical"},
+	  {"id":"qemu/103","type":"qemu","node":"pve-2","vmid":103,"name":"scratch","status":"stopped","template":0,"maxcpu":1,"maxmem":1073741824,"tags":"lab"},
+	  {"id":"qemu/9000","type":"qemu","node":"pve-1","vmid":9000,"name":"k8s-template","status":"stopped","template":1,"maxcpu":1,"maxmem":1073741824,"tags":"template"}]}`
 
 	testTokenID = "dash@pve!ci"
 	// testToken is the canary: it must never reach a log line, a payload or a response.
@@ -45,28 +58,31 @@ const (
 )
 
 // fakePVE is a Proxmox API: it answers the endpoints the plugin reads, counts the requests of each
-// path and records every Authorization header.
+// path (with its query, for /cluster/resources?type=...) and records every Authorization header.
 type fakePVE struct {
 	*httptest.Server
 
-	mu     sync.Mutex
-	body   map[string]string // path -> answer; the defaults are set by newFakePVE
-	status map[string]int    // path -> a forced status code
-	echo   bool              // 500 answers echo the Authorization header, as a broken proxy might
-	to     string            // when set, every request is redirected to this base URL
-	hits   map[string]int
-	auth   []string
-	nodes  atomic.Int32 // requests to /nodes
+	mu       sync.Mutex
+	body     map[string]string // path -> answer; the defaults are set by newFakePVE
+	status   map[string]int    // path -> a forced status code
+	echo     bool              // 500 answers echo the Authorization header, as a broken proxy might
+	miss     bool              // 500 answers say the guest's config does not exist, as another node does
+	missLine bool              // 500 answers say so in the status line alone, with an empty body
+	to       string            // when set, every request is redirected to this base URL
+	hits     map[string]int
+	auth     []string
 }
 
 func newFakePVE(t *testing.T, tls bool) *fakePVE {
 	t.Helper()
 	f := &fakePVE{hits: map[string]int{}, status: map[string]int{}, body: map[string]string{
-		"/api2/json/nodes":                                             pveNodes,
-		"/api2/json/nodes/pve-1/status":                                pveStatus,
-		"/api2/json/cluster/resources":                                 pveVMs,
+		"/api2/json/cluster/status":                                    pveCluster,
+		"/api2/json/cluster/resources?type=node":                       pveUsage,
+		"/api2/json/cluster/resources?type=vm":                         pveVMs,
+		"/api2/json/cluster/resources?type=storage":                    pveStorage,
 		"/api2/json/cluster/tasks":                                     pveTasks,
-		"/api2/json/nodes/pve-1/storage":                               pveStorage,
+		"/api2/json/nodes/pve-1/status":                                pveStatus,
+		"/api2/json/nodes/pve-2/status":                                pveStatus2,
 		"/api2/json/nodes/pve-1/qemu/101/config":                       pveConfig,
 		"/api2/json/nodes/pve-1/qemu/101/agent/network-get-interfaces": pveIPs,
 		"/api2/json/nodes/pve-1/qemu/101/snapshot":                     pveSnaps,
@@ -82,23 +98,38 @@ func newFakePVE(t *testing.T, tls bool) *fakePVE {
 }
 
 func (f *fakePVE) serve(w http.ResponseWriter, r *http.Request) {
-	f.mu.Lock()
-	f.hits[r.URL.Path]++
-	f.auth = append(f.auth, r.Header.Get("Authorization"))
-	body, ok := f.body[r.URL.Path]
-	code := f.status[r.URL.Path]
-	echo, to := f.echo, f.to
-	f.mu.Unlock()
-	if r.URL.Path == "/api2/json/nodes" {
-		f.nodes.Add(1)
+	key := r.URL.Path
+	if r.URL.RawQuery != "" {
+		key += "?" + r.URL.RawQuery
 	}
+	f.mu.Lock()
+	f.hits[key]++
+	f.auth = append(f.auth, r.Header.Get("Authorization"))
+	body, ok := f.body[key]
+	code := f.status[key]
+	echo, miss, missLine, to := f.echo, f.miss, f.missLine, f.to
+	f.mu.Unlock()
 	switch {
 	case to != "":
 		http.Redirect(w, r, to+r.URL.Path, http.StatusFound)
+	case code == http.StatusInternalServerError && missLine:
+		// net/http writes the standard reason phrase; Proxmox before libpve-http-server-perl
+		// 5.2.0 puts its message there, with an empty body, so the line is written by hand.
+		conn, buf, err := http.NewResponseController(w).Hijack()
+		if err != nil {
+			panic(err)
+		}
+		defer conn.Close()
+		_, _ = buf.WriteString("HTTP/1.1 500 Configuration file 'nodes/pve-1/qemu-server/101.conf' does not exist\r\n" +
+			"Content-Type: application/json\r\nContent-Length: 13\r\nConnection: close\r\n\r\n{\"data\":null}")
+		_ = buf.Flush()
 	case code != 0:
 		w.WriteHeader(code)
-		if echo && code == http.StatusInternalServerError {
+		switch {
+		case echo && code == http.StatusInternalServerError:
 			_, _ = io.WriteString(w, `{"message":"boom for `+r.Header.Get("Authorization")+` at `+r.Host+`"}`)
+		case miss && code == http.StatusInternalServerError:
+			_, _ = io.WriteString(w, `{"data":null,"message":"Configuration file 'nodes/pve-1/qemu-server/101.conf' does not exist\n"}`)
 		}
 	case !ok:
 		http.Error(w, `{"data":null,"message":"no such endpoint"}`, http.StatusNotImplemented)
@@ -112,6 +143,15 @@ func (f *fakePVE) echoErrors() {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.echo = true
+}
+
+// echoMissing makes a 500 answer say the guest's config does not exist, as a node the guest does
+// not run on answers: in the body, or with inStatusLine in the status line alone, as Proxmox
+// before libpve-http-server-perl 5.2.0 does.
+func (f *fakePVE) echoMissing(inStatusLine bool) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.miss, f.missLine = !inStatusLine, inStatusLine
 }
 
 // redirectTo sends every request to base instead.
@@ -332,8 +372,8 @@ type envOpts struct {
 // testToken is a secret.Value holding testToken; Update rotates it.
 func tokenValue() secret.Value { return secret.New(testToken, "") }
 
-// defaultConfig is the configuration the tests start from: the fake's URL, the token, one node
-// named explicitly unless a test clears it.
+// defaultConfig is the configuration the tests start from: the fake's URL, the token, and pve-1 as
+// the node of the Hardware page's host unless a test clears it.
 func defaultConfig(url string) pluginconf.Proxmox {
 	c := pluginconf.DefaultProxmox()
 	c.URL, c.Node, c.TokenID, c.TokenSecret = url, "pve-1", testTokenID, tokenValue()
@@ -342,9 +382,8 @@ func defaultConfig(url string) pluginconf.Proxmox {
 
 func fastTiming() timing {
 	return timing{
-		vms: 20 * time.Millisecond, node: 20 * time.Millisecond, storage: 20 * time.Millisecond,
-		watch:   10 * time.Millisecond,
-		backoff: 5 * time.Millisecond, backoffMax: 20 * time.Millisecond, grace: time.Minute, steady: 20 * time.Millisecond,
+		vms: 20 * time.Millisecond, cluster: 20 * time.Millisecond, storage: 20 * time.Millisecond,
+		watch: 10 * time.Millisecond,
 	}
 }
 

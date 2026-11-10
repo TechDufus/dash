@@ -21,6 +21,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { formatDateTime, formatPercent, formatRate } from "@/lib/format";
 import { cn } from "@/lib/utils";
+import { NodeChip } from "./cluster";
 
 const RANGES: { value: SeriesRange; label: string }[] = [
   { value: "1h", label: "1h" },
@@ -323,6 +324,9 @@ function VMSheetBody({ vmid }: { vmid: string }) {
   const detail = useVMDetail(vmid);
   const live = topic?.data.vms.find((v) => String(v.vmid) === vmid);
   const vm = live ?? detail.data?.vm;
+  // The hardware host's links (its shell, its BMC) belong to one node; a VM on another node of
+  // the cluster does not run on that machine.
+  const hostLinks = vm && host && host.node !== "" && host.node === vm.node ? host.links : [];
 
   if (topic && !live) {
     return (
@@ -348,11 +352,12 @@ function VMSheetBody({ vmid }: { vmid: string }) {
             <SheetDescription asChild>
               <div className="flex flex-wrap items-center gap-2">
                 <HealthBadge health={vm.health} label={vm.status} />
+                {vm.node && <NodeChip node={vm.node} />}
                 {vm.template && <span className="text-xs text-muted">template</span>}
               </div>
             </SheetDescription>
             <CopyContextButton
-              contextRef={`proxmox:VM/${vmid}`}
+              contextRef={vm.ref}
               name={vm.name}
               size="xs"
               className="self-start"
@@ -394,7 +399,7 @@ function VMSheetBody({ vmid }: { vmid: string }) {
           <MetricsTab vmid={vmid} active={tab === "metrics"} />
         </TabsContent>
         <TabsContent value="links" className="min-h-0 overflow-y-auto p-4">
-          <LinksTab vm={vm} hostLinks={host?.links ?? []} />
+          <LinksTab vm={vm} hostLinks={hostLinks} />
         </TabsContent>
       </Tabs>
     </>

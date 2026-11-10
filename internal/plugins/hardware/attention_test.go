@@ -22,7 +22,7 @@ func builtHost(mod func(*model.HostData)) model.HostData {
 	}
 	cfg := pluginconf.DefaultHardware()
 	cfg.Hosts = []pluginconf.HardwareHost{{}}
-	return buildHostData(vals, cfg.Normalized(), "h1")
+	return buildHostData(vals, cfg.Normalized(), "h1", "h1")
 }
 
 func ids(items []model.AttentionItem) []string {
@@ -181,7 +181,7 @@ func TestAttentionLinksComeFromTheLinkProviders(t *testing.T) {
 // KPIs and topology exist only once the host has polled.
 func TestContributionsWaitForTheFirstPoll(t *testing.T) {
 	p, rt, h := stubRuntime(t, withHost(pluginconf.HardwareHost{Nodename: node}))
-	if p.KPIs() != nil || p.Attention(time.Now()) != nil || p.Topology().Host.Name != "" {
+	if p.KPIs() != nil || p.Attention(time.Now()) != nil || len(p.Topology().Hosts) != 0 {
 		t.Error("the plugin contributes before it has polled")
 	}
 	q := newFakeQuerier()
@@ -199,28 +199,36 @@ func TestContributionsWaitForTheFirstPoll(t *testing.T) {
 		}
 	}
 	top := p.Topology()
-	if top.Host.Name != node || top.Host.PowerWatts != 214 || top.Host.CPUTempC != 62 || top.Host.MemUsedRatio != 0.25 || top.Host.Health != model.HealthOK {
-		t.Errorf("topology host = %+v", top.Host)
+	if h := hostOf(top); len(top.Hosts) != 1 || h.Name != node || h.Node != node || h.PowerWatts != 214 || h.CPUTempC != 62 || h.MemUsedRatio != 0.25 || h.Health != model.HealthOK {
+		t.Errorf("topology hosts = %+v", top.Hosts)
 	}
 	if top.VMs == nil || top.Groups == nil {
 		t.Error("the topology lists are null")
 	}
 }
 
+// hostOf is the one host of a topology; the zero host when there is not exactly one.
+func hostOf(t model.Topology) model.TopologyHost {
+	if len(t.Hosts) != 1 {
+		return model.TopologyHost{}
+	}
+	return t.Hosts[0]
+}
+
 // The topology host's health is the worst of the plugin's own items.
 func TestTopologyHealthIsTheWorstItem(t *testing.T) {
 	d := builtHost(func(h *model.HostData) { h.PackageTempsC = []float64{86} }) // warn
-	if got := topologyOf(d, attentionOf(d, nil)).Host.Health; got != model.HealthWarn {
+	if got := hostOf(topologyOf(d, attentionOf(d, nil))).Health; got != model.HealthWarn {
 		t.Errorf("warm: %s", got)
 	}
 	d = builtHost(func(h *model.HostData) {
 		h.PackageTempsC = []float64{86}
 		h.Pools = []model.Pool{{Name: "tank", State: "FAULTED"}}
 	})
-	if got := topologyOf(d, attentionOf(d, nil)).Host.Health; got != model.HealthCrit {
+	if got := hostOf(topologyOf(d, attentionOf(d, nil))).Health; got != model.HealthCrit {
 		t.Errorf("faulted pool: %s", got)
 	}
-	if got := topologyOf(builtHost(nil), nil).Host.Health; got != model.HealthOK {
+	if got := hostOf(topologyOf(builtHost(nil), nil)).Health; got != model.HealthOK {
 		t.Errorf("healthy: %s", got)
 	}
 }

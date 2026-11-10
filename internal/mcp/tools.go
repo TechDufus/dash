@@ -287,7 +287,7 @@ var pluginKinds = []struct {
 	kinds  []string
 }{
 	{"kubernetes", []string{"Pod", "Workload", "Node", "Namespace", "PVC", "App", "BackupJob", "Certificate", "ExternalSecret"}},
-	{"proxmox", []string{"VM", "Node", "Storage"}},
+	{"proxmox", []string{"VM", "Node", "Cluster", "Storage"}},
 	{"alertmanager", []string{"Alert", "Silence"}},
 	{"cnpg", []string{"Cluster"}},
 	{"flux", []string{"GitRepository", "HelmRelease", "HelmRepository", "Kustomization", "OCIRepository"}},

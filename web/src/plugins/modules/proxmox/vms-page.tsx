@@ -31,6 +31,7 @@ import {
 import { formatBytes, formatDuration, formatNumber, formatRelative } from "@/lib/format";
 import { useNow } from "@/lib/hooks";
 import { cn } from "@/lib/utils";
+import { ClusterSummary, NodeCards, NodeChip } from "./cluster";
 import { VMSheet } from "./vm-sheet";
 
 const SKELETON_KEYS = ["a", "b", "c", "d", "e", "f"];
@@ -53,8 +54,9 @@ function VMCard({ vm }: { vm: VM }) {
           <HealthBadge health={vm.health} label={vm.status} />
         </div>
 
-        {(vm.tags.length > 0 || vm.lock || vm.k8sNode) && (
+        {(vm.node || vm.tags.length > 0 || vm.lock || vm.k8sNode) && (
           <div className="flex flex-wrap items-center gap-1.5">
+            {vm.node && <NodeChip node={vm.node} />}
             {vm.lock && (
               <span
                 className="inline-flex items-center gap-1 rounded-full border border-warn/30 bg-warn/10 px-2 py-0.5 text-[11px] font-medium text-warn"
@@ -170,7 +172,10 @@ function Templates({ templates }: { templates: VM[] }) {
               className="flex items-baseline justify-between gap-2 rounded-lg border border-line bg-panel px-3 py-2 text-sm transition-colors hover:border-accent/30 hover:bg-panel-hover"
             >
               <span className="truncate text-fg">{t.name}</span>
-              <span className="num text-xs text-muted">#{t.vmid}</span>
+              <span className="flex shrink-0 items-baseline gap-2">
+                {t.node && <NodeChip node={t.node} />}
+                <span className="num text-xs text-muted">#{t.vmid}</span>
+              </span>
             </Link>
           </li>
         ))}
@@ -257,6 +262,7 @@ function Activity({ tasks, loaded }: { tasks: PVETask[]; loaded: boolean }) {
             <TableRow>
               <TableHead className="pl-4">Type</TableHead>
               <TableHead>ID</TableHead>
+              <TableHead>Node</TableHead>
               <TableHead>User</TableHead>
               <TableHead>Status</TableHead>
               <TableHead>Started</TableHead>
@@ -268,6 +274,7 @@ function Activity({ tasks, loaded }: { tasks: PVETask[]; loaded: boolean }) {
               <TableRow key={t.upid}>
                 <TableCell className="num pl-4 text-fg">{t.type}</TableCell>
                 <TableCell className="num text-muted">{t.id || "–"}</TableCell>
+                <TableCell className="num text-muted">{t.node || "–"}</TableCell>
                 <TableCell className="num text-muted">{t.user}</TableCell>
                 <TableCell>
                   <TaskStatus task={t} />
@@ -288,6 +295,8 @@ function Activity({ tasks, loaded }: { tasks: PVETask[]; loaded: boolean }) {
 export function VMsPage({ vmid }: { vmid?: string }) {
   const [, navigate] = useLocation();
   const env = useTopic("proxmox.vms");
+  const cluster = useTopic("proxmox.cluster")?.data;
+  const storage = useTopic("proxmox.storage")?.data;
   const data = env?.data;
   const { vms, templates } = useMemo(() => {
     const sorted = [...(data?.vms ?? [])].sort((a, b) => a.vmid - b.vmid);
@@ -313,6 +322,16 @@ export function VMsPage({ vmid }: { vmid?: string }) {
         </span>
         <SourceChips sources={env?.sources} />
       </Reveal>
+
+      {/* A cluster never read publishes no ref; its blank quorum and node count mean nothing. */}
+      {cluster && cluster.ref !== "" && (
+        <Reveal index={1}>
+          <ClusterSummary cluster={cluster} storage={storage} />
+        </Reveal>
+      )}
+      {cluster && cluster.ref !== "" && cluster.nodes.length > 0 && (
+        <NodeCards nodes={cluster.nodes} vms={data ? vms : undefined} revealFrom={2} />
+      )}
 
       {!data ? (
         <CardSkeletons />

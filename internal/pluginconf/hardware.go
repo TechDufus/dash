@@ -39,9 +39,9 @@ type Hardware struct {
 type HardwareHost struct {
 	// Name is shown as the host's name; empty uses the Proxmox node's name.
 	Name string `json:"name" doc:"The host's name in the web UI. Empty uses the Proxmox node's name, then the nodename."`
-	// Nodename is the nodename label of its series; empty falls back to the node of the running
-	// proxmox plugin.
-	Nodename string `json:"nodename" doc:"The nodename label of the host's node-exporter and IPMI series. Empty uses the node of the running proxmox plugin (plugins.proxmox.node, or the node it discovers), so the plugin needs its URL, token ID and token secret; without it the Hardware row stays unavailable (waiting for the Proxmox node name) until nodename is set."`
+	// Nodename is the nodename label of its series; empty falls back to the node the running
+	// proxmox plugin names, which is the Proxmox node the host is whenever that plugin names one.
+	Nodename string `json:"nodename" doc:"The nodename label of the host's node-exporter and IPMI series. Empty uses plugins.proxmox.node, or the only node of a one-node Proxmox cluster, so the proxmox plugin needs its URL, token ID and token secret; a cluster of several nodes needs plugins.proxmox.node (the node the host is) or this, and the Hardware row says so until one is set. While the proxmox plugin names no node, this is also the Proxmox node whose facts and shell the Hardware page shows."`
 	// Model is shown next to the host's name, e.g. "Example 2U server".
 	Model string `json:"model" doc:"Shown next to the host's name, e.g. Example 2U server."`
 	// Bays is the number of drive bays the Disks grid draws; 0 numbers the slots from 1 (from 0

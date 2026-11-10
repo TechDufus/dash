@@ -59,7 +59,7 @@
           "type": "string"
         },
         "nodename": {
-          "description": "The nodename label of the host's node-exporter and IPMI series. Empty uses the node of the running proxmox plugin (plugins.proxmox.node, or the node it discovers), so the plugin needs its URL, token ID and token secret; without it the Hardware row stays unavailable (waiting for the Proxmox node name) until nodename is set.",
+          "description": "The nodename label of the host's node-exporter and IPMI series. Empty uses plugins.proxmox.node, or the only node of a one-node Proxmox cluster, so the proxmox plugin needs its URL, token ID and token secret; a cluster of several nodes needs plugins.proxmox.node (the node the host is) or this, and the Hardware row says so until one is set. While the proxmox plugin names no node, this is also the Proxmox node whose facts and shell the Hardware page shows.",
           "type": "string"
         },
         "sensorAliases": {

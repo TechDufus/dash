@@ -11,7 +11,6 @@ import (
 	"github.com/TechDufus/dash/internal/model"
 	"github.com/TechDufus/dash/internal/plugin"
 	"github.com/TechDufus/dash/internal/pluginconf"
-	pvemodel "github.com/TechDufus/dash/internal/plugins/proxmox/model"
 	"github.com/TechDufus/dash/internal/upstream"
 )
 
@@ -21,8 +20,8 @@ const demoEvery = 5 * time.Second
 // demoURL is where the twin's links point: the fake lab's Proxmox, on example.com.
 const demoURL = "https://pve.example.com:8006"
 
-// twin is the plugin's demo twin (design 1.9): the same manifest, the guests, node and storages of
-// the fake world, and no network. It is the plugin itself run on fixtures: the payloads, the
+// twin is the plugin's demo twin (design 1.9): the same manifest, the guests, cluster and storages
+// of the fake world, and no network. It is the plugin itself run on fixtures: the payloads, the
 // status, the links, the attention items, the KPIs, the topology, the VM charts and the VM
 // detail are the real code's, so what consumes them behaves as it does against a real Proxmox.
 type twin struct {
@@ -32,13 +31,10 @@ type twin struct {
 
 func newTwin() *twin { return &twin{} }
 
-// twinLinks is the world's link source: the console of a VM in the fake lab's Proxmox.
+// twinLinks is the world's link source; the twin adds the Proxmox links itself.
 type twinLinks struct{}
 
 func (twinLinks) Headlamp(string, string, string) []model.Link { return []model.Link{} }
-func (twinLinks) VMConsole(vmid int, name string) []model.Link {
-	return vmLinks(demoURL, world.HostName, vmid, name)
-}
 
 // Start publishes the world's payloads now and then every demoEvery.
 func (t *twin) Start(ctx context.Context, h plugin.Host, _ any) error {
@@ -50,11 +46,13 @@ func (t *twin) Start(ctx context.Context, h plugin.Host, _ any) error {
 	rctx, cancel := context.WithCancel(ctx)
 	r := &runtime{
 		h: h, cfg: cfg, t: defaultTiming(), ctx: rctx, cancel: cancel,
-		nodeReady: make(chan struct{}), logged: map[string]string{},
+		facts: map[string]upstream.PVEHost{}, logged: map[string]string{},
 		build:  t.vmsPayload,
 		detail: twinDetail{w: t.w, now: h.Now},
 	}
-	r.setNode(world.HostName)
+	// The fake cluster has two nodes; the first is the hardware twin's host, as
+	// plugins.proxmox.node names it in a real cluster of several.
+	r.cfg.Node = world.HostName
 	t.rt.Store(r)
 	t.refresh(r)
 	r.spawn("demo", func() {
@@ -77,14 +75,14 @@ func (t *twin) refresh(r *runtime) {
 	now := r.h.Now()
 	ok := outcome{polled: true, at: now}
 	r.mu.Lock()
-	r.vmsOut, r.nodeOut, r.storOut = ok, ok, ok
-	r.nodeData = t.w.PVENode()
+	r.vmsOut, r.clusterOut, r.storOut = ok, ok, ok
+	r.cluster = t.w.PVECluster()
 	r.storages = t.w.PVEStorages()
-	data, storages := r.nodeData, r.storages
+	data, storages := r.clusterPayloadLocked(), storageData(r.storages)
 	r.mu.Unlock()
 	r.publishVMs()
-	r.h.Publish(topicNode, data, []model.SourceStatus{src(sourceName, ok)})
-	r.h.Publish(topicStorage, pvemodel.PVEStorageData{Storages: storages}, []model.SourceStatus{src(sourceName, ok)})
+	r.h.Publish(topicCluster, data, []model.SourceStatus{src(sourceName, ok)})
+	r.h.Publish(topicStorage, storages, []model.SourceStatus{src(sourceName, ok)})
 }
 
 // vmsPayload is the world's guests, decorated the way buildVMs decorates a real poll: the ref,
@@ -95,10 +93,10 @@ func (t *twin) vmsPayload() model.VMsData {
 	for i, vm := range d.VMs {
 		vm.Ref = plugin.Ref(ID, "VM", fmt.Sprint(vm.VMID))
 		vm.Critical = hasTag(vm.Tags, "control-plane")
-		vm.Health = vmHealth(vm.Critical, vm.Status, vm.Template)
+		vm.Health = vmHealth(vm.Critical, vm.Status, vm.Template, false)
 		// The links are the plugin's own, not the world's, so the world's link source can lose
 		// its console method without the twin losing its console links.
-		vm.Links = slices.Concat(vmLinks(demoURL, world.HostName, vm.VMID, vm.Name), proxmoxUI(demoURL))
+		vm.Links = slices.Concat(vmLinks(demoURL, vm.Node, vm.VMID, vm.Name), proxmoxUI(demoURL))
 		out.VMs[i] = vm
 	}
 	if out.Tasks == nil {
@@ -122,17 +120,19 @@ type twinDetail struct {
 	now func() time.Time
 }
 
-func (d twinDetail) find(vmid int) (model.VM, bool) {
+// find is the guest vmid when it runs on node: like Proxmox, the twin knows a guest's detail on
+// its own node only.
+func (d twinDetail) find(node string, vmid int) (model.VM, bool) {
 	for _, vm := range d.w.VMs().VMs {
-		if vm.VMID == vmid {
+		if vm.VMID == vmid && vm.Node == node {
 			return vm, true
 		}
 	}
 	return model.VM{}, false
 }
 
-func (d twinDetail) VMConfig(_ context.Context, vmid int) (model.VMConfig, error) {
-	vm, ok := d.find(vmid)
+func (d twinDetail) VMConfig(_ context.Context, node string, vmid int) (model.VMConfig, error) {
+	vm, ok := d.find(node, vmid)
 	if !ok {
 		return model.VMConfig{}, fmt.Errorf("%w: no such vm", upstream.ErrInvalid)
 	}
@@ -144,16 +144,16 @@ func (d twinDetail) VMConfig(_ context.Context, vmid int) (model.VMConfig, error
 	}, nil
 }
 
-func (d twinDetail) Snapshots(_ context.Context, vmid int) ([]model.Snapshot, error) {
-	if _, ok := d.find(vmid); !ok {
+func (d twinDetail) Snapshots(_ context.Context, node string, vmid int) ([]model.Snapshot, error) {
+	if _, ok := d.find(node, vmid); !ok {
 		return nil, fmt.Errorf("%w: no such vm", upstream.ErrInvalid)
 	}
 	at := d.now().Add(-26 * time.Hour)
 	return []model.Snapshot{{Name: "pre-upgrade", Time: &at, Description: "before the last Kubernetes upgrade"}}, nil
 }
 
-func (d twinDetail) VMIPs(_ context.Context, vmid int) []model.IfaceAddr {
-	if vm, ok := d.find(vmid); ok && vm.Status == "running" {
+func (d twinDetail) VMIPs(_ context.Context, node string, vmid int) []model.IfaceAddr {
+	if vm, ok := d.find(node, vmid); ok && vm.Status == "running" {
 		return []model.IfaceAddr{{Iface: "eth0", Address: fmt.Sprintf("192.0.2.%d", vmid%200)}}
 	}
 	return []model.IfaceAddr{}

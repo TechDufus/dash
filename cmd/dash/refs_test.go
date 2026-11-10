@@ -50,7 +50,7 @@ func startDemo(t *testing.T, env ...string) (*framework, config.Config) {
 // demoTopics are the topics a demo run publishes, in the stream's order: the core's two, every
 // plugin's twin's, the launcher's last.
 var demoTopics = []string{
-	"core.plugins", "core.overview", "alertmanager.alerts", "gatus.status", "proxmox.vms", "proxmox.node",
+	"core.plugins", "core.overview", "alertmanager.alerts", "gatus.status", "proxmox.vms", "proxmox.cluster",
 	"proxmox.storage", "hardware.hosts", "hardware.machines", "kubernetes.cluster", "kubernetes.storage",
 	"kubernetes.apps", "flux.objects", "cnpg.clusters", "rustfs.usage", "launcher.links",
 }

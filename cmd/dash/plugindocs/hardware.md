@@ -9,11 +9,16 @@ above the warning temperature become attention items on the Overview.
 
 - The Hardware plugin reads the host's node from the running Proxmox plugin, so without
   `hosts[0].nodename` the Hardware row stays `unavailable` ("waiting for the Proxmox node name")
-  until Proxmox runs (URL, token ID and token secret set).
+  until Proxmox runs (URL, token ID and token secret set). In a Proxmox cluster of several nodes,
+  set `plugins.proxmox.node` to the node the host is (or `hosts[0].nodename`); until then the row
+  names the cluster's nodes and says what to set.
+- The host is the Proxmox node `plugins.proxmox.node` names (or the only node of a one-node
+  cluster), else `hosts[0].nodename`: the page shows that node's facts and shell link, and the
+  Overview's topology merges the host into that node's.
 - `hosts[].name` is the host's name in the web UI (default: the Proxmox node, then `nodename`).
 - `hosts[].nodename` is the label of the host's node-exporter and IPMI series (default: the node
-  of the running Proxmox plugin, that is `plugins.proxmox.node` or the discovered node; set it to
-  run without a Proxmox token).
+  the running Proxmox plugin names, that is `plugins.proxmox.node` or the only node of a one-node
+  cluster; set it to run without a Proxmox token).
 - `hosts[].model` is shown next to the name, e.g. `Example 2U`.
 - `hosts[].bays` is the number of drive slots the Disks grid draws (0 to 128; 0 numbers the slots
   from 1, or from 0 when a disk sits in slot 0, up to the highest slot that holds a disk, at most
