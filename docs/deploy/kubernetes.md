@@ -41,7 +41,7 @@ history; read it back with
 ## Helm
 
 ```sh
-helm install dash oci://ghcr.io/techdufus/charts/dash --version 0.14.11 --namespace dash \
+helm install dash oci://ghcr.io/techdufus/charts/dash --version 0.15.0 --namespace dash \
   --set secretKey.existingSecret=dash-secret-key \
   --set config.server.publicURL=https://dash.example.com
 kubectl -n dash rollout status deploy/dash
@@ -74,11 +74,11 @@ URL, and optionally the image (a mirror registry), in an overlay:
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 resources:
-  - https://github.com/TechDufus/dash//examples/kubernetes?ref=v0.14.11
+  - https://github.com/TechDufus/dash//examples/kubernetes?ref=v0.15.0
 images:
   - name: ghcr.io/techdufus/dash
     newName: registry.example.com/dash
-    newTag: "0.14.11"
+    newTag: "0.15.0"
 patches:
   - target: {kind: Deployment, name: dash}
     patch: |
