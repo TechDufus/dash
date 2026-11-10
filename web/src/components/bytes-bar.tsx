@@ -41,6 +41,11 @@ export function BytesBar({
   const ratio = hasTotal && used != null ? used / total : undefined;
   const health = neutral ? "ok" : ratioHealth(ratio);
   const pct = ratio == null ? 0 : Math.min(1, ratio);
+  // A no-break space between each number and its unit, so a wrap never splits "12.3 GiB".
+  const figures = (
+    formatBytes(used) +
+    (hasTotal ? ` / ${formatBytes(total)}` : noTotalLabel ? ` · ${noTotalLabel}` : "")
+  ).replace(/(\d) /g, "$1\u00a0");
   const labelNode = (
     <span
       className={cn(
@@ -64,13 +69,14 @@ export function BytesBar({
           ) : (
             labelNode
           )}
-          <span className="num ml-auto shrink-0 text-fg">
-            {formatBytes(used)}
-            {hasTotal ? ` / ${formatBytes(total)}` : noTotalLabel ? ` · ${noTotalLabel}` : ""}
+          {/* The figures wrap rather than overflow a narrow column: the percentage moves under
+              the bytes first, then the total under the used figure (each figure stays whole). */}
+          <span className="num ml-auto flex min-w-0 flex-wrap items-baseline justify-end gap-x-1.5 text-right text-fg">
+            <span>{figures}</span>
             {ratio != null && (
               <span
                 className={cn(
-                  "ml-1.5 inline-flex items-center gap-0.5",
+                  "inline-flex shrink-0 items-center gap-0.5 whitespace-nowrap",
                   neutral ? "text-muted" : HEALTH_TEXT[health],
                 )}
               >
