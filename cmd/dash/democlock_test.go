@@ -78,10 +78,20 @@ func demoPayloads(t *testing.T, fw *framework, cfg config.Config) map[string][]b
 	}
 
 	pod, node, vmid := cluster.Pods[0], cluster.Nodes[0].Name, strconv.Itoa(vms.VMs[0].VMID)
+	// The host.* series take a hardware host's node, the node.* series a Kubernetes node's.
+	var hosts model.HostsData
+	topicData(t, fw, model.TopicHost, &hosts)
+	if len(hosts.Hosts) == 0 {
+		t.Fatal("the demo world has no hardware host; the scan needs one")
+	}
 	series := 0
 	for _, m := range fw.sup.Manifests() {
 		for _, s := range m.Series {
-			q := url.Values{"name": {s.Name}, "vmid": {vmid}, "ns": {pod.Namespace}, "pod": {pod.Name}, "node": {node}}
+			n := node
+			if strings.HasPrefix(s.Name, "host.") {
+				n = hosts.Hosts[0].Node
+			}
+			q := url.Values{"name": {s.Name}, "vmid": {vmid}, "ns": {pod.Namespace}, "pod": {pod.Name}, "node": {n}}
 			for _, rng := range []string{"15m", "1h", "6h", "24h", "7d"} {
 				q.Set("range", rng)
 				get("/api/v1/series?"+q.Encode(), true)

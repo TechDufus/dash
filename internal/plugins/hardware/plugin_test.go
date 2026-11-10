@@ -30,7 +30,7 @@ func TestManifest(t *testing.T) {
 	if len(m.Topics) != 2 || m.Topics[0].Name != "hosts" || m.Topics[1].Name != "machines" {
 		t.Errorf("topics = %+v", m.Topics)
 	}
-	if _, ok := m.Topics[0].Type.(model.HostData); !ok {
+	if _, ok := m.Topics[0].Type.(model.HostsData); !ok {
 		t.Errorf("hosts payload type %T", m.Topics[0].Type)
 	}
 	if _, ok := m.Topics[1].Type.(hwmodel.MachinesData); !ok {
@@ -86,7 +86,7 @@ func TestValidateAppliesTheSectionRules(t *testing.T) {
 	bad := ok
 	bad.Hosts = []pluginconf.HardwareHost{{}, {}}
 	if p.Validate(&bad) == nil {
-		t.Error("two hosts passed")
+		t.Error("two hosts without a nodename passed")
 	}
 	bad = pluginconf.DefaultHardware()
 	bad.Machines = []pluginconf.HardwareMachine{{Name: "x"}}
@@ -142,7 +142,7 @@ func TestHardwareUnavailableUntilTheNodeIsKnown(t *testing.T) {
 	}
 
 	r.node.set(node, true)
-	d, _ := waitTopic(t, r.hub, "hardware.hosts", func(d model.HostData) bool { return d.PowerWatts > 0 })
+	d, _ := waitHost(t, r.hub, func(d model.HostData) bool { return d.PowerWatts > 0 })
 	if d.Name != node {
 		t.Errorf("host name = %q", d.Name)
 	}
@@ -159,26 +159,27 @@ func TestUnnamedProxmoxNodeSaysWhatNamesIt(t *testing.T) {
 		r := newRig(t, rigOpts{cfg: withHost(pluginconf.HardwareHost{}), nodeUnknown: true})
 		r.node.setNodes(nodes...)
 		st := r.waitState(model.PluginUnavailable)
-		want := "nothing names the Hardware page's host among the Proxmox nodes (" + strings.Join(nodes, ", ") +
-			"): plugins.proxmox.node is unset or names none of them (the proxmox row says which), and plugins.hardware.hosts[0].nodename is unset"
+		want := "nothing names the node of plugins.hardware.hosts[0] among the Proxmox nodes (" + strings.Join(nodes, ", ") +
+			"): plugins.proxmox.node is unset or names none of them (the proxmox row says which), and that host has no nodename"
 		if st.Message != want {
 			t.Errorf("message = %q, want %q", st.Message, want)
 		}
 	}
 }
 
-// The host's node is the Proxmox node the proxmox plugin names, even where the node-exporter's
-// nodename differs; the series still read the nodename. Without a Proxmox node it is the nodename.
+// The only host's node is the Proxmox node the proxmox plugin names, even where the
+// node-exporter's nodename differs; the series still read the nodename, and the name stays the
+// nodename. Without a Proxmox node the node is the nodename.
 func TestHostNodeIsTheProxmoxNode(t *testing.T) {
 	r := newRig(t, rigOpts{cfg: withHost(pluginconf.HardwareHost{Nodename: "box-9"})})
 	r.q.fillHost(r.ex, "box-9", "")
 	r.node.set("pve-1", true)
-	waitTopic(t, r.hub, "hardware.hosts", func(d model.HostData) bool { return d.PowerWatts > 0 && d.Node == "pve-1" })
-	if h := hostOf(contributor(t, r).Topology.Topology()); h.Node != "pve-1" || h.Name != "pve-1" {
+	waitHost(t, r.hub, func(d model.HostData) bool { return d.PowerWatts > 0 && d.Node == "pve-1" })
+	if h := hostOf(contributor(t, r).Topology.Topology()); h.Node != "pve-1" || h.Name != "box-9" {
 		t.Errorf("topology host = %+v, want the Proxmox node", h)
 	}
 	r.node.set("", false)
-	waitTopic(t, r.hub, "hardware.hosts", func(d model.HostData) bool { return d.Node == "box-9" })
+	waitHost(t, r.hub, func(d model.HostData) bool { return d.Node == "box-9" })
 }
 
 // Without the prometheus plugin the host half cannot run: unavailable, naming the setting; when
@@ -194,7 +195,7 @@ func TestHardwareWaitsForPrometheus(t *testing.T) {
 		t.Error("hosts published without a querier")
 	}
 	r.switchOn("prometheus")
-	waitTopic(t, r.hub, "hardware.hosts", func(d model.HostData) bool { return d.PowerWatts == 214 })
+	waitHost(t, r.hub, func(d model.HostData) bool { return d.PowerWatts == 214 })
 	r.waitState(model.PluginHealthy)
 }
 
@@ -228,7 +229,7 @@ func TestMachinesNeedingAMissingSourceSayWhatToSet(t *testing.T) {
 func TestHardwareNeverHoldsDataWhileUnavailable(t *testing.T) {
 	r := newRig(t, rigOpts{cfg: homelabShaped})
 	r.q.fillHost(r.ex, node, scrubPrefix)
-	waitTopic(t, r.hub, "hardware.hosts", func(d model.HostData) bool { return d.PowerWatts == 214 })
+	waitHost(t, r.hub, func(d model.HostData) bool { return d.PowerWatts == 214 })
 
 	r.switchOff("prometheus")
 	eventually(t, "the plugin to have no data while unavailable", func() bool {
@@ -342,8 +343,8 @@ func TestStatusStatesFollowTheSources(t *testing.T) {
 
 	r.q.setFail(fmt.Errorf("Get %q: connection refused", "https://prom.internal:9090/api/v1/query"))
 	st = r.waitState(model.PluginError)
-	if strings.Contains(st.Message, "prom.internal") || !strings.Contains(st.Message, "prometheus: unreachable") {
-		t.Errorf("message = %q, want categories only", st.Message)
+	if strings.Contains(st.Message, "prom.internal") || !strings.Contains(st.Message, "prometheus: "+node+": unreachable") {
+		t.Errorf("message = %q, want categories only, the failing host named", st.Message)
 	}
 }
 
@@ -359,7 +360,7 @@ func TestFailingPrometheusLeaksNothing(t *testing.T) {
 		scrub: scrub,
 		qfail: fmt.Errorf("Get \"https://prom.internal:9090/api/v1/query?token=%s\": dial tcp 192.0.2.7:9090: connection refused", canary),
 	})
-	waitTopic(t, r.hub, "hardware.hosts", anyHost)
+	waitHost(t, r.hub, anyHost)
 	waitTopic(t, r.hub, "hardware.machines", anyMachines)
 	r.waitState(model.PluginError)
 	eventually(t, "the failure to be logged", func() bool { return strings.Contains(r.logs.String(), "upstream source failed") })

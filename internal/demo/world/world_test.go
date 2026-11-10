@@ -34,7 +34,8 @@ func TestBuildersAreDeterministic(t *testing.T) {
 	builders := map[string]func(w *World) any{
 		"alerts":  func(w *World) any { return w.Alerts() },
 		"status":  func(w *World) any { return w.Status() },
-		"host":    func(w *World) any { return w.Host() },
+		"hosts":   func(w *World) any { return w.Hosts() },
+		"machine": func(w *World) any { return w.Machines() },
 		"vms":     func(w *World) any { return w.VMs() },
 		"cluster": func(w *World) any { return w.Cluster() },
 		"storage": func(w *World) any { return w.Storage() },
@@ -66,10 +67,13 @@ func TestBuildersAreDeterministic(t *testing.T) {
 func TestBuildFollowsTheClock(t *testing.T) {
 	now := testNow
 	w := New(func() time.Time { return now }, testStart, fakeLinks{})
-	before := w.Host()
+	before, beforeM := w.Hosts(), w.Machines()
 	now = now.Add(6 * time.Hour)
-	if reflect.DeepEqual(before, w.Host()) {
-		t.Fatal("host did not change after the clock moved")
+	if reflect.DeepEqual(before, w.Hosts()) {
+		t.Fatal("hosts did not change after the clock moved")
+	}
+	if reflect.DeepEqual(beforeM, w.Machines()) {
+		t.Fatal("machine stats did not change after the clock moved")
 	}
 }
 
@@ -117,8 +121,22 @@ func TestWorldIsCoherent(t *testing.T) {
 	if !found {
 		t.Errorf("crash-looping pod %q is not in the cluster payload", crash)
 	}
-	if s.Host.Name != HostName {
-		t.Errorf("host name = %q, want %q", s.Host.Name, HostName)
+	if len(s.Hosts) != 2 || s.Hosts[0].Name != HostName || s.Hosts[1].Name != SecondNodeName {
+		t.Fatalf("hosts = %+v, want %s and %s", s.Hosts, HostName, SecondNodeName)
+	}
+	// Every hardware host is a node of the cluster, and the two read differently.
+	pve := map[string]bool{}
+	for _, n := range testWorld().PVECluster().Nodes {
+		pve[n.Node] = true
+	}
+	for _, h := range s.Hosts {
+		if !pve[h.Name] {
+			t.Errorf("host %s is no Proxmox node", h.Name)
+		}
+	}
+	a, b := s.Hosts[0], s.Hosts[1]
+	if a.PowerWatts == b.PowerWatts || len(a.Fans) == len(b.Fans) || len(a.Disks) == len(b.Disks) || len(a.Pools) == len(b.Pools) || a.Model == b.Model {
+		t.Errorf("the two hosts read alike: %+v / %+v", a, b)
 	}
 }
 

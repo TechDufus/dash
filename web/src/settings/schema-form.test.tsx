@@ -178,13 +178,15 @@ describe("schema-driven form", () => {
     const { user } = open();
     const more = await screen.findByRole("button", { name: "More about node" });
     const doc = more.parentElement?.querySelector("p");
-    expect(doc).toHaveTextContent(/^The Proxmox node the Hardware page's host is\.$/);
+    expect(doc).toHaveTextContent(
+      /^The Proxmox node of the hardware host without a nodename \(plugins\.hardware\.hosts\): that host reads the node's series and shows its Proxmox facts, shell link and place in the topology\.$/,
+    );
     expect(more).toHaveAttribute("aria-expanded", "false");
     await user.click(more);
     const less = screen.getByRole("button", { name: "Less about node" });
     expect(less).toHaveAttribute("aria-expanded", "true");
     expect(doc).toHaveTextContent(
-      /^The Proxmox node the Hardware page's host is\. The page's Proxmox facts, its shell link/,
+      /^The Proxmox node of the hardware host without a nodename .* in the topology\. Hosts with a nodename that is a node of the cluster/,
     );
   });
 

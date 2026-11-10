@@ -193,17 +193,18 @@ func deploymentEnvReachesThePlugins(t *testing.T, file string, wantRestart, want
 			t.Fatal(err)
 		}
 		defer fw.sup.Shutdown(context.Background())
-		var host model.HostData
+		var hosts model.HostsData
 		var machines hwmodel.MachinesData
 		waitFor(t, func() bool {
 			var e model.Envelope
 			ev, ok := fw.hub.Latest("", model.TopicHost)
-			if !ok || json.Unmarshal(ev.Data, &e) != nil || json.Unmarshal(e.Data, &host) != nil {
+			if !ok || json.Unmarshal(ev.Data, &e) != nil || json.Unmarshal(e.Data, &hosts) != nil || len(hosts.Hosts) != 1 {
 				return false
 			}
 			ev, ok = fw.hub.Latest("", model.TopicHardwareMachines)
 			return ok && json.Unmarshal(ev.Data, &e) == nil && json.Unmarshal(e.Data, &machines) == nil
 		})
+		host := hosts.Hosts[0]
 		if host.Ref != "hardware:Host/node-1" || host.Name != "node-1" || host.Model != "Example 2U server" || host.Bays != 16 || host.FanMaxRPM != 18000 ||
 			host.SensorAliases != (model.SensorAliases{Inlet: "inlet", Exhaust: "exhaust"}) || host.TempWarnC != 85 || host.TempCritC != 90 || !host.ScrubTracked {
 			t.Errorf("hardware.hosts = %+v", host)

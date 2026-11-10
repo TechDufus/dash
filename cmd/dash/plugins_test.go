@@ -288,15 +288,16 @@ func TestDemoPublishesTheLauncherLinksLast(t *testing.T) {
 	if err := json.Unmarshal(env.Data, &e); err != nil || json.Unmarshal(e.Data, &data) != nil || len(data.Links) != len(world.Launcher().Links) {
 		t.Fatalf("launcher.links = %s (%v), want the demo links", env.Data, err)
 	}
-	// The demo's host, published by the hardware twin, carries the fake host's model.
+	// The demo's hosts, published by the hardware twin, carry the fake hosts' models in order.
 	hostEnv, ok := fw.hub.Latest("", model.TopicHost)
 	if !ok {
 		t.Fatal("host has no snapshot")
 	}
 	var he model.Envelope
-	var host model.HostData
-	if err := json.Unmarshal(hostEnv.Data, &he); err != nil || json.Unmarshal(he.Data, &host) != nil || host.Model != world.HostModel {
-		t.Fatalf("host = %s, want model %q", hostEnv.Data, world.HostModel)
+	var hosts model.HostsData
+	if err := json.Unmarshal(hostEnv.Data, &he); err != nil || json.Unmarshal(he.Data, &hosts) != nil || len(hosts.Hosts) != 2 ||
+		hosts.Hosts[0].Model != world.HostModel || hosts.Hosts[1].Model != world.SecondHostModel {
+		t.Fatalf("hosts = %s, want models %q and %q", hostEnv.Data, world.HostModel, world.SecondHostModel)
 	}
 }
 

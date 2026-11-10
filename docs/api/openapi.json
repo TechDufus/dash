@@ -1153,7 +1153,7 @@
         "description": "The envelope of the hardware.hosts topic.",
         "properties": {
           "data": {
-            "$ref": "#/components/schemas/HostData"
+            "$ref": "#/components/schemas/HostsData"
           },
           "sources": {
             "items": {
@@ -1680,6 +1680,9 @@
             },
             "type": "array"
           },
+          "health": {
+            "type": "string"
+          },
           "links": {
             "items": {
               "$ref": "#/components/schemas/Link"
@@ -1745,6 +1748,18 @@
           },
           "tempWarnC": {
             "type": "integer"
+          }
+        },
+        "type": "object"
+      },
+      "HostsData": {
+        "additionalProperties": false,
+        "properties": {
+          "hosts": {
+            "items": {
+              "$ref": "#/components/schemas/HostData"
+            },
+            "type": "array"
           }
         },
         "type": "object"
@@ -1900,8 +1915,59 @@
           "source": {
             "type": "string"
           },
+          "stats": {
+            "$ref": "#/components/schemas/MachineStats"
+          },
           "up": {
             "type": "boolean"
+          }
+        },
+        "type": "object"
+      },
+      "MachineStats": {
+        "additionalProperties": false,
+        "properties": {
+          "arch": {
+            "type": "string"
+          },
+          "cpuRatio": {
+            "type": "number"
+          },
+          "cpus": {
+            "type": "integer"
+          },
+          "diskTotalBytes": {
+            "type": "integer"
+          },
+          "diskUsedBytes": {
+            "type": "integer"
+          },
+          "kernel": {
+            "type": "string"
+          },
+          "load1": {
+            "type": "number"
+          },
+          "load15": {
+            "type": "number"
+          },
+          "load5": {
+            "type": "number"
+          },
+          "memTotalBytes": {
+            "type": "integer"
+          },
+          "memUsedBytes": {
+            "type": "integer"
+          },
+          "os": {
+            "type": "string"
+          },
+          "tempC": {
+            "type": "number"
+          },
+          "uptimeSeconds": {
+            "type": "integer"
           }
         },
         "type": "object"
@@ -5275,7 +5341,7 @@
             }
           },
           {
-            "description": "The node name, for node.* series.",
+            "description": "The node name, for node.* series; a hardware host's node for host.* series (without it host.power sums every host, host.cpuTemp is the hottest and the other host.* series draw one line per host).",
             "in": "query",
             "name": "node",
             "schema": {

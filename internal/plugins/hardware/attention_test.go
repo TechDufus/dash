@@ -22,7 +22,8 @@ func builtHost(mod func(*model.HostData)) model.HostData {
 	}
 	cfg := pluginconf.DefaultHardware()
 	cfg.Hosts = []pluginconf.HardwareHost{{}}
-	return buildHostData(vals, cfg.Normalized(), "h1", "h1")
+	c := cfg.Normalized()
+	return buildHostData(vals, c, c.Hosts[0], "h1", "h1")
 }
 
 func ids(items []model.AttentionItem) []string {
@@ -52,13 +53,13 @@ func TestAttentionRules(t *testing.T) {
 	})
 	link := model.Link{Label: "Proxmox", Href: "https://pve.example.com"}
 	items := attentionOf(d, []model.Link{link})
-	if got, want := ids(items), []string{"zfs:pool:tank", "zfs:scrub:rpool", "smart:3", "host:cpu-temp"}; !slices.Equal(got, want) {
+	if got, want := ids(items), []string{"zfs:pool:h1/tank", "zfs:scrub:h1/rpool", "smart:h1/3", "host:cpu-temp:h1"}; !slices.Equal(got, want) {
 		t.Fatalf("ids = %v, want %v", got, want)
 	}
 	byID := map[string]model.AttentionItem{}
 	for _, it := range items {
 		byID[it.ID] = it
-		if it.Plugin != "hardware" || it.Route != "/hardware" || len(it.Links) != 1 || it.Links[0] != link {
+		if it.Plugin != "hardware" || it.Route != "/hardware/h1" || len(it.Links) != 1 || it.Links[0] != link {
 			t.Errorf("%s: plugin %q route %q links %v", it.ID, it.Plugin, it.Route, it.Links)
 		}
 	}
@@ -67,20 +68,20 @@ func TestAttentionRules(t *testing.T) {
 		source, title, detail string
 		ref                   string
 	}{
-		"zfs:pool:tank":   {model.SeverityCrit, "zfs", "ZFS pool tank is DEGRADED", "", "hardware:Pool/h1/tank"},
-		"zfs:scrub:rpool": {model.SeverityWarn, "zfs", "ZFS pool rpool last scrub found errors", "3 errors", "hardware:Pool/h1/rpool"},
-		"smart:3":         {model.SeverityCrit, "smart", "Disk in bay 3 reports SMART failure", "sdc SER3", "hardware:Disk/h1/SER3"},
-		"host:cpu-temp":   {model.SeverityCrit, "hardware", "CPU package at 91 °C", "", "hardware:Host/h1"},
+		"zfs:pool:h1/tank":   {model.SeverityCrit, "zfs", "ZFS pool tank on h1 is DEGRADED", "", "hardware:Pool/h1/tank"},
+		"zfs:scrub:h1/rpool": {model.SeverityWarn, "zfs", "ZFS pool rpool on h1: last scrub found errors", "3 errors", "hardware:Pool/h1/rpool"},
+		"smart:h1/3":         {model.SeverityCrit, "smart", "Disk in bay 3 of h1 reports SMART failure", "sdc SER3", "hardware:Disk/h1/SER3"},
+		"host:cpu-temp:h1":   {model.SeverityCrit, "hardware", "CPU package at 91 °C on h1", "", "hardware:Host/h1"},
 	} {
 		it := byID[id]
 		if it.Severity != c.sev || it.Source != c.source || it.Title != c.title || it.Detail != c.detail || it.Ref != c.ref {
 			t.Errorf("%s = %+v, want %+v", id, it, c)
 		}
 	}
-	if !byID["zfs:scrub:rpool"].Since.Equal(scrubbed) {
-		t.Errorf("the scrub item's since = %v, want the scrub's end", byID["zfs:scrub:rpool"].Since)
+	if !byID["zfs:scrub:h1/rpool"].Since.Equal(scrubbed) {
+		t.Errorf("the scrub item's since = %v, want the scrub's end", byID["zfs:scrub:h1/rpool"].Since)
 	}
-	if !byID["zfs:pool:tank"].Since.IsZero() {
+	if !byID["zfs:pool:h1/tank"].Since.IsZero() {
 		t.Error("an item with no natural time has a since before stamping")
 	}
 	items[0].Links[0].Label = "changed"
@@ -96,7 +97,7 @@ func TestOnlinePoolIsCaseInsensitiveAndWarmCPUWarns(t *testing.T) {
 		h.PackageTempsC = []float64{86}
 	})
 	items := attentionOf(d, nil)
-	if got := ids(items); !slices.Equal(got, []string{"host:cpu-temp"}) || items[0].Severity != model.SeverityWarn {
+	if got := ids(items); !slices.Equal(got, []string{"host:cpu-temp:h1"}) || items[0].Severity != model.SeverityWarn {
 		t.Errorf("items = %+v", items)
 	}
 }
@@ -115,7 +116,7 @@ func TestAttentionSinceIsStableAcrossCalls(t *testing.T) {
 	r := hostRig(t, nil)
 	r.q.set(r.ex.packageTemps(node), sample(95, "sensor", "temp1"))
 	r.q.set(r.ex.smartHealthy(node), sample(0, "bay", "2", "serial", "SER2", "disk", "sdb"))
-	waitTopic(t, r.hub, "hardware.hosts", func(d model.HostData) bool {
+	waitHost(t, r.hub, func(d model.HostData) bool {
 		return len(d.PackageTempsC) == 1 && len(d.Disks) == 1 && !d.Disks[0].Healthy
 	})
 	c := contributor(t, r)
@@ -133,17 +134,17 @@ func TestAttentionSinceIsStableAcrossCalls(t *testing.T) {
 	}
 
 	r.q.set(r.ex.packageTemps(node), sample(60, "sensor", "temp1"))
-	waitTopic(t, r.hub, "hardware.hosts", func(d model.HostData) bool { return len(d.PackageTempsC) == 1 && d.PackageTempsC[0] == 60 })
+	waitHost(t, r.hub, func(d model.HostData) bool { return len(d.PackageTempsC) == 1 && d.PackageTempsC[0] == 60 })
 	t1 := t0.Add(5 * time.Hour)
-	if got := ids(c.Attention.Attention(t1)); !slices.Equal(got, []string{"smart:2"}) {
+	if got := ids(c.Attention.Attention(t1)); !slices.Equal(got, []string{"smart:" + node + "/2"}) {
 		t.Fatalf("after the CPU recovered: %v", got)
 	}
 	r.q.set(r.ex.packageTemps(node), sample(96, "sensor", "temp1"))
-	waitTopic(t, r.hub, "hardware.hosts", func(d model.HostData) bool { return len(d.PackageTempsC) == 1 && d.PackageTempsC[0] == 96 })
+	waitHost(t, r.hub, func(d model.HostData) bool { return len(d.PackageTempsC) == 1 && d.PackageTempsC[0] == 96 })
 	t2 := t0.Add(7 * time.Hour)
 	for _, it := range c.Attention.Attention(t2) {
 		want := t0
-		if it.ID == "host:cpu-temp" {
+		if it.ID == "host:cpu-temp:"+node {
 			want = t2
 		}
 		if !it.Since.Equal(want) {
@@ -156,7 +157,7 @@ func TestAttentionSinceIsStableAcrossCalls(t *testing.T) {
 // non-nil empty list: nil is "no opinion yet".
 func TestAttentionOfAHealthyHostIsNonNilEmpty(t *testing.T) {
 	r := hostRig(t, nil)
-	waitTopic(t, r.hub, "hardware.hosts", func(d model.HostData) bool { return d.PowerWatts > 0 })
+	waitHost(t, r.hub, func(d model.HostData) bool { return d.PowerWatts > 0 })
 	c := contributor(t, r)
 	plugintest.AssertAttentionNonNil(t, c)
 	if items := c.Attention.Attention(time.Now()); len(items) != 0 {
@@ -218,17 +219,17 @@ func hostOf(t model.Topology) model.TopologyHost {
 // The topology host's health is the worst of the plugin's own items.
 func TestTopologyHealthIsTheWorstItem(t *testing.T) {
 	d := builtHost(func(h *model.HostData) { h.PackageTempsC = []float64{86} }) // warn
-	if got := hostOf(topologyOf(d, attentionOf(d, nil))).Health; got != model.HealthWarn {
+	if got := hostOf(topologyOf([]model.HostData{d})).Health; got != model.HealthWarn {
 		t.Errorf("warm: %s", got)
 	}
 	d = builtHost(func(h *model.HostData) {
 		h.PackageTempsC = []float64{86}
 		h.Pools = []model.Pool{{Name: "tank", State: "FAULTED"}}
 	})
-	if got := hostOf(topologyOf(d, attentionOf(d, nil))).Health; got != model.HealthCrit {
+	if got := hostOf(topologyOf([]model.HostData{d})).Health; got != model.HealthCrit {
 		t.Errorf("faulted pool: %s", got)
 	}
-	if got := hostOf(topologyOf(builtHost(nil), nil)).Health; got != model.HealthOK {
+	if got := hostOf(topologyOf([]model.HostData{builtHost(nil)})).Health; got != model.HealthOK {
 		t.Errorf("healthy: %s", got)
 	}
 }
@@ -240,6 +241,6 @@ func TestPluginIsAContributor(t *testing.T) {
 	if c.Attention == nil || c.KPIs == nil || c.Topology == nil || c.Sources == nil {
 		t.Errorf("contributor = %+v", c)
 	}
-	waitTopic(t, r.hub, "hardware.hosts", func(d model.HostData) bool { return d.PowerWatts > 0 })
+	waitHost(t, r.hub, func(d model.HostData) bool { return d.PowerWatts > 0 })
 	eventually(t, "the sources to name prometheus", func() bool { return hasSource(c.Sources(), "prometheus", true, "") })
 }

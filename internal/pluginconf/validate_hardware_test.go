@@ -29,15 +29,35 @@ func TestHardwareDefaultsAreValid(t *testing.T) {
 	}
 }
 
-// One host is supported until the plugin handles several; the rule and its message moved here
-// from internal/config with the section.
-func TestHardwareAtMostOneHost(t *testing.T) {
-	if err := defaultsWith(func(h *Hardware) { h.Hosts = []HardwareHost{{Nodename: "a"}} }).Validate(); err != nil {
-		t.Errorf("one host: %v", err)
+// Several hosts are fine as long as each is told apart: names and nodenames unique ignoring case,
+// a name that is not another host's nodename (a host without a name goes by its nodename), at
+// most one host without a nodename (it takes the Proxmox node), and names of at most 64 bytes.
+func TestHardwareHostIdentityRules(t *testing.T) {
+	hosts := func(hs ...HardwareHost) Hardware { return defaultsWith(func(h *Hardware) { h.Hosts = hs }) }
+	for name, ok := range map[string][]HardwareHost{
+		"two with nodenames":  {{Nodename: "a"}, {Nodename: "b"}},
+		"one without":         {{Nodename: "a"}, {}, {Name: "c", Nodename: "c"}},
+		"own name = nodename": {{Name: "a", Nodename: "a"}},
+		"64 byte name":        {{Name: strings.Repeat("x", 64)}},
+	} {
+		if err := hosts(ok...).Validate(); err != nil {
+			t.Errorf("%s: %v", name, err)
+		}
 	}
-	err := defaultsWith(func(h *Hardware) { h.Hosts = []HardwareHost{{Nodename: "a"}, {Nodename: "b"}} }).Validate()
-	if got := paths(err); !slices.Equal(got, []string{"hosts"}) || !strings.Contains(err.Error(), "has 2 entries; one host is supported") {
-		t.Errorf("two hosts: %v", err)
+	for name, c := range map[string]struct {
+		hs   []HardwareHost
+		want string
+	}{
+		"repeated name":        {[]HardwareHost{{Name: "rack", Nodename: "a"}, {Name: "RACK", Nodename: "b"}}, "entry 1: name repeats an earlier host"},
+		"repeated nodename":    {[]HardwareHost{{Nodename: "pve-1"}, {Nodename: "PVE-1"}}, "entry 1: nodename repeats an earlier host"},
+		"two without nodename": {[]HardwareHost{{}, {Name: "b"}}, "entry 1: nodename is empty on more than one host"},
+		"name is a nodename":   {[]HardwareHost{{Name: "pve-2", Nodename: "a"}, {Nodename: "PVE-2"}}, "entry 0: name is the nodename of entry 1"},
+		"long name":            {[]HardwareHost{{Name: strings.Repeat("x", 65)}}, "entry 0: name is longer than 64 bytes"},
+	} {
+		err := hosts(c.hs...).Validate()
+		if got := paths(err); !slices.Equal(got, []string{"hosts"}) || !strings.Contains(err.Error(), c.want) {
+			t.Errorf("%s: %v, want a hosts error containing %q", name, err, c.want)
+		}
 	}
 }
 

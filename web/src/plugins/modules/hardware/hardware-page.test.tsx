@@ -1,10 +1,13 @@
 import { screen, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { Route } from "wouter";
 import type { Disk, Fan, HostData, PluginInfo } from "@/api/types";
+import { formatDuration } from "@/lib/format";
 import { connectStream, type TestStream } from "@/plugins/test-util";
-import { pluginInfo, renderApp, stubFetch } from "@/test/harness";
+import { type FetchStub, pluginInfo, renderApp, stubFetch } from "@/test/harness";
 import { fanScale, HardwarePage, MAX_BAYS } from "./hardware-page";
-import type { Machine } from "./model.gen";
+import type { Machine, MachineStats } from "./model.gen";
 
 // Motion reads prefers-reduced-motion once; with it on the page prints its numbers at once.
 const matchMedia = window.matchMedia;
@@ -34,6 +37,7 @@ const host = (over: Partial<HostData> = {}): HostData => ({
   tempWarnC: 85,
   tempCritC: 90,
   cpuTempHealth: "ok",
+  health: "ok",
   name: "pve-1",
   cpuRatio: 0.1,
   memUsedBytes: 1,
@@ -63,12 +67,41 @@ const disk = (bay: number, over: Partial<Disk> = {}): Disk => ({
 
 const fan = (name: string, rpm: number): Fan => ({ name, rpm });
 
-const machine = (name: string, up: boolean, source = "prometheus"): Machine => ({
+const machine = (
+  name: string,
+  up: boolean,
+  source = "prometheus",
+  stats?: MachineStats,
+): Machine => ({
   ref: `hardware:Machine/${name}`,
   name,
   up,
   source,
+  ...(stats ? { stats } : {}),
 });
+
+const linuxStats = (over: Partial<MachineStats> = {}): MachineStats => ({
+  os: "Linux",
+  arch: "x86_64",
+  kernel: "6.8.0",
+  cpus: 8,
+  cpuRatio: 0.25,
+  memUsedBytes: 4 * 2 ** 30,
+  memTotalBytes: 16 * 2 ** 30,
+  diskUsedBytes: 100 * 2 ** 30,
+  diskTotalBytes: 500 * 2 ** 30,
+  load1: 0.5,
+  load5: 0.75,
+  load15: 1,
+  uptimeSeconds: 90_000,
+  tempC: 54,
+  ...over,
+});
+
+const darwinStats = (): MachineStats => {
+  const { tempC: _none, ...rest } = linuxStats({ os: "Darwin", arch: "arm64", kernel: "24.0.0" });
+  return rest;
+};
 
 /** The tile of a temperature label ("Inlet", "Exhaust", "CPU package"). */
 const tile = (label: string) => {
@@ -103,8 +136,26 @@ describe("the Hardware page", () => {
   const draw = (data: HostData) => {
     renderApp(<HardwarePage />);
     stream.plugins([hardware(), proxmox()]);
-    stream.send("hardware.hosts", data);
+    stream.send("hardware.hosts", { hosts: [data] });
   };
+
+  /** The page behind its module route, at `path`, so links and the route's host take effect. */
+  const drawAt = (path: string, hosts: HostData[], machines: Machine[] = []) => {
+    const r = renderApp(
+      <Route path="/hardware/:host?">{(p) => <HardwarePage host={p.host} />}</Route>,
+      { path },
+    );
+    stream.plugins([hardware(), proxmox()]);
+    stream.send("hardware.hosts", { hosts });
+    stream.send("hardware.machines", { machines });
+    return r;
+  };
+
+  /** The `node` of every series request, by series name. */
+  const seriesNodes = (stub: FetchStub) =>
+    stub.calls
+      .filter((c) => c.path === "/api/v1/series")
+      .map((c) => `${c.query.get("name")} ${c.query.get("node")}`);
 
   describe("the title", () => {
     it("shows the model the host carries next to the host's name", () => {
@@ -309,43 +360,275 @@ describe("the Hardware page", () => {
     expect(screen.queryByText(/iDRAC/)).toBeNull();
   });
 
-  describe("the machines", () => {
-    it("draw below the host panels, with name, source and Up or Down", async () => {
-      renderApp(<HardwarePage />);
-      stream.plugins([hardware()]);
-      stream.send("hardware.hosts", host());
-      stream.send("hardware.machines", {
-        machines: [machine("nas", true), machine("pi", false, "gatus")],
+  describe("with one host", () => {
+    it("draws the host's detail alone when there are no machines, with no fleet grid", () => {
+      drawAt("/hardware", [host({ model: "Example 2U server" })]);
+      expect(screen.getByText("pve-1 · Example 2U server")).toBeInTheDocument();
+      expect(screen.getByRole("heading", { name: "Disk bays" })).toBeInTheDocument();
+      expect(screen.queryByRole("heading", { name: "Fleet" })).toBeNull();
+      expect(screen.queryByRole("link", { name: /^Host / })).toBeNull();
+    });
+
+    it("asks for the host's series by its node", () => {
+      const stub = stubFetch();
+      drawAt("/hardware", [host({ name: "Rack 1", node: "pve-1" })]);
+      expect(seriesNodes(stub)).toEqual(
+        expect.arrayContaining(["host.power pve-1", "host.cpuTemp pve-1", "host.temps pve-1"]),
+      );
+    });
+  });
+
+  describe("with several hosts", () => {
+    // The first host's readings look fine, but the plugin says warn (an attention item the page
+    // does not draw): the card shows the plugin's health, not one of its own.
+    const two = () => [
+      host({ model: "Example 2U server", powerWatts: 240, health: "warn" }),
+      host({
+        ref: "hardware:Host/Rack 2",
+        name: "Rack 2",
+        node: "pve-2",
+        powerWatts: 120,
+        packageTempsC: [92],
+        cpuTempHealth: "crit",
+        health: "crit",
+      }),
+    ];
+
+    it("draws a card per host, the first one marked and detailed when the route names none", () => {
+      drawAt("/hardware", two());
+      expect(screen.getByRole("heading", { name: "Fleet" })).toBeInTheDocument();
+      const first = screen.getByRole("link", { name: "Host pve-1, Warning, shown below" });
+      expect(first).toHaveAttribute("aria-current", "true");
+      expect(first).toHaveAttribute("href", "/hardware/pve-1");
+      expect(within(first).getByText("240 W")).toBeInTheDocument();
+      const second = screen.getByRole("link", { name: "Host Rack 2, Critical" });
+      expect(second).not.toHaveAttribute("aria-current");
+      expect(second).toHaveAttribute("href", "/hardware/Rack%202");
+      expect(within(second).getByText("92°C")).toHaveClass("text-crit");
+      expect(screen.getByText("pve-1 · Example 2U server")).toBeInTheDocument();
+    });
+
+    it("details the host the route names, and follows a click on another host's card", async () => {
+      const user = userEvent.setup();
+      const r = drawAt("/hardware/Rack%202", two());
+      expect(screen.getByRole("heading", { name: "Rack 2" })).toBeInTheDocument();
+      expect(screen.getByRole("link", { name: /^Host Rack 2, .*shown below/ })).toHaveAttribute(
+        "aria-current",
+        "true",
+      );
+      expect(screen.queryByText("pve-1 · Example 2U server")).toBeNull();
+
+      await user.click(screen.getByRole("link", { name: /^Host pve-1/ }));
+      expect(r.history.at(-1)).toBe("/hardware/pve-1");
+      expect(await screen.findByText("pve-1 · Example 2U server")).toBeInTheDocument();
+      expect(screen.getByRole("link", { name: /^Host pve-1, .*shown below/ })).toBeInTheDocument();
+    });
+
+    it("asks for the shown host's series by its node, never without one", () => {
+      const stub = stubFetch();
+      drawAt("/hardware/Rack%202", two());
+      const nodes = seriesNodes(stub);
+      expect(nodes).toEqual(
+        expect.arrayContaining(["host.power pve-2", "host.cpuTemp pve-2", "host.temps pve-2"]),
+      );
+      expect(nodes.filter((n) => !n.endsWith(" pve-2"))).toEqual([]);
+    });
+
+    describe("a host whose name has reserved characters", () => {
+      const odd = () => [
+        host(),
+        host({ ref: "hardware:Host/Rack A, row 1/2", name: "Rack A, row 1/2", node: "pve-2" }),
+      ];
+
+      it("is reached through its own card link", async () => {
+        const user = userEvent.setup();
+        const r = drawAt("/hardware", odd());
+        await user.click(screen.getByRole("link", { name: /^Host Rack A, row 1\/2,/ }));
+        expect(r.history.at(-1)).toBe("/hardware/Rack%20A%2C%20row%201%2F2");
+        expect(await screen.findByRole("heading", { name: "Rack A, row 1/2" })).toBeInTheDocument();
+        expect(screen.queryByText(/No host named/)).toBeNull();
       });
-      expect(await screen.findByRole("heading", { name: "Other machines" })).toBeInTheDocument();
-      const nas = screen.getByText("nas").closest("li") as HTMLElement;
-      expect(within(nas).getByText("prometheus")).toBeInTheDocument();
-      expect(within(nas).getByText("Up")).toBeInTheDocument();
-      const pi = screen.getByText("pi").closest("li") as HTMLElement;
-      expect(within(pi).getByText("gatus")).toBeInTheDocument();
-      expect(within(pi).getByText("Down")).toBeInTheDocument();
+
+      it("is reached through the route the plugin's attention items carry", () => {
+        // Go's url.PathEscape: spaces as %20, and "," and "/" escaped as in a path segment.
+        drawAt("/hardware/Rack%20A%2C%20row%201%2F2", odd());
+        expect(screen.getByRole("heading", { name: "Rack A, row 1/2" })).toBeInTheDocument();
+        expect(screen.queryByText(/No host named/)).toBeNull();
+      });
+    });
+
+    it("asks for a host's series by its node in lowercase, as the API requires", () => {
+      const stub = stubFetch();
+      drawAt("/hardware", [host({ node: "PVE-2" })]);
+      const nodes = seriesNodes(stub);
+      expect(nodes).toEqual(expect.arrayContaining(["host.power pve-2", "host.cpuTemp pve-2"]));
+      expect(nodes.filter((n) => n.includes("PVE"))).toEqual([]);
+    });
+
+    it("says so for a host the route names that does not exist, with a way back", () => {
+      drawAt("/hardware/nope", two());
+      expect(screen.getByText("nope")).toBeInTheDocument();
+      expect(screen.getByRole("link", { name: "Back to all hardware" })).toHaveAttribute(
+        "href",
+        "/hardware",
+      );
+      expect(screen.queryByRole("heading", { name: "Disk bays" })).toBeNull();
+      expect(screen.getAllByRole("link", { name: /^Host / })).toHaveLength(2);
+      expect(screen.queryByRole("link", { name: /shown below/ })).toBeNull();
+    });
+  });
+
+  describe("a host's card", () => {
+    const pool = (name: string, state = "ONLINE") => ({
+      ref: `hardware:Pool/pve-2/${name}`,
+      name,
+      state,
+      scrubErrors: 0,
+      scrubInProgress: false,
+    });
+    /** The card of the second host (the first is detailed below, so its texts repeat there). */
+    const drawCard = (over: Partial<HostData>) => {
+      drawAt("/hardware", [
+        host(),
+        host({ ref: "hardware:Host/pve-2", name: "pve-2", node: "pve-2", ...over }),
+      ]);
+      return within(screen.getByRole("link", { name: /^Host pve-2,/ }));
+    };
+
+    it("shows the CPU as a gauge and the memory as a bar", () => {
+      const c = drawCard({ cpuRatio: 0.4, memUsedBytes: 4 * 2 ** 30, memTotalBytes: 16 * 2 ** 30 });
+      expect(c.getByRole("img", { name: "CPU 40%" })).toBeInTheDocument();
+      expect(c.getByText("Memory")).toBeInTheDocument();
+    });
+
+    it("leaves out the memory bar when the host reports no memory", () => {
+      const c = drawCard({ memUsedBytes: 0, memTotalBytes: 0 });
+      expect(c.getByRole("img", { name: /^CPU / })).toBeInTheDocument();
+      expect(c.queryByText("Memory")).toBeNull();
+    });
+
+    it("counts the pools online when all are", () => {
+      const c = drawCard({ pools: [pool("rpool"), pool("tank"), pool("bulk")] });
+      expect(c.getByText("3 online")).not.toHaveClass("text-warn");
+    });
+
+    it("names the state of a pool that is not online, in its health's colour", () => {
+      const c = drawCard({ pools: [pool("rpool"), pool("tank", "DEGRADED"), pool("bulk")] });
+      expect(c.getByText("1 of 3 degraded")).toHaveClass("text-warn");
+    });
+
+    it("counts the healthy disks", () => {
+      expect(drawCard({ disks: [disk(1), disk(2)] }).getByText("2 healthy")).toBeInTheDocument();
+    });
+
+    it("counts a failing disk in crit", () => {
+      const c = drawCard({ disks: [disk(1), disk(2, { healthy: false }), disk(3)] });
+      expect(c.getByText("1 of 3 failing")).toHaveClass("text-crit");
+    });
+
+    it("leaves out pools and disks when the host has none", () => {
+      const c = drawCard({ pools: [], disks: [] });
+      expect(c.queryByText("Pools")).toBeNull();
+      expect(c.queryByText("Disks")).toBeNull();
+      expect(c.getByText("Power")).toBeInTheDocument();
+    });
+  });
+
+  describe("the machines", () => {
+    const card = (name: RegExp) => within(screen.getByRole("group", { name }));
+
+    it("draw in the fleet grid after the host, which stays detailed below", () => {
+      drawAt("/hardware", [host()], [machine("nas", true)]);
+      const links = screen.getAllByRole("link", { name: /^Host / });
+      expect(links).toHaveLength(1);
+      const nas = screen.getByRole("group", { name: "Machine nas, up" });
+      expect(links[0]?.compareDocumentPosition(nas)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
       expect(screen.getByRole("heading", { name: "Disk bays" })).toBeInTheDocument();
     });
 
-    it("are hidden when none is configured", () => {
-      renderApp(<HardwarePage />);
-      stream.plugins([hardware()]);
-      stream.send("hardware.hosts", host());
-      stream.send("hardware.machines", { machines: [] });
-      expect(screen.getByRole("heading", { name: "Disk bays" })).toBeInTheDocument();
-      expect(screen.queryByRole("heading", { name: "Other machines" })).toBeNull();
-      expect(screen.queryByText(/No other machines/)).toBeNull();
+    it("show a Linux machine's node-exporter stats, temperature included", () => {
+      drawAt("/hardware", [host()], [machine("nas", true, "prometheus", linuxStats())]);
+      const nas = card(/^Machine nas, up$/);
+      expect(nas.getByText("Up")).toBeInTheDocument();
+      expect(nas.getByText("Linux · x86_64")).toBeInTheDocument();
+      expect(nas.getByRole("img", { name: "CPU 25%" })).toBeInTheDocument();
+      expect(nas.getByText("8 cores")).toBeInTheDocument();
+      expect(nas.getByText("Memory")).toBeInTheDocument();
+      expect(nas.getByText("Root disk")).toBeInTheDocument();
+      expect(nas.getByText("0.50 · 0.75 · 1.00")).toBeInTheDocument();
+      expect(nas.getByText(formatDuration(90_000))).toBeInTheDocument();
+      expect(nas.getByText("Temperature")).toBeInTheDocument();
+      expect(nas.getByText("54°C")).toBeInTheDocument();
     });
 
-    it("are the whole page when no host is configured and hardware.hosts never arrives", async () => {
+    it("show a macOS machine's stats without a temperature it does not report", () => {
+      drawAt("/hardware", [host()], [machine("studio", true, "prometheus", darwinStats())]);
+      const studio = card(/^Machine studio, up$/);
+      expect(studio.getByText("Darwin · arm64")).toBeInTheDocument();
+      expect(studio.getByText("Root disk")).toBeInTheDocument();
+      expect(studio.queryByText("Temperature")).toBeNull();
+    });
+
+    it("show a Gatus machine as up or down and its source only", () => {
+      drawAt("/hardware", [host()], [machine("edge-gw", true, "gatus")]);
+      const gw = card(/^Machine edge-gw, up$/);
+      expect(gw.getByText("gatus")).toBeInTheDocument();
+      expect(gw.getByText("Up")).toBeInTheDocument();
+      expect(gw.queryByText("Memory")).toBeNull();
+      expect(gw.queryByRole("img", { name: /^CPU/ })).toBeNull();
+    });
+
+    it("name their source when the stats carry no OS or arch", () => {
+      const stats = linuxStats({ os: "", arch: "" });
+      drawAt("/hardware", [host()], [machine("box", true, "prometheus", stats)]);
+      const box = card(/^Machine box, up$/);
+      expect(box.getByText("prometheus")).toBeInTheDocument();
+      expect(box.queryByText("·")).toBeNull();
+      expect(box.getByText("0.50 · 0.75 · 1.00")).toBeInTheDocument();
+    });
+
+    it("show a machine that is down", () => {
+      drawAt("/hardware", [host()], [machine("nas", false)]);
+      const nas = card(/^Machine nas, down$/);
+      expect(nas.getByText("Down")).toBeInTheDocument();
+      expect(nas.getByText("prometheus")).toBeInTheDocument();
+    });
+
+    it("leave out the figures a machine does not report", () => {
+      const stats = linuxStats({
+        cpus: 0,
+        memUsedBytes: 0,
+        memTotalBytes: 0,
+        diskUsedBytes: 0,
+        diskTotalBytes: 0,
+        uptimeSeconds: 0,
+        load1: 0.25,
+      });
+      drawAt("/hardware", [host()], [machine("box", true, "prometheus", stats)]);
+      const box = card(/^Machine box, up$/);
+      expect(box.queryByText("Memory")).toBeNull();
+      expect(box.queryByText("Root disk")).toBeNull();
+      expect(box.queryByRole("img", { name: /^CPU/ })).toBeNull();
+      expect(box.queryByText(/cores?$/)).toBeNull();
+      expect(box.queryByText("Uptime")).toBeNull();
+      expect(box.getByText("0.25 · 0.75 · 1.00")).toBeInTheDocument();
+      expect(box.getByText("54°C")).toBeInTheDocument();
+    });
+
+    it("wait for hardware.hosts before drawing, so configured hosts are never left out", () => {
       renderApp(<HardwarePage />);
       stream.plugins([hardware()]);
       stream.send("hardware.machines", { machines: [machine("nas", true)] });
-      expect(await screen.findByRole("heading", { name: "Machines" })).toBeInTheDocument();
-      expect(screen.getByText("nas")).toBeInTheDocument();
-      // No skeleton waiting for a host that is never coming, and no host panels.
-      expect(document.querySelector("[aria-busy=true]")).toBeNull();
+      expect(document.querySelector("[aria-busy=true]")).not.toBeNull();
+      expect(screen.queryByRole("group", { name: "Machine nas, up" })).toBeNull();
+    });
+
+    it("are the whole page when the plugin publishes no hosts", () => {
+      drawAt("/hardware", [], [machine("nas", true)]);
+      expect(screen.getByRole("group", { name: "Machine nas, up" })).toBeInTheDocument();
+      expect(screen.queryByRole("link", { name: /^Host / })).toBeNull();
       expect(screen.queryByRole("heading", { name: "Disk bays" })).toBeNull();
+      expect(document.querySelector("[aria-busy=true]")).toBeNull();
     });
 
     it("keep the skeleton until something has arrived", () => {
@@ -353,13 +636,15 @@ describe("the Hardware page", () => {
       stream.plugins([hardware()]);
       expect(document.querySelector("[aria-busy=true]")).not.toBeNull();
       stream.send("hardware.machines", { machines: [] });
-      // Empty machines and no host: still nothing to draw, so still waiting.
+      stream.send("hardware.hosts", { hosts: [] });
+      // No machines and no host: still nothing to draw, so still waiting.
       expect(document.querySelector("[aria-busy=true]")).not.toBeNull();
     });
 
     it("show the plugin's source chips", async () => {
       renderApp(<HardwarePage />);
       stream.plugins([hardware()]);
+      stream.send("hardware.hosts", { hosts: [] });
       stream.send("hardware.machines", { machines: [machine("pi", false, "gatus")] }, [
         { name: "gatus", ok: false, error: "not_configured", checkedAt: "2026-01-01T00:00:00Z" },
       ]);

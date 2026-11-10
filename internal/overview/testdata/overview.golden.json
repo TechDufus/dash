@@ -26,14 +26,14 @@
       "ref": "kubernetes:Certificate/media/tls"
     },
     {
-      "id": "host:cpu-temp",
+      "id": "host:cpu-temp:pve-demo",
       "severity": "crit",
       "source": "hardware",
       "plugin": "hardware",
-      "title": "CPU package at 92 °C",
+      "title": "CPU package at 92 °C on pve-demo",
       "detail": "",
       "since": "2026-10-30T12:00:00Z",
-      "route": "/hardware",
+      "route": "/hardware/pve-demo",
       "links": [
         {
           "label": "Proxmox UI",
@@ -73,14 +73,14 @@
       "ref": "kubernetes:PVC/media/data"
     },
     {
-      "id": "smart:4",
+      "id": "smart:pve-demo/4",
       "severity": "crit",
       "source": "smart",
       "plugin": "hardware",
-      "title": "Disk in bay 4 reports SMART failure",
+      "title": "Disk in bay 4 of pve-demo reports SMART failure",
       "detail": "sdd S1",
       "since": "2026-10-30T12:00:00Z",
-      "route": "/hardware",
+      "route": "/hardware/pve-demo",
       "links": [
         {
           "label": "Proxmox UI",
@@ -108,14 +108,14 @@
       "ref": "kubernetes:Workload/Deployment/media/app"
     },
     {
-      "id": "zfs:pool:bulk",
+      "id": "zfs:pool:pve-demo/bulk",
       "severity": "crit",
       "source": "zfs",
       "plugin": "hardware",
-      "title": "ZFS pool bulk is degraded",
+      "title": "ZFS pool bulk on pve-demo is degraded",
       "detail": "",
       "since": "2026-10-30T12:00:00Z",
-      "route": "/hardware",
+      "route": "/hardware/pve-demo",
       "links": [
         {
           "label": "Proxmox UI",
@@ -293,14 +293,14 @@
       "ref": "alertmanager:Alert/f2"
     },
     {
-      "id": "zfs:scrub:fast",
+      "id": "zfs:scrub:pve-demo/fast",
       "severity": "warn",
       "source": "zfs",
       "plugin": "hardware",
-      "title": "ZFS pool fast last scrub found errors",
+      "title": "ZFS pool fast on pve-demo: last scrub found errors",
       "detail": "3 errors",
       "since": "2026-10-28T12:00:00Z",
-      "route": "/hardware",
+      "route": "/hardware/pve-demo",
       "links": [
         {
           "label": "Proxmox UI",

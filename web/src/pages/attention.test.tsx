@@ -31,6 +31,7 @@ const items = [
   item("pvc", "kubernetes", "/storage"),
   item("flux", "flux", "/gitops"),
   item("elsewhere", "flux", "/cluster"),
+  item("disk", "hardware", "/hardware/pve-demo%202"),
   item("core", "", "/apps"),
   item("ghost", "nomad", "/nomad"),
   item("generic", "queue", "/x/queue"),
@@ -51,7 +52,7 @@ describe("AttentionPanel routes", () => {
   it("links an item only when its plugin is visible and the SPA has a page for the route", () => {
     renderApp(<AttentionPanel items={items} />);
     stream.plugins([...shimRows(), queue]);
-    expect(linked()).toEqual(["pod", "pvc", "flux", "core", "generic"]);
+    expect(linked()).toEqual(["pod", "pvc", "flux", "disk", "core", "generic"]);
     expect(screen.getByText("pod").closest("a")).toHaveAttribute(
       "href",
       "/cluster/pods/acme/web-0",
@@ -64,11 +65,11 @@ describe("AttentionPanel routes", () => {
     stream.plugins(rows);
 
     stream.plugins(withState(rows, "flux", "disabled"));
-    expect(linked()).toEqual(["pod", "pvc", "core", "generic"]);
+    expect(linked()).toEqual(["pod", "pvc", "disk", "core", "generic"]);
     expect(screen.getByText("flux")).toBeInTheDocument();
 
     stream.plugins(withState(withState(rows, "kubernetes", "unavailable"), "queue", "disabled"));
-    expect(linked()).toEqual(["flux", "core"]);
+    expect(linked()).toEqual(["flux", "disk", "core"]);
   });
 });
 

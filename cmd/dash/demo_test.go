@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"maps"
+	"math"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -144,17 +145,19 @@ func TestDemoOverviewIsComposedFromTheTwins(t *testing.T) {
 		t.Errorf("topology has %d VMs, want %d", len(d.Topology.VMs), total)
 	}
 
-	// hardware: the host's power and CPU temperature, which are also the topology's host.
+	// hardware: the hosts' power summed and the hottest CPU package, which the topology's hosts add
+	// up to.
 	hk := kpisOf(d, "hardware")
 	if hk["power"].Unit != "W" || hk["power"].Value <= 0 || hk["cpuTemp"].Unit != "°C" || hk["cpuTemp"].Value <= 0 {
 		t.Errorf("hardware KPIs %+v", hk)
 	}
-	// The proxmox twin names both nodes of the fake cluster; the hardware twin's host is the first,
-	// and the overview merges the two contributions for it into one host.
+	// The proxmox twin names both nodes of the fake cluster, the hardware twin has a host on each,
+	// and the overview merges the two contributions per node into one host.
 	if hs := d.Topology.Hosts; len(hs) != 2 || hs[0].Node != "pve-demo" || hs[1].Node != "pve-demo-2" {
 		t.Errorf("topology hosts %+v, want pve-demo and pve-demo-2", hs)
-	} else if h := hs[0]; h.Name == "" || h.PowerWatts != hk["power"].Value || h.CPUTempC != hk["cpuTemp"].Value || h.MemUsedRatio <= 0 {
-		t.Errorf("topology host %+v does not agree with the KPIs %+v", h, hk)
+	} else if power, temp := hs[0].PowerWatts+hs[1].PowerWatts, max(hs[0].CPUTempC, hs[1].CPUTempC); math.Abs(power-hk["power"].Value) > 1e-9 ||
+		temp != hk["cpuTemp"].Value || hs[1].PowerWatts <= 0 || hs[0].Name == "" || hs[0].MemUsedRatio <= 0 || hs[1].MemUsedRatio <= 0 {
+		t.Errorf("topology hosts %+v do not agree with the KPIs %+v", hs, hk)
 	}
 	for _, vm := range d.Topology.VMs {
 		if vm.Node != "pve-demo" && vm.Node != "pve-demo-2" {

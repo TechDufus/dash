@@ -30,6 +30,35 @@ func (q exprs) machineUp(nodename string) string {
 	return fmt.Sprintf(`up{job=%s,nodename=%s}`, quote(q.job), quote(nodename))
 }
 
+// machineStats are the queries of the node-exporter machines' stats, by name: one query per
+// figure for every machine at once, each answering one sample per nodename, so the count does not
+// grow with the machines. Memory falls back to macOS's names, which have no MemAvailable: used is
+// what Activity Monitor calls Memory Used (app memory, wired and compressed). The disk is the
+// root file system, without the initramfs rootfs that some Linux systems also mount on /. The
+// temperature is the hottest package the hwmon chip selector picks (the same selector as the
+// hosts'), else the hottest CPU thermal zone (single-board computers), both in °C.
+func (q exprs) machineStats(nodenames []string) map[string]string {
+	sel := fmt.Sprintf("job=%s,nodename=~%s", quote(q.job), nodenameRegex(nodenames))
+	by := func(format string) string {
+		return "max by (nodename) (" + fmt.Sprintf(format, sel) + ")"
+	}
+	return map[string]string{
+		"uname":     fmt.Sprintf(`node_uname_info{%s}`, sel),
+		"cpus":      fmt.Sprintf(`count by (nodename) (node_cpu_seconds_total{%s,mode="idle"})`, sel),
+		"cpu":       fmt.Sprintf(`1 - avg by (nodename) (rate(node_cpu_seconds_total{%s,mode="idle"}[2m]))`, sel),
+		"memTotal":  by(`node_memory_MemTotal_bytes{%s}`) + " or " + by(`node_memory_total_bytes{%s}`),
+		"memUsed":   by(`node_memory_MemTotal_bytes{%[1]s} - node_memory_MemAvailable_bytes{%[1]s}`) + " or " + by(`node_memory_internal_bytes{%[1]s} - node_memory_purgeable_bytes{%[1]s} + node_memory_wired_bytes{%[1]s} + node_memory_compressed_bytes{%[1]s}`),
+		"diskTotal": by(`node_filesystem_size_bytes{%s,mountpoint="/",fstype!="rootfs"}`),
+		"diskAvail": by(`node_filesystem_avail_bytes{%s,mountpoint="/",fstype!="rootfs"}`),
+		"load1":     by(`node_load1{%s}`),
+		"load5":     by(`node_load5{%s}`),
+		"load15":    by(`node_load15{%s}`),
+		"uptime":    by(`node_time_seconds{%[1]s} - node_boot_time_seconds{%[1]s}`),
+		"temp": "max by (nodename) (node_hwmon_temp_celsius{" + sel + ",chip=~" + quote(q.chip) + `,sensor="temp1"})` + " or " +
+			by(`node_thermal_zone_temp{%s,type=~"cpu-thermal|cpu_thermal|x86_pkg_temp|soc-thermal|soc_thermal"}`),
+	}
+}
+
 func (q exprs) cpu(n string) string {
 	return fmt.Sprintf(`1 - avg(rate(node_cpu_seconds_total{nodename=%s,mode="idle"}[2m]))`, quote(n))
 }
@@ -54,6 +83,30 @@ func (q exprs) packageTemps(n string) string {
 
 func (q exprs) cpuTempMax(n string) string { return "max(" + q.packageTemps(n) + ")" }
 
+// cpuTempMaxOf is the hottest package of several hosts, for the host.cpuTemp series without a
+// node.
+func (q exprs) cpuTempMaxOf(nodenames []string) string {
+	return fmt.Sprintf(`max(node_hwmon_temp_celsius{nodename=~%s,chip=~%s,sensor="temp1"})`, nodenameRegex(nodenames), quote(q.chip))
+}
+
+// eachHost are the host.cpu, host.mem, host.temps and host.fans series of several hosts without
+// a node: one line per host (and per sensor or fan), each keeping its nodename label, because
+// sensor and fan names repeat across hosts.
+func (q exprs) eachHost(series string, nodenames []string) string {
+	r := nodenameRegex(nodenames)
+	switch series {
+	case "host.cpu":
+		return fmt.Sprintf(`1 - avg by (nodename) (rate(node_cpu_seconds_total{nodename=~%s,mode="idle"}[2m]))`, r)
+	case "host.mem":
+		return fmt.Sprintf(`1 - node_memory_MemAvailable_bytes{nodename=~%[1]s} / node_memory_MemTotal_bytes{nodename=~%[1]s}`, r)
+	case "host.temps":
+		return fmt.Sprintf(`ipmi_temperature_celsius{nodename=~%s}`, r)
+	case "host.fans":
+		return fmt.Sprintf(`ipmi_fan_speed_rpm{nodename=~%s}`, r)
+	}
+	return ""
+}
+
 func (q exprs) sensors(n string) string {
 	return fmt.Sprintf(`ipmi_temperature_celsius{nodename=%s}`, quote(n))
 }
@@ -62,6 +115,11 @@ func (q exprs) fans(n string) string { return fmt.Sprintf(`ipmi_fan_speed_rpm{no
 
 func (q exprs) power(n string) string {
 	return fmt.Sprintf(`ipmi_power_watts{nodename=%s}`, quote(n))
+}
+
+// powerSum is the power draw of several hosts together, for the host.power series without a node.
+func (q exprs) powerSum(nodenames []string) string {
+	return fmt.Sprintf(`sum(ipmi_power_watts{nodename=~%s})`, nodenameRegex(nodenames))
 }
 
 func (q exprs) psus(n string) string {

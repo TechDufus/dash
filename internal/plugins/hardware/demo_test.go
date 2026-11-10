@@ -30,7 +30,7 @@ func rawTopic(t *testing.T, h *hub.Hub, topic string) string {
 // Proxmox node service, not Gatus.
 func TestDemoRunsTheTwinAndContactsNoUpstream(t *testing.T) {
 	r := newRig(t, rigOpts{demo: true})
-	host, srcs := waitTopic(t, r.hub, "hardware.hosts", func(d model.HostData) bool { return d.Ref != "" })
+	host, srcs := waitHost(t, r.hub, func(d model.HostData) bool { return d.Ref != "" })
 	machines, msrcs := waitTopic(t, r.hub, "hardware.machines", func(d hwmodel.MachinesData) bool { return len(d.Machines) > 0 })
 
 	if host.Name != world.HostName || host.Model != world.HostModel {
@@ -69,22 +69,28 @@ func TestDemoRunsTheTwinAndContactsNoUpstream(t *testing.T) {
 	}
 }
 
-// The twin contributes what the plugin does: KPIs, a topology host and (for a healthy world) no
-// attention, and it answers the host series for the fake host.
+// The twin contributes what the plugin does for the world's two hosts: KPIs summed over both, a
+// topology host each and (for a healthy world) no attention, and it answers the host series per
+// host by node and summed without one.
 func TestDemoTwinContributesAndAnswersSeries(t *testing.T) {
 	r := newRig(t, rigOpts{demo: true})
-	waitTopic(t, r.hub, "hardware.hosts", func(d model.HostData) bool { return d.Ref != "" })
+	hosts, _ := waitTopic(t, r.hub, "hardware.hosts", func(d model.HostsData) bool { return len(d.Hosts) == 2 })
+	if a, b := hosts.Hosts[0], hosts.Hosts[1]; a.Name != world.HostName || b.Name != world.SecondNodeName || a.PowerWatts == b.PowerWatts ||
+		len(a.Fans) == len(b.Fans) || b.Model != world.SecondHostModel || b.Bays != demoBays2 || a.Health != model.HealthOK {
+		t.Errorf("hosts = %+v", hosts.Hosts)
+	}
 	c := contributor(t, r)
 
 	kpis := map[string]model.KPI{}
 	for _, k := range c.KPIs.KPIs() {
 		kpis[k.Key] = k
 	}
-	if kpis["power"].Value <= 0 || kpis["power"].Unit != "W" || kpis["cpuTemp"].Value <= 0 || kpis["cpuTemp"].Unit != "°C" {
-		t.Errorf("kpis = %+v", kpis)
+	if kpis["power"].Value <= hosts.Hosts[0].PowerWatts || kpis["power"].Unit != "W" || kpis["cpuTemp"].Value <= 0 || kpis["cpuTemp"].Unit != "°C" {
+		t.Errorf("kpis = %+v, want the power of both hosts", kpis)
 	}
-	if h := hostOf(c.Topology.Topology()); h.Name != world.HostName || h.PowerWatts <= 0 || h.Health != model.HealthOK {
-		t.Errorf("topology host = %+v", h)
+	top := c.Topology.Topology()
+	if len(top.Hosts) != 2 || top.Hosts[0].Name != world.HostName || top.Hosts[1].Node != world.SecondNodeName || top.Hosts[1].PowerWatts <= 0 {
+		t.Errorf("topology hosts = %+v", top.Hosts)
 	}
 	if items := c.Attention.Attention(time.Now()); len(items) != 0 {
 		t.Errorf("a healthy demo world raised %+v", items)
@@ -93,12 +99,17 @@ func TestDemoTwinContributesAndAnswersSeries(t *testing.T) {
 	if !ok || id != ID {
 		t.Fatalf("host.cpu: %v %v", id, ok)
 	}
-	if expr, err := spec.Expr(plugin.SeriesArgs{}); err != nil || !strings.Contains(expr, `nodename="`+world.HostName+`"`) {
-		t.Errorf("host.cpu = %q (%v)", expr, err)
+	if expr, err := spec.Expr(plugin.SeriesArgs{Instance: world.SecondNodeName}); err != nil || !strings.Contains(expr, `nodename="`+world.SecondNodeName+`"`) {
+		t.Errorf("host.cpu of the second host = %q (%v)", expr, err)
+	}
+	power, _, _ := r.sup.Series("host.power")
+	if expr, err := power.Expr(plugin.SeriesArgs{}); err != nil || !strings.HasPrefix(expr, "sum(") {
+		t.Errorf("host.power without a node = %q (%v)", expr, err)
 	}
 }
 
-// The twin takes the layout of a configured host, so a demo can show another chassis.
+// The twin takes the layout of a configured host, so a demo can show another chassis; a host the
+// section does not name keeps the fake one's.
 func TestDemoConfigKeepsAConfiguredHost(t *testing.T) {
 	c := pluginconf.DefaultHardware()
 	c.Hosts = []pluginconf.HardwareHost{{Model: "Test Model", Bays: 4}}
@@ -106,7 +117,10 @@ func TestDemoConfigKeepsAConfiguredHost(t *testing.T) {
 	if got.Hosts[0].Model != "Test Model" || got.Hosts[0].Bays != 4 {
 		t.Errorf("host = %+v", got.Hosts[0])
 	}
-	if empty := demoConfig(nil); empty.Hosts[0].Bays != demoBays || empty.Hosts[0].Model != world.HostModel {
+	if got.Hosts[1].Model != world.SecondHostModel || got.Hosts[1].Bays != demoBays2 {
+		t.Errorf("the second host without an entry = %+v", got.Hosts[1])
+	}
+	if empty := demoConfig(nil); len(empty.Hosts) != 2 || empty.Hosts[0].Bays != demoBays || empty.Hosts[0].Model != world.HostModel {
 		t.Errorf("no section: %+v", empty.Hosts)
 	}
 }

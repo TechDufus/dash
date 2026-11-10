@@ -41,7 +41,7 @@ describe("module registry", () => {
   it("gives every route pattern to exactly one module", () => {
     const patterns = MODULES.flatMap((m) => (m.routes ?? []).map((r) => r.path));
     expect(patterns.sort()).toEqual(
-      ["/alerts", "/cluster/*?", "/gitops", "/hardware", "/status", "/vms/:vmid?"].sort(),
+      ["/alerts", "/cluster/*?", "/gitops", "/hardware/:host?", "/status", "/vms/:vmid?"].sort(),
     );
     expect(new Set(patterns).size).toBe(patterns.length);
   });

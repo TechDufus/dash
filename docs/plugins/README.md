@@ -11,7 +11,7 @@ Everything dash shows comes from a plugin. A plugin turns itself on when its set
 | [Gatus](gatus.md) (`gatus`) | Endpoint health. | Service status | - |
 | [VictoriaLogs](victorialogs.md) (`victorialogs`) | The pod logs the UI shows. | - | - |
 | [Proxmox VE](proxmox.md) (`proxmox`) | Virtual machines, containers and the hypervisor. | Virtual machines | - |
-| [Hardware](hardware.md) (`hardware`) | The physical host behind the cluster. | Hardware | - |
+| [Hardware](hardware.md) (`hardware`) | The physical hosts behind the cluster. | Hardware | - |
 | [Kubernetes](kubernetes.md) (`kubernetes`) | How dash reaches and reads the cluster. | Kubernetes cluster | `restart` |
 | [Flux](flux.md) (`flux`) | Flux sources, kustomizations and Helm releases. | GitOps (Flux) | `reconcile` |
 | [CloudNativePG](cnpg.md) (`cnpg`) | CloudNativePG Postgres clusters and the age of their last backup. | - | - |

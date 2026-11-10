@@ -48,12 +48,12 @@ The `PVEAuditor` role on `/` holds every privilege the plugin needs (`Sys.Audit`
 
 ## Settings
 
-- `node` no longer selects what dash reads: dash reads every node. It names the node that is the
-  Hardware page's host (its facts, its shell link and its place in the topology), whatever
-  `plugins.hardware.hosts[0].nodename` says; empty takes the only node of a one-node cluster.
-  `hosts[0].nodename` is the label of the host's series, and the Proxmox node only while this
-  plugin names none. A `node` that is not a node of the cluster leaves the row degraded, saying
-  which nodes there are.
+- `node` no longer selects what dash reads: dash reads every node. It names the node of the
+  Hardware host without a nodename (or of the only Hardware host): that host reads the node's
+  series and shows its facts, its shell link and its place in the topology. A Hardware host with
+  a nodename that is a node of the cluster is that node whatever `node` says. Empty takes the only
+  node of a one-node cluster. A `node` that is not a node of the cluster leaves the row degraded,
+  saying which nodes there are.
 - With a `k8s:` token still being read, the row says it waits for a Kubernetes Secret.
 - `plugins.proxmox.tls.insecureSkipVerify` makes dash log a startup WARN and list an `ok` source
   named `tls: verification disabled` in the Overview's sources (not on the Proxmox row, and drawn

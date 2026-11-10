@@ -9,8 +9,12 @@ const (
 	HeadlampCluster = "demo"
 )
 
-// HostModel is the model of the fake host, shown next to its name (HostData.Model).
-const HostModel = "Example 2U server"
+// HostModel and SecondHostModel are the models of the fake hosts, shown next to their names
+// (HostData.Model).
+const (
+	HostModel       = "Example 2U server"
+	SecondHostModel = "Example 1U server"
+)
 
 // Launcher is the launcher payload: five infrastructure links, all on example.com.
 func Launcher() model.LauncherData {

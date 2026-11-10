@@ -716,6 +716,7 @@ No aliases survive the phase.
 - The `host.*` series are answered from the running plugin's settings; with the plugin off they are 400 `invalid_input`. The P3.6 interim gap (the series arguments read the flat node) is closed here.
 - The shipped lab values are not defaults: the deployment's critical ids, machines, bays and fan scale go to its environment (release notes below), pinned by `TestDeploymentEnvV08`.
 - Visibility is rule (a), with `TestHardwarePublishesAroundTheFlip` for the host/no-host flip. The row can be visible while running, so unlike proxmox it exercises the supervisor's resend path.
+- **Since v0.16.0** `hosts` takes several entries (unique names and nodenames, at most one without a nodename) and `hardware.hosts` is `{hosts: [...]}`, published as `{hosts: []}` when no host is configured; attention ids, routes and the `host.*` series' `node` argument are per host, the KPIs sum and max over the hosts, and node-exporter machines carry stats. Design F.7's v0.16.0 note has the details; the one-host statements above describe v0.8.0 to v0.15.0.
 
 **Acceptance criteria**
 - No hard-coded machine name or `16` bay literal remains.

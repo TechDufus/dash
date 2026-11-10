@@ -409,15 +409,36 @@ func waitPublished[T any](t *testing.T, h *hub.Hub, topic string, ok func(T, []m
 
 func anyHost(model.HostData) bool { return true }
 
+// waitHost waits for a published hosts payload whose first host satisfies ok, and returns that
+// host.
+func waitHost(t *testing.T, h *hub.Hub, ok func(model.HostData) bool) (model.HostData, []model.SourceStatus) {
+	t.Helper()
+	return waitHostPublished(t, h, func(d model.HostData, _ []model.SourceStatus) bool { return ok(d) })
+}
+
+// waitHostPublished is waitHost with the payload's sources.
+func waitHostPublished(t *testing.T, h *hub.Hub, ok func(model.HostData, []model.SourceStatus) bool) (model.HostData, []model.SourceStatus) {
+	t.Helper()
+	d, srcs := waitPublished(t, h, "hardware.hosts", func(d model.HostsData, s []model.SourceStatus) bool {
+		return len(d.Hosts) > 0 && ok(d.Hosts[0], s)
+	})
+	return d.Hosts[0], srcs
+}
+
 // hostOf waits for the first published host.
 func (r *rig) hostOf() (model.HostData, []model.SourceStatus) {
 	r.t.Helper()
-	return waitTopic(r.t, r.hub, "hardware.hosts", anyHost)
+	return waitHost(r.t, r.hub, anyHost)
 }
 
-// withHost configures the one host, with the given entry.
+// withHost configures one host, with the given entry.
 func withHost(h pluginconf.HardwareHost) func(*pluginconf.Hardware) {
 	return func(c *pluginconf.Hardware) { c.Hosts = []pluginconf.HardwareHost{h} }
+}
+
+// withHosts configures several hosts, in this order.
+func withHosts(hs ...pluginconf.HardwareHost) func(*pluginconf.Hardware) {
+	return func(c *pluginconf.Hardware) { c.Hosts = hs }
 }
 
 // hasSource reports whether srcs holds a source with that name and outcome.

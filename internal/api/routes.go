@@ -86,7 +86,7 @@ func (s *Server) routeTable() []Route {
 				{Name: "namespace", Doc: "The namespace, for pod.* series (ns is an alias)."},
 				{Name: "ns", Doc: "Alias of namespace."},
 				{Name: "pod", Doc: "The pod, for pod.* series."},
-				{Name: "node", Doc: "The node name, for node.* series."},
+				{Name: "node", Doc: "The node name, for node.* series; a hardware host's node for host.* series (without it host.power sums every host, host.cpuTemp is the hottest and the other host.* series draw one line per host)."},
 			},
 			Response: model.Series{}, Handler: s.series,
 		},

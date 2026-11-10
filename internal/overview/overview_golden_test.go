@@ -153,15 +153,15 @@ type goldenHardware struct{ links []model.Link }
 
 func (g goldenHardware) item(id string, sev model.Severity, source, title, detail string, since time.Time, ref string) model.AttentionItem {
 	return model.AttentionItem{ID: id, Severity: sev, Source: source, Plugin: "hardware", Title: title, Detail: detail,
-		Since: since, Route: "/hardware", Links: g.links, Ref: ref}
+		Since: since, Route: "/hardware/pve-demo", Links: g.links, Ref: ref}
 }
 
 func (g goldenHardware) Attention(time.Time) []model.AttentionItem {
 	return []model.AttentionItem{
-		g.item("zfs:pool:bulk", model.SeverityCrit, "zfs", "ZFS pool bulk is degraded", "", testNow, "hardware:Pool/pve-demo/bulk"),
-		g.item("zfs:scrub:fast", model.SeverityWarn, "zfs", "ZFS pool fast last scrub found errors", "3 errors", testNow.Add(-48*time.Hour), "hardware:Pool/pve-demo/fast"),
-		g.item("smart:4", model.SeverityCrit, "smart", "Disk in bay 4 reports SMART failure", "sdd S1", testNow, "hardware:Disk/pve-demo/S1"),
-		g.item("host:cpu-temp", model.SeverityCrit, "hardware", "CPU package at 92 °C", "", testNow, "hardware:Host/pve-demo"),
+		g.item("zfs:pool:pve-demo/bulk", model.SeverityCrit, "zfs", "ZFS pool bulk on pve-demo is degraded", "", testNow, "hardware:Pool/pve-demo/bulk"),
+		g.item("zfs:scrub:pve-demo/fast", model.SeverityWarn, "zfs", "ZFS pool fast on pve-demo: last scrub found errors", "3 errors", testNow.Add(-48*time.Hour), "hardware:Pool/pve-demo/fast"),
+		g.item("smart:pve-demo/4", model.SeverityCrit, "smart", "Disk in bay 4 of pve-demo reports SMART failure", "sdd S1", testNow, "hardware:Disk/pve-demo/S1"),
+		g.item("host:cpu-temp:pve-demo", model.SeverityCrit, "hardware", "CPU package at 92 °C on pve-demo", "", testNow, "hardware:Host/pve-demo"),
 	}
 }
 

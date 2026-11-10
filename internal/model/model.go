@@ -41,7 +41,7 @@ type Topic string
 
 const (
 	TopicOverview Topic = "core.overview"
-	// TopicHost is the host's facts (HostData), published by the hardware plugin.
+	// TopicHost is every host's facts (HostsData), published by the hardware plugin.
 	TopicHost Topic = "hardware.hosts"
 	TopicVMs  Topic = "proxmox.vms"
 	// TopicProxmoxCluster is the Proxmox cluster with its nodes (proxmox/model.PVEClusterData),
@@ -226,22 +226,29 @@ type Disk struct {
 	LifeRemainingPct *float64 `json:"lifeRemainingPct,omitempty"`
 }
 
+// HostsData is the hardware.hosts topic: every host the hardware plugin reads, in configuration
+// order. Hosts is never null: [] while no host is configured or none has been read yet.
+type HostsData struct {
+	Hosts []HostData `json:"hosts"`
+}
+
 type HostData struct {
-	// Ref is hardware:Host/<node> (design L.6).
+	// Ref is hardware:Host/<name>; host names are unique, so refs are too (design L.6).
 	Ref string `json:"ref"`
-	// Node is the Proxmox node the host is: the node the proxmox plugin names (plugins.proxmox.node,
-	// or the only node of a one-node cluster), else plugins.hardware.hosts[0].nodename. The Hardware
-	// page shows that Proxmox node's facts.
+	// Node is the Proxmox node the host is: its nodename when the Proxmox cluster has a node of that
+	// name, else the node the proxmox plugin names for the host without a nodename (or the only
+	// host), else its nodename. The Hardware page shows that Proxmox node's facts, and the overview
+	// merges the host with that node's topology host.
 	Node string `json:"node"`
-	// Model is shown next to the host's name, e.g. "Example 2U server"; empty shows nothing. The hardware
-	// plugin fills it from plugins.hardware.hosts[0].model.
+	// Model is shown next to the host's name, e.g. "Example 2U server"; empty shows nothing. The
+	// hardware plugin fills it from the host's plugins.hardware.hosts entry.
 	Model string `json:"model"`
-	// Bays is plugins.hardware.hosts[0].bays: the drive slots the Disks grid draws. 0 derives them:
+	// Bays is the host's configured bays: the drive slots the Disks grid draws. 0 derives them:
 	// the grid numbers its slots from 1 (from 0 when a disk sits in slot 0) up to the highest
 	// populated one, at most 128; above that the page lists the disks sorted.
 	Bays int `json:"bays"`
-	// FanMaxRPM is plugins.hardware.hosts[0].fanMaxRPM: the top of the fan gauges, 0 to scale them
-	// to the fastest fan. The wire key is fanMaxRpm (camel case); the config key is fanMaxRPM.
+	// FanMaxRPM is the host's configured fanMaxRPM: the top of the fan gauges, 0 to scale them to
+	// the fastest fan. The wire key is fanMaxRpm (camel case); the config key is fanMaxRPM.
 	FanMaxRPM int `json:"fanMaxRpm"`
 	// SensorAliases name the sensors the Inlet and Exhaust tiles read.
 	SensorAliases SensorAliases `json:"sensorAliases"`
@@ -249,7 +256,10 @@ type HostData struct {
 	TempWarnC int `json:"tempWarnC"`
 	TempCritC int `json:"tempCritC"`
 	// CPUTempHealth is the health of the hottest CPU package against those thresholds.
-	CPUTempHealth Health    `json:"cpuTempHealth"`
+	CPUTempHealth Health `json:"cpuTempHealth"`
+	// Health is the host's own health: the worst of its attention items (pools, scrub errors,
+	// SMART, CPU temperature), the same value as its topology host's.
+	Health        Health    `json:"health"`
 	Name          string    `json:"name"`
 	CPURatio      float64   `json:"cpuRatio"`
 	MemUsedBytes  int64     `json:"memUsedBytes"`

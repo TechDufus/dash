@@ -64,3 +64,27 @@ func TestMachineNamesAreGeneric(t *testing.T) {
 		}
 	}
 }
+
+// The demo shows what the real plugin can: a Linux node-exporter machine with a temperature, a
+// macOS one without, and a Gatus machine with no stats at all.
+func TestMachineStatsCoverEveryShape(t *testing.T) {
+	var linuxTemp, darwinNoTemp, gatusBare bool
+	for _, m := range testWorld().Machines() {
+		s := m.Stats
+		switch {
+		case m.Source == "gatus":
+			gatusBare = gatusBare || s == nil
+		case s == nil:
+			t.Errorf("%s: a node-exporter machine without stats", m.Name)
+		case s.CPUs <= 0 || s.MemTotalBytes <= s.MemUsedBytes || s.DiskTotalBytes <= s.DiskUsedBytes || s.UptimeSeconds <= 0 || s.Arch == "" || s.Kernel == "":
+			t.Errorf("%s: stats %+v", m.Name, *s)
+		case s.OS == "Linux" && s.TempC != nil:
+			linuxTemp = true
+		case s.OS == "Darwin" && s.TempC == nil:
+			darwinNoTemp = true
+		}
+	}
+	if !linuxTemp || !darwinNoTemp || !gatusBare {
+		t.Errorf("linux with temp %v, darwin without %v, gatus without stats %v", linuxTemp, darwinNoTemp, gatusBare)
+	}
+}

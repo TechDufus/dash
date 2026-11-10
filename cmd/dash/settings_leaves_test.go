@@ -48,7 +48,7 @@ func hardwareLeaves() []reachLeaf {
 		{"plugins.hardware.type", "hardware", ""},
 		{"plugins.hardware.enabled", "true", ""},
 		{"plugins.hardware.hosts",
-			`[{"name":"Rack 1","nodename":"box-1","model":"Model X","bays":8,"fanMaxRPM":9000,"sensorAliases":{"inlet":"ambient","exhaust":"outlet"}}]`,
+			`[{"name":"Rack 1","nodename":"box-1","model":"Model X","bays":8,"fanMaxRPM":9000,"sensorAliases":{"inlet":"ambient","exhaust":"outlet"}},{"name":"Rack 3","nodename":"box-3","model":"Model Z","bays":4,"fanMaxRPM":6000,"sensorAliases":{"inlet":"front","exhaust":"rear"}}]`,
 			`[{"name":"Rack 2","nodename":"box-2","model":"Model Y","bays":12,"fanMaxRPM":12000,"sensorAliases":{"inlet":"intake","exhaust":"exit"}}]`},
 		{"plugins.hardware.machines",
 			`[{"name":"nas-1","nodeExporterNodename":"nas-1"},{"name":"edge-1","gatusEndpoint":"edge-1 SSH"}]`,

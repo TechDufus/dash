@@ -398,24 +398,28 @@ describe("the VMs page", () => {
   });
 
   describe("the sheet's Links tab", () => {
-    const hostShell = {
-      label: "Host shell",
-      href: "https://pve.example.com:8006/?console=shell&novnc=1&node=pve-1&resize=off&cmd=",
+    const shell = (node: string) => ({
+      label: `Host shell ${node}`,
+      href: `https://pve.example.com:8006/?console=shell&novnc=1&node=${node}&resize=off&cmd=`,
       kind: "proxmox",
-    };
+    });
+    const hostShell = shell("pve-1");
+    const hostOn = (node: string) => ({ name: `Rack ${node}`, node, links: [shell(node)] });
 
-    it("offers the host shell link when the hardware host is the VM's node", async () => {
+    it("offers the shell link of the hardware host that is the VM's node", async () => {
       const user = userEvent.setup();
       stubFetch({ "GET /api/v1/plugins/proxmox/vms/101": detail() });
       renderApp(<VMsPage vmid="101" />, { path: "/vms/101" });
       stream.plugins([proxmox(), hardware()]);
       stream.send("proxmox.vms", data());
-      stream.send("hardware.hosts", { name: "pve-1", node: "pve-1", links: [hostShell] });
+      // The VM's host is not the first one: the sheet picks by node, not by position.
+      stream.send("hardware.hosts", { hosts: [hostOn("pve-2"), hostOn("pve-1")] });
 
       const sheet = await screen.findByRole("dialog");
       await user.click(await within(sheet).findByRole("tab", { name: "Links" }));
-      const link = await within(sheet).findByRole("link", { name: /Host shell/ });
+      const link = await within(sheet).findByRole("link", { name: /Host shell pve-1/ });
       expect(link).toHaveAttribute("href", hostShell.href);
+      expect(within(sheet).queryByRole("link", { name: /Host shell pve-2/ })).toBeNull();
       expect(within(sheet).getByText("Host")).toBeInTheDocument();
     });
 
@@ -427,7 +431,7 @@ describe("the VMs page", () => {
       renderApp(<VMsPage vmid="102" />, { path: "/vms/102" });
       stream.plugins([proxmox(), hardware()]);
       stream.send("proxmox.vms", data());
-      stream.send("hardware.hosts", { name: "pve-1", node: "pve-1", links: [hostShell] });
+      stream.send("hardware.hosts", { hosts: [hostOn("pve-1")] });
 
       const sheet = await screen.findByRole("dialog");
       expect(within(sheet).getByTitle("Runs on node pve-2")).toBeInTheDocument();

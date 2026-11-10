@@ -40,7 +40,7 @@ func hostRig(t *testing.T, mod func(*pluginconf.Hardware)) *rig {
 // filled: the refs, the layout settings and the thresholds (design 5.3: no empty placeholder).
 func TestHostPublishesPolledValuesAndPluginFields(t *testing.T) {
 	r := hostRig(t, nil)
-	d, srcs := waitTopic(t, r.hub, "hardware.hosts", func(d model.HostData) bool { return d.PowerWatts > 0 })
+	d, srcs := waitHost(t, r.hub, func(d model.HostData) bool { return d.PowerWatts > 0 })
 
 	if d.Name != node || d.Ref != "hardware:Host/"+node || d.Model != "Example 2U server" {
 		t.Errorf("name, ref, model = %q %q %q", d.Name, d.Ref, d.Model)
@@ -75,7 +75,7 @@ func TestHostPublishesPolledValuesAndPluginFields(t *testing.T) {
 // A disk without a serial is identified by its bay.
 func TestDiskRefUsesTheBayWhenThereIsNoSerial(t *testing.T) {
 	r := hostRig(t, nil)
-	d, _ := waitTopic(t, r.hub, "hardware.hosts", func(d model.HostData) bool { return len(d.Disks) == 2 })
+	d, _ := waitHost(t, r.hub, func(d model.HostData) bool { return len(d.Disks) == 2 })
 	if d.Disks[0].Ref != "hardware:Disk/"+node+"/bay-0" || d.Disks[1].Ref != "hardware:Disk/"+node+"/SER1" {
 		t.Errorf("disk refs = %q %q", d.Disks[0].Ref, d.Disks[1].Ref)
 	}
@@ -85,13 +85,13 @@ func TestDiskRefUsesTheBayWhenThereIsNoSerial(t *testing.T) {
 // that recovers clears it.
 func TestFailedQueryKeepsTheLastGoodValues(t *testing.T) {
 	r := hostRig(t, nil)
-	waitTopic(t, r.hub, "hardware.hosts", func(d model.HostData) bool { return d.PowerWatts == 214 })
+	waitHost(t, r.hub, func(d model.HostData) bool { return d.PowerWatts == 214 })
 
 	r.q.setErr(r.ex.power(node), errors.New("boom"))
 	r.q.set(r.ex.cpu(node), sample(0.5))
 	// A poll in flight when the failure lands can still publish CPU 0.5 with a good source, so
 	// wait for a poll that saw both: the failure in the sources, the new CPU in the data.
-	d, _ := waitPublished(t, r.hub, "hardware.hosts", func(d model.HostData, srcs []model.SourceStatus) bool {
+	d, _ := waitHostPublished(t, r.hub, func(d model.HostData, srcs []model.SourceStatus) bool {
 		return d.CPURatio == 0.5 && hasSource(srcs, "prometheus", false, "unreachable")
 	})
 	if d.PowerWatts != 214 {
@@ -99,7 +99,7 @@ func TestFailedQueryKeepsTheLastGoodValues(t *testing.T) {
 	}
 
 	r.q.set(r.ex.power(node), sample(50))
-	_, srcs := waitTopic(t, r.hub, "hardware.hosts", func(d model.HostData) bool { return d.PowerWatts == 50 })
+	_, srcs := waitHost(t, r.hub, func(d model.HostData) bool { return d.PowerWatts == 50 })
 	if !hasSource(srcs, "prometheus", true, "") {
 		t.Errorf("sources = %+v, want prometheus ok after recovery", srcs)
 	}
@@ -109,7 +109,7 @@ func TestFailedQueryKeepsTheLastGoodValues(t *testing.T) {
 // source, so the page says why it is empty.
 func TestFailingPrometheusPublishesEmptyListsAndTheCategory(t *testing.T) {
 	r := newRig(t, rigOpts{cfg: homelabShaped, qfail: errors.New("down")})
-	d, srcs := waitTopic(t, r.hub, "hardware.hosts", anyHost)
+	d, srcs := waitHost(t, r.hub, anyHost)
 	if d.PackageTempsC == nil || d.Sensors == nil || d.Fans == nil || d.PSUs == nil || d.Pools == nil || d.Disks == nil || d.Links == nil {
 		t.Errorf("a list is null: %+v", d)
 	}
@@ -121,13 +121,14 @@ func TestFailingPrometheusPublishesEmptyListsAndTheCategory(t *testing.T) {
 	}
 }
 
-// The host's name: hosts[0].name, else the Proxmox node, else the nodename; the nodename itself
-// is hosts[0].nodename, else the Proxmox node. It is read on every poll.
+// A host's name is its configured name, else its nodename, else (the host without a nodename) the
+// Proxmox node; the nodename itself is the configured one, else the Proxmox node. The name never
+// comes from the node, so it does not move when the Proxmox cluster is read.
 func TestHostNameChain(t *testing.T) {
 	t.Run("the configured name wins", func(t *testing.T) {
 		r := hostRig(t, func(c *pluginconf.Hardware) { c.Hosts[0].Name, c.Hosts[0].Nodename = "Rack 1", "box-9" })
 		r.q.fillHost(r.ex, "box-9", scrubPrefix)
-		d, _ := waitTopic(t, r.hub, "hardware.hosts", func(d model.HostData) bool { return d.Name == "Rack 1" })
+		d, _ := waitHost(t, r.hub, func(d model.HostData) bool { return d.Name == "Rack 1" })
 		if d.Ref != "hardware:Host/Rack 1" || !r.q.askedContaining(`nodename="box-9"`) || r.q.askedContaining(`nodename="`+node+`"`) {
 			t.Errorf("ref %q, queries %v", d.Ref, r.q.asked())
 		}
@@ -147,17 +148,17 @@ func TestHostNameChain(t *testing.T) {
 			t.Errorf("name %q ref %q", d.Name, d.Ref)
 		}
 	})
-	t.Run("the Proxmox node names the host while the nodename is configured", func(t *testing.T) {
+	t.Run("the configured nodename names the only host whose node the Proxmox plugin names", func(t *testing.T) {
 		r := newRig(t, rigOpts{cfg: func(c *pluginconf.Hardware) { c.Hosts = []pluginconf.HardwareHost{{Nodename: "box-9"}} }})
 		r.q.fillHost(r.ex, "box-9", "")
 		d, _ := r.hostOf()
-		if d.Name != node { // the name is the node, the series carry the configured nodename
-			t.Errorf("name = %q, want the Proxmox node %q", d.Name, node)
+		if d.Name != "box-9" || d.Node != node {
+			t.Errorf("name %q node %q, want the nodename and the Proxmox node %q", d.Name, d.Node, node)
 		}
 	})
 }
 
-// hosts[0].bays and fanMaxRPM reach the payload as configured, 0 meaning "derive it".
+// A host's bays and fanMaxRPM reach the payload as configured, 0 meaning "derive it".
 func TestHostCarriesBaysAndFanScale(t *testing.T) {
 	r := hostRig(t, nil)
 	d, _ := r.hostOf()
@@ -204,7 +205,7 @@ func TestEmptyScrubPrefixQueriesNoScrubData(t *testing.T) {
 	}
 
 	r2 := hostRig(t, nil)
-	d2, _ := waitTopic(t, r2.hub, "hardware.hosts", func(d model.HostData) bool { return len(d.Pools) > 0 })
+	d2, _ := waitHost(t, r2.hub, func(d model.HostData) bool { return len(d.Pools) > 0 })
 	if !d2.ScrubTracked || !r2.q.askedContaining(scrubPrefix+"_last_errors") {
 		t.Errorf("scrubTracked %v, queries %v", d2.ScrubTracked, r2.q.asked())
 	}
@@ -229,7 +230,7 @@ func TestTempThresholdsDriveEveryHealth(t *testing.T) {
 	} {
 		r := hostRig(t, func(h *pluginconf.Hardware) { h.TempThresholds = pluginconf.TempThresholds{Warn: c.warn, Crit: c.crit} })
 		r.q.set(r.ex.packageTemps(node), sample(c.temp, "sensor", "temp1"))
-		d, _ := waitTopic(t, r.hub, "hardware.hosts", func(d model.HostData) bool { return len(d.PackageTempsC) == 1 })
+		d, _ := waitHost(t, r.hub, func(d model.HostData) bool { return len(d.PackageTempsC) == 1 })
 		if d.CPUTempHealth != c.want || d.TempWarnC != c.warn || d.TempCritC != c.crit {
 			t.Errorf("%d/%d at %v: host health %s (thresholds %d/%d), want %s", c.warn, c.crit, c.temp, d.CPUTempHealth, d.TempWarnC, d.TempCritC, c.want)
 		}
@@ -247,7 +248,7 @@ func TestTempThresholdsDriveEveryHealth(t *testing.T) {
 			t.Errorf("%d/%d at %v: topology cpuTempHealth = %s, want %s", c.warn, c.crit, c.temp, got, c.want)
 		}
 		items := con.Attention.Attention(time.Now())
-		raised := slices.ContainsFunc(items, func(it model.AttentionItem) bool { return it.ID == "host:cpu-temp" })
+		raised := slices.ContainsFunc(items, func(it model.AttentionItem) bool { return it.ID == "host:cpu-temp:"+node })
 		if raised != (c.want != model.HealthOK) {
 			t.Errorf("%d/%d at %v: host:cpu-temp raised = %v, want %v", c.warn, c.crit, c.temp, raised, c.want != model.HealthOK)
 		}
@@ -315,7 +316,7 @@ func TestBuildHostDataDoesNotChangeItsInput(t *testing.T) {
 	cfg := pluginconf.DefaultHardware()
 	cfg.Hosts = []pluginconf.HardwareHost{{Model: "M", Bays: 4}}
 	cfg = cfg.Normalized()
-	d := buildHostData(vals, cfg, "h1", "h1")
+	d := buildHostData(vals, cfg, cfg.Hosts[0], "h1", "h1")
 	if d.Pools[0].Ref != "hardware:Pool/h1/tank" || d.Disks[0].Ref != "hardware:Disk/h1/bay-3" || d.Bays != 4 {
 		t.Errorf("built = %+v", d)
 	}

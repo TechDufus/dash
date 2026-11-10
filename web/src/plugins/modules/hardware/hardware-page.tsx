@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 import { useReducedMotion } from "motion/react";
 import type { ReactNode } from "react";
+import { Link } from "wouter";
 import { useTopic } from "@/api/stream";
 import type { Disk, Health, HostData, Pool, SourceStatus } from "@/api/types";
 import { BytesBar } from "@/components/bytes-bar";
@@ -39,7 +40,25 @@ import { HEALTH_TEXT, worstHealth } from "@/lib/health";
 import { useNow } from "@/lib/hooks";
 import { cn } from "@/lib/utils";
 import { Slot } from "@/plugins/slots";
-import { MachinesPanel } from "./machines-panel";
+import { FleetGrid, maxPackageTemp, poolHealth } from "./fleet";
+
+/**
+ * A host's series select it by its node. The API accepts only lowercase node values and the
+ * plugin matches nodes ignoring case, so a node such as "PVE-2" is sent lowercased.
+ */
+function seriesParams(host: HostData): { node: string } {
+  return { node: host.node.toLowerCase() };
+}
+
+function diskHealth(d: Disk): Health {
+  if (!d.healthy) return "crit";
+  const life = d.lifeRemainingPct;
+  if (life != null) {
+    if (life < 10) return "crit";
+    if (life < 20) return "warn";
+  }
+  return "ok";
+}
 
 const fmtTemp = (v: number) => `${v.toFixed(0)}°C`;
 const fmtRpm = (v: number) => `${Math.round(v)} rpm`;
@@ -92,6 +111,7 @@ function Hero({ host, sources }: { host: HostData; sources: SourceStatus[] | und
         <SeriesChart
           name="host.power"
           range="24h"
+          params={seriesParams(host)}
           format={formatWatts}
           height={190}
           title="Power, 24 h"
@@ -142,7 +162,7 @@ function Temps({ host }: { host: HostData }) {
   const inlet = sensorValue(host, host.sensorAliases.inlet);
   const exhaust = sensorValue(host, host.sensorAliases.exhaust);
   const pkgs = host.packageTempsC;
-  const maxPkg = pkgs.length > 0 ? Math.max(...pkgs) : undefined;
+  const maxPkg = maxPackageTemp(host);
   const limits =
     host.tempWarnC > 0 && host.tempCritC > 0
       ? `warn ${fmtTemp(host.tempWarnC)} · crit ${fmtTemp(host.tempCritC)}`
@@ -165,7 +185,14 @@ function Temps({ host }: { host: HostData }) {
             "No package sensors"
           )
         }
-        spark={<SparkSeries name="host.cpuTemp" range="6h" format={fmtTemp} />}
+        spark={
+          <SparkSeries
+            name="host.cpuTemp"
+            range="6h"
+            params={seriesParams(host)}
+            format={fmtTemp}
+          />
+        }
       />
     </div>
   );
@@ -297,16 +324,6 @@ function placeDisks(disks: Disk[], bays: number): BaySlot[] {
   });
 }
 
-function diskHealth(d: Disk): Health {
-  if (!d.healthy) return "crit";
-  const life = d.lifeRemainingPct;
-  if (life != null) {
-    if (life < 10) return "crit";
-    if (life < 20) return "warn";
-  }
-  return "ok";
-}
-
 const BAY_STYLE: Record<Health, string> = {
   ok: "border-ok/25 bg-ok/5",
   warn: "border-warn/40 bg-warn/10",
@@ -392,13 +409,6 @@ function Bays({ host }: { host: HostData }) {
       )}
     </Panel>
   );
-}
-
-function poolHealth(state: string): Health {
-  const s = state.toUpperCase();
-  if (s === "ONLINE") return "ok";
-  if (s === "DEGRADED") return "warn";
-  return "crit";
 }
 
 function PoolCard({ pool, now, scrubTracked }: { pool: Pool; now: number; scrubTracked: boolean }) {
@@ -489,7 +499,8 @@ function SidePanels({ host, now }: { host: HostData; now: number }) {
   );
 }
 
-function Trends() {
+function Trends({ host }: { host: HostData }) {
+  const params = seriesParams(host);
   return (
     <Panel>
       <Tabs defaultValue="temps" className="gap-0">
@@ -502,10 +513,16 @@ function Trends() {
           </TabsList>
         </div>
         <TabsContent value="temps" className="px-4 pb-4">
-          <SeriesChart name="host.temps" range="24h" format={fmtTemp} height={220} />
+          <SeriesChart
+            name="host.temps"
+            range="24h"
+            params={params}
+            format={fmtTemp}
+            height={220}
+          />
         </TabsContent>
         <TabsContent value="fans" className="px-4 pb-4">
-          <SeriesChart name="host.fans" range="24h" format={fmtRpm} height={220} />
+          <SeriesChart name="host.fans" range="24h" params={params} format={fmtRpm} height={220} />
         </TabsContent>
       </Tabs>
     </Panel>
@@ -533,52 +550,105 @@ function PageSkeleton() {
   );
 }
 
-export function HardwarePage() {
-  const env = useTopic("hardware.hosts");
-  const machinesEnv = useTopic("hardware.machines");
-  const host = env?.data;
-  const now = useNow(30_000).getTime();
-  const hasMachines = (machinesEnv?.data.machines.length ?? 0) > 0;
-
-  // A plugin with only machines configured never publishes hardware.hosts, so waiting for it
-  // would show the skeleton forever: once the machines have arrived and there are some, they are
-  // the page.
-  if (!host && hasMachines) {
-    return (
-      <Page>
-        <Reveal index={0}>
-          <MachinesPanel title="Machines" />
-        </Reveal>
-      </Page>
-    );
+/**
+ * The host a route names. The router decodes the path with decodeURI, which leaves the escapes
+ * of reserved characters (",", "/", ":", "&", ...) that a card link or the plugin's attention
+ * route puts in a name, so the route is also decoded as a component; a literal "%" that is no
+ * escape makes that throw, and the route then stands as it is.
+ */
+function findHost(hosts: HostData[], route: string): HostData | undefined {
+  let decoded = route;
+  try {
+    decoded = decodeURIComponent(route);
+  } catch {
+    // A "%" not followed by two hex digits: the name itself.
   }
+  return hosts.find((h) => h.name === route || h.name === decoded);
+}
 
-  if (!host) return <PageSkeleton />;
-
+/** One host's sections: power, temperatures, system and fans, bays and pools, trends. */
+function HostDetail({
+  host,
+  sources,
+  now,
+  revealFrom,
+}: {
+  host: HostData;
+  sources: SourceStatus[] | undefined;
+  now: number;
+  revealFrom: number;
+}) {
   return (
-    <Page>
-      <Reveal index={0}>
-        <Hero host={host} sources={env?.sources} />
+    <>
+      <Reveal index={revealFrom}>
+        <Hero host={host} sources={sources} />
       </Reveal>
-      <Reveal index={1}>
+      <Reveal index={revealFrom + 1}>
         <Temps host={host} />
       </Reveal>
-      <Reveal index={2} className="grid gap-4 lg:grid-cols-2">
+      <Reveal index={revealFrom + 2} className="grid gap-4 lg:grid-cols-2">
         <System host={host} />
         <Fans host={host} />
       </Reveal>
-      <Reveal index={3} className="grid gap-4 lg:grid-cols-3 lg:items-start">
+      <Reveal index={revealFrom + 3} className="grid gap-4 lg:grid-cols-3 lg:items-start">
         <Bays host={host} />
         <SidePanels host={host} now={now} />
       </Reveal>
-      {hasMachines && (
-        <Reveal index={4}>
-          <MachinesPanel />
+      <Reveal index={revealFrom + 4}>
+        <Trends host={host} />
+      </Reveal>
+    </>
+  );
+}
+
+/**
+ * The Hardware page: a grid of every host and machine when there is more than one thing to
+ * show, then the detail of the host the route names (the first host without one). One host and
+ * no machines is the detail alone, and machines without hosts are the grid alone.
+ */
+export function HardwarePage({ host: route }: { host?: string }) {
+  const env = useTopic("hardware.hosts");
+  const machinesEnv = useTopic("hardware.machines");
+  const now = useNow(30_000).getTime();
+  const hosts = env?.data.hosts ?? [];
+  const machines = machinesEnv?.data.machines ?? [];
+
+  // The plugin publishes hardware.hosts once every configured host has been read, and `[]` at
+  // once when none is configured; until then the hosts are unknown, not absent. With neither hosts
+  // nor machines there is nothing to draw.
+  if (!env || (hosts.length === 0 && machines.length === 0)) return <PageSkeleton />;
+
+  const selected = route === undefined ? hosts[0] : findHost(hosts, route);
+  const grid = hosts.length > 1 || machines.length > 0;
+
+  return (
+    <Page>
+      {grid && (
+        <Reveal index={0}>
+          <FleetGrid
+            hosts={hosts}
+            selected={selected}
+            machines={machines}
+            sources={machinesEnv?.sources}
+          />
         </Reveal>
       )}
-      <Reveal index={hasMachines ? 5 : 4}>
-        <Trends />
-      </Reveal>
+      {selected ? (
+        <HostDetail host={selected} sources={env?.sources} now={now} revealFrom={grid ? 1 : 0} />
+      ) : (
+        route !== undefined && (
+          <Reveal index={1}>
+            <Panel>
+              <Empty>
+                No host named <span className="num text-fg">{route}</span>.{" "}
+                <Link href="/hardware" className="text-accent underline-offset-4 hover:underline">
+                  Back to all hardware
+                </Link>
+              </Empty>
+            </Panel>
+          </Reveal>
+        )
+      )}
     </Page>
   );
 }

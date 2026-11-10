@@ -14,7 +14,7 @@ import (
 	"github.com/TechDufus/dash/internal/model"
 )
 
-// HostName is the name of the fake Proxmox host.
+// HostName is the name of the first fake Proxmox host; SecondNodeName is the second.
 const HostName = "pve-demo"
 
 // LinkSource supplies the deep links the fixtures attach to objects, so the demo can hand over
@@ -43,7 +43,7 @@ func New(clock func() time.Time, start time.Time, links LinkSource) *World {
 
 // Snapshot is every topic payload of the world at one instant.
 type Snapshot struct {
-	Host    model.HostData
+	Hosts   []model.HostData
 	VMs     model.VMsData
 	Cluster model.ClusterData
 	Flux    model.FluxData
@@ -57,7 +57,7 @@ type Snapshot struct {
 func (w *World) Build() Snapshot {
 	now := w.clock()
 	return Snapshot{
-		Host:    w.host(now),
+		Hosts:   w.hosts(now),
 		VMs:     w.vms(now),
 		Cluster: w.cluster(now),
 		Flux:    w.flux(now),

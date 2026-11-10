@@ -7,11 +7,11 @@ import (
 	pvemodel "github.com/TechDufus/dash/internal/plugins/proxmox/model"
 )
 
-// The fake Proxmox cluster: two nodes, HostName (the hardware host) and SecondNodeName.
+// The fake Proxmox cluster: two nodes, HostName and SecondNodeName, each a hardware host.
 const (
 	// ClusterName is the name of the fake Proxmox cluster.
 	ClusterName = "demo"
-	// SecondNodeName is the cluster's second node, a smaller box without a hardware host.
+	// SecondNodeName is the cluster's second node, a smaller one-socket box.
 	SecondNodeName = "pve-demo-2"
 )
 
@@ -25,8 +25,8 @@ type pveNodeSpec struct {
 	upDays                          int64
 }
 
-// pveNodes are the fake cluster's nodes, by name. The first is the hardware host: its CPU and
-// memory drift with the same keys as the hardware payload's, so the two pages agree.
+// pveNodes are the fake cluster's nodes, by name. Their CPU and memory drift with the same keys
+// as their hardware hosts' payloads (hostSpecs), so the two pages agree.
 var pveNodes = []pveNodeSpec{
 	{
 		name: HostName, version: "9.0.11", kernel: "6.14.11-4-pve", cpuModel: "Intel Xeon E5-2690 v4 @ 2.60GHz",

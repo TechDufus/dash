@@ -11,7 +11,7 @@
       "type": "boolean"
     },
     "node": {
-      "description": "The Proxmox node the Hardware page's host is. The page's Proxmox facts, its shell link and its place in the topology come from that node, and its series use the node as their nodename unless plugins.hardware.hosts[0].nodename names another. Empty takes the only node of a one-node cluster; a cluster of several nodes needs it for the Hardware page. dash reads every node of the cluster either way.",
+      "description": "The Proxmox node of the hardware host without a nodename (plugins.hardware.hosts): that host reads the node's series and shows its Proxmox facts, shell link and place in the topology. Hosts with a nodename that is a node of the cluster are that node whatever this says. Empty takes the only node of a one-node cluster; a cluster of several nodes needs it for a host without a nodename. dash reads every node of the cluster either way.",
       "type": "string"
     },
     "series": {

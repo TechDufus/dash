@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/TechDufus/dash/internal/model"
 	"github.com/TechDufus/dash/internal/plugin/plugintest"
 	"github.com/TechDufus/dash/internal/pluginconf"
 	hwmodel "github.com/TechDufus/dash/internal/plugins/hardware/model"
@@ -55,8 +56,11 @@ func TestMachinesViaPrometheusAndViaGatus(t *testing.T) {
 		t.Errorf("envelope sources = %+v, want prometheus and gatus", srcs)
 	}
 	plugintest.AssertRefs(t, r.sup, ID, d, hwmodel.Machine{})
-	if _, _, ok := stored[hwmodel.MachinesData](t, r.hub, "hardware.hosts"); ok {
-		t.Error("a hosts topic was published with no host configured")
+	// With no host configured the hosts topic is an empty list at once, so the page knows there
+	// is none rather than waiting.
+	hosts, _ := waitTopic(t, r.hub, "hardware.hosts", func(model.HostsData) bool { return true })
+	if hosts.Hosts == nil || len(hosts.Hosts) != 0 {
+		t.Errorf("hosts = %#v, want an empty list that is not null", hosts.Hosts)
 	}
 	if !r.q.askedContaining(`up{job="node-exporter",nodename="nas-1"}`) {
 		t.Errorf("the machine's up series was not asked: %v", r.q.asked())

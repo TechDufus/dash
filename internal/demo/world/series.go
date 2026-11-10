@@ -19,19 +19,27 @@ func Series(expr string, start, end time.Time, step time.Duration) []model.Serie
 	}
 	one := func(base, spread float64) []shape { return []shape{{map[string]string{}, base, spread}} }
 	var shapes []shape
+	// A series of the second host names its nodename as a literal; the sum over every host (the
+	// Overview's power spark) names both in one regular expression.
+	spec, all := hostSpecs[0], strings.HasPrefix(expr, "sum(")
+	if strings.Contains(expr, `"`+SecondNodeName+`"`) {
+		spec = hostSpecs[1]
+	}
 	switch {
 	case strings.Contains(expr, "ipmi_fan_speed_rpm"):
-		for i, rpm := range []float64{5880, 6000, 5760, 6120, 5940, 6060} {
-			shapes = append(shapes, shape{map[string]string{"name": fmt.Sprintf("Fan%d", i+1)}, rpm, 240})
+		for i := range spec.fans {
+			shapes = append(shapes, shape{map[string]string{"name": fmt.Sprintf("Fan%d", i+1)}, spec.fanBase + float64(i%3)*60, 240})
 		}
 	case strings.Contains(expr, "ipmi_temperature_celsius"):
-		for _, x := range HostSensors {
+		for _, x := range spec.sensors {
 			shapes = append(shapes, shape{map[string]string{"name": x.Name}, x.ValueC, 3})
 		}
+	case strings.Contains(expr, "ipmi_power_watts") && all:
+		shapes = one(hostSpecs[0].power+hostSpecs[1].power, hostSpecs[0].powerSpread+hostSpecs[1].powerSpread)
 	case strings.Contains(expr, "ipmi_power_watts"):
-		shapes = one(214, 26)
+		shapes = one(spec.power, spec.powerSpread)
 	case strings.Contains(expr, "node_hwmon_temp_celsius"):
-		shapes = one(57, 6)
+		shapes = one(spec.pkgs[0], 6)
 	case strings.Contains(expr, "pve_cpu_usage_ratio"), strings.Contains(expr, "node_cpu_seconds_total"):
 		shapes = one(0.22, 0.12)
 	case strings.Contains(expr, "pve_memory"), strings.Contains(expr, "node_memory"):

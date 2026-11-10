@@ -320,13 +320,14 @@ function LinksTab({ vm, hostLinks }: { vm: VM | undefined; hostLinks: Link[] }) 
 function VMSheetBody({ vmid }: { vmid: string }) {
   const [tab, setTab] = useState<SheetTab>("overview");
   const topic = useTopic("proxmox.vms");
-  const host = useTopicData("hardware.hosts");
+  const hosts = useTopicData("hardware.hosts")?.hosts;
   const detail = useVMDetail(vmid);
   const live = topic?.data.vms.find((v) => String(v.vmid) === vmid);
   const vm = live ?? detail.data?.vm;
-  // The hardware host's links (its shell, its BMC) belong to one node; a VM on another node of
-  // the cluster does not run on that machine.
-  const hostLinks = vm && host && host.node !== "" && host.node === vm.node ? host.links : [];
+  // A hardware host's links (its shell, its BMC) belong to its own node; a VM shows those of
+  // the host it runs on, and none when no host is that node.
+  const host = vm && vm.node !== "" ? hosts?.find((h) => h.node === vm.node) : undefined;
+  const hostLinks = host?.links ?? [];
 
   if (topic && !live) {
     return (

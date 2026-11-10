@@ -17,15 +17,18 @@ const (
 	maxFanMaxRPM = 100000
 	// MaxMachineName is the longest machine name, in bytes.
 	MaxMachineName = 64
+	// MaxHostName is the longest host name, in bytes: like a machine's, it titles a card.
+	MaxHostName = 64
 )
 
-// Hardware is plugins.hardware: the physical host behind the cluster, and the machines next to it.
+// Hardware is plugins.hardware: the physical hosts behind the cluster, and the machines next to them.
 type Hardware struct {
 	PluginBase
-	// Hosts has at most one entry until the hardware plugin supports several (G3).
-	Hosts []HardwareHost `json:"hosts" doc:"The machine behind the cluster, as [{name, nodename, model, bays, fanMaxRPM, sensorAliases}]; every key is optional, and [{}] reads the Proxmox node, which needs the proxmox plugin to run (its URL, token ID and token secret set) unless nodename is set. One entry is supported for now. A JSON list in the environment."`
-	// Machines are the boxes outside the cluster whose reachability dash shows.
-	Machines []HardwareMachine `json:"machines" doc:"Machines outside the cluster to show as up or down, as [{name, nodeExporterNodename}] (up while their node-exporter is scraped) or [{name, gatusEndpoint}] (up while that Gatus check passes). A JSON list in the environment."`
+	// Hosts are the servers whose node-exporter and IPMI series dash reads, in the order the
+	// Hardware page shows them.
+	Hosts []HardwareHost `json:"hosts" doc:"The servers dash reads node-exporter and IPMI series of, as [{name, nodename, model, bays, fanMaxRPM, sensorAliases}], shown in this order. Every key is optional, but names and nodenames must be unique ignoring case, and at most one host may leave nodename empty: that host reads the Proxmox node the proxmox plugin names, which needs the proxmox plugin to run (its URL, token ID and token secret set). A JSON list in the environment."`
+	// Machines are the boxes outside the cluster whose reachability and stats dash shows.
+	Machines []HardwareMachine `json:"machines" doc:"Machines outside the cluster to show, as [{name, nodeExporterNodename}] (up while their node-exporter is scraped, with its CPU, memory, root disk, load, uptime and temperature) or [{name, gatusEndpoint}] (up while that Gatus check passes). A JSON list in the environment."`
 	// Selectors are the label values the queries select the host and the machines by.
 	Selectors HardwareSelectors `json:"selectors" doc:"The label values dash's queries select by."`
 	// TempThresholds are the CPU package temperatures that turn the host warning and critical.
@@ -37,11 +40,11 @@ type Hardware struct {
 
 // HardwareHost is a machine whose node-exporter and IPMI series dash reads.
 type HardwareHost struct {
-	// Name is shown as the host's name; empty uses the Proxmox node's name.
-	Name string `json:"name" doc:"The host's name in the web UI. Empty uses the Proxmox node's name, then the nodename."`
+	// Name is shown as the host's name; empty uses the nodename, then the Proxmox node's name.
+	Name string `json:"name" doc:"The host's name in the web UI and in its refs, attention ids and page route: at most 64 bytes, unique ignoring case and not another host's nodename. Empty uses the nodename, or for the host without a nodename the Proxmox node the proxmox plugin names."`
 	// Nodename is the nodename label of its series; empty falls back to the node the running
-	// proxmox plugin names, which is the Proxmox node the host is whenever that plugin names one.
-	Nodename string `json:"nodename" doc:"The nodename label of the host's node-exporter and IPMI series. Empty uses plugins.proxmox.node, or the only node of a one-node Proxmox cluster, so the proxmox plugin needs its URL, token ID and token secret; a cluster of several nodes needs plugins.proxmox.node (the node the host is) or this, and the Hardware row says so until one is set. While the proxmox plugin names no node, this is also the Proxmox node whose facts and shell the Hardware page shows."`
+	// proxmox plugin names, which only one host can do.
+	Nodename string `json:"nodename" doc:"The nodename label of the host's node-exporter and IPMI series, unique ignoring case. When the Proxmox cluster has a node of this name (or of its first DNS label: pve1.example.com is node pve1), the Hardware page shows that node's facts and shell. Empty (allowed on one host) uses plugins.proxmox.node, or the only node of a one-node Proxmox cluster, so the proxmox plugin needs its URL, token ID and token secret; a cluster of several nodes needs plugins.proxmox.node or this, and the Hardware row says so until one is set."`
 	// Model is shown next to the host's name, e.g. "Example 2U server".
 	Model string `json:"model" doc:"Shown next to the host's name, e.g. Example 2U server."`
 	// Bays is the number of drive bays the Disks grid draws; 0 numbers the slots from 1 (from 0
@@ -70,7 +73,7 @@ type HardwareMachine struct {
 // HardwareSelectors are the label values the hardware queries select by.
 type HardwareSelectors struct {
 	NodeExporterJob string `json:"nodeExporterJob" doc:"The job label of the node-exporter targets, which the machines' up queries select."`
-	HwmonChip       string `json:"hwmonChip" doc:"RE2 regular expression for the chip label of the CPU package temperature (node_hwmon_temp_celsius), e.g. platform_coretemp_.* for Intel."`
+	HwmonChip       string `json:"hwmonChip" doc:"RE2 regular expression for the chip label of the CPU package temperature (node_hwmon_temp_celsius), e.g. platform_coretemp_.* for Intel; it also picks a machine's temperature, which falls back to node_thermal_zone_temp."`
 }
 
 // TempThresholds are whole degrees Celsius: the environment has no column for fractions.
@@ -110,19 +113,45 @@ func (h Hardware) Normalized() Hardware {
 	return h
 }
 
-// Validate checks the host count, the numbers' ranges, the machines, the selectors and that the
-// scrub prefix is a metric name.
+// Validate checks the hosts' names, nodenames and numbers, the machines, the selectors and that
+// the scrub prefix is a metric name.
 func (h Hardware) Validate() error {
 	var p problems
-	if len(h.Hosts) > 1 {
-		p.add("hosts", "has %d entries; one host is supported until the hardware plugin handles several", len(h.Hosts))
-	}
+	names, nodenames, unnamed := map[string]bool{}, map[string]bool{}, 0
 	for i, x := range h.Hosts {
+		name, nodename := strings.ToLower(strings.TrimSpace(x.Name)), strings.ToLower(strings.TrimSpace(x.Nodename))
+		switch {
+		case len(name) > MaxHostName:
+			p.add("hosts", "entry %d: name is longer than %d bytes", i, MaxHostName)
+		case name != "" && names[name]:
+			p.add("hosts", "entry %d: name repeats an earlier host (names are compared ignoring case)", i)
+		}
+		names[name] = true
+		if nodename == "" {
+			// Only one host can take the node the proxmox plugin names; two would read the same series.
+			if unnamed++; unnamed == 2 {
+				p.add("hosts", "entry %d: nodename is empty on more than one host; only one host can take the Proxmox node's name", i)
+			}
+		} else if nodenames[nodename] {
+			p.add("hosts", "entry %d: nodename repeats an earlier host (nodenames are compared ignoring case)", i)
+		}
+		nodenames[nodename] = true
 		if x.Bays < 0 || x.Bays > maxBays {
 			p.add("hosts", "entry %d: bays must be 0 to %d", i, maxBays)
 		}
 		if x.FanMaxRPM < 0 || x.FanMaxRPM > maxFanMaxRPM {
 			p.add("hosts", "entry %d: fanMaxRPM must be 0 to %d", i, maxFanMaxRPM)
+		}
+	}
+	// A host without a name is called by its nodename, so a name that is another host's nodename
+	// would give two hosts one name.
+	for i, x := range h.Hosts {
+		name := strings.TrimSpace(x.Name)
+		for j, y := range h.Hosts {
+			if name != "" && i != j && strings.EqualFold(name, strings.TrimSpace(y.Nodename)) {
+				p.add("hosts", "entry %d: name is the nodename of entry %d (compared ignoring case)", i, j)
+				break
+			}
 		}
 	}
 	seen := map[string]bool{}

@@ -269,7 +269,7 @@ func TestValidateTree(t *testing.T) {
 		{"settings.ui values", "settings: {ui: sometimes}\n", "settings.ui"},
 		{"token halves go together", "plugins: {proxmox: {url: 'https://pve', tokenID: a!b}}\n", "tokenID and tokenSecret"},
 		{"token needs a url", "plugins: {proxmox: {tokenID: a!b, tokenSecret: c}}\n", "plugins.proxmox.url"},
-		{"one hardware host", "plugins: {hardware: {hosts: [{nodename: a}, {nodename: b}]}}\n", "plugins.hardware.hosts"},
+		{"hardware nodenames are unique", "plugins: {hardware: {hosts: [{nodename: a}, {nodename: A}]}}\n", "plugins.hardware.hosts"},
 		{"backup job is complete", "plugins: {kubernetes: {backupJobs: [{namespace: a}]}}\n", "needs both namespace and cronjob"},
 		{"launcher file xor links", "plugins: {launcher: {file: /x, links: [{name: a, href: 'https://a'}]}}\n", "plugins.launcher.file"},
 		{"launcher link href", "plugins: {launcher: {links: [{name: a, href: 'javascript:alert(1)'}]}}\n", "entry 1 needs a name and an http(s) href"},

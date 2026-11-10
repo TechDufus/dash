@@ -580,14 +580,14 @@
           "type": "boolean"
         },
         "hosts": {
-          "description": "The machine behind the cluster, as [{name, nodename, model, bays, fanMaxRPM, sensorAliases}]; every key is optional, and [{}] reads the Proxmox node, which needs the proxmox plugin to run (its URL, token ID and token secret set) unless nodename is set. One entry is supported for now. A JSON list in the environment.",
+          "description": "The servers dash reads node-exporter and IPMI series of, as [{name, nodename, model, bays, fanMaxRPM, sensorAliases}], shown in this order. Every key is optional, but names and nodenames must be unique ignoring case, and at most one host may leave nodename empty: that host reads the Proxmox node the proxmox plugin names, which needs the proxmox plugin to run (its URL, token ID and token secret set). A JSON list in the environment.",
           "items": {
             "$ref": "#/$defs/HardwareHost"
           },
           "type": "array"
         },
         "machines": {
-          "description": "Machines outside the cluster to show as up or down, as [{name, nodeExporterNodename}] (up while their node-exporter is scraped) or [{name, gatusEndpoint}] (up while that Gatus check passes). A JSON list in the environment.",
+          "description": "Machines outside the cluster to show, as [{name, nodeExporterNodename}] (up while their node-exporter is scraped, with its CPU, memory, root disk, load, uptime and temperature) or [{name, gatusEndpoint}] (up while that Gatus check passes). A JSON list in the environment.",
           "items": {
             "$ref": "#/$defs/HardwareMachine"
           },
@@ -628,11 +628,11 @@
           "type": "string"
         },
         "name": {
-          "description": "The host's name in the web UI. Empty uses the Proxmox node's name, then the nodename.",
+          "description": "The host's name in the web UI and in its refs, attention ids and page route: at most 64 bytes, unique ignoring case and not another host's nodename. Empty uses the nodename, or for the host without a nodename the Proxmox node the proxmox plugin names.",
           "type": "string"
         },
         "nodename": {
-          "description": "The nodename label of the host's node-exporter and IPMI series. Empty uses plugins.proxmox.node, or the only node of a one-node Proxmox cluster, so the proxmox plugin needs its URL, token ID and token secret; a cluster of several nodes needs plugins.proxmox.node (the node the host is) or this, and the Hardware row says so until one is set. While the proxmox plugin names no node, this is also the Proxmox node whose facts and shell the Hardware page shows.",
+          "description": "The nodename label of the host's node-exporter and IPMI series, unique ignoring case. When the Proxmox cluster has a node of this name (or of its first DNS label: pve1.example.com is node pve1), the Hardware page shows that node's facts and shell. Empty (allowed on one host) uses plugins.proxmox.node, or the only node of a one-node Proxmox cluster, so the proxmox plugin needs its URL, token ID and token secret; a cluster of several nodes needs plugins.proxmox.node or this, and the Hardware row says so until one is set.",
           "type": "string"
         },
         "sensorAliases": {
@@ -665,7 +665,7 @@
       "properties": {
         "hwmonChip": {
           "default": "platform_coretemp_.*",
-          "description": "RE2 regular expression for the chip label of the CPU package temperature (node_hwmon_temp_celsius), e.g. platform_coretemp_.* for Intel.",
+          "description": "RE2 regular expression for the chip label of the CPU package temperature (node_hwmon_temp_celsius), e.g. platform_coretemp_.* for Intel; it also picks a machine's temperature, which falls back to node_thermal_zone_temp.",
           "type": "string"
         },
         "nodeExporterJob": {
@@ -1152,7 +1152,7 @@
           "type": "boolean"
         },
         "node": {
-          "description": "The Proxmox node the Hardware page's host is. The page's Proxmox facts, its shell link and its place in the topology come from that node, and its series use the node as their nodename unless plugins.hardware.hosts[0].nodename names another. Empty takes the only node of a one-node cluster; a cluster of several nodes needs it for the Hardware page. dash reads every node of the cluster either way.",
+          "description": "The Proxmox node of the hardware host without a nodename (plugins.hardware.hosts): that host reads the node's series and shows its Proxmox facts, shell link and place in the topology. Hosts with a nodename that is a node of the cluster are that node whatever this says. Empty takes the only node of a one-node cluster; a cluster of several nodes needs it for a host without a nodename. dash reads every node of the cluster either way.",
           "type": "string"
         },
         "series": {

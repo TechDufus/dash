@@ -18,6 +18,56 @@ export interface Machine {
   name: string;
   up: boolean;
   source: string; // "prometheus" or "gatus"
+  /**
+   * Stats are the machine's node-exporter readings. Nil for a Gatus machine, while a
+   * node-exporter machine is down, and until a poll finds its node_uname_info or CPU series.
+   */
+  stats?: MachineStats;
+}
+/**
+ * MachineStats are what a machine's node-exporter reports, Linux and macOS alike. Each figure is
+ * the last one read: a failed query keeps it, a query that succeeds without the machine clears
+ * it. A zero total or count means the figure is not reported, so the UI hides it rather than
+ * drawing an empty bar.
+ */
+export interface MachineStats {
+  /**
+   * OS, Arch and Kernel are node_uname_info's sysname (Linux, Darwin), machine (x86_64, arm64)
+   * and release; empty when not reported.
+   */
+  os: string;
+  arch: string;
+  kernel: string;
+  /**
+   * CPUs counts the logical CPUs, 0 when the CPU is not reported; CPURatio is their use, 0 to 1.
+   */
+  cpus: number /* int */;
+  cpuRatio: number /* float64 */;
+  /**
+   * MemUsedBytes is MemTotal - MemAvailable on Linux, and on macOS (which has no MemAvailable)
+   * what Activity Monitor calls Memory Used: app memory, wired and compressed. MemTotalBytes 0
+   * means memory is not reported.
+   */
+  memUsedBytes: number /* int64 */;
+  memTotalBytes: number /* int64 */;
+  /**
+   * DiskUsedBytes and DiskTotalBytes are the root file system's (on macOS the APFS container's).
+   * DiskTotalBytes 0 means the disk is not reported.
+   */
+  diskUsedBytes: number /* int64 */;
+  diskTotalBytes: number /* int64 */;
+  load1: number /* float64 */;
+  load5: number /* float64 */;
+  load15: number /* float64 */;
+  /**
+   * UptimeSeconds 0 means uptime is not reported.
+   */
+  uptimeSeconds: number /* int64 */;
+  /**
+   * TempC is the hottest CPU reading where the machine reports one (hwmon with the shared
+   * selectors.hwmonChip, else a CPU thermal zone); nil when it reports none, as macOS does.
+   */
+  tempC?: number /* float64 */;
 }
 /**
  * MachinesData is the hardware.machines topic.

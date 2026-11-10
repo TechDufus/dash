@@ -78,7 +78,7 @@ type topicResult struct {
 type seriesInput struct {
 	Name  string            `json:"name" dash:"required" doc:"A named series, e.g. pod.cpu, node.mem, vm.cpu or host.power."`
 	Range string            `json:"range" dash:"required,enum=15m|1h|6h|24h|7d" doc:"How far back: 15m, 1h, 6h, 24h or 7d."`
-	Args  map[string]string `json:"args" doc:"The series' parameters: vmid for vm.*, namespace and pod for pod.*, node for node.*."`
+	Args  map[string]string `json:"args" doc:"The series' parameters: vmid for vm.*, namespace and pod for pod.*, node for node.* (the node name) and host.* (a hardware host's node; without it host.power sums every host, host.cpuTemp is the hottest, and the other host.* series draw one line per host)."`
 }
 
 // seriesResult is a series summed up per line, with at most 60 points per line.
@@ -203,7 +203,8 @@ func (s *Server) toolTable() []tool {
 				"points. Only the series dash defines, e.g. pod.cpu, pod.mem, node.cpu, node.mem, vm.cpu, vm.mem, " +
 				"host.cpu, host.mem and host.power; an unknown name is answered with every name dash serves now. " +
 				"Values are raw: node.*, host.* and vm.* cpu and mem are ratios of 0 to 1, pod.cpu is in cores, " +
-				"pod.mem in bytes, host.power in watts.",
+				"pod.mem in bytes, host.power in watts. host.* take a hardware host's node as node; without it " +
+				"host.power is the sum over every host and host.cpuTemp the hottest, the others one line per host.",
 			run: func(ctx context.Context, _ caller, in any) (any, string, error) {
 				q := in.(*seriesInput)
 				if !slices.Contains(seriesRanges, q.Range) {

@@ -1,14 +1,14 @@
-// Package hardware is the hardware plugin (design F.0, P3.7): the physical host behind the
-// cluster (its sensors, fans, power, disks and ZFS pools, read from Prometheus-compatible
-// node-exporter, IPMI and SMART series) and the machines next to it that are neither VMs nor
-// cluster nodes, shown as up or down. It publishes hardware.hosts and hardware.machines,
-// contributes the host's attention items, KPIs and topology to the overview, and registers the
-// host.* series.
+// Package hardware is the hardware plugin (design F.0, P3.7): the physical hosts behind the
+// cluster (their sensors, fans, power, disks and ZFS pools, read from Prometheus-compatible
+// node-exporter, IPMI and SMART series) and the machines next to them that are neither VMs nor
+// cluster nodes, shown as up or down with their node-exporter stats. It publishes hardware.hosts
+// and hardware.machines, contributes the hosts' attention items, KPIs and topology to the
+// overview, and registers the host.* series.
 //
-// It reads the metrics through the prometheus plugin's svc.Querier, the host's nodename from
-// the proxmox plugin's svc.NodeName when no nodename is configured, and the reachability of
-// machines with a Gatus check from the gatus plugin's svc.EndpointHealth. It requires none of
-// them: whatever half of the plugin cannot run says so in its sources and the rest goes on.
+// It reads the metrics through the prometheus plugin's svc.Querier, the Proxmox nodes from the
+// proxmox plugin's svc.NodeName and svc.ClusterNodes, and the reachability of machines with a
+// Gatus check from the gatus plugin's svc.EndpointHealth. It requires none of them: whatever half
+// of the plugin cannot run says so in its sources and the rest goes on.
 //
 // Like every plugin it imports neither internal/config nor internal/api, and it cannot import
 // another plugin, so the rules it shares with the other plugins that read the same metrics are
@@ -69,15 +69,15 @@ func manifest(series []plugin.SeriesSpec) plugin.Manifest {
 	return plugin.Manifest{
 		ID:          ID,
 		Name:        "Hardware",
-		Description: "The physical host behind the cluster.",
+		Description: "The physical hosts behind the cluster.",
 		Version:     "1.0.0",
 		// Soft: none of them is required, so a Gatus-only list of machines runs without
 		// Prometheus and the host half without Gatus.
 		Uses:   []plugin.ID{"prometheus", "proxmox", "gatus"},
 		Config: func() any { return &pluginconf.Hardware{} },
 		Topics: []plugin.TopicSpec{
-			{Name: topicHosts, Type: model.HostData{}, Doc: "The host's sensors, power, disks and pools."},
-			{Name: topicMachines, Type: hwmodel.MachinesData{}, Doc: "Machines outside the cluster, up or down."},
+			{Name: topicHosts, Type: model.HostsData{}, Doc: "Every host's sensors, power, disks and pools."},
+			{Name: topicMachines, Type: hwmodel.MachinesData{}, Doc: "Machines outside the cluster: up or down, with their node-exporter stats."},
 		},
 		Series: series,
 		UI: plugin.UISpec{Nav: []model.NavItem{
@@ -102,8 +102,10 @@ type Plugin struct {
 	cancel context.CancelFunc
 	wg     sync.WaitGroup // the goroutines Start launched
 
-	host hostState
-	mach machineState
+	hosts []hostState // by the host's index in plugins.hardware.hosts; see hostAt
+	// hostsPublished is set once the hosts topic has been published; see publishHosts.
+	hostsPublished bool
+	mach           machineState
 	// ran is set when the plugin has published anything. From then on the row is never
 	// "unavailable": it holds data, and a row that holds data is visible (design A.9).
 	ran bool
@@ -114,10 +116,20 @@ type runtime struct {
 	h   plugin.Host
 	cfg pluginconf.Hardware
 	q   exprs
+
+	mu sync.Mutex // guards lastNode and lastNodename
+	// lastNode is each host's node as last resolved against the cluster's nodes, and lastNodename
+	// the nodename the proxmox plugin last named for the host without one, by index; see hostIDs.
+	lastNode, lastNodename map[int]string
 }
 
-// hasHost reports whether the host half is configured.
-func (rt *runtime) hasHost() bool { return len(rt.cfg.Hosts) == 1 }
+// hostAt is host i's state, growing the list as needed. p.mu is held.
+func (p *Plugin) hostAt(i int) *hostState {
+	for len(p.hosts) <= i {
+		p.hosts = append(p.hosts, hostState{})
+	}
+	return &p.hosts[i]
+}
 
 // querier is the prometheus plugin's service, nil while that plugin does not run.
 func (rt *runtime) querier() svc.Querier {
@@ -139,8 +151,8 @@ func (rt *runtime) endpoints() svc.EndpointHealth {
 	return nil
 }
 
-// proxmoxNode is the node the proxmox plugin names as the host's: plugins.proxmox.node, or the only
-// node of a one-node cluster.
+// proxmoxNode is the node the proxmox plugin names: plugins.proxmox.node, or the only node of a
+// one-node cluster. It is the node of the host without a nodename (or of the only host).
 func (rt *runtime) proxmoxNode() (string, bool) {
 	if v, ok := rt.h.Service("proxmox"); ok {
 		if n, ok := v.(svc.NodeName); ok {
@@ -162,56 +174,24 @@ func (rt *runtime) clusterNodes() ([]string, bool) {
 	return nil, false
 }
 
-// nodenameHint says what names the host's node while it is unknown although the proxmox plugin has
-// read the cluster: plugins.proxmox.node is unset in a cluster of several nodes, or names no node
-// of the cluster, which the proxmox row reports. This plugin cannot tell the two apart, so the hint
-// covers both. It is empty otherwise.
-func (rt *runtime) nodenameHint() string {
-	if !rt.hasHost() {
-		return ""
+// nodenameHint says what names the node of the host without a nodename while it is unknown
+// although the proxmox plugin has read the cluster: plugins.proxmox.node is unset in a cluster of
+// several nodes, or names no node of the cluster, which the proxmox row reports. This plugin
+// cannot tell the two apart, so the hint covers both. It is empty otherwise, and hosts with a
+// nodename never need it.
+func (rt *runtime) nodenameHint(ids []hostID) string {
+	for _, id := range ids {
+		if id.known() {
+			continue
+		}
+		nodes, ok := rt.clusterNodes()
+		if !ok || len(nodes) == 0 {
+			return ""
+		}
+		return fmt.Sprintf("nothing names the node of plugins.hardware.hosts[%d] among the Proxmox nodes (%s): plugins.proxmox.node is unset or names none of them (the proxmox row says which), and that host has no nodename",
+			id.i, strings.Join(nodes, ", "))
 	}
-	if _, ok := rt.nodename(); ok {
-		return ""
-	}
-	nodes, ok := rt.clusterNodes()
-	if !ok || len(nodes) == 0 {
-		return ""
-	}
-	return fmt.Sprintf("nothing names the Hardware page's host among the Proxmox nodes (%s): plugins.proxmox.node is unset or names none of them (the proxmox row says which), and plugins.hardware.hosts[0].nodename is unset",
-		strings.Join(nodes, ", "))
-}
-
-// pveNode is the Proxmox node the host is: the node the proxmox plugin names when it names one,
-// else the nodename (a node-exporter labelled with the Proxmox node's name). The Hardware page
-// shows that node's facts, and its shell link is that node's.
-func (rt *runtime) pveNode(nodename string) string {
-	if n, ok := rt.proxmoxNode(); ok {
-		return n
-	}
-	return nodename
-}
-
-// nodename is the nodename label of the host's series: hosts[0].nodename, else the Proxmox node.
-// It is read on every poll and series call, never cached.
-func (rt *runtime) nodename() (string, bool) {
-	if !rt.hasHost() {
-		return "", false
-	}
-	if n := rt.cfg.Hosts[0].Nodename; n != "" {
-		return n, true
-	}
-	return rt.proxmoxNode()
-}
-
-// hostName is what the host is called: hosts[0].name, else the Proxmox node, else the nodename.
-func (rt *runtime) hostName(nodename string) string {
-	if n := rt.cfg.Hosts[0].Name; n != "" {
-		return n
-	}
-	if n, ok := rt.proxmoxNode(); ok {
-		return n
-	}
-	return nodename
+	return ""
 }
 
 func (p *Plugin) Manifest() plugin.Manifest { return manifest(seriesSpecs(p.seriesExpr)) }
@@ -249,8 +229,8 @@ func (p *Plugin) Validate(cfg any) error {
 	return c.Validate()
 }
 
-// Start launches the pollers; it does not wait for a poll. The host half runs only with a host
-// configured, the machines half always (it publishes an empty list when there is no machine).
+// Start launches the pollers; it does not wait for a poll. Both halves always run: the hosts
+// half publishes an empty list when there is no host, the machines half when there is no machine.
 func (p *Plugin) Start(_ context.Context, h plugin.Host, cfg any) error {
 	h = p.Wrap(h)
 	c, err := settings(cfg)
@@ -263,12 +243,11 @@ func (p *Plugin) Start(_ context.Context, h plugin.Host, cfg any) error {
 
 	p.mu.Lock()
 	p.cancel = cancel
+	p.hosts = make([]hostState, len(c.Hosts))
 	p.mu.Unlock()
 	p.rt.Store(rt)
 
-	if rt.hasHost() {
-		p.spawn(h, "hardware host", func() { p.hostLoop(ctx, rt) })
-	}
+	p.spawn(h, "hardware hosts", func() { p.hostLoop(ctx, rt) })
 	p.spawn(h, "hardware machines", func() { p.machinesLoop(ctx, rt) })
 	return nil
 }
@@ -303,24 +282,22 @@ func (p *Plugin) Stop(ctx context.Context) error {
 
 // availability is which halves of the plugin can run now, from the services it can see.
 type availability struct {
-	querier  bool // the prometheus plugin runs
-	gatus    bool // the gatus plugin runs
-	nodename bool // the host's nodename is known
-	// host, prom and gatusMachines are the halves that can run: the host (needs the querier and
-	// the nodename), the machines read from node-exporter (the querier), and the machines read
-	// from Gatus.
+	querier bool // the prometheus plugin runs
+	gatus   bool // the gatus plugin runs
+	// host, prom and gatusMachines are the halves that can run: a host (needs the querier and its
+	// nodename), the machines read from node-exporter (the querier), and the machines read from
+	// Gatus.
 	host, prom, gatusMachines bool
 }
 
 // any reports whether something can run.
 func (a availability) any() bool { return a.host || a.prom || a.gatusMachines }
 
-func (rt *runtime) availability() availability {
+func (rt *runtime) availability(ids []hostID) availability {
 	var a availability
 	a.querier = rt.querier() != nil
 	a.gatus = rt.endpoints() != nil
-	_, a.nodename = rt.nodename()
-	a.host = rt.hasHost() && a.querier && a.nodename
+	a.host = a.querier && slices.ContainsFunc(ids, hostID.runnable)
 	a.prom = a.querier && slices.ContainsFunc(rt.cfg.Machines, isPrometheus)
 	a.gatusMachines = a.gatus && slices.ContainsFunc(rt.cfg.Machines, isGatus)
 	return a
@@ -336,35 +313,53 @@ func notConfigured(name string) model.SourceStatus {
 
 // Status. Unavailable (hidden) while nothing can run and nothing has been published: "not
 // configured: set plugins.prometheus.url", "waiting for the Proxmox node name", or, once the
-// Proxmox cluster is read and nothing names the host's node among its nodes, which settings name
-// it. Otherwise starting until each half that can run has finished a poll, then healthy, or
-// degraded when some source fails and error when every one does; the message then also says
-// which settings name the host's node.
+// Proxmox cluster is read and nothing names the node of the host without a nodename among its
+// nodes, which settings name it. Otherwise starting until each host and half that can run has
+// finished a poll, then healthy, or degraded when some source fails and error when every one
+// does. The message names the hosts whose poll failed, says which settings name the node of the
+// host without a nodename, and which host is not read because it repeats an earlier one.
 func (p *Plugin) Status() plugin.Status {
 	rt := p.rt.Load()
 	if rt == nil {
 		return plugin.Status{State: plugin.StateStarting}
 	}
-	av := rt.availability()
+	ids := rt.hostIDs()
+	av := rt.availability(ids)
 
 	p.mu.Lock()
-	ran, hostPolled, machPolled := p.ran, p.host.polled, p.mach.polled
-	hostErr, machErr := p.host.err, p.mach.err
+	ran, machPolled, machErr := p.ran, p.mach.polled, p.mach.err
+	hosts := make([]hostState, len(ids))
+	for _, id := range ids {
+		hosts[id.i] = *p.hostAt(id.i)
+	}
 	p.mu.Unlock()
 
 	if !ran && !av.any() {
-		return plugin.Status{State: plugin.StateUnavailable, Message: unavailableMessage(rt, av)}
+		return plugin.Status{State: plugin.StateUnavailable, Message: unavailableMessage(rt, ids, av)}
 	}
 
 	var srcs []model.SourceStatus
-	if rt.hasHost() {
+	var hostFails []string // "<name>: <category>" of each host whose last poll failed
+	hostsWaiting := false
+	// promOK is whether some prometheus poll, of a host or of the machines, went fine.
+	promOK := slices.ContainsFunc(rt.cfg.Machines, isPrometheus) && av.querier && machPolled && machErr == ""
+	for _, id := range ids {
+		s := hosts[id.i]
 		switch {
 		case !av.querier:
 			srcs = mergeSources(srcs, notConfigured(sourcePrometheus))
-		case !av.nodename:
+		case !id.known():
 			srcs = mergeSources(srcs, notConfigured(sourceProxmox))
-		case hostPolled:
-			srcs = mergeSources(srcs, model.SourceStatus{Name: sourcePrometheus, OK: hostErr == "", Error: hostErr})
+		case id.dupOf >= 0:
+		case !s.polled:
+			hostsWaiting = true
+		default:
+			srcs = mergeSources(srcs, model.SourceStatus{Name: sourcePrometheus, OK: s.err == "", Error: s.err})
+			if s.err != "" {
+				hostFails = append(hostFails, id.name+": "+s.err)
+			} else {
+				promOK = true
+			}
 		}
 	}
 	hasProm, hasGatus := slices.ContainsFunc(rt.cfg.Machines, isPrometheus), slices.ContainsFunc(rt.cfg.Machines, isGatus)
@@ -389,30 +384,47 @@ func (p *Plugin) Status() plugin.Status {
 	// Gatus is polled by its own plugin: its first poll has ended once the revision moved off 0
 	// (whatever its outcome), and until then the machines cannot say if they are up.
 	gatusWaiting := av.gatusMachines && rt.endpoints().Revision() == 0
-	if (av.host && !hostPolled) || (av.prom && !machPolled) || gatusWaiting {
+	if hostsWaiting || (av.prom && !machPolled) || gatusWaiting {
 		return plugin.Status{State: plugin.StateStarting, Message: "waiting for the first poll", Sources: srcs}
 	}
-	msg := failures(srcs)
-	if hint := rt.nodenameHint(); hint != "" {
+	if hasProm && av.querier && machPolled && machErr != "" && len(hostFails) > 0 {
+		hostFails = append(hostFails, "machines: "+machErr)
+	}
+	msg := failures(srcs, hostFails)
+	if hint := rt.nodenameHint(ids); hint != "" {
 		// The proxmox source reads not_configured because nothing names the host's node: the hint
 		// says what to set instead.
-		others := failures(slices.DeleteFunc(slices.Clone(srcs), func(s model.SourceStatus) bool { return s.Name == sourceProxmox }))
-		msg = hint
-		if others != "" {
-			msg += "; " + others
+		others := failures(slices.DeleteFunc(slices.Clone(srcs), func(s model.SourceStatus) bool { return s.Name == sourceProxmox }), hostFails)
+		msg = joinMsg(hint, others)
+	}
+	state := stateOf(srcs)
+	// The merged prometheus source fails when any host or the machines failed; while another of
+	// them polled fine, the plugin still shows data from prometheus, so the row is degraded.
+	if state == plugin.StateError && promOK {
+		state = plugin.StateDegraded
+	}
+	if dup := rt.dupMessage(ids); dup != "" {
+		msg = joinMsg(msg, dup)
+		if state == plugin.StateHealthy {
+			state = plugin.StateDegraded
 		}
 	}
-	return plugin.Status{State: stateOf(srcs), Message: msg, Sources: srcs}
+	return plugin.Status{State: state, Message: msg, Sources: srcs}
+}
+
+// joinMsg joins the non-empty parts of a status message.
+func joinMsg(parts ...string) string {
+	return strings.Join(slices.DeleteFunc(parts, func(s string) bool { return s == "" }), "; ")
 }
 
 // unavailableMessage names what is missing for the plugin to run at all. The first thing it
-// would need, in the order host, node-exporter machines, Gatus machines.
-func unavailableMessage(rt *runtime, av availability) string {
+// would need, in the order hosts, node-exporter machines, Gatus machines.
+func unavailableMessage(rt *runtime, ids []hostID, av availability) string {
 	switch {
-	case rt.hasHost() && !av.querier:
+	case len(ids) > 0 && !av.querier:
 		return "not configured: set plugins.prometheus.url"
-	case rt.hasHost() && !av.nodename:
-		return cmp.Or(rt.nodenameHint(), "waiting for the Proxmox node name")
+	case slices.ContainsFunc(ids, func(id hostID) bool { return !id.known() }):
+		return cmp.Or(rt.nodenameHint(ids), "waiting for the Proxmox node name")
 	case slices.ContainsFunc(rt.cfg.Machines, isPrometheus) && !av.querier:
 		return "not configured: set plugins.prometheus.url"
 	case slices.ContainsFunc(rt.cfg.Machines, isGatus) && !av.gatus:
@@ -437,11 +449,19 @@ func stateOf(srcs []model.SourceStatus) plugin.State {
 	return plugin.StateDegraded
 }
 
-// failures is the status message of failing sources: names and categories, never a URL.
-func failures(srcs []model.SourceStatus) string {
+// failures is the status message of failing sources: names and categories, never a URL. When
+// host polls failed, the prometheus source names those hosts ("prometheus: pve-2: timeout"), so
+// one merged source still says which host is the trouble; the source itself keeps the category.
+func failures(srcs []model.SourceStatus, hostFails []string) string {
 	var parts []string
 	for _, s := range srcs {
-		if !s.OK {
+		switch {
+		case s.OK:
+		case s.Name == sourcePrometheus && len(hostFails) > 0:
+			for _, f := range hostFails {
+				parts = append(parts, s.Name+": "+f)
+			}
+		default:
 			parts = append(parts, s.Name+": "+s.Error)
 		}
 	}

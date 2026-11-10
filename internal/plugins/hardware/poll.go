@@ -14,7 +14,7 @@ import (
 	"github.com/TechDufus/dash/internal/upstream"
 )
 
-// hostState is what the host poller has learned.
+// hostState is what the poller has learned of one host.
 type hostState struct {
 	// vals holds the values of the last good query of each kind; a query that fails leaves the
 	// old values (the last good payload survives a failed poll). It carries no ref, name or
@@ -28,8 +28,8 @@ type hostState struct {
 	possible bool      // whether the half could run at the last look
 }
 
-// hostLoop looks at its dependencies every watchEvery, polls when it is due and publishes what it
-// has. A poll that fails publishes too: the sources say why.
+// hostLoop looks at its dependencies every watchEvery, polls the hosts that are due and publishes
+// what it has. A poll that fails publishes too: the sources say why.
 func (p *Plugin) hostLoop(ctx context.Context, rt *runtime) {
 	t := time.NewTicker(p.tm.watch)
 	defer t.Stop()
@@ -43,51 +43,64 @@ func (p *Plugin) hostLoop(ctx context.Context, rt *runtime) {
 	}
 }
 
-// hostTick is one look. The half polls when it can run and has never polled, when the interval
-// has passed, or when it could not run at the last look (a dependency that appears later starts
-// the work at once instead of waiting out an interval).
+// hostTick is one look. A host polls when it can run and has never polled, when the interval has
+// passed, or when it could not run at the last look (a dependency that appears later starts the
+// work at once instead of waiting out an interval). The hosts that are due poll concurrently and
+// the topic is published once they are all back, so the first payload holds every host that can
+// be read.
 func (p *Plugin) hostTick(ctx context.Context, rt *runtime) {
-	n, ok := rt.nodename()
+	ids := rt.hostIDs()
 	q := rt.querier()
-	possible := q != nil && ok
 	now := rt.h.Now()
 
+	var due []hostID
 	p.mu.Lock()
-	due := possible && (p.host.last.IsZero() || !p.host.possible || now.Sub(p.host.last) >= p.tm.host)
-	p.host.possible = possible
-	if due {
-		p.host.last = now
+	for _, id := range ids {
+		s := p.hostAt(id.i)
+		possible := q != nil && id.runnable()
+		if possible && (s.last.IsZero() || !s.possible || now.Sub(s.last) >= p.tm.host) {
+			s.last = now
+			due = append(due, id)
+		}
+		s.possible = possible
 	}
 	p.mu.Unlock()
 
-	if due {
-		p.pollHost(ctx, rt, q, n)
+	var wg sync.WaitGroup
+	for _, id := range due {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			p.pollHost(ctx, rt, q, id)
+		}()
 	}
+	wg.Wait()
 	if ctx.Err() != nil {
 		return
 	}
-	p.publishHost(rt)
+	p.publishHosts(rt, ids, q != nil)
 }
 
-// pollHost runs the host's queries and keeps what they return.
-func (p *Plugin) pollHost(ctx context.Context, rt *runtime, q svc.Querier, nodename string) {
+// pollHost runs one host's queries and keeps what they return.
+func (p *Plugin) pollHost(ctx context.Context, rt *runtime, q svc.Querier, id hostID) {
 	pctx, cancel := context.WithTimeout(ctx, p.tm.timeout)
 	defer cancel()
-	res := queryAll(pctx, q, rt.q.hostQueries(nodename, rt.cfg.ZFSScrubMetricPrefix))
+	res := queryAll(pctx, q, rt.q.hostQueries(id.nodename, rt.cfg.ZFSScrubMetricPrefix))
 	if ctx.Err() != nil {
 		return // stopping: whatever came back is not an outcome
 	}
 	err := firstErr(res)
 
 	p.mu.Lock()
-	prev := p.host
-	p.host.vals = applyHost(p.host.vals, res)
-	p.host.polled, p.host.err, p.host.at = true, upstream.Category(err), rt.h.Now()
-	cat := p.host.err
+	s := p.hostAt(id.i)
+	prev := *s
+	s.vals = applyHost(s.vals, res)
+	s.polled, s.err, s.at = true, upstream.Category(err), rt.h.Now()
+	cat := s.err
 	p.mu.Unlock()
 
 	if cat != prev.err || !prev.polled {
-		logCategory(rt, "host", cat, prev.polled, prev.err, err)
+		logCategory(rt, "host "+id.name, cat, prev.polled, prev.err, err)
 	}
 }
 
@@ -102,24 +115,55 @@ func logCategory(rt *runtime, half, cat string, hadPolled bool, prevCat string, 
 	}
 }
 
-// publishHost publishes the host topic once the half has polled.
-func (p *Plugin) publishHost(rt *runtime) {
+// publishHosts publishes the hosts topic: every host that has polled, in configuration order,
+// with its links. The first publish waits until every host that can be read has finished its
+// first poll, so the page never shows a host list that is empty or partial because a poll is
+// still on its way; a host that cannot run (no querier, or waiting for its Proxmox node) does not
+// hold it up. When no host can run, the list is published empty at once and a host that becomes
+// runnable later is published after its poll, so the page is never left waiting for the topic.
+// Nothing is published while nothing of the plugin can run and nothing has been: a row that
+// cannot run holds no data. The sources are one prometheus source, failing with the category of
+// the first host whose last poll failed, and proxmox while a host waits for its node.
+func (p *Plugin) publishHosts(rt *runtime, ids []hostID, hasQuerier bool) {
 	p.mu.Lock()
-	polled := p.host.polled
-	cat := p.host.err
+	ran, first := p.ran, !p.hostsPublished
+	waiting := false // a runnable host has not finished its first poll
+	for _, id := range ids {
+		if hasQuerier && id.runnable() && !p.hostAt(id.i).polled {
+			waiting = true
+		}
+	}
 	p.mu.Unlock()
-	if !polled {
+	if !ran && !rt.availability(ids).any() {
 		return
 	}
-	d, ok := p.hostData(rt)
-	if !ok {
+	if first && waiting {
 		return
 	}
-	d.Links = hostLinks(rt.h, d.Node)
-	p.publish(rt, topicHosts, d, []model.SourceStatus{{Name: sourcePrometheus, OK: cat == "", Error: cat, CheckedAt: rt.h.Now().UTC()}})
+	d := model.HostsData{Hosts: p.hostsData(rt, ids)}
+	for i := range d.Hosts {
+		d.Hosts[i].Links = hostLinks(rt.h, d.Hosts[i].Node)
+	}
+	now := rt.h.Now().UTC()
+	srcs := []model.SourceStatus{}
+	p.mu.Lock()
+	for _, id := range ids {
+		s := p.hostAt(id.i)
+		switch {
+		case !hasQuerier:
+			srcs = mergeSources(srcs, notConfigured(sourcePrometheus))
+		case !id.known():
+			srcs = mergeSources(srcs, notConfigured(sourceProxmox))
+		case id.dupOf < 0 && s.polled:
+			srcs = mergeSources(srcs, model.SourceStatus{Name: sourcePrometheus, OK: s.err == "", Error: s.err, CheckedAt: now})
+		}
+	}
+	p.hostsPublished = true
+	p.mu.Unlock()
+	p.publish(rt, topicHosts, d, srcs)
 }
 
-// hostLinks are the deep links of the host: its hypervisor UI and the shell of its node, then
+// hostLinks are the deep links of a host: its hypervisor UI and the shell of its node, then
 // Grafana. The providers decide which exist; a plugin never imports another.
 func hostLinks(h plugin.Host, node string) []model.Link {
 	r := h.Links()
@@ -130,32 +174,35 @@ func hostLinks(h plugin.Host, node string) []model.Link {
 	return out
 }
 
-// shellLinks are the links the attention items carry: the hypervisor UI and the shell of the
-// host's node.
+// shellLinks are the links the attention items of a host carry: the hypervisor UI and the shell
+// of the host's node.
 func shellLinks(h plugin.Host, node string) []model.Link {
 	r := h.Links()
 	return append(r.Resolve(plugin.LinkRequest{Kind: "ProxmoxUI"}), r.Resolve(plugin.LinkRequest{Kind: "HostShell", Name: node})...)
 }
 
-// hostData is the topic's payload without its links: the last good values with the settings and
-// the names of the moment. ok is false while the host's nodename is unknown.
-func (p *Plugin) hostData(rt *runtime) (model.HostData, bool) {
-	n, ok := rt.nodename()
-	if !ok || !rt.hasHost() {
-		return model.HostData{}, false
-	}
+// hostsData is the payload of every host that has polled, without links: the last good values
+// with the settings and the names of the moment, in configuration order. A host whose nodename is
+// unknown, or that repeats an earlier host, is left out.
+func (p *Plugin) hostsData(rt *runtime, ids []hostID) []model.HostData {
+	out := []model.HostData{}
 	p.mu.Lock()
-	vals := p.host.vals
-	p.mu.Unlock()
-	return buildHostData(vals, rt.cfg, rt.hostName(n), rt.pveNode(n)), true
+	defer p.mu.Unlock()
+	for _, id := range ids {
+		s := p.hostAt(id.i)
+		if !id.runnable() || !s.polled {
+			continue
+		}
+		out = append(out, buildHostData(s.vals, rt.cfg, rt.cfg.Hosts[id.i], id.name, id.node))
+	}
+	return out
 }
 
 // buildHostData adds to the polled values what the plugin owns: the name, node and ref, the model,
-// the layout settings, the thresholds and the health they give, and a ref on every pool and
-// disk. Lists that were never filled are empty, not null. vals is not changed.
-func buildHostData(vals model.HostData, cfg pluginconf.Hardware, name, node string) model.HostData {
+// the layout settings of the host's entry h, the thresholds and the health they give, and a ref on
+// every pool and disk. Lists that were never filled are empty, not null. vals is not changed.
+func buildHostData(vals model.HostData, cfg pluginconf.Hardware, h pluginconf.HardwareHost, name, node string) model.HostData {
 	d := vals
-	h := cfg.Hosts[0]
 	d.Name, d.Node, d.Ref, d.Model = name, node, plugin.Ref(ID, "Host", name), h.Model
 	d.Bays, d.FanMaxRPM = h.Bays, h.FanMaxRPM
 	d.SensorAliases = model.SensorAliases{Inlet: h.SensorAliases.Inlet, Exhaust: h.SensorAliases.Exhaust}
@@ -189,6 +236,10 @@ func buildHostData(vals model.HostData, cfg pluginconf.Hardware, name, node stri
 		d.Disks[i] = x
 	}
 	d.Links = []model.Link{}
+	d.Health = model.HealthOK
+	for _, it := range attentionOf(d, nil) {
+		d.Health = worst(d.Health, model.Health(it.Severity))
+	}
 	return d
 }
 

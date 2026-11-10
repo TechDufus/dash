@@ -77,9 +77,28 @@ The API moved under `/api/v1` and the plugins' own routes; every old path answer
   `DASH_PLUGINS_KUBERNETES_UPSTREAM_VIA_API_SERVER=true` (`plugins.kubernetes.upstreamViaAPIServer`).
 - **`/readyz` no longer waits for the Kubernetes caches to fill.** List `kubernetes` in
   `server.readyRequires` to hold it until the new pod has data.
-- **The Hardware plugin reads the host's node from the running Proxmox plugin.** v0.7.0 used
-  `plugins.proxmox.node` as the host's node even without a Proxmox token; set
-  `plugins.hardware.hosts[0].nodename` to run Hardware without one.
+- **The Hardware plugin reads the node of a host without a nodename from the running Proxmox
+  plugin.** v0.7.0 used `plugins.proxmox.node` as the host's node even without a Proxmox token;
+  set the host's `nodename` (`plugins.hardware.hosts[].nodename`) to run Hardware without one.
+- **Several Hardware hosts (v0.16.0).** `plugins.hardware.hosts` takes any number of hosts.
+  - `hardware.hosts` is `{hosts: [...]}` (one `HostData` per host, in configuration order, `[]`
+    when none is configured) instead of one `HostData` object; each host gains `health`.
+  - Validation: the "one host" rule is gone. Names and nodenames must be unique ignoring case, a
+    name must not be another host's nodename, names are at most 64 bytes, and at most one host may
+    leave `nodename` empty (it takes the Proxmox node `plugins.proxmox.node` names).
+  - A host without `name` is called by its `nodename` (before: by its Proxmox node), so a host
+    whose nodename differs from its node changes its name, refs and attention ids.
+  - A host with a `nodename` that is a node of the Proxmox cluster (or whose first DNS label is) is
+    that node, whatever `plugins.proxmox.node` says.
+  - Attention ids name the host: `zfs:pool:<name>/<pool>`, `zfs:scrub:<name>/<pool>`,
+    `smart:<name>/<bay>`, `host:cpu-temp:<name>`, and they point at `/hardware/<name>`; an
+    acknowledgement of an old id does not carry over.
+  - The `power` KPI is the sum over the hosts and `cpuTemp` the hottest package of all of them.
+  - The `host.*` series take the host as `node` (its node, nodename or name); an unknown one is a
+    404. Without `node` and with several hosts, `host.power` sums the hosts, `host.cpuTemp` is the
+    hottest, and the others draw one line per host with its `nodename` label.
+  - Node-exporter machines gain `stats` (OS, CPUs, memory, root disk, load, uptime, temperature),
+    read with one query per figure for all machines.
 - **Proxmox clusters (v0.15.0).** The proxmox plugin reads the whole cluster through its one
   `url`: every node, every node's guests and storages, and the tasks of all of them.
   - The topic `proxmox.node` is gone; `proxmox.cluster` carries the cluster's name and quorum,
