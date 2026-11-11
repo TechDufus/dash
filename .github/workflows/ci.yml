@@ -308,3 +308,45 @@ jobs:
         env:
           DIGEST: ${{ steps.build.outputs.digest }}
         run: cosign sign --yes "$IMAGE@$DIGEST"
+  # The GitHub release of the tag, made once the image and the chart are published and signed. Its
+  # title and notes are the version's section of CHANGELOG.md (scripts/release/notes.sh); the check
+  # job has already refused a chart version without one, and the release job a tag that is not the
+  # chart's version. This is the only job that may write to the repository: the release job, which
+  # holds the registry and signing permissions, keeps its read-only token. A re-run leaves an
+  # existing release as it is.
+  github-release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: release
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Create the release from CHANGELOG.md
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            echo "the release $GITHUB_REF_NAME exists already; left as it is"
+            exit 0
+          fi
+          version=${GITHUB_REF_NAME#v}
+          title=$(scripts/release/notes.sh title "$version")
+          scripts/release/notes.sh body "$version" > "$RUNNER_TEMP/notes.md"
+          gh release create "$GITHUB_REF_NAME" --verify-tag --title "$title" --notes-file "$RUNNER_TEMP/notes.md"
+  # The release, with its notes, on Discord. GitHub starts no workflow for a release made with the
+  # workflow's own token, so the shared workflow that release-announce.yml uses is called from
+  # here too, pinned to the same commit.
+  announce:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: github-release
+    permissions:
+      contents: read
+    uses: TechDufus/.github/.github/workflows/release-announce.yml@f7202aa0c9295ebaba3f1161e1dba39b8d0e1ff1
+    secrets:
+      discord_webhook: ${{ secrets.DISCORD_RELEASES_WEBHOOK }}

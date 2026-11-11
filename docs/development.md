@@ -251,8 +251,11 @@ DASH_SKIP_HOOKS=1 git push
    `charts/dash/Chart.yaml` (`version` and `appVersion`), the version pins of the README, the
    deploy docs, `examples/compose/compose.yaml`, the bug report form and the landing page
    (`site/index.html`: its badge and install commands), and re-renders
-   `examples/kubernetes` with `make generate`; prose that names a past version stays. Commit the
-   result and merge it: the `release` job refuses a tag whose version differs from `Chart.yaml`.
+   `examples/kubernetes` with `make generate`; prose that names a past version stays. In the same
+   change, write the release notes as a new section at the top of `CHANGELOG.md`:
+   `## vX.Y.Z: headline`, then the notes, with `###` headings for their groups. `make check` fails
+   for a chart version without that section (`scripts/release/notes.sh`). Commit the result and
+   merge it: the `release` job refuses a tag whose version differs from `Chart.yaml`.
 2. On `main` with CI green: `git tag vX.Y.Z && git push origin vX.Y.Z`.
 3. CI (`release` job, on a GitHub-hosted runner, in the `release` environment) has no reviewer to
    approve it: a tag ruleset limits who can create `v*` tags. It publishes
@@ -263,9 +266,14 @@ DASH_SKIP_HOOKS=1 git push
    repositories only on Enterprise). It prints `image: ghcr.io/techdufus/dash:X.Y.Z@sha256:<digest>`
    in the log and the job summary. `X.Y.Z` is create-only for the image and the chart: a version
    can never be pushed twice, so a run that fails after the image push needs a new patch version.
-4. Deploy that tag and digest wherever dash runs.
-5. Publish the GitHub release for the tag with its notes. That starts the `release-announce`
-   workflow, which posts the release and its notes to Discord through the webhook in the
-   repository secret `DISCORD_RELEASES_WEBHOOK`; its steps are a shared workflow in the owner's
-   `.github` repository, pinned to a commit. `gh workflow run release-announce.yml -f tag=vX.Y.Z`
-   announces a release again.
+4. Once the `release` job has finished, the `github-release` job creates the GitHub release of
+   the tag from that section of `CHANGELOG.md`: the heading is its title, the text its notes. It
+   is the only job with write access to the repository. The `announce` job then posts the release
+   and its notes to Discord through the webhook in the repository secret
+   `DISCORD_RELEASES_WEBHOOK`; its steps are a shared workflow in the owner's `.github`
+   repository, pinned to a commit.
+5. If the `release` job failed after its pushes and you finished the release by hand, publish the
+   GitHub release by hand too (`scripts/release/notes.sh title` and `body` print what CI would
+   have used): the `release-announce` workflow announces a release that a person publishes.
+   `gh workflow run release-announce.yml -f tag=vX.Y.Z` announces an existing release again.
+6. Deploy that tag and digest wherever dash runs.

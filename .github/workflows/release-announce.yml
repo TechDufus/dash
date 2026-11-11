@@ -2,9 +2,12 @@ name: release-announce
 
 # Posts a published GitHub release, with its notes, to Discord. The steps are the shared
 # release-announce workflow in the owner's .github repository, pinned to a commit; the webhook URL
-# is the repository secret DISCORD_RELEASES_WEBHOOK, passed by name. Publishing a release starts
-# it (dash's releases are published by a person, not by a workflow's own token, which would start
-# nothing); a manual run announces an existing release again.
+# is the repository secret DISCORD_RELEASES_WEBHOOK, passed by name.
+#
+# The release of a tag is announced by ci.yml's announce job, not from here: ci.yml makes that
+# release with the workflow's own token, for which GitHub starts no workflow. This one covers the
+# rest: a release published by hand (after a release job that failed, say) starts it, and a manual
+# run announces an existing release again. Keep its pin the same as ci.yml's.
 on:
   release:
     types: [published]
