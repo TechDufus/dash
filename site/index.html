@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>dash · homelab mission control</title>
-  <meta name="description" content="dash is one Go binary that serves a live web UI over Proxmox, Kubernetes, Flux, server hardware, storage, alerts and service status. Open source, MIT.">
+  <meta name="description" content="dash is one Go binary that serves a live web UI over any Linux host you can reach with SSH, Proxmox, Kubernetes, Flux, server hardware, storage, alerts and service status. Open source, MIT.">
   <meta name="theme-color" content="#04060b">
   <meta name="color-scheme" content="dark">
 
@@ -13,7 +13,7 @@
   <meta property="og:url" content="https://dash.techdufus.com/">
   <meta property="og:site_name" content="dash">
   <meta property="og:title" content="dash · homelab mission control">
-  <meta property="og:description" content="One Go binary, a live web UI over Proxmox, Kubernetes, Flux, hardware, storage, alerts and service status. Open source, MIT.">
+  <meta property="og:description" content="One Go binary, a live web UI over Linux hosts, Proxmox, Kubernetes, Flux, hardware, storage, alerts and service status. Open source, MIT.">
   <meta property="og:image" content="https://dash.techdufus.com/assets/og.jpg">
   <meta property="og:image:type" content="image/jpeg">
   <meta property="og:image:width" content="1200">
@@ -21,7 +21,7 @@
   <meta property="og:image:alt" content="dash: Proxmox, Kubernetes, Flux, storage, alerts and service status for the homelab on one live screen">
   <meta name="twitter:card" content="summary_large_image">
   <meta name="twitter:title" content="dash · homelab mission control">
-  <meta name="twitter:description" content="One Go binary, a live web UI over Proxmox, Kubernetes, Flux, hardware, storage, alerts and service status.">
+  <meta name="twitter:description" content="One Go binary, a live web UI over Linux hosts, Proxmox, Kubernetes, Flux, hardware, storage, alerts and service status.">
   <meta name="twitter:image" content="https://dash.techdufus.com/assets/og.jpg">
   <meta name="twitter:image:alt" content="dash: Proxmox, Kubernetes, Flux, storage, alerts and service status for the homelab on one live screen">
 
@@ -40,10 +40,12 @@
       </a>
       <nav class="nav" aria-label="Primary">
         <a href="#tour">Tour</a>
+        <a href="#hosts">Hosts</a>
         <a href="#integrations">Integrations</a>
         <a href="#agents">Agents</a>
         <a href="#security">Security</a>
         <a href="#deploy">Deploy</a>
+        <a class="keep" href="demo/">Live demo</a>
         <a class="btn small keep" href="https://github.com/TechDufus/dash">
           <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 .5a11.5 11.5 0 0 0-3.64 22.41c.58.1.79-.25.79-.56v-2.1c-3.2.7-3.88-1.36-3.88-1.36-.52-1.33-1.28-1.69-1.28-1.69-1.04-.71.08-.7.08-.7 1.16.08 1.77 1.19 1.77 1.19 1.03 1.77 2.7 1.26 3.36.96.1-.75.4-1.26.73-1.55-2.55-.29-5.24-1.28-5.24-5.69 0-1.26.45-2.28 1.19-3.09-.12-.29-.52-1.46.11-3.05 0 0 .97-.31 3.17 1.18a11 11 0 0 1 5.78 0c2.2-1.49 3.17-1.18 3.17-1.18.63 1.59.23 2.76.11 3.05.74.81 1.19 1.83 1.19 3.09 0 4.42-2.69 5.4-5.26 5.68.41.36.78 1.06.78 2.14v3.17c0 .31.21.67.8.56A11.5 11.5 0 0 0 12 .5Z"/></svg>
           GitHub
@@ -61,9 +63,13 @@
           Open source · MIT · v0.16.1
         </a>
         <h1 id="hero-title">Homelab <span class="grad">mission control.</span></h1>
-        <p class="lede">One Go binary, a live web UI over Proxmox, Kubernetes, Flux, hardware, storage, alerts and service status.</p>
+        <p class="lede">One Go binary, a live web UI over the Linux hosts you can reach with SSH, Proxmox, Kubernetes, Flux, hardware, storage, alerts and service status.</p>
         <div class="actions">
-          <a class="btn primary" href="https://github.com/TechDufus/dash">
+          <a class="btn primary" href="demo/">
+            <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 5.5v13a1 1 0 0 0 1.5.86l11-6.5a1 1 0 0 0 0-1.72l-11-6.5A1 1 0 0 0 8 5.5Z"/></svg>
+            Open the live demo
+          </a>
+          <a class="btn" href="https://github.com/TechDufus/dash">
             <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 .5a11.5 11.5 0 0 0-3.64 22.41c.58.1.79-.25.79-.56v-2.1c-3.2.7-3.88-1.36-3.88-1.36-.52-1.33-1.28-1.69-1.28-1.69-1.04-.71.08-.7.08-.7 1.16.08 1.77 1.19 1.77 1.19 1.03 1.77 2.7 1.26 3.36.96.1-.75.4-1.26.73-1.55-2.55-.29-5.24-1.28-5.24-5.69 0-1.26.45-2.28 1.19-3.09-.12-.29-.52-1.46.11-3.05 0 0 .97-.31 3.17 1.18a11 11 0 0 1 5.78 0c2.2-1.49 3.17-1.18 3.17-1.18.63 1.59.23 2.76.11 3.05.74.81 1.19 1.83 1.19 3.09 0 4.42-2.69 5.4-5.26 5.68.41.36.78 1.06.78 2.14v3.17c0 .31.21.67.8.56A11.5 11.5 0 0 0 12 .5Z"/></svg>
             View on GitHub
           </a>
@@ -80,7 +86,7 @@
           <img src="assets/overview.png" width="1600" height="1000" fetchpriority="high" alt="dash overview: KPIs, live topology from the Proxmox host through the VMs to the cluster's namespaces, and the attention list">
           <div class="fade" aria-hidden="true"></div>
         </div>
-        <p class="stage-note">Built-in demo mode at a fixed clock. Every name and address is made up.</p>
+        <p class="stage-note">The built-in demo mode: every name and address is made up. <a href="demo/">Click around it in your browser →</a></p>
       </div>
     </section>
 
@@ -89,7 +95,7 @@
       <div class="wrap">
         <p class="eyebrow">What it is</p>
         <h2 id="what-title">One screen for the whole lab.</h2>
-        <p class="section-lede">dash is for people who run their own infrastructure: a Proxmox host, a Kubernetes cluster managed with Flux, the storage and monitoring around them. It reads all of it and shows the state in one place, worst problems first.</p>
+        <p class="section-lede">dash is for people who run their own infrastructure: a few Linux boxes, a Proxmox host, a Kubernetes cluster managed with Flux, the storage and monitoring around them. It reads all of it and shows the state in one place, worst problems first.</p>
 
         <div class="grid four">
           <div class="card">
@@ -164,6 +170,32 @@
       </div>
     </section>
 
+    <!-- Hosts over SSH -->
+    <section id="hosts" aria-labelledby="hosts-title">
+      <div class="wrap">
+        <p class="eyebrow">Any Linux host</p>
+        <h2 id="hosts-title">Add a machine with one SSH connection.</h2>
+        <p class="section-lede">Give dash an address and a user. It signs in with its own key, installs nothing, and shows the machine's hardware, what runs on it and live charts within seconds. No agent, no exporter, no monitoring stack.</p>
+
+        <div class="split">
+          <div class="card">
+            <p class="card-title">From nothing to live</p>
+            <ol class="steps">
+              <li><strong>Name the host</strong><span>An address and a user, in Settings. A dedicated unprivileged user is all dash needs.</span></li>
+              <li><strong>Check its fingerprint</strong><span>dash shows the host key it was offered and connects only after you trust it.</span></li>
+              <li><strong>Paste one line</strong><span>Add dash's public key to that user's <code>authorized_keys</code>. dash never holds a password.</span></li>
+              <li><strong>Watch it appear</strong><span>CPU, memory, network and disk charts, temperatures and fans, file systems, disks and ZFS pools, containers and systemd services.</span></li>
+            </ol>
+            <p class="card-link"><a href="https://github.com/TechDufus/dash/blob/main/docs/plugins/ssh.md">Read about SSH hosts →</a></p>
+          </div>
+          <figure class="shot">
+            <a href="assets/hosts.png"><img src="assets/hosts.png" width="1600" height="1000" loading="lazy" decoding="async" alt="Hosts page: a card for each machine with its CPU, memory, load and temperature, and the selected host's live charts, file systems, containers and services"></a>
+            <figcaption><strong>Hosts</strong><span>A card for each machine, and everything dash discovered on the one you select.</span></figcaption>
+          </figure>
+        </div>
+      </div>
+    </section>
+
     <!-- 4. Integrations -->
     <section id="integrations" aria-labelledby="integrations-title">
       <div class="wrap">
@@ -174,6 +206,7 @@
         <ul class="chips">
           <li><strong>Proxmox VE</strong><span>VMs, snapshots, charts, consoles</span></li>
           <li><strong>Hardware</strong><span>IPMI, SMART, ZFS</span></li>
+          <li><strong>Linux hosts over SSH</strong><span>Hardware, containers, services, live charts</span></li>
           <li><strong>Kubernetes</strong><span>Nodes, workloads, pods, logs</span></li>
           <li><strong>Flux</strong><span>Sources, Kustomizations, HelmReleases</span></li>
           <li><strong>CloudNativePG</strong><span>Postgres clusters and backup age</span></li>
@@ -236,6 +269,7 @@
           <li><strong>CSRF checks and a strict CSP</strong><span>Writes need a matching Origin and a CSRF header, and scripts load only from dash itself.</span></li>
           <li><strong>A fail-closed audit log</strong><span>Every action and settings change is hash-chained, and a change is refused if its record cannot be written.</span></li>
           <li><strong>Everything powerful is off by default</strong><span>Rollout restarts, Flux reconciles, silences and the MCP server stay off until you enable them.</span></li>
+          <li><strong>Hosts are read, never changed</strong><span>One fixed, read-only script over SSH and pinned host keys. No agent, no password, no sudo.</span></li>
           <li><strong>Secrets stay secret</strong><span>Stored encrypted, never shown back, and scrubbed from logs and error messages.</span></li>
         </ul>
         <p class="shot-note"><a href="https://github.com/TechDufus/dash/blob/main/docs/security.md">Read the security model →</a></p>
@@ -245,11 +279,17 @@
     <!-- 7. Deploy -->
     <section id="deploy" aria-labelledby="deploy-title">
       <div class="wrap">
-        <p class="eyebrow">Deploy anywhere</p>
-        <h2 id="deploy-title">A container, wherever you run containers.</h2>
-        <p class="section-lede">dash is a single binary in a single container, published for linux/amd64 and linux/arm64 on GHCR, with a Helm chart at the same version.</p>
+        <p class="eyebrow">Run it anywhere</p>
+        <h2 id="deploy-title">One binary. Run it where you like.</h2>
+        <p class="section-lede">dash is a single binary for Linux and macOS, the same binary in a container for linux/amd64 and linux/arm64 on GHCR, and a Helm chart at the same version.</p>
 
-        <div class="grid three">
+        <div class="grid four">
+          <div class="card">
+            <span class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2.5"/><path d="m7 9 3 3-3 3M13 15h4"/></svg></span>
+            <h3>A Linux server</h3>
+            <p>One command installs the binary as a hardened systemd service and prints the link to set your password. No Docker needed.</p>
+            <a class="more" href="https://github.com/TechDufus/dash/blob/main/docs/deploy/binary.md">Binary guide →</a>
+          </div>
           <div class="card">
             <span class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 10h18v6a4 4 0 0 1-4 4H7a4 4 0 0 1-4-4v-6ZM6 10V6h3v4M11 10V6h3v4M16 10V7h3v3"/></svg></span>
             <h3>Docker or Compose</h3>
@@ -272,6 +312,10 @@
 
         <div class="install">
           <div>
+            <p class="install-label">Install on a Linux server</p>
+            <pre tabindex="0"><code>curl -fsSL https://dash.techdufus.com/install.sh | sudo sh</code></pre>
+          </div>
+          <div>
             <p class="install-label">Try it on demo data</p>
             <pre tabindex="0"><code>docker run -p 8080:8080 -e DASH_DEMO=true -e DASH_SERVER_LISTEN=0.0.0.0:8080 ghcr.io/techdufus/dash:0.16.1</code></pre>
           </div>
@@ -282,10 +326,11 @@
         </div>
 
         <div class="cta">
-          <h2>Take a look at the source.</h2>
-          <p>dash is MIT licensed and developed in the open. Star it, read the docs, or open an issue.</p>
+          <h2>See it, then run it.</h2>
+          <p>dash is MIT licensed and developed in the open. Click around the demo, star the repository, read the docs, or open an issue.</p>
           <div class="actions">
-            <a class="btn primary" href="https://github.com/TechDufus/dash">View on GitHub</a>
+            <a class="btn primary" href="demo/">Open the live demo</a>
+            <a class="btn" href="https://github.com/TechDufus/dash">View on GitHub</a>
             <a class="btn" href="https://github.com/TechDufus/dash/tree/main/docs">Read the docs</a>
           </div>
         </div>
@@ -302,6 +347,7 @@
       </a>
       <p>MIT · © 2026 TechDufus</p>
       <nav class="foot-links" aria-label="Footer">
+        <a href="demo/">Live demo</a>
         <a href="https://github.com/TechDufus/dash">GitHub</a>
         <a href="https://github.com/TechDufus/dash/releases">Releases</a>
         <a href="https://github.com/TechDufus/dash/tree/main/docs">Docs</a>

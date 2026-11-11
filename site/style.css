@@ -578,6 +578,11 @@ h2 {
   margin-top: 0;
 }
 
+/* A screenshot beside a card keeps its own height instead of stretching to the card's. */
+.split > .shot {
+  align-self: start;
+}
+
 .card p.card-link {
   margin-top: 22px;
 }
