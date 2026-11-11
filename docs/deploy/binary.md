@@ -1,6 +1,6 @@
 # Run dash as a binary with systemd
 
-Every release after v0.16.1 carries dash as a single binary for Linux and macOS, on amd64 and
+Every release from v0.17.0 on carries dash as a single binary for Linux and macOS, on amd64 and
 arm64, next to the container image: `dash_<version>_<os>_<arch>.tar.gz` (the binary, `LICENSE`
 and `THIRD_PARTY_NOTICES.md`) and `dash_<version>_checksums.txt` on the
 [GitHub release](https://github.com/TechDufus/dash/releases). The binary embeds the web UI and

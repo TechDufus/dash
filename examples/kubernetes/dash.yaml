@@ -6,10 +6,10 @@ kind: ServiceAccount
 metadata:
   name: dash
   labels:
-    helm.sh/chart: dash-0.16.1
+    helm.sh/chart: dash-0.17.0
     app.kubernetes.io/name: dash
     app.kubernetes.io/instance: dash
-    app.kubernetes.io/version: "0.16.1"
+    app.kubernetes.io/version: "0.17.0"
     app.kubernetes.io/managed-by: Helm
 # The pod spec decides whether a token is mounted (only when an rbac flag gives dash API access).
 automountServiceAccountToken: false
@@ -21,10 +21,10 @@ kind: ConfigMap
 metadata:
   name: dash
   labels:
-    helm.sh/chart: dash-0.16.1
+    helm.sh/chart: dash-0.17.0
     app.kubernetes.io/name: dash
     app.kubernetes.io/instance: dash
-    app.kubernetes.io/version: "0.16.1"
+    app.kubernetes.io/version: "0.17.0"
     app.kubernetes.io/managed-by: Helm
 data:
   config.yaml: |
@@ -38,10 +38,10 @@ kind: PersistentVolumeClaim
 metadata:
   name: dash-data
   labels:
-    helm.sh/chart: dash-0.16.1
+    helm.sh/chart: dash-0.17.0
     app.kubernetes.io/name: dash
     app.kubernetes.io/instance: dash
-    app.kubernetes.io/version: "0.16.1"
+    app.kubernetes.io/version: "0.17.0"
     app.kubernetes.io/managed-by: Helm
 spec:
   accessModes:
@@ -57,10 +57,10 @@ kind: ClusterRole
 metadata:
   name: dash-dash
   labels:
-    helm.sh/chart: dash-0.16.1
+    helm.sh/chart: dash-0.17.0
     app.kubernetes.io/name: dash
     app.kubernetes.io/instance: dash
-    app.kubernetes.io/version: "0.16.1"
+    app.kubernetes.io/version: "0.17.0"
     app.kubernetes.io/managed-by: Helm
 rules:
   # The kubernetes plugin's informers, in every namespace.
@@ -103,10 +103,10 @@ kind: ClusterRoleBinding
 metadata:
   name: dash-dash
   labels:
-    helm.sh/chart: dash-0.16.1
+    helm.sh/chart: dash-0.17.0
     app.kubernetes.io/name: dash
     app.kubernetes.io/instance: dash
-    app.kubernetes.io/version: "0.16.1"
+    app.kubernetes.io/version: "0.17.0"
     app.kubernetes.io/managed-by: Helm
 roleRef:
   apiGroup: rbac.authorization.k8s.io
@@ -124,10 +124,10 @@ kind: Service
 metadata:
   name: dash
   labels:
-    helm.sh/chart: dash-0.16.1
+    helm.sh/chart: dash-0.17.0
     app.kubernetes.io/name: dash
     app.kubernetes.io/instance: dash
-    app.kubernetes.io/version: "0.16.1"
+    app.kubernetes.io/version: "0.17.0"
     app.kubernetes.io/managed-by: Helm
 spec:
   type: ClusterIP
@@ -148,10 +148,10 @@ kind: Deployment
 metadata:
   name: dash
   labels:
-    helm.sh/chart: dash-0.16.1
+    helm.sh/chart: dash-0.17.0
     app.kubernetes.io/name: dash
     app.kubernetes.io/instance: dash
-    app.kubernetes.io/version: "0.16.1"
+    app.kubernetes.io/version: "0.17.0"
     app.kubernetes.io/managed-by: Helm
 spec:
   replicas: 1
@@ -186,7 +186,7 @@ spec:
           type: RuntimeDefault
       containers:
         - name: dash
-          image: ghcr.io/techdufus/dash:0.16.1
+          image: ghcr.io/techdufus/dash:0.17.0
           imagePullPolicy: IfNotPresent
           securityContext:
             allowPrivilegeEscalation: false

@@ -27,7 +27,7 @@ latest minor release receives security fixes, as patch releases.
 
 | Version | Supported |
 |---|---|
-| latest 0.x minor (0.16 today) | yes |
+| latest 0.x minor (0.17 today) | yes |
 | any older minor | no: upgrade to the latest |
 
 ## Scope

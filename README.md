@@ -80,7 +80,7 @@ every page, and nothing can be changed. For a demo whose actions answer, run dem
 cluster, no credentials, every plugin serving a small, made-up homelab.
 
 ```sh
-docker run --rm -p 8080:8080 -e DASH_DEMO=true -e DASH_SERVER_LISTEN=0.0.0.0:8080 ghcr.io/techdufus/dash:0.16.1
+docker run --rm -p 8080:8080 -e DASH_DEMO=true -e DASH_SERVER_LISTEN=0.0.0.0:8080 ghcr.io/techdufus/dash:0.17.0
 ```
 
 Open http://127.0.0.1:8080. `http://localhost:8080` loads the pages too, but its writes (restart,
@@ -103,13 +103,13 @@ line in that user's `authorized_keys`.
 **Docker.** Pull the image `ghcr.io/techdufus/dash` (linux/amd64 and linux/arm64) and run it:
 
 ```sh
-docker pull ghcr.io/techdufus/dash:0.16.1
+docker pull ghcr.io/techdufus/dash:0.17.0
 mkdir -p -m 0700 secrets && openssl rand -base64 32 > secrets/dash_secret_key && chmod 0644 secrets/dash_secret_key
 docker run -d --name dash -p 127.0.0.1:8080:8080 -v dash-data:/data \
   -v "$PWD/secrets/dash_secret_key:/run/secrets/dash_secret_key:ro" \
   -e DASH_SECRET_KEY_FILE=/run/secrets/dash_secret_key \
   -e DASH_SERVER_PUBLIC_URL=http://localhost:8080 \
-  ghcr.io/techdufus/dash:0.16.1
+  ghcr.io/techdufus/dash:0.17.0
 docker logs dash 2>&1 | grep -m1 'setup token'   # open its url to set the password
 ```
 
@@ -130,7 +130,7 @@ dash version it runs):
 ```sh
 kubectl create namespace dash
 openssl rand -base64 32 | kubectl -n dash create secret generic dash-secret-key --from-file=secretKey=/dev/stdin
-helm install dash oci://ghcr.io/techdufus/charts/dash --version 0.16.1 --namespace dash \
+helm install dash oci://ghcr.io/techdufus/charts/dash --version 0.17.0 --namespace dash \
   --set secretKey.existingSecret=dash-secret-key --set config.server.publicURL=https://dash.example.com
 ```
 

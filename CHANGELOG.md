@@ -8,7 +8,7 @@ work that is not released yet can wait under a `## Unreleased` heading, which no
 The releases before v0.16.1 have their notes on
 [GitHub](https://github.com/TechDufus/dash/releases) only.
 
-## Unreleased
+## v0.17.0: hosts over SSH, an installer and a live demo
 
 Linux hosts over SSH with nothing installed on them, binaries and a one-line installer for servers without Docker, and a live demo that runs in the browser. Nothing changes for an existing installation until you add a host.
 
