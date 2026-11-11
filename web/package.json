@@ -3,13 +3,16 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
+    "build:demo": "vite build --config vite.demo.config.ts",
     "check": "tsc --noEmit && biome check .",
     "test": "vitest run",
     "format": "biome format --write .",
     "screenshots": "node scripts/screenshots.mjs",
     "icons": "node scripts/icons.mjs",
     "pwa-smoke": "node scripts/pwa-smoke.mjs",
-    "context-smoke": "node scripts/context-smoke.mjs"
+    "context-smoke": "node scripts/context-smoke.mjs",
+    "demo-export": "node scripts/demo-export.mjs",
+    "demo-smoke": "node scripts/demo-smoke.mjs"
   },
   "type": "module",
   "private": "true",

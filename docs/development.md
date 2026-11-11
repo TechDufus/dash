@@ -208,6 +208,72 @@ A run ends after 60 s at most. It needs the same one-time setup as the screensho
 of `make check`: run it after a change to the button, `web/src/lib/clipboard.ts` or the context
 route.
 
+## Static demo
+
+The landing page links a demo of the real SPA that needs no server: GitHub Pages publishes it at
+`<site>/demo/` (`.github/workflows/pages.yml`). It is the SPA built with
+`web/vite.demo.config.ts` (`npm run build:demo`, into `web/dist-demo`, git-ignored), whose entry
+`web/src/demo/main.ts` replays a recording of demo mode instead of talking to dash:
+
+- The app's network goes through `web/src/api/transport.ts` (`fetch` and `EventSource`). The demo
+  entry installs a player there before any app module evaluates, so the production build is
+  unchanged and holds none of the demo's code. A GET answers from the recorded response, keyed by
+  its path and its query sorted by name (`recordingKey`); a GET the recording lacks answers the
+  API's 404 envelope and is counted in `window.__dashDemo.misses`. Every write answers 405 with the
+  API's error envelope and a message that this is a recorded, read-only demo and how to run dash,
+  so each toast and inline error shows it as it shows any server error.
+- `/api/v1/stream` replays the recorded frames: on connect every topic of the frame on screen,
+  `core.plugins` first, then one frame per recorded step, sending only the topics whose recorded
+  envelope changed, and from the last frame back to the first. Frames load lazily, one step ahead.
+  Any other event stream (the log tail) fails as a closed stream does, so the page shows its usual
+  unavailable state.
+- A `Date` shim makes `Date.now()` and `new Date()` read the recording's clock: the instant of the
+  frame on screen plus the real time since it was shown. Relative times, chart ranges and
+  staleness read as they did when recorded; timers are untouched.
+- Routes live in the URL fragment, query included (`demo/#/cluster?tab=pods`, `src/demo/router.ts`),
+  and the base is relative, so any static host serves it from any path. There is no service worker
+  and no web manifest, and a dismissible banner says what the page is and links the landing page's
+  deploy section and the repository.
+
+`make demo` builds the SPA, dash (with the chart's version, as the release binaries are) and the
+demo, records the recording into `web/dist-demo/recording` and runs the smoke test on the result;
+CI's `demo` job runs it wherever CI runs (pull requests included once the repository is public),
+and `pages.yml` runs it before it publishes, so a change cannot break the published demo
+unnoticed. The recorder,
+`web/scripts/demo-export.mjs <dash> <out dir>`, starts dash with `DASH_DEMO=true` and a fixed
+clock (`DEMO_CLOCK`, the screenshots' clock by default) on free loopback ports:
+
+- frames: one dash per instant, `DEMO_FRAMES` (24) instants `DEMO_STEP_SECONDS` (5) apart, each
+  topic read once. A topic whose envelope differs from the frame before only in its time and its
+  sources' check times keeps that frame's file, as dash's hub does not publish it again either.
+- REST: Playwright's headless Chromium crawls the real SPA, served by the dash at the first
+  frame's clock, along the plan in `web/scripts/lib/demo-crawl.mjs`: the overview, the object
+  routes derived from the topics (every pod, VM and host), every app link a visited page shows,
+  and every tab on each. On each page it uses every "Copy context for AI" control on screen once
+  (with the clipboard permissions granted; once per object across the crawl, at most ten on one
+  page), and fails unless each ends in its success toast. It keeps every successful GET under
+  `/api/` the SPA made, the context bundles included, then fetches each recorded `/api/v1/series`
+  query for every other chart range and each pod log query for every other period.
+
+The output is `manifest.json` plus files in `data/` named by the hash of their content, written
+only once the whole recording succeeded; two runs with the same binary and clock write the same
+bytes, and the run ends with a size report. `make demo-smoke` (`web/scripts/demo-smoke.mjs`) serves
+`web/dist-demo` under `/demo/` from a small static server on a free port, crawls it along the same
+plan, and fails on a GET the recording lacks, a console error, a failed or error response, a
+request that leaves the origin, a missing LIVE indicator, or a page that is blank or still loading
+once quiet (the recorder fails on the last one too), a "Copy context for AI" control that misses
+or ends in an error instead of its success toast, and unless a GitOps reconcile shows the
+read-only message. Both need the screenshots' one-time Playwright setup.
+
+To look at the demo, build and record it (`make demo`), then serve `web/dist-demo` with any
+static server, for example `cd web/dist-demo && python3 -m http.server`, and open the page; a
+miss is logged in the console as `dash demo: the recording has no answer for GET …`. Limits: the
+demo shows what the crawl opened. A view the plan never reaches (a filter, a container or a log
+search the crawl does not choose, the context of an object past the tenth control on one page)
+answers 404 and shows its usual error, the log tail is unavailable, and the data loops every
+`DEMO_FRAMES` × `DEMO_STEP_SECONDS` seconds (two minutes by default), the clock jumping back with
+it.
+
 ## Pre-push hook (opt-in)
 
 CI runs on pushes to `main` and tags, and on pull requests once the repository is public; until

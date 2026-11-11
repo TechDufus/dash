@@ -1,4 +1,4 @@
-.PHONY: generate check scan set-version dist dev-api dev-api-op dev-web image screenshots icons pwa-smoke context-smoke hooks hooks-uninstall
+.PHONY: generate check scan set-version dist dev-api dev-api-op dev-web image screenshots icons pwa-smoke context-smoke demo demo-smoke hooks hooks-uninstall
 
 generate: web/node_modules/.package-lock.json
 	go tool tygo generate
@@ -133,6 +133,28 @@ context-smoke: web/node_modules/.package-lock.json
 	cd web && npm run build
 	tmp=$$(mktemp -d) && trap 'rm -rf "$$tmp"' EXIT && go build -o "$$tmp/dash" ./cmd/dash && \
 	  cd web && npm run --silent context-smoke -- "$$tmp/dash"
+
+# The static demo (docs/development.md, "Static demo"): it builds the SPA and dash, builds the
+# demo (web/dist-demo, the SPA with the player of a recording instead of dash), records the
+# recording into web/dist-demo/recording with web/scripts/demo-export.mjs (dash with
+# DASH_DEMO=true and DASH_DEMO_CLOCK from $(DEMO_CLOCK), crawled with Playwright), then runs
+# demo-smoke on the result. dash is built with the chart's version, as `dist` builds the release
+# binaries, so the published demo shows the release it was recorded from. Not part of check; CI's
+# demo job runs it. Needs Playwright's pinned Chromium once, as screenshots does.
+DEMO_CLOCK ?= $(SCREENSHOT_CLOCK)
+demo: web/node_modules/.package-lock.json
+	cd web && npm run build
+	tmp=$$(mktemp -d) && trap 'rm -rf "$$tmp"' EXIT && \
+	  version=$$(awk '$$1 == "version:" { print $$2 }' charts/dash/Chart.yaml) && \
+	  go build -ldflags "-X main.version=$$version" -o "$$tmp/dash" ./cmd/dash && \
+	  cd web && npm run --silent build:demo && \
+	  DASH_DEMO_CLOCK=$(DEMO_CLOCK) npm run --silent demo-export -- "$$tmp/dash" dist-demo/recording
+	$(MAKE) demo-smoke
+
+# Crawls web/dist-demo, served under /demo/, and fails on a request the recording lacks, a console
+# error, a failed or outside request, a blank page or a write without the read-only message.
+demo-smoke: web/node_modules/.package-lock.json
+	cd web && npm run --silent demo-smoke -- dist-demo
 
 hooks:
 	git config core.hooksPath .githooks

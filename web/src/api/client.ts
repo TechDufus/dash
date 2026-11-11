@@ -1,4 +1,5 @@
 import { handle401 } from "@/auth/handle401";
+import { transportFetch } from "./transport";
 import type { APIError } from "./types";
 
 export class ApiError extends Error {
@@ -62,7 +63,7 @@ async function request<T>(
   if (opts.ifMatch !== undefined) headers["If-Match"] = `"${opts.ifMatch}"`;
   let res: Response;
   try {
-    res = await fetch(path, {
+    res = await transportFetch(path, {
       method,
       headers,
       body: body === undefined ? undefined : JSON.stringify(body),

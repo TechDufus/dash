@@ -1,14 +1,13 @@
 name: pages
 
-# The landing page (site/), published from main to GitHub Pages. Pages and the links the page
-# advertises need a public repository: while it is private the jobs are skipped, not failed. The
-# custom domain is set in the repository's Pages settings, not in a CNAME file.
+# The landing page (site/) and the static demo under demo/ (docs/development.md, "Static demo"),
+# published from main to GitHub Pages. Pages and the links the page advertises need a public
+# repository: while it is private the jobs are skipped, not failed. The custom domain is set in the
+# repository's Pages settings, not in a CNAME file. Every push to main publishes: the demo is the
+# SPA and dash of that commit, so a change anywhere in them would otherwise leave it stale.
 on:
   push:
     branches: [main]
-    paths:
-      - "site/**"
-      - ".github/workflows/pages.yml"
   workflow_dispatch:
 
 permissions: {}
@@ -21,18 +20,39 @@ jobs:
   build:
     if: ${{ !github.event.repository.private }}
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
+    timeout-minutes: 30
     permissions:
       contents: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      - uses: jdx/mise-action@6be3c7ed4c21d4f76b208d351d95aac273ebb76d # v5.2.4
+        with:
+          install_args: go node
+          # No Actions cache: a cache another run wrote could poison what Pages publishes.
+          cache: false
+      # The recorder and the smoke drive Playwright's headless Chromium, at the version
+      # web/package-lock.json pins.
+      - name: Install the web dependencies and Chromium
+        working-directory: web
+        run: |
+          npm ci --ignore-scripts
+          npx playwright install --with-deps --only-shell chromium
+      # The demo is built, recorded from dash in demo mode and crawled under a sub-path before it
+      # is published: a recording that misses a request fails here, not on the site.
+      - run: make demo
+      # site/ is static HTML and CSS, published as it is; the demo goes under demo/.
+      - name: Assemble the site
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/pages"
+          cp -R site/. "$RUNNER_TEMP/pages/"
+          cp -R web/dist-demo "$RUNNER_TEMP/pages/demo"
       - uses: actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d # v6.0.0
-      # site/ is static HTML and CSS: it is published as it is, with no build step.
       - uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
         with:
-          path: site
+          path: ${{ runner.temp }}/pages
 
   deploy:
     needs: build

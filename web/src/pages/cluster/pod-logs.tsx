@@ -2,6 +2,7 @@ import { Radio, RefreshCw, Search } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { errorMessage } from "@/api/client";
 import { type LogSince, useLogs } from "@/api/queries";
+import { openEventSource } from "@/api/transport";
 import type { LogLine } from "@/api/types";
 import { Empty } from "@/components/panel";
 import { Button } from "@/components/ui/button";
@@ -94,7 +95,7 @@ export function PodLogs({ ns, pod, containers, active }: PodLogsProps) {
     };
     const connect = () => {
       setStream("connecting");
-      const next = new EventSource(`/api/v1/plugins/victorialogs/logs/tail?${params.toString()}`);
+      const next = openEventSource(`/api/v1/plugins/victorialogs/logs/tail?${params.toString()}`);
       es = next;
       next.onopen = () => setStream("streaming");
       next.addEventListener("line", (ev) => {

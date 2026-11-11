@@ -146,6 +146,40 @@ jobs:
           name: binaries
           path: ${{ runner.temp }}/binaries/
           if-no-files-found: error
+  # The static demo that pages.yml publishes (docs/development.md, "Static demo"): make demo
+  # builds it, records it from dash in demo mode and crawls it under a sub-path, so a change that
+  # breaks the public demo fails here, on its pull request, rather than on the site. Chromium goes
+  # to the job's temp dir: downloaded afresh on every run, never a copy a self-hosted runner kept;
+  # only a GitHub-hosted runner installs its system libraries (that needs sudo).
+  demo:
+    if: github.event_name != 'pull_request' || !github.event.repository.private
+    runs-on: ${{ github.event.repository.private && fromJSON('["self-hosted","linux","x64","homelab","dash"]') || 'ubuntu-24.04' }}
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: jdx/mise-action@6be3c7ed4c21d4f76b208d351d95aac273ebb76d # v5.2.4
+        with:
+          install_args: go node
+          cache: false
+      - name: Install the web dependencies and Chromium
+        working-directory: web
+        env:
+          PLAYWRIGHT_BROWSERS_PATH: ${{ runner.temp }}/ms-playwright
+        run: |
+          set -euo pipefail
+          npm ci --ignore-scripts
+          if [[ $RUNNER_ENVIRONMENT == github-hosted ]]; then
+            npx playwright install --with-deps --only-shell chromium
+          else
+            npx playwright install --only-shell chromium
+          fi
+      - run: make demo
+        env:
+          PLAYWRIGHT_BROWSERS_PATH: ${{ runner.temp }}/ms-playwright
   # The Helm chart and examples/kubernetes (docs/deploy/kubernetes.md) on the last three
   # Kubernetes minors kind supports (design J.18), each node image pinned by digest from the kind
   # release notes. make check already lints and renders the chart's five value sets and fails

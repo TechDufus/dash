@@ -2,6 +2,7 @@
 // from /login or /setup is an answer to show, not an expired session to reauthenticate, and the
 // pages need the Retry-After header of a 429, which ApiError does not carry.
 import { ApiError } from "@/api/client";
+import { transportFetch } from "@/api/transport";
 import type { APIError, AuthDetails, Me, SetupResult } from "@/api/types";
 import { authDetails } from "./handle401";
 
@@ -54,7 +55,7 @@ async function send(method: "GET" | "POST", path: string, body?: unknown): Promi
     headers["Content-Type"] = "application/json";
   }
   try {
-    return await fetch(path, {
+    return await transportFetch(path, {
       method,
       headers,
       body: method === "POST" ? JSON.stringify(body ?? {}) : undefined,

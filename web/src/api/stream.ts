@@ -3,6 +3,7 @@ import { normalizePlugins } from "@/plugins/normalize";
 import { isVisible } from "@/plugins/visibility";
 import { api } from "./client";
 import type { TopicData, TypedEnvelope } from "./topics";
+import { openEventSource } from "./transport";
 import type { Envelope, PluginsData, Topic } from "./types";
 
 export type ConnectionState = "connecting" | "live" | "reconnecting";
@@ -128,7 +129,7 @@ function open() {
   listening.clear();
   visibleTopics = new Set();
   firstPlugins = true;
-  const es = new EventSource("/api/v1/stream");
+  const es = openEventSource("/api/v1/stream");
   source = es;
   es.onopen = () => setConnection("live");
   es.onerror = () => {
