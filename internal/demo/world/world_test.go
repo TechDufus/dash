@@ -45,6 +45,8 @@ func TestBuildersAreDeterministic(t *testing.T) {
 		"flux":    func(w *World) any { return w.Flux() },
 		"logs":    func(w *World) any { return w.Logs("web-1", "app") },
 		"build":   func(w *World) any { return w.Build() },
+		"ssh":     func(w *World) any { return w.SSHHosts() },
+		"sshHist": func(w *World) any { h, _ := w.SSHHistory("nas-1"); return h },
 	}
 	for name, build := range builders {
 		t.Run(name, func(t *testing.T) {
@@ -67,13 +69,16 @@ func TestBuildersAreDeterministic(t *testing.T) {
 func TestBuildFollowsTheClock(t *testing.T) {
 	now := testNow
 	w := New(func() time.Time { return now }, testStart, fakeLinks{})
-	before, beforeM := w.Hosts(), w.Machines()
+	before, beforeM, beforeS := w.Hosts(), w.Machines(), w.SSHHosts()
 	now = now.Add(6 * time.Hour)
 	if reflect.DeepEqual(before, w.Hosts()) {
 		t.Fatal("hosts did not change after the clock moved")
 	}
 	if reflect.DeepEqual(beforeM, w.Machines()) {
 		t.Fatal("machine stats did not change after the clock moved")
+	}
+	if reflect.DeepEqual(beforeS, w.SSHHosts()) {
+		t.Fatal("ssh host stats did not change after the clock moved")
 	}
 }
 
@@ -190,6 +195,9 @@ func TestSplitPartsCarryRefs(t *testing.T) {
 	}
 	for _, m := range w.Machines() {
 		check(m.Ref, "hardware", "Machine", m.Name)
+	}
+	for _, h := range w.SSHHosts() {
+		check(h.Ref, "ssh", "Host", h.Name)
 	}
 }
 

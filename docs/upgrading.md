@@ -80,6 +80,16 @@ The API moved under `/api/v1` and the plugins' own routes; every old path answer
 - **The Hardware plugin reads the node of a host without a nodename from the running Proxmox
   plugin.** v0.7.0 used `plugins.proxmox.node` as the host's node even without a Proxmox token;
   set the host's `nodename` (`plugins.hardware.hosts[].nodename`) to run Hardware without one.
+- **SSH hosts and rolling back (the release after v0.16.1).** The [ssh plugin](plugins/ssh.md)
+  stays off until `plugins.ssh.hosts` names a host, so the upgrade changes nothing by itself.
+  - Once a host is added, dash keeps its SSH key pair in `credentials.yaml`, sealed with
+    `DASH_SECRET_KEY`; the file is then `schemaVersion: 2`, which v0.14.6 and later read.
+  - An older release starts with that file, ignores the `ssh:` section it does not know, and
+    drops it at its next write of the file (a sign-in, a token used). Upgrading again then makes
+    a new key pair, and every host must be given the new public key.
+  - To roll back, first remove `plugins.ssh` from the config file and unset every
+    `DASH_PLUGINS_SSH_*` variable: an older release refuses to start with a key or a variable it
+    does not know. Hosts saved from the settings page can stay; the older release ignores them.
 - **Several Hardware hosts (v0.16.0).** `plugins.hardware.hosts` takes any number of hosts.
   - `hardware.hosts` is `{hosts: [...]}` (one `HostData` per host, in configuration order, `[]`
     when none is configured) instead of one `HostData` object; each host gains `health`.

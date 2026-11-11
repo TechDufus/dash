@@ -758,25 +758,19 @@
         },
         "type": "object"
       },
-      "Container": {
+      "Containers": {
         "additionalProperties": false,
         "properties": {
-          "image": {
-            "type": "string"
-          },
-          "lastTerminationReason": {
-            "type": "string"
-          },
-          "name": {
-            "type": "string"
-          },
-          "ready": {
+          "denied": {
             "type": "boolean"
           },
-          "restarts": {
-            "type": "integer"
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/ssh.model.Container"
+            },
+            "type": "array"
           },
-          "state": {
+          "runtime": {
             "type": "string"
           }
         },
@@ -884,33 +878,6 @@
           },
           "title": {
             "type": "string"
-          }
-        },
-        "type": "object"
-      },
-      "Disk": {
-        "additionalProperties": false,
-        "properties": {
-          "bay": {
-            "type": "string"
-          },
-          "device": {
-            "type": "string"
-          },
-          "healthy": {
-            "type": "boolean"
-          },
-          "lifeRemainingPct": {
-            "type": "number"
-          },
-          "ref": {
-            "type": "string"
-          },
-          "serial": {
-            "type": "string"
-          },
-          "tempC": {
-            "type": "number"
           }
         },
         "type": "object"
@@ -1153,7 +1120,7 @@
         "description": "The envelope of the hardware.hosts topic.",
         "properties": {
           "data": {
-            "$ref": "#/components/schemas/HostsData"
+            "$ref": "#/components/schemas/internal.model.HostsData"
           },
           "sources": {
             "items": {
@@ -1438,6 +1405,35 @@
         ],
         "type": "object"
       },
+      "Envelope.ssh.hosts": {
+        "additionalProperties": false,
+        "description": "The envelope of the ssh.hosts topic.",
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/ssh.model.HostsData"
+          },
+          "sources": {
+            "items": {
+              "$ref": "#/components/schemas/SourceStatus"
+            },
+            "type": "array"
+          },
+          "topic": {
+            "const": "ssh.hosts"
+          },
+          "updatedAt": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "data",
+          "sources",
+          "topic",
+          "updatedAt"
+        ],
+        "type": "object"
+      },
       "Etcd": {
         "additionalProperties": false,
         "properties": {
@@ -1496,14 +1492,23 @@
         },
         "type": "object"
       },
-      "Fan": {
+      "Filesystem": {
         "additionalProperties": false,
         "properties": {
-          "name": {
+          "device": {
             "type": "string"
           },
-          "rpm": {
-            "type": "number"
+          "mount": {
+            "type": "string"
+          },
+          "totalBytes": {
+            "type": "integer"
+          },
+          "type": {
+            "type": "string"
+          },
+          "usedBytes": {
+            "type": "integer"
           }
         },
         "type": "object"
@@ -1653,6 +1658,55 @@
         },
         "type": "object"
       },
+      "History": {
+        "additionalProperties": false,
+        "properties": {
+          "intervalSeconds": {
+            "type": "integer"
+          },
+          "samples": {
+            "items": {
+              "$ref": "#/components/schemas/Sample"
+            },
+            "type": "array"
+          }
+        },
+        "type": "object"
+      },
+      "Host": {
+        "additionalProperties": false,
+        "properties": {
+          "health": {
+            "type": "string"
+          },
+          "info": {
+            "$ref": "#/components/schemas/Info"
+          },
+          "message": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "offeredKey": {
+            "$ref": "#/components/schemas/HostKey"
+          },
+          "ref": {
+            "type": "string"
+          },
+          "since": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "state": {
+            "type": "string"
+          },
+          "stats": {
+            "$ref": "#/components/schemas/Stats"
+          }
+        },
+        "type": "object"
+      },
       "HostData": {
         "additionalProperties": false,
         "properties": {
@@ -1667,7 +1721,7 @@
           },
           "disks": {
             "items": {
-              "$ref": "#/components/schemas/Disk"
+              "$ref": "#/components/schemas/internal.model.Disk"
             },
             "type": "array"
           },
@@ -1676,7 +1730,7 @@
           },
           "fans": {
             "items": {
-              "$ref": "#/components/schemas/Fan"
+              "$ref": "#/components/schemas/internal.model.Fan"
             },
             "type": "array"
           },
@@ -1712,7 +1766,7 @@
           },
           "pools": {
             "items": {
-              "$ref": "#/components/schemas/Pool"
+              "$ref": "#/components/schemas/internal.model.Pool"
             },
             "type": "array"
           },
@@ -1739,7 +1793,7 @@
           },
           "sensors": {
             "items": {
-              "$ref": "#/components/schemas/Sensor"
+              "$ref": "#/components/schemas/internal.model.Sensor"
             },
             "type": "array"
           },
@@ -1752,14 +1806,29 @@
         },
         "type": "object"
       },
-      "HostsData": {
+      "HostKey": {
         "additionalProperties": false,
         "properties": {
-          "hosts": {
-            "items": {
-              "$ref": "#/components/schemas/HostData"
-            },
-            "type": "array"
+          "fingerprint": {
+            "type": "string"
+          },
+          "key": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "Identity": {
+        "additionalProperties": false,
+        "properties": {
+          "fingerprint": {
+            "type": "string"
+          },
+          "publicKey": {
+            "type": "string"
           }
         },
         "type": "object"
@@ -1771,6 +1840,63 @@
             "type": "string"
           },
           "iface": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "Info": {
+        "additionalProperties": false,
+        "properties": {
+          "arch": {
+            "type": "string"
+          },
+          "containers": {
+            "$ref": "#/components/schemas/Containers"
+          },
+          "cpuModel": {
+            "type": "string"
+          },
+          "cpus": {
+            "type": "integer"
+          },
+          "disks": {
+            "items": {
+              "$ref": "#/components/schemas/ssh.model.Disk"
+            },
+            "type": "array"
+          },
+          "filesystems": {
+            "items": {
+              "$ref": "#/components/schemas/Filesystem"
+            },
+            "type": "array"
+          },
+          "hostname": {
+            "type": "string"
+          },
+          "kernel": {
+            "type": "string"
+          },
+          "os": {
+            "type": "string"
+          },
+          "pools": {
+            "items": {
+              "$ref": "#/components/schemas/ssh.model.Pool"
+            },
+            "type": "array"
+          },
+          "product": {
+            "type": "string"
+          },
+          "services": {
+            "$ref": "#/components/schemas/Services"
+          },
+          "vendor": {
+            "type": "string"
+          },
+          "virtualization": {
             "type": "string"
           }
         },
@@ -2742,7 +2868,7 @@
           },
           "containers": {
             "items": {
-              "$ref": "#/components/schemas/Container"
+              "$ref": "#/components/schemas/internal.model.Container"
             },
             "type": "array"
           },
@@ -2766,31 +2892,6 @@
           },
           "pod": {
             "$ref": "#/components/schemas/Pod"
-          }
-        },
-        "type": "object"
-      },
-      "Pool": {
-        "additionalProperties": false,
-        "properties": {
-          "lastScrubEnd": {
-            "format": "date-time",
-            "type": "string"
-          },
-          "name": {
-            "type": "string"
-          },
-          "ref": {
-            "type": "string"
-          },
-          "scrubErrors": {
-            "type": "integer"
-          },
-          "scrubInProgress": {
-            "type": "boolean"
-          },
-          "state": {
-            "type": "string"
           }
         },
         "type": "object"
@@ -2990,14 +3091,35 @@
         },
         "type": "object"
       },
-      "Sensor": {
+      "Sample": {
         "additionalProperties": false,
         "properties": {
-          "name": {
-            "type": "string"
-          },
-          "valueC": {
+          "cpuRatio": {
             "type": "number"
+          },
+          "cpuTempC": {
+            "type": "number"
+          },
+          "diskReadBytesPerSec": {
+            "type": "number"
+          },
+          "diskWriteBytesPerSec": {
+            "type": "number"
+          },
+          "load1": {
+            "type": "number"
+          },
+          "memRatio": {
+            "type": "number"
+          },
+          "netRxBytesPerSec": {
+            "type": "number"
+          },
+          "netTxBytesPerSec": {
+            "type": "number"
+          },
+          "t": {
+            "type": "integer"
           }
         },
         "type": "object"
@@ -3118,6 +3240,21 @@
           },
           "range": {
             "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "Services": {
+        "additionalProperties": false,
+        "properties": {
+          "failed": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "running": {
+            "type": "integer"
           }
         },
         "type": "object"
@@ -3425,6 +3562,73 @@
           },
           "ok": {
             "type": "boolean"
+          }
+        },
+        "type": "object"
+      },
+      "Stats": {
+        "additionalProperties": false,
+        "properties": {
+          "cpuRatio": {
+            "type": "number"
+          },
+          "cpuTempC": {
+            "type": "number"
+          },
+          "diskReadBytesPerSec": {
+            "type": "number"
+          },
+          "diskWriteBytesPerSec": {
+            "type": "number"
+          },
+          "fans": {
+            "items": {
+              "$ref": "#/components/schemas/ssh.model.Fan"
+            },
+            "type": "array"
+          },
+          "ioWaitRatio": {
+            "type": "number"
+          },
+          "load1": {
+            "type": "number"
+          },
+          "load15": {
+            "type": "number"
+          },
+          "load5": {
+            "type": "number"
+          },
+          "memTotalBytes": {
+            "type": "integer"
+          },
+          "memUsedBytes": {
+            "type": "integer"
+          },
+          "netRxBytesPerSec": {
+            "type": "number"
+          },
+          "netTxBytesPerSec": {
+            "type": "number"
+          },
+          "sampledAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "sensors": {
+            "items": {
+              "$ref": "#/components/schemas/ssh.model.Sensor"
+            },
+            "type": "array"
+          },
+          "swapTotalBytes": {
+            "type": "integer"
+          },
+          "swapUsedBytes": {
+            "type": "integer"
+          },
+          "uptimeSeconds": {
+            "type": "integer"
           }
         },
         "type": "object"
@@ -3923,6 +4127,118 @@
         },
         "type": "object"
       },
+      "internal.model.Container": {
+        "additionalProperties": false,
+        "properties": {
+          "image": {
+            "type": "string"
+          },
+          "lastTerminationReason": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "ready": {
+            "type": "boolean"
+          },
+          "restarts": {
+            "type": "integer"
+          },
+          "state": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "internal.model.Disk": {
+        "additionalProperties": false,
+        "properties": {
+          "bay": {
+            "type": "string"
+          },
+          "device": {
+            "type": "string"
+          },
+          "healthy": {
+            "type": "boolean"
+          },
+          "lifeRemainingPct": {
+            "type": "number"
+          },
+          "ref": {
+            "type": "string"
+          },
+          "serial": {
+            "type": "string"
+          },
+          "tempC": {
+            "type": "number"
+          }
+        },
+        "type": "object"
+      },
+      "internal.model.Fan": {
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "rpm": {
+            "type": "number"
+          }
+        },
+        "type": "object"
+      },
+      "internal.model.HostsData": {
+        "additionalProperties": false,
+        "properties": {
+          "hosts": {
+            "items": {
+              "$ref": "#/components/schemas/HostData"
+            },
+            "type": "array"
+          }
+        },
+        "type": "object"
+      },
+      "internal.model.Pool": {
+        "additionalProperties": false,
+        "properties": {
+          "lastScrubEnd": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "ref": {
+            "type": "string"
+          },
+          "scrubErrors": {
+            "type": "integer"
+          },
+          "scrubInProgress": {
+            "type": "boolean"
+          },
+          "state": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "internal.model.Sensor": {
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "valueC": {
+            "type": "number"
+          }
+        },
+        "type": "object"
+      },
       "reconcileInput": {
         "additionalProperties": false,
         "properties": {
@@ -4028,6 +4344,108 @@
         "required": [
           "id"
         ],
+        "type": "object"
+      },
+      "ssh.model.Container": {
+        "additionalProperties": false,
+        "properties": {
+          "image": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "ssh.model.Disk": {
+        "additionalProperties": false,
+        "properties": {
+          "kind": {
+            "type": "string"
+          },
+          "model": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "sizeBytes": {
+            "type": "integer"
+          }
+        },
+        "type": "object"
+      },
+      "ssh.model.Fan": {
+        "additionalProperties": false,
+        "properties": {
+          "chip": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "rpm": {
+            "type": "integer"
+          }
+        },
+        "type": "object"
+      },
+      "ssh.model.HostsData": {
+        "additionalProperties": false,
+        "properties": {
+          "hosts": {
+            "items": {
+              "$ref": "#/components/schemas/Host"
+            },
+            "type": "array"
+          },
+          "identity": {
+            "$ref": "#/components/schemas/Identity"
+          },
+          "intervalSeconds": {
+            "type": "integer"
+          }
+        },
+        "type": "object"
+      },
+      "ssh.model.Pool": {
+        "additionalProperties": false,
+        "properties": {
+          "allocBytes": {
+            "type": "integer"
+          },
+          "health": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "sizeBytes": {
+            "type": "integer"
+          }
+        },
+        "type": "object"
+      },
+      "ssh.model.Sensor": {
+        "additionalProperties": false,
+        "properties": {
+          "chip": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "tempC": {
+            "type": "number"
+          }
+        },
         "type": "object"
       }
     },
@@ -4889,6 +5307,48 @@
         "summary": "Configuration, guest-agent addresses and snapshots of one VM",
         "tags": [
           "proxmox"
+        ],
+        "x-dash-min-role": "viewer",
+        "x-dash-scope": "read"
+      }
+    },
+    "/api/v1/plugins/ssh/hosts/{name}/history": {
+      "get": {
+        "operationId": "ssh_get_hosts_name_history",
+        "parameters": [
+          {
+            "description": "The {name} segment of the request path.",
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/History"
+                }
+              }
+            },
+            "description": "A host's samples of the last hour, oldest first (kept in memory only)",
+            "headers": {
+              "X-Request-Id": {
+                "$ref": "#/components/headers/XRequestId"
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "summary": "A host's samples of the last hour, oldest first (kept in memory only)",
+        "tags": [
+          "ssh"
         ],
         "x-dash-min-role": "viewer",
         "x-dash-scope": "read"
@@ -6227,6 +6687,9 @@
                     },
                     {
                       "$ref": "#/components/schemas/Envelope.rustfs.usage"
+                    },
+                    {
+                      "$ref": "#/components/schemas/Envelope.ssh.hosts"
                     }
                   ]
                 }
@@ -6335,6 +6798,10 @@
     {
       "description": "Proxmox VE: Virtual machines, containers and the hypervisor.",
       "name": "proxmox"
+    },
+    {
+      "description": "SSH hosts: Linux machines read over SSH: their hardware, what runs on them and live metrics.",
+      "name": "ssh"
     },
     {
       "description": "VictoriaLogs: The pod logs the UI shows.",

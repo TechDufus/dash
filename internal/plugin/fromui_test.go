@@ -1,11 +1,14 @@
 package plugin_test
 
 import (
+	"context"
 	"errors"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/TechDufus/dash/internal/plugin"
 	"github.com/TechDufus/dash/internal/plugin/plugintest"
@@ -63,6 +66,60 @@ func TestMetadataAddressRefusedForEverySource(t *testing.T) {
 			if err := hostGet(t, f, u); !errors.Is(err, plugin.ErrBlockedAddress) {
 				t.Errorf("fromUI=%v: GET %s err = %v, want ErrBlockedAddress", fromUI, u, err)
 			}
+		}
+	}
+}
+
+// hostDial opens one connection to address through the running fake's Host.Dial.
+func hostDial(t *testing.T, f *plugintest.Fake, address string) error {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	c, err := f.Host().Dial(ctx, "tcp", address)
+	if err != nil {
+		return err
+	}
+	return c.Close()
+}
+
+// Host.Dial applies the HTTP client's guard to a raw connection: loopback is refused only for an
+// instance whose address came from the UI, and link-local and the metadata address always. It
+// dials nothing but TCP.
+func TestDialFollowsTheGuard(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ln.Close()
+	go func() {
+		for {
+			c, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			c.Close()
+		}
+	}()
+	f := plugintest.New("aa")
+	e := start(t, f.Factory())
+	eventually(t, "aa to run", func() bool { return e.sup.Running("aa") })
+	if err := hostDial(t, f, ln.Addr().String()); err != nil {
+		t.Fatalf("a loopback address from the file or env: %v", err)
+	}
+	for _, a := range []string{"169.254.169.254:22", "[fe80::1]:22", "[fd00:ec2::254]:22"} {
+		if err := hostDial(t, f, a); !errors.Is(err, plugin.ErrBlockedAddress) {
+			t.Errorf("dial %s from the file or env: err = %v, want ErrBlockedAddress", a, err)
+		}
+	}
+	if _, err := f.Host().Dial(context.Background(), "unix", "/run/x.sock"); err == nil {
+		t.Error("the unix network was accepted")
+	}
+
+	e.set.Set(plugin.InstanceConfig{Name: "aa", FromUI: true})
+	e.reloadUntil(t, "a restart with FromUI", func() bool { return f.Starts() == 2 && e.sup.Running("aa") })
+	for _, a := range []string{ln.Addr().String(), "169.254.169.254:22", "[::1]:22", "0.0.0.0:22"} {
+		if err := hostDial(t, f, a); !errors.Is(err, plugin.ErrBlockedAddress) {
+			t.Errorf("dial %s from the UI: err = %v, want ErrBlockedAddress", a, err)
 		}
 	}
 }

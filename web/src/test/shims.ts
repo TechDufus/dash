@@ -47,6 +47,12 @@ export function shimRows(): PluginInfo[] {
       nav: nav("/hardware", "Hardware", "Hardware", "Cpu"),
     }),
     pluginInfo({
+      id: "ssh",
+      name: "SSH hosts",
+      topics: ["ssh.hosts"],
+      nav: nav("/hosts", "Hosts", "Hosts", "Server"),
+    }),
+    pluginInfo({
       id: "kubernetes",
       name: "Kubernetes",
       topics: ["kubernetes.cluster", "kubernetes.storage", "kubernetes.apps"],
@@ -85,6 +91,7 @@ export const RAIL_LABELS = [
   "Cluster",
   "GitOps",
   "Hardware",
+  "Hosts",
   "Storage",
   "Alerts",
   "Status",

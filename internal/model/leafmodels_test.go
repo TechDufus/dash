@@ -54,7 +54,7 @@ func TestPluginModelPackagesAreImportLeaves(t *testing.T) {
 		t.Errorf("a plugin model package may import the standard library only: %s", bad)
 	}
 	// The packages this rule exists for are there, so an empty glob cannot pass it.
-	for _, want := range []string{"proxmox", "hardware"} {
+	for _, want := range []string{"proxmox", "hardware", "ssh"} {
 		if !pkgs[want] {
 			t.Errorf("no model package found for %s (found %v)", want, slices.Sorted(maps.Keys(pkgs)))
 		}

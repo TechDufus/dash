@@ -50,6 +50,7 @@ const PAGES = [
   ["overview", "/"],
   ["vms", "/vms"],
   ["hardware", "/hardware"],
+  ["hosts", "/hosts"],
   ["pods", "/cluster?tab=pods"],
   ["pod-sheet", podSheetPath],
   ["gitops", "/gitops"],

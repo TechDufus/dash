@@ -12,6 +12,7 @@
 //	                          restart         x-dash-restart: true (a change needs a restart)
 //	                          url             format: uri
 //	                          dest            x-dash-dest: true (the field decides where requests go)
+//	                          dial            x-dash-dial: true (the field holds addresses dash connects to)
 //	                          format=<f>      format: <f>
 //	                          enum=a|b|c      enum: [a, b, c] (numbers for integer fields)
 //	                          min=<n>         minimum (integers) or minLength (strings)
@@ -30,7 +31,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"maps"
-	"path"
 	"reflect"
 	"slices"
 	"strconv"
@@ -107,8 +107,9 @@ func (r *Reflector) Type(t reflect.Type) Schema {
 	return s
 }
 
-// Defs returns the collected named types by name: the Go name, or pkg.Name when two types
-// share one. The map is a copy; its schemas are not.
+// Defs returns the collected named types by name: the Go name, or the shortest tail of the
+// package path that tells apart two types that share one (see names). The map is a copy; its
+// schemas are not.
 func (r *Reflector) Defs() map[string]Schema {
 	r.finalize()
 	names := r.names()
@@ -349,6 +350,8 @@ func applyOptions(name string, f reflect.StructField, prop Schema) (required boo
 			prop["format"] = "uri"
 		case key == "dest" && !hasVal:
 			prop["x-dash-dest"] = true
+		case key == "dial" && !hasVal:
+			prop["x-dash-dial"] = true
 		case key == "format" && hasVal && val != "":
 			prop["format"] = val
 		case key == "enum" && hasVal && val != "":
@@ -435,8 +438,9 @@ func (r *Reflector) finalize() {
 	}
 }
 
-// names assigns each definition its name: the Go name when unique, else pkg.Name, else the
-// package path with dots.
+// names assigns each definition its name: the Go name when unique, else the shortest tail of the
+// package path that tells the types of that name apart (model.Name, then ssh.model.Name), so a
+// name carries no more of the module path than it needs.
 func (r *Reflector) names() map[reflect.Type]string {
 	byName := map[string][]reflect.Type{}
 	for t := range r.defs {
@@ -448,16 +452,22 @@ func (r *Reflector) names() map[reflect.Type]string {
 			out[ts[0]] = sanitize(name)
 			continue
 		}
-		byPkg := map[string]int{}
-		for _, t := range ts {
-			byPkg[path.Base(t.PkgPath())+"."+name]++
-		}
-		for _, t := range ts {
-			q := path.Base(t.PkgPath()) + "." + name
-			if byPkg[q] > 1 {
-				q = strings.ReplaceAll(t.PkgPath(), "/", ".") + "." + name
+		for n := 1; ; n++ {
+			q := make(map[reflect.Type]string, len(ts))
+			seen := map[string]int{}
+			longest := 0
+			for _, t := range ts {
+				segs := strings.Split(t.PkgPath(), "/")
+				longest = max(longest, len(segs))
+				q[t] = strings.Join(segs[max(0, len(segs)-n):], ".") + "." + name
+				seen[q[t]]++
 			}
-			out[t] = sanitize(q)
+			if len(seen) == len(ts) || n >= longest {
+				for t, s := range q {
+					out[t] = sanitize(s)
+				}
+				break
+			}
 		}
 	}
 	return out

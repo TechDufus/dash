@@ -154,10 +154,10 @@ func validPAT(id string, p PAT) error {
 }
 
 // writtenVersion is the schemaVersion a document is written with (contract D4, D40): 2 once it
-// holds a personal access token, an OAuth grant or push data (the VAPID key or a subscription),
-// 1 before, so an install that never made one can still roll back.
+// holds a personal access token, an OAuth grant, push data (the VAPID key or a subscription) or
+// the SSH key pair, 1 before, so an install that never made one can still roll back.
 func writtenVersion(d document) int {
-	if len(d.PATs) > 0 || len(d.Grants) > 0 || holdsPush(d.Push) {
+	if len(d.PATs) > 0 || len(d.Grants) > 0 || holdsPush(d.Push) || holdsSSH(d.SSH) {
 		return 2
 	}
 	return 1

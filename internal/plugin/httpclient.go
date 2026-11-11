@@ -1,6 +1,7 @@
 package plugin
 
 import (
+	"context"
 	"crypto/tls"
 	"crypto/x509"
 	"errors"
@@ -69,6 +70,26 @@ func guardControl(fromUI bool) func(network, address string, _ syscall.RawConn) 
 	}
 }
 
+// dialTimeout caps one guarded dial, of an HTTP client or of Host.Dial, that its context does
+// not end sooner.
+const dialTimeout = 10 * time.Second
+
+// guardedDialer is the dialer behind every connection a plugin makes: the dial guard, the dial
+// timeout and TCP keepalives, so a peer that vanishes is noticed.
+func guardedDialer(fromUI bool) *net.Dialer {
+	return &net.Dialer{Timeout: dialTimeout, KeepAlive: 30 * time.Second, Control: guardControl(fromUI)}
+}
+
+// guardedDial is Host.Dial: a TCP connection through the dial guard, without any proxy.
+func guardedDial(ctx context.Context, network, address string, fromUI bool) (net.Conn, error) {
+	switch network {
+	case "tcp", "tcp4", "tcp6":
+	default:
+		return nil, fmt.Errorf("dial guard: network %q is not tcp", network)
+	}
+	return guardedDialer(fromUI).DialContext(ctx, network, address)
+}
+
 // newHTTPClient builds the guarded client. It sends no request through an HTTP proxy from the
 // environment: the guard sees only the address it dials, which would then be the proxy's.
 func newHTTPClient(c HTTPConfig) (*http.Client, error) {
@@ -91,7 +112,7 @@ func newHTTPClient(c HTTPConfig) (*http.Client, error) {
 		}
 		tlsCfg.RootCAs = pool
 	}
-	dialer := &net.Dialer{Timeout: 10 * time.Second, KeepAlive: 30 * time.Second, Control: guardControl(c.FromUI)}
+	dialer := guardedDialer(c.FromUI)
 	var rt http.RoundTripper = &http.Transport{
 		DialContext:         dialer.DialContext,
 		TLSClientConfig:     tlsCfg,

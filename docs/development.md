@@ -138,7 +138,7 @@ the fixes. Remove each override once a release of its parent allows the patched 
 | `internal/config` | layered configuration: defaults, config file, environment (`DASH_*`) |
 | `internal/jsonschema` | JSON Schema from Go structs, for `dash config schema` and plugin config |
 | `internal/plugin` | the plugin contract, registry and supervisor; `plugintest` has the fakes |
-| `internal/plugins` | the plugins dash ships, one package per plugin ID: `proxmox`, `hardware`, `kubernetes`, `flux`, `cnpg`, `rustfs`, `prometheus`, `alertmanager`, `gatus`, `victorialogs`, `grafana`, `headlamp` and `launcher`; `internal/plugins/<id>/model` holds the payload types only that plugin publishes |
+| `internal/plugins` | the plugins dash ships, one package per plugin ID: `proxmox`, `hardware`, `ssh`, `kubernetes`, `flux`, `cnpg`, `rustfs`, `prometheus`, `alertmanager`, `gatus`, `victorialogs`, `grafana`, `headlamp` and `launcher`; `internal/plugins/<id>/model` holds the payload types only that plugin publishes |
 | `internal/svc` | the interfaces plugins export to each other and to the core: `Querier`, `EndpointHealth`, `NodeName` and `ClusterNodes` (proxmox), `NodeIndex` and `Cluster` (the kubernetes plugin) |
 | `internal/pluginconf` | the configuration structs of the plugins, shared by `internal/config` and the plugins (which never import `internal/config`) |
 | `internal/secret` | secret values (`[redacted]` when printed), the `env:` and `file:` references, the scrub registry and `K8sRefs`, which hands the kubernetes plugin's `k8s:` references one holder each |

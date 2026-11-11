@@ -19,6 +19,8 @@ const PAGES = {
   cluster: "Warning events",
   gitops: "Flux objects",
   hardware: "Disk bays",
+  "hosts-page": "No host is set up yet.",
+  "ssh-settings": "dash shows its public key here once the SSH plugin runs.",
   alerts: "firing since",
   status: "Average duration of the shown checks",
   "settings-page": "Settings are read-only",

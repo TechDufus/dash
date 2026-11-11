@@ -65,7 +65,7 @@ type docPlugin struct {
 // pluginDocPages renders every page, the index last.
 func pluginDocPages() ([]docPage, error) {
 	var all []docPlugin
-	for _, f := range registry(nil) {
+	for _, f := range registry(nil, nil) {
 		p := f()
 		all = append(all, docPlugin{p, p.Manifest()})
 	}

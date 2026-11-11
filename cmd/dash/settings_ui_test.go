@@ -248,7 +248,7 @@ func auditFile(t *testing.T, dir string) ([]audit.Record, string) {
 func TestGroupAcceptanceAdminConfiguresAPluginFromTheUI(t *testing.T) {
 	pve, upstream, versions := newUIPVE(t)
 	route := routeHost(t, uiPVEURL, upstream)
-	u := startUIServer(t, registry(nil), route, route)
+	u := startUIServer(t, registry(nil, nil), route, route)
 	const (
 		firstSecret = "pve-first-secret-0123456789"
 		finalSecret = "pve-rotated-secret-9876543210"

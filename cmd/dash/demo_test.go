@@ -223,8 +223,8 @@ func TestDemoPluginsAreHealthy(t *testing.T) {
 	fw, _ := startDemo(t)
 	awaitDemoTopics(t, fw)
 	infos := fw.sup.Infos()
-	if len(infos) != len(registry(nil)) {
-		t.Fatalf("%d plugin rows, want one per plugin dash ships (%d)", len(infos), len(registry(nil)))
+	if len(infos) != len(registry(nil, nil)) {
+		t.Fatalf("%d plugin rows, want one per plugin dash ships (%d)", len(infos), len(registry(nil, nil)))
 	}
 	for _, in := range infos {
 		if in.State != model.PluginHealthy || in.Message != "" {

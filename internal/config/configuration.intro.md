@@ -69,7 +69,7 @@ layers again. An edit that does not validate is logged once as an ERROR and chan
 keeps running on the configuration it has. Environment variables only change with a restart.
 
 A change to a `plugins.<id>` section applies live
-for prometheus, alertmanager, gatus, victorialogs, proxmox, hardware, kubernetes, flux, cnpg, rustfs, grafana, headlamp and launcher,
+for prometheus, alertmanager, gatus, victorialogs, proxmox, hardware, ssh, kubernetes, flux, cnpg, rustfs, grafana, headlamp and launcher,
 except for a setting marked "restart-only": that plugin restarts, and so do the plugins that use or require it
 (a prometheus change restarts proxmox, hardware, kubernetes, cnpg and rustfs; a gatus change restarts hardware and
 kubernetes; a proxmox change restarts hardware; a kubernetes change restarts proxmox, flux and cnpg; a grafana change
@@ -93,6 +93,7 @@ and would run until the next check.
 
 A plugin whose `enabled` is unset turns on when it has the settings it needs, except that rustfs is off unless `enabled: true`.
 Without them it is `disabled` with a message that names the setting to make:
-`not configured: set plugins.<id>.url` for most plugins, `links` or `file` for the launcher, and
-`hosts` or `machines` for the hardware plugin. What each plugin shows, needs and may do is in the
+`not configured: set plugins.<id>.url` for most plugins, `links` or `file` for the launcher,
+`hosts` or `machines` for the hardware plugin and `hosts` for the ssh plugin. What each plugin
+shows, needs and may do is in the
 [plugin reference](plugins/README.md).

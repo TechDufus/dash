@@ -76,7 +76,7 @@ func startK8sProcess(t *testing.T, cfgBody string, env ...string) *k8sProcess {
 	ctx, cancel := context.WithCancel(context.Background())
 	p.cancel = cancel
 	ov := overview.New(overview.Deps{Hosts: p.fw.sup, Contributors: p.fw.sup.Contributors})
-	if err := p.fw.start(ctx, registry(p.refs), func() { ov.Run(ctx) }); err != nil {
+	if err := p.fw.start(ctx, registry(p.refs, nil), func() { ov.Run(ctx) }); err != nil {
 		t.Fatal(err)
 	}
 	done := make(chan struct{})

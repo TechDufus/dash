@@ -13,6 +13,7 @@ import { cn } from "@/lib/utils";
 import { contributesPanel, Slot } from "@/plugins/slots";
 import { isVisible, usePluginsState } from "@/plugins/state";
 import { AttentionPanel } from "./attention";
+import { SetupHint } from "./setup-hint";
 import { TopologyPanel } from "./topology";
 
 const KPI_GRID = "grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6";
@@ -91,6 +92,7 @@ export function OverviewPage() {
   const appSources = useTopic("kubernetes.apps")?.sources;
   return (
     <Page>
+      <SetupHint />
       {data ? (
         <>
           <Reveal index={0} className="space-y-2">

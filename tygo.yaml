@@ -49,3 +49,8 @@ packages:
     enum_style: union
     type_mappings:
       time.Time: string
+  - path: github.com/TechDufus/dash/internal/plugins/ssh/model
+    output_path: web/src/plugins/modules/ssh/model.gen.ts
+    enum_style: union
+    type_mappings:
+      time.Time: string

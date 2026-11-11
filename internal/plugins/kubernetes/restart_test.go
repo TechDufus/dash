@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"log/slog"
+	"net"
 	"net/http"
 	"slices"
 	"strings"
@@ -45,6 +46,9 @@ func (restartHost) Publish(string, any, []model.SourceStatus) {}
 func (restartHost) Logger() *slog.Logger                      { return slog.New(slog.DiscardHandler) }
 func (restartHost) HTTPClient(plugin.HTTPConfig) (*http.Client, error) {
 	return nil, errors.New("restartHost has no HTTP client")
+}
+func (restartHost) Dial(context.Context, string, string) (net.Conn, error) {
+	return nil, errors.New("restartHost dials nothing")
 }
 func (restartHost) ScrubLog(s string) string {
 	return strings.ReplaceAll(s, restartSecret, "[redacted]")

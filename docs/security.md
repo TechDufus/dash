@@ -1,8 +1,8 @@
 # Security model
 
-dash reads a lot (the cluster, the hypervisor, monitoring) and writes very little. This page says
-who may do what, how requests are checked, how secrets are kept and what is recorded. To report a
-vulnerability, see [SECURITY.md](../SECURITY.md).
+dash reads a lot (the cluster, the hypervisor, the hosts, monitoring) and writes very little. This
+page says who may do what, how requests are checked, how secrets are kept and what is recorded.
+To report a vulnerability, see [SECURITY.md](../SECURITY.md).
 
 ## Who is signed in, and what they may do
 
@@ -130,6 +130,42 @@ page may not reach loopback either. The kubernetes client (also used by flux and
 client-go's: it trusts the kubeconfig's or service account's CA, honours `HTTPS_PROXY`/`NO_PROXY`,
 and has no dial guard. The `oidc` mode's client for the provider (discovery, token exchange,
 signing keys) also uses the environment's proxy and has no dial guard.
+
+## Hosts over SSH
+
+The [ssh plugin](plugins/ssh.md) reads Linux hosts and installs nothing on them
+([ADR 0003](adr/0003-ssh-hosts-binaries-static-demo.md)).
+
+- **What runs on a host.** One command per connection, in a session without a terminal: a script
+  that is a constant in dash's source and prints the text of `/proc`, `/sys` and a few read-only
+  commands. The only values dash puts into it are numbers it computes and a random marker. No
+  setting and nothing a host sends becomes part of a command, and dash has no action, route or
+  setting that runs anything else there. It never writes to a host and never asks for more
+  privilege.
+- **dash's key.** dash signs in with one ed25519 key and nothing else; it stores and asks for no
+  password. The private key is generated at first need and sealed in `credentials.yaml` with
+  `DASH_SECRET_KEY`, so the plugin needs the secret key and a writable data directory and does
+  not start without them. Whoever holds both the data directory and the secret key holds a shell
+  as the configured user on every host: give dash a dedicated unprivileged user there, and add
+  its key with the `restrict` option, which turns off forwarding and terminals.
+- **Host keys.** A host's public key is pinned in its settings (`plugins.ssh.hosts[].hostKey`).
+  To a host without one dash sends no credential: it reads the key the host presents, ends the
+  handshake before it authenticates and shows the fingerprint. Trusting that key is an
+  administrator's settings change, with its audit record. A host that presents another key than
+  the pinned one is refused until an administrator replaces the pin.
+- **Where it connects.** Through the dial guard of the HTTP plugins: link-local addresses are
+  refused whatever the configuration, an address saved from the settings page may not reach
+  loopback, and the environment's proxy is not used.
+- **What a host sends.** Text, which dash parses and never runs. A frame, a line and every list
+  are bounded, and a host that breaks the framing is disconnected. What it reports (names of
+  containers, units and file systems) is lab text like a pod's name: an agent gets it inside the
+  untrusted-data framing.
+- **What viewers see.** Names, states in fixed words, fingerprints, the inventory and the
+  metrics. Addresses, users and the text of connection errors stay in the settings API, which
+  only administrators read, and in dash's log.
+- **What dash can read.** Whatever the SSH user can. Listing containers needs access to the
+  container runtime, and membership of the `docker` group is as good as root on that host: leave
+  it out unless you accept that, and the Hosts page simply shows no containers.
 
 ## Secrets
 

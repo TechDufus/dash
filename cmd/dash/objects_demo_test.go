@@ -13,7 +13,7 @@ import (
 )
 
 // objectPlugins are the plugins that implement Objects (design N.4).
-var objectPlugins = []plugin.ID{"alertmanager", "gatus", "proxmox", "hardware", "kubernetes", "flux", "cnpg"}
+var objectPlugins = []plugin.ID{"alertmanager", "gatus", "proxmox", "hardware", "ssh", "kubernetes", "flux", "cnpg"}
 
 // In demo mode every Objects plugin's twin finds, reads and describes the objects of its topics:
 // each hit is the plugin's own ref, Get answers it and Context describes it.

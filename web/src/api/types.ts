@@ -284,6 +284,11 @@ export const TopicStatus = "gatus.status";
  */
 export const TopicLauncherLinks = "launcher.links";
 /**
+ * TopicSSHHosts is the hosts dash reads over SSH (ssh/model.HostsData), published by the ssh
+ * plugin.
+ */
+export const TopicSSHHosts = "ssh.hosts";
+/**
  * TopicPlugins is the status of every plugin instance (PluginsData), published by the
  * plugin supervisor. The core.* names belong to dash itself, not to a plugin.
  */
@@ -293,7 +298,7 @@ export const TopicPlugins = "core.plugins";
  * per user (hub.PublishFor): a user's stream and snapshot carry that user's requests only.
  */
 export const TopicApprovals = "core.approvals";
-export type Topic = typeof TopicOverview | typeof TopicHost | typeof TopicVMs | typeof TopicProxmoxCluster | typeof TopicProxmoxStorage | typeof TopicHardwareMachines | typeof TopicCluster | typeof TopicStorage | typeof TopicCNPGClusters | typeof TopicRustFSUsage | typeof TopicApps | typeof TopicFlux | typeof TopicAlerts | typeof TopicStatus | typeof TopicLauncherLinks | typeof TopicPlugins | typeof TopicApprovals;
+export type Topic = typeof TopicOverview | typeof TopicHost | typeof TopicVMs | typeof TopicProxmoxCluster | typeof TopicProxmoxStorage | typeof TopicHardwareMachines | typeof TopicCluster | typeof TopicStorage | typeof TopicCNPGClusters | typeof TopicRustFSUsage | typeof TopicApps | typeof TopicFlux | typeof TopicAlerts | typeof TopicStatus | typeof TopicLauncherLinks | typeof TopicSSHHosts | typeof TopicPlugins | typeof TopicApprovals;
 export interface Link {
   label: string;
   href: string;

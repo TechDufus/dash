@@ -28,6 +28,9 @@ type leaf struct {
 	// dest: the leaf decides where or how a request is sent (design D16): changing it while
 	// the section has a set secret needs every set secret re-entered.
 	dest bool
+	// dial: the value holds the network addresses a plugin connects to without being a URL
+	// (plugins.ssh.hosts). Like a url leaf it decides whether the section is FromUI.
+	dial bool
 	enum []string // the dash tag's enum=a|b, for the settings view
 	doc  string   // the doc tag
 }
@@ -95,6 +98,8 @@ func (s *schemaT) walk(n *node, t reflect.Type, index []int, prefix string) {
 					l.url = true
 				case "dest":
 					l.dest = true
+				case "dial":
+					l.dial = true
 				case "":
 				case "required":
 					// Only the JSON Schema reflector reads these (internal/jsonschema).

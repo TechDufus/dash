@@ -270,8 +270,8 @@ func TestRegistryOrder(t *testing.T) {
 		return out
 	}
 
-	want := ids(registry(nil))
-	if got := ids(registry(secret.NewK8sRefs(secret.NewRegistry()))); !slices.Equal(got, want) {
+	want := ids(registry(nil, nil))
+	if got := ids(registry(secret.NewK8sRefs(secret.NewRegistry()), nil)); !slices.Equal(got, want) {
 		t.Errorf("registry with references = %v, want %v", got, want)
 	}
 	var manifests []plugin.ID

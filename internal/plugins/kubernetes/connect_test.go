@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -178,7 +179,10 @@ type connHost struct{}
 func (connHost) Publish(string, any, []model.SourceStatus)          {}
 func (connHost) Logger() *slog.Logger                               { return slog.New(slog.DiscardHandler) }
 func (connHost) HTTPClient(plugin.HTTPConfig) (*http.Client, error) { return http.DefaultClient, nil }
-func (connHost) ScrubLog(s string) string                           { return s }
+func (connHost) Dial(context.Context, string, string) (net.Conn, error) {
+	return nil, errors.New("connHost dials nothing")
+}
+func (connHost) ScrubLog(s string) string { return s }
 func (connHost) CutLog(s string, n int) (string, bool) {
 	return (*secret.Registry)(nil).CutRunes(s, n)
 }

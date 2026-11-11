@@ -66,6 +66,9 @@ const (
 	// TopicLauncherLinks is the launcher's infrastructure links (LauncherData), published by the
 	// launcher plugin.
 	TopicLauncherLinks Topic = "launcher.links"
+	// TopicSSHHosts is the hosts dash reads over SSH (ssh/model.HostsData), published by the ssh
+	// plugin.
+	TopicSSHHosts Topic = "ssh.hosts"
 	// TopicPlugins is the status of every plugin instance (PluginsData), published by the
 	// plugin supervisor. The core.* names belong to dash itself, not to a plugin.
 	TopicPlugins Topic = "core.plugins"

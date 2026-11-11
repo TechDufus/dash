@@ -5,6 +5,7 @@ import (
 
 	hwmodel "github.com/TechDufus/dash/internal/plugins/hardware/model"
 	pvemodel "github.com/TechDufus/dash/internal/plugins/proxmox/model"
+	sshmodel "github.com/TechDufus/dash/internal/plugins/ssh/model"
 )
 
 // TopicTypes maps every topic dash itself publishes to the type of its payload (Envelope.Data).
@@ -28,6 +29,7 @@ func TopicTypes() map[Topic]reflect.Type {
 		TopicStatus:           reflect.TypeFor[StatusData](),
 		TopicApps:             reflect.TypeFor[AppsData](),
 		TopicLauncherLinks:    reflect.TypeFor[LauncherData](),
+		TopicSSHHosts:         reflect.TypeFor[sshmodel.HostsData](),
 		TopicApprovals:        reflect.TypeFor[ApprovalsData](),
 	}
 }

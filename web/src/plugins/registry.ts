@@ -12,6 +12,7 @@ import kubernetes from "./modules/kubernetes";
 import launcher from "./modules/launcher";
 import proxmox from "./modules/proxmox";
 import rustfs from "./modules/rustfs";
+import ssh from "./modules/ssh";
 import type { PluginModule } from "./types";
 
 /**
@@ -23,6 +24,7 @@ export const MODULES = [
   gatus,
   proxmox,
   hardware,
+  ssh,
   kubernetes,
   flux,
   cnpg,

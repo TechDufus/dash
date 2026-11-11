@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"log/slog"
+	"net"
 	"net/http"
 	"slices"
 	"sync"
@@ -43,6 +44,9 @@ func (h *stubHost) Publish(string, any, []model.SourceStatus) { h.published.Add(
 func (h *stubHost) Logger() *slog.Logger                      { return slog.New(slog.DiscardHandler) }
 func (h *stubHost) HTTPClient(plugin.HTTPConfig) (*http.Client, error) {
 	return nil, errors.New("flux makes no request of its own")
+}
+func (h *stubHost) Dial(context.Context, string, string) (net.Conn, error) {
+	return nil, errors.New("flux dials nothing of its own")
 }
 func (h *stubHost) ScrubLog(s string) string { return s }
 func (h *stubHost) CutLog(s string, n int) (string, bool) {

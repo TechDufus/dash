@@ -111,6 +111,10 @@ func run(reg *secret.Registry, onBound func(api, health net.Addr)) error {
 		return err
 	}
 	defer pa.close()
+	// The ssh plugin's key pair, in the auth mode's credential store or the data directory's. It
+	// is released after the plugins stop (defers run last-in first-out).
+	keys := newSSHKeys(res.Keys, cfg.DataDir, pa.store, slog.Default())
+	defer keys.close()
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
@@ -165,7 +169,7 @@ func run(reg *secret.Registry, onBound func(api, health net.Addr)) error {
 	// mode), then the overview is composed from what they contribute. The supervisor starts
 	// before the publisher so that no first publish is dropped.
 	ov := overview.New(overview.Deps{Hosts: sup, Contributors: sup.Contributors})
-	if err := fw.start(ctx, registry(refs), func() { ov.Run(ctx) }); err != nil {
+	if err := fw.start(ctx, registry(refs, keys), func() { ov.Run(ctx) }); err != nil {
 		return err
 	}
 	deps := api.Deps{

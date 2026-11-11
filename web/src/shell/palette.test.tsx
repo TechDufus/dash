@@ -130,6 +130,7 @@ describe("command palette", () => {
       "Cluster",
       "GitOps",
       "Hardware",
+      "Hosts",
       "Storage",
       "Alerts",
       "Status",

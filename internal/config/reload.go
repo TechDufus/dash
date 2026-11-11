@@ -369,9 +369,9 @@ func (r *Reloader) apply(next *Resolved) []Change {
 			}
 			continue
 		}
-		// A url leaf of a plugin that keeps its value but moves into or out of the UI layer is a
-		// change too: where a URL comes from decides whether it may reach loopback.
-		uiFlip := l.url && strings.HasPrefix(l.path, "plugins.") &&
+		// A url or dial leaf of a plugin that keeps its value but moves into or out of the UI
+		// layer is a change too: where an address comes from decides whether it may reach loopback.
+		uiFlip := (l.url || l.dial) && strings.HasPrefix(l.path, "plugins.") &&
 			(r.cur.Provenance[l.path].Source == SourceUI) != (next.Provenance[l.path].Source == SourceUI)
 		if uiFlip || !reflect.DeepEqual(was.Interface(), now.Interface()) {
 			changed = append(changed, l.path)

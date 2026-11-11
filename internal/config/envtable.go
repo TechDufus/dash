@@ -104,7 +104,7 @@ is also honoured for plugins.kubernetes.kubeconfig; it has no _FILE form and the
 wins over it.
 
 A change to a plugins.<id> section applies live for prometheus, alertmanager, gatus,
-victorialogs, proxmox, hardware, kubernetes, flux, cnpg, rustfs, grafana, headlamp and launcher, except for a setting
+victorialogs, proxmox, hardware, ssh, kubernetes, flux, cnpg, rustfs, grafana, headlamp and launcher, except for a setting
 marked in the RESTART column: that plugin restarts, and so do the plugins that use or require it
 (a prometheus change restarts proxmox, hardware, kubernetes, cnpg and rustfs; a gatus change restarts hardware
 and kubernetes; a proxmox change restarts hardware; a kubernetes change restarts proxmox, flux and cnpg;

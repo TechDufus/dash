@@ -27,7 +27,7 @@ latest minor release receives security fixes, as patch releases.
 
 | Version | Supported |
 |---|---|
-| latest 0.x minor (0.14 today) | yes |
+| latest 0.x minor (0.16 today) | yes |
 | any older minor | no: upgrade to the latest |
 
 ## Scope
@@ -65,6 +65,11 @@ model these protections make up. In particular:
   (`plugins.kubernetes.actions.denyNamespaces`, `plugins.flux.actions.denyNamespaces`,
   `plugins.alertmanager.protectedAlerts`) and `plugins.victorialogs.denyNamespaces`, and anything
   that lets a user make dash send requests the configuration did not intend.
+- **Hosts over SSH** (`plugins.ssh`): the sealing of dash's SSH key, the pinning of host keys
+  and the trust step, the dial guard, and the fixed command dash runs. Anything that makes dash
+  run a command of someone's choosing on a host, authenticate to a host whose key was not
+  trusted, write to a host, or show a viewer how a host is reached, is a vulnerability. So is a
+  host that can make dash misbehave beyond reporting false numbers about itself.
 - **The Helm chart's RBAC and guardrail:** the ClusterRole and Roles the chart grants, the
   ValidatingAdmissionPolicy that holds dash's ServiceAccount to what its actions do (see
   [docs/deploy/kubernetes.md](docs/deploy/kubernetes.md#the-guardrail)), and the pod's security

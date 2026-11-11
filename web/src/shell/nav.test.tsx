@@ -56,7 +56,7 @@ function railLabels(): string[] {
 }
 
 describe("rail", () => {
-  it("shows today's nine entries, in today's order, for the nine shim rows", () => {
+  it("shows today's ten entries, in today's order, for the shim rows", () => {
     const es = connect();
     renderApp(<Rail />);
     act(() => es.emit("core.plugins", pluginsEnvelope(shimRows())));
@@ -71,6 +71,7 @@ describe("rail", () => {
       "/cluster",
       "/gitops",
       "/hardware",
+      "/hosts",
       "/storage",
       "/alerts",
       "/status",

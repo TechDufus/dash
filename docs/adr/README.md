@@ -4,3 +4,4 @@ One file per decision record, named `NNNN-kebab-title.md`, with the fields Statu
 
 - [0001: Plugins, layered config, auth and release](0001-plugins-config-auth.md)
 - [0002: API clients, MCP agents, mobile and AI](0002-clients-agents-mobile.md)
+- [0003: Hosts over SSH, release binaries and the static demo](0003-ssh-hosts-binaries-static-demo.md)

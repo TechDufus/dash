@@ -6,6 +6,7 @@ package plugintest
 import (
 	"context"
 	"log/slog"
+	"net"
 	"net/http"
 	"sync"
 	"sync/atomic"
@@ -334,6 +335,12 @@ func (h runningHost) Publish(topic string, data any, sources []model.SourceStatu
 func (h runningHost) Logger() *slog.Logger { return slog.Default().With("plugin", string(h.id)) }
 func (h runningHost) HTTPClient(c plugin.HTTPConfig) (*http.Client, error) {
 	return &http.Client{Timeout: c.Timeout}, nil
+}
+
+// Dial dials address without a guard: the fake hosts every instance on the test's own machine.
+func (h runningHost) Dial(ctx context.Context, network, address string) (net.Conn, error) {
+	var d net.Dialer
+	return d.DialContext(ctx, network, address)
 }
 func (h runningHost) Service(plugin.ID) (any, bool) { return nil, false }
 func (h runningHost) ScrubLog(s string) string      { return s }

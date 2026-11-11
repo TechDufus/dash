@@ -76,7 +76,7 @@ export interface PluginModule<Id extends string = string, T extends TopicMap = T
   linkIcons?: Readonly<Record<string, LucideIcon>>;
   /**
    * A settings form of the module's own, shown on /settings/plugins/:id instead of the generic
-   * form built from the plugin's configuration schema. None of the shipped modules has one.
+   * form built from the plugin's configuration schema (ssh: its host list and setup steps).
    */
   settings?: LazyExoticComponent<ComponentType<SettingsFormProps>>;
 }

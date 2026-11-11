@@ -2,12 +2,15 @@ package main
 
 import (
 	"context"
+	"crypto/ed25519"
 	"encoding/json"
 	"path/filepath"
 	"reflect"
 	"slices"
 	"strings"
 	"testing"
+
+	xssh "golang.org/x/crypto/ssh"
 
 	"github.com/TechDufus/dash/internal/config"
 	"github.com/TechDufus/dash/internal/plugin"
@@ -19,6 +22,7 @@ import (
 	"github.com/TechDufus/dash/internal/plugins/kubernetes"
 	"github.com/TechDufus/dash/internal/plugins/proxmox"
 	"github.com/TechDufus/dash/internal/plugins/rustfs"
+	"github.com/TechDufus/dash/internal/plugins/ssh"
 )
 
 // reachLeaf is one setting of a plugin's section: its schema path, a non-default value for the
@@ -133,6 +137,33 @@ func rustfsLeaves() []reachLeaf {
 		{"plugins.rustfs.metrics.capacityUsed", "store_capacity_used_bytes", "store_capacity_used_bytes_2"},
 		{"plugins.rustfs.metrics.capacityUsable", "store_capacity_usable_bytes", "store_capacity_usable_bytes_2"},
 	}
+}
+
+// sshLeaves is every setting of plugins.ssh. The addresses are never dialled: the test starts a
+// fake that records the plugin's configuration.
+func sshLeaves(t *testing.T) []reachLeaf {
+	key := func(seed byte) string {
+		pub, err := xssh.NewPublicKey(ed25519.NewKeyFromSeed(slices.Repeat([]byte{seed}, ed25519.SeedSize)).Public())
+		if err != nil {
+			t.Fatal(err)
+		}
+		return strings.TrimSpace(string(xssh.MarshalAuthorizedKey(pub)))
+	}
+	return []reachLeaf{
+		{"plugins.ssh.type", "ssh", ""},
+		{"plugins.ssh.enabled", "true", ""},
+		{"plugins.ssh.hosts",
+			`[{"name":"nas","address":"192.0.2.10:2222","user":"alice","hostKey":"` + key(1) + `"},{"name":"pi","address":"pi.example.com","user":"bob","hostKey":"` + key(2) + `"}]`,
+			`[{"name":"vm","address":"[2001:db8::7]","user":"bob","hostKey":"` + key(3) + `"}]`},
+		{"plugins.ssh.intervalSeconds", "10", "30"},
+	}
+}
+
+// Every setting of plugins.ssh arrives in the configuration the plugin is started with, and a
+// reload of the file layer restarts the instance with the new value. What the plugin does with
+// them is internal/plugins/ssh's test.
+func TestSSHSettingsReachThePlugin(t *testing.T) {
+	settingsReachThePlugin(t, "ssh", sshLeaves(t), ssh.Factory(nil)())
 }
 
 // jsonField is the field of a struct (looking into embedded sections) that has the given json name.
@@ -343,6 +374,16 @@ func settingsReachThePlugin(t *testing.T, id plugin.ID, leaves []reachLeaf, pl p
 		}
 		allSet(t, "plugins.hardware.hosts", reflect.ValueOf(hosts))
 		allSet(t, "plugins.hardware.machines", reflect.ValueOf(machines))
+	case "ssh":
+		var hosts []pluginconf.SSHHost
+		for _, l := range leaves {
+			if l.path == "plugins.ssh.hosts" {
+				if err := json.Unmarshal([]byte(l.env), &hosts); err != nil {
+					t.Fatalf("%s: %v", l.path, err)
+				}
+			}
+		}
+		allSet(t, "plugins.ssh.hosts", reflect.ValueOf(hosts))
 	case "flux":
 		var pins []pluginconf.VerifySource
 		for _, l := range leaves {

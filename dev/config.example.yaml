@@ -29,6 +29,16 @@ plugins:
       - model: Example 2U server
         bays: 16
         fanMaxRPM: 18000
+  # Linux machines dash reads over SSH. It needs DASH_SECRET_KEY and a writable DASH_DATA_DIR for
+  # its key pair. Leave hostKey out at first: the Hosts page shows the key the host offers, to
+  # compare and trust (then write it here), and the line that authorizes dash's key on the host.
+  # ssh:
+  #   hosts:
+  #     - name: nas
+  #       address: 192.0.2.10
+  #       user: dash-reader
+  #       hostKey: ssh-ed25519 AAAA...
+  #   intervalSeconds: 5
   headlamp:
     url: https://headlamp.example.com
   grafana:

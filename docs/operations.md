@@ -56,9 +56,12 @@ Secrets saved through the settings page are stored in `ui-settings.yaml` encrypt
 decrypt). The key comes from the process environment only; there is no default and dash never
 generates one. Without a key, secrets can only be set through env and file references, and saving
 one from the UI is refused with an error that names `DASH_SECRET_KEY`. The rest of dash runs as
-usual. The key also seals the sessions ([auth.md](auth.md#sessions)) and the push data in
-`credentials.yaml`: the VAPID private key, each device's endpoint and keys, and a pending
-device's code ([push.md](push.md#rotating-dash_secret_key) says what a rotation does to them).
+usual, except the [ssh plugin](plugins/ssh.md), which does not start without one. The key also
+seals the sessions ([auth.md](auth.md#sessions)) and, in `credentials.yaml`, dash's SSH private
+key and the push data: the VAPID private key, each device's endpoint and keys, and a pending
+device's code ([push.md](push.md#rotating-dash_secret_key) says what a rotation does to them; a
+rotation without `DASH_SECRET_KEY_PREVIOUS` also makes a new SSH key pair, which every host must
+then be given).
 
 ```sh
 openssl rand -base64 32 > /run/secrets/dash-key   # 32 random bytes, base64

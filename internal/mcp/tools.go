@@ -294,6 +294,7 @@ var pluginKinds = []struct {
 	{"flux", []string{"GitRepository", "HelmRelease", "HelmRepository", "Kustomization", "OCIRepository"}},
 	{"gatus", []string{"Endpoint"}},
 	{"hardware", []string{"Disk", "Host", "Machine", "Pool"}},
+	{"ssh", []string{"Host"}},
 }
 
 // searchKinds lists pluginKinds for a reader: "Pod, Workload, ... (kubernetes); VM, ...".

@@ -33,7 +33,7 @@ func startDemo(t *testing.T, env ...string) (*framework, config.Config) {
 	fw := newFramework(res, store, config.ReloadOptions{Interval: time.Millisecond}, nil, nil, nil, nil, true)
 	ctx, cancel := context.WithCancel(context.Background())
 	ov := overview.New(overview.Deps{Hosts: fw.sup, Contributors: fw.sup.Contributors})
-	if err := fw.start(ctx, registry(nil), func() { ov.Run(ctx) }); err != nil {
+	if err := fw.start(ctx, registry(nil, nil), func() { ov.Run(ctx) }); err != nil {
 		cancel()
 		t.Fatal(err)
 	}
@@ -51,7 +51,7 @@ func startDemo(t *testing.T, env ...string) (*framework, config.Config) {
 // plugin's twin's, the launcher's last.
 var demoTopics = []string{
 	"core.plugins", "core.overview", "alertmanager.alerts", "gatus.status", "proxmox.vms", "proxmox.cluster",
-	"proxmox.storage", "hardware.hosts", "hardware.machines", "kubernetes.cluster", "kubernetes.storage",
+	"proxmox.storage", "hardware.hosts", "hardware.machines", "ssh.hosts", "kubernetes.cluster", "kubernetes.storage",
 	"kubernetes.apps", "flux.objects", "cnpg.clusters", "rustfs.usage", "launcher.links",
 }
 

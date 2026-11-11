@@ -145,12 +145,12 @@ func TestPluginRestartsWhenItsURLMovesIntoOrOutOfTheUI(t *testing.T) {
 	}
 }
 
-func TestBuiltinManifestsAreTheThirteenInDisplayOrder(t *testing.T) {
+func TestBuiltinManifestsAreTheFourteenInDisplayOrder(t *testing.T) {
 	var ids []string
 	for _, m := range builtinManifests() {
 		ids = append(ids, string(m.ID))
 	}
-	want := []string{"prometheus", "alertmanager", "gatus", "victorialogs", "proxmox", "hardware", "kubernetes", "flux", "cnpg", "rustfs", "grafana", "headlamp", "launcher"}
+	want := []string{"prometheus", "alertmanager", "gatus", "victorialogs", "proxmox", "hardware", "ssh", "kubernetes", "flux", "cnpg", "rustfs", "grafana", "headlamp", "launcher"}
 	if !slices.Equal(ids, want) {
 		t.Fatalf("manifests = %v, want %v", ids, want)
 	}
@@ -352,7 +352,7 @@ func TestUnreadableLauncherFileMakesTheRowErrorAndNotTheStartup(t *testing.T) {
 // Every plugin says which setting turns it on, so its "not configured" row
 // reads "not configured: set plugins.<id>.…".
 func TestEveryRealPluginSaysWhatToSet(t *testing.T) {
-	for _, f := range registry(nil) {
+	for _, f := range registry(nil, nil) {
 		p := f()
 		id := p.Manifest().ID
 		h, ok := p.(plugin.ConfigHinter)

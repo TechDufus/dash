@@ -12,6 +12,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net"
 	"net/http"
 	"regexp"
 	"time"
@@ -302,6 +303,12 @@ type Host interface {
 	// HTTPClient builds the guarded client for the plugin's upstream: TLS and CA, credentials per
 	// request, the dial guard, redirects limited to the same host, and Options.Transport on top.
 	HTTPClient(c HTTPConfig) (*http.Client, error)
+	// Dial opens a TCP connection through the same dial guard, for a plugin whose upstream does
+	// not speak HTTP (the ssh plugin): link-local addresses and the metadata service are always
+	// refused, and loopback too for an instance whose address came from the UI
+	// (InstanceConfig.FromUI). The guard sees the address after name resolution, and no proxy
+	// from the environment applies. network is tcp, tcp4 or tcp6; a refusal is ErrBlockedAddress.
+	Dial(ctx context.Context, network, address string) (net.Conn, error)
 	// ScrubLog removes every secret the core knows from a log line. A plugin scrubs a line's text
 	// before it builds the payload: scrubbing the encoded JSON would miss a secret that contains
 	// a character json.Marshal escapes.

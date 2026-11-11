@@ -1,8 +1,11 @@
 package plugin
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"log/slog"
+	"net"
 	"net/http"
 	"reflect"
 	"runtime/debug"
@@ -94,6 +97,22 @@ func (h *host) HTTPClient(c HTTPConfig) (*http.Client, error) {
 		cl.Transport = t(h.in.id, cl.Transport)
 	}
 	return cl, nil
+}
+
+// Dial opens a guarded TCP connection. For an instance whose address came from the UI
+// (InstanceConfig.FromUI) it refuses loopback too; a host whose instance is not running dials
+// nothing.
+func (h *host) Dial(ctx context.Context, network, address string) (net.Conn, error) {
+	if h.in == nil {
+		return nil, errors.New("dial: the plugin is not registered")
+	}
+	h.in.mu.RLock()
+	live, fromUI := h.current(), h.in.cfg.FromUI
+	h.in.mu.RUnlock()
+	if !live {
+		return nil, errors.New("dial: the plugin is not running")
+	}
+	return guardedDial(ctx, network, address, fromUI)
 }
 
 func (h *host) ScrubLog(s string) string { return h.s.scrubLog(s) }
@@ -209,6 +228,10 @@ func (c coreHost) Logger() *slog.Logger { return c.s.log().With("plugin", string
 func (c coreHost) Now() time.Time       { return c.s.opt.Now() }
 
 func (c coreHost) HTTPClient(cfg HTTPConfig) (*http.Client, error) { return newHTTPClient(cfg) }
+
+func (c coreHost) Dial(ctx context.Context, network, address string) (net.Conn, error) {
+	return guardedDial(ctx, network, address, false)
+}
 
 func (c coreHost) Service(ID) (any, bool) { return nil, false }
 

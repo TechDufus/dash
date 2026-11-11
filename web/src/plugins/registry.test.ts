@@ -2,9 +2,9 @@ import { describe, expect, it } from "vitest";
 import { CORE_PAGES, MODULES, moduleById, moduleOrder } from "./registry";
 
 describe("module registry", () => {
-  it("lists eleven modules with unique ids", () => {
+  it("lists twelve modules with unique ids", () => {
     const ids = MODULES.map((m) => m.id);
-    expect(ids).toHaveLength(11);
+    expect(ids).toHaveLength(12);
     expect(new Set(ids).size).toBe(ids.length);
     expect(moduleById.size).toBe(ids.length);
   });
@@ -35,13 +35,22 @@ describe("module registry", () => {
       "proxmox.storage",
       "proxmox.vms",
       "rustfs.usage",
+      "ssh.hosts",
     ]);
   });
 
   it("gives every route pattern to exactly one module", () => {
     const patterns = MODULES.flatMap((m) => (m.routes ?? []).map((r) => r.path));
     expect(patterns.sort()).toEqual(
-      ["/alerts", "/cluster/*?", "/gitops", "/hardware/:host?", "/status", "/vms/:vmid?"].sort(),
+      [
+        "/alerts",
+        "/cluster/*?",
+        "/gitops",
+        "/hardware/:host?",
+        "/hosts/:host?",
+        "/status",
+        "/vms/:vmid?",
+      ].sort(),
     );
     expect(new Set(patterns).size).toBe(patterns.length);
   });
@@ -57,6 +66,7 @@ describe("module registry", () => {
       "kubernetes",
       "flux",
       "hardware",
+      "ssh",
       "core:storage",
       "alertmanager",
       "gatus",

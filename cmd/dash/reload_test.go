@@ -151,7 +151,7 @@ func TestReloadedSecretReachesTheProxmoxPluginWhileReadinessHolds(t *testing.T) 
 	sup, reloader := fw.sup, fw.reloader
 	ov := overview.New(overview.Deps{Hosts: sup, Contributors: sup.Contributors})
 	ctx, cancel := context.WithCancel(context.Background())
-	if err := fw.start(ctx, registry(nil), func() { ov.Run(ctx) }); err != nil {
+	if err := fw.start(ctx, registry(nil, nil), func() { ov.Run(ctx) }); err != nil {
 		t.Fatal(err)
 	}
 	defer sup.Shutdown(context.Background())

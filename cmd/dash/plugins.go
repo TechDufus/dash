@@ -22,6 +22,7 @@ import (
 	"github.com/TechDufus/dash/internal/plugins/prometheus"
 	"github.com/TechDufus/dash/internal/plugins/proxmox"
 	"github.com/TechDufus/dash/internal/plugins/rustfs"
+	"github.com/TechDufus/dash/internal/plugins/ssh"
 	"github.com/TechDufus/dash/internal/plugins/victorialogs"
 	"github.com/TechDufus/dash/internal/secret"
 	"github.com/TechDufus/dash/internal/settings"
@@ -72,11 +73,11 @@ func instanceConfig(sec config.PluginSection) plugin.InstanceConfig {
 
 // registry is every plugin dash ships, to Add to the supervisor, in display order (design A.1):
 // the one table of what exists and the order the plugins are listed in. refs are the k8s:
-// references the kubernetes plugin reads (nil: it reads none, which is what the manifests, the
-// routes and the settings need).
-func registry(refs *secret.K8sRefs) []plugin.Factory {
+// references the kubernetes plugin reads, and keys the ssh plugin's key pair (nil: none, which
+// is what the manifests, the routes and the settings need).
+func registry(refs *secret.K8sRefs, keys ssh.Identities) []plugin.Factory {
 	return []plugin.Factory{
-		prometheus.New, alertmanager.New, gatus.New, victorialogs.New, proxmox.New, hardware.New,
+		prometheus.New, alertmanager.New, gatus.New, victorialogs.New, proxmox.New, hardware.New, ssh.Factory(keys),
 		kubernetes.Factory(refs), flux.New, cnpg.New, rustfs.New, grafana.New, headlamp.New, launcher.New,
 	}
 }
@@ -85,7 +86,7 @@ func registry(refs *secret.K8sRefs) []plugin.Factory {
 // starting any of them.
 func builtinManifests() []plugin.Manifest {
 	var out []plugin.Manifest
-	for _, f := range registry(nil) {
+	for _, f := range registry(nil, nil) {
 		out = append(out, f().Manifest())
 	}
 	return out
@@ -93,7 +94,7 @@ func builtinManifests() []plugin.Manifest {
 
 // builtinPlugin is a new instance of the shipped plugin id, not started.
 func builtinPlugin(id plugin.ID) (plugin.Plugin, bool) {
-	for _, f := range registry(nil) {
+	for _, f := range registry(nil, nil) {
 		if p := f(); p.Manifest().ID == id {
 			return p, true
 		}

@@ -124,7 +124,7 @@ func TestPluginDocTablesNameShippedPlugins(t *testing.T) {
 // generated sections and before the demo twin, in the order written.
 func TestPluginProseMergesBySection(t *testing.T) {
 	var d docPlugin
-	for _, f := range registry(nil) {
+	for _, f := range registry(nil, nil) {
 		if p := f(); p.Manifest().ID == "flux" {
 			d = docPlugin{p, p.Manifest()}
 		}

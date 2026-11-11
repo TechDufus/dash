@@ -17,6 +17,8 @@ import (
 //	         literal, env:NAME, file:/path or k8s:<ns>/<name>#<key>; resolve reads the reference once all layers are set
 //	restart  a change needs a restart (x-dash-restart, B.6)
 //	url      the value is a URL: validated as http(s) and stored without a trailing slash
+//	dial     the value holds addresses a plugin connects to that are not URLs (a list of
+//	         hosts): one from the UI layer may not reach loopback (Resolved.FromUI)
 //
 // The auth section is in auth.go. The plugin sections and ui are defined in internal/pluginconf,
 // so the plugin packages share them.
@@ -24,7 +26,7 @@ type Tree struct {
 	Server   ServerConfig   `json:"server" doc:"How dash listens and what it calls itself."`
 	Auth     AuthConfig     `json:"auth" doc:"How dash learns who is making a request and what they may do."`
 	Settings SettingsConfig `json:"settings" doc:"The settings store behind the settings page."`
-	DataDir  string         `json:"dataDir" dash:"restart" doc:"Where dash keeps its state (ui-settings.yaml, audit.jsonl, and credentials.yaml with the local account, the sessions' epochs, the personal access tokens and the push devices with the VAPID key) and looks for config.yaml. Without a writable one, sessions and tokens do not survive a restart, so creating a token is refused outside dev and demo mode, and push is off. Demo mode uses none."`
+	DataDir  string         `json:"dataDir" dash:"restart" doc:"Where dash keeps its state (ui-settings.yaml, audit.jsonl, and credentials.yaml with the local account, the sessions' epochs, the personal access tokens, the push devices with the VAPID key and the ssh plugin's key pair) and looks for config.yaml. Without a writable one, sessions and tokens do not survive a restart, so creating a token is refused outside dev and demo mode, push is off and the ssh plugin cannot start. Demo mode uses none."`
 	UI       pluginconf.UI  `json:"ui" doc:"What the web UI is told by the server."`
 	MCP      MCPConfig      `json:"mcp" doc:"The MCP server at /mcp, for AI clients holding an mcp-audience token."`
 	Plugins  PluginsConfig  `json:"plugins" doc:"One section per plugin. An empty URL turns that source off."`
@@ -91,6 +93,7 @@ type PluginsConfig struct {
 	Gatus        pluginconf.Gatus        `json:"gatus" doc:"Gatus: endpoint health."`
 	Proxmox      pluginconf.Proxmox      `json:"proxmox" doc:"Proxmox VE: virtual machines, containers and the hypervisor."`
 	Hardware     pluginconf.Hardware     `json:"hardware" doc:"The physical host behind the cluster."`
+	SSH          pluginconf.SSH          `json:"ssh" doc:"SSH hosts: Linux machines dash reads over SSH with a key pair of its own (needs DASH_SECRET_KEY and a writable data dir)."`
 	Headlamp     pluginconf.Headlamp     `json:"headlamp" doc:"Headlamp: deep links into the Kubernetes UI."`
 	Grafana      pluginconf.Grafana      `json:"grafana" doc:"Grafana: links to dashboards."`
 	Launcher     pluginconf.Launcher     `json:"launcher" doc:"The launcher: links to your infrastructure."`
@@ -131,6 +134,7 @@ func defaults(dev, demo bool) Tree {
 			Gatus:        pluginconf.DefaultGatus(),
 			Proxmox:      pluginconf.DefaultProxmox(),
 			Hardware:     pluginconf.DefaultHardware(),
+			SSH:          pluginconf.DefaultSSH(),
 			Headlamp:     pluginconf.DefaultHeadlamp(),
 			Kubernetes:   pluginconf.DefaultKubernetes(),
 			Flux:         pluginconf.DefaultFlux(),
