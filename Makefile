@@ -1,4 +1,4 @@
-.PHONY: generate check scan set-version dev-api dev-api-op dev-web image screenshots icons pwa-smoke context-smoke hooks hooks-uninstall
+.PHONY: generate check scan set-version dist dev-api dev-api-op dev-web image screenshots icons pwa-smoke context-smoke hooks hooks-uninstall
 
 generate: web/node_modules/.package-lock.json
 	go tool tygo generate
@@ -64,6 +64,13 @@ scan:
 set-version:
 	@[ -n "$(VERSION)" ] || { echo 'set-version: set VERSION, e.g. make set-version VERSION=1.2.3' >&2; exit 2; }
 	scripts/release/set-version.sh "$(VERSION)"
+
+# The release binaries at the chart's version in dist/ (git-ignored): dash for linux and darwin
+# on amd64 and arm64 as reproducible tar.gz archives and a sha256 checksums file, what CI's
+# binaries job builds and the GitHub release carries (scripts/release/build-binaries.sh). It
+# builds web/dist first when it is missing.
+dist:
+	scripts/release/build-binaries.sh "$$(awk '$$1 == "version:" { print $$2 }' charts/dash/Chart.yaml)" dist
 
 # Dev mode needs nothing outside this checkout: `DASH_DEMO=true make dev-api` serves fake data.
 # Against a real cluster, KUBECONFIG comes from your environment, dev/config.yaml (see

@@ -95,6 +95,13 @@ type allow struct {
 
 var owner = j("Tech", "Dufus")
 
+// siteURL is the landing site's public address (site/, published by pages.yml). The installer
+// (/install.sh) and the static demo (/demo/) live there, so the files that tell people how to
+// install or try dash link it.
+var siteURL = regexp.MustCompile(`https://dash\.` + j("tech", "dufus") + `\.com/`)
+
+const siteReason = "the landing site's address: its installer (/install.sh) and static demo (/demo/)"
+
 var allowlist = []allow{
 	// After the repository name: a path, a .git suffix, a closing quote, bracket or backtick, a
 	// comma, an anchor, or a full stop that ends the sentence; never a longer name (dash-x,
@@ -133,6 +140,18 @@ var allowlist = []allow{
 		"the landing page's copyright line and its link to the owner's GitHub profile"},
 	{"site/index.html", j("tech", "dufus"), regexp.MustCompile(`https://dash\.` + j("tech", "dufus") + `\.com/`),
 		"the landing page's own public address, which link previews need as an absolute URL"},
+	{"README.md", j("tech", "dufus"), siteURL, siteReason + ", in the quick start"},
+	{"CHANGELOG.md", j("tech", "dufus"), siteURL, siteReason + ", in the release notes"},
+	{"CONTRIBUTING.md", j("tech", "dufus"), siteURL, siteReason + ", for contributors"},
+	{"docs/deploy/*.md", j("tech", "dufus"), siteURL, siteReason + ", in the deploy guides"},
+	{"docs/development.md", j("tech", "dufus"), siteURL, siteReason + ", which the release publishes"},
+	{"docs/adr/0003-ssh-hosts-binaries-static-demo.md", j("tech", "dufus"), siteURL, siteReason + ", which the decision record describes"},
+	{"docs/plugins/ssh.md", j("tech", "dufus"), siteURL, siteReason + ", in the SSH hosts page (generated)"},
+	{"cmd/dash/plugindocs/ssh.md", j("tech", "dufus"), siteURL, siteReason + ", in the source of docs/plugins/ssh.md"},
+	{".github/workflows/*.yml", j("tech", "dufus"), siteURL, siteReason + ", in the workflows that publish and test them"},
+	{"site/install.sh", j("tech", "dufus"), siteURL, siteReason + ", in the installer's own help"},
+	{"scripts/ci/lychee.toml", j("tech", "dufus"), regexp.MustCompile(regexp.QuoteMeta(`https://dash\.` + j("tech", "dufus") + `\.com/`)),
+		"the link check's exclusion of the installer and the demo, which a pull request links before main publishes them"},
 }
 
 // shipped says whether the file at rel is code that ships: Go files other than tests, and the web

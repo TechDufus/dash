@@ -7,6 +7,9 @@ API and on `0.0.0.0:8081` for `/healthz` and `/readyz`, and its `HEALTHCHECK` ru
 name: `docker build --build-arg VERSION=0.16.1 -t ghcr.io/techdufus/dash:0.16.1 .` (this
 machine's architecture only).
 
+Other ways to run dash: [the binary as a systemd service](binary.md) (one command on a Linux
+server), [Kubernetes](kubernetes.md) and [other platforms](paas.md).
+
 ## docker run
 
 ```sh

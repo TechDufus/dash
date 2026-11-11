@@ -6,6 +6,9 @@ it unchanged; what differs is whether it gives dash a disk.
 
 Every platform below pulls the public GHCR image directly.
 
+Other ways to run dash: [the binary as a systemd service](binary.md) (one command on a Linux
+server), [Docker and Compose](docker.md) and [Kubernetes](kubernetes.md).
+
 ## Configuration: environment and mounted files
 
 Everything is a `DASH_*` variable ([docs/configuration.md](../configuration.md)), or a YAML file

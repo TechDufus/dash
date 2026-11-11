@@ -257,25 +257,39 @@ DASH_SKIP_HOOKS=1 git push
    for a chart version without that section (`scripts/release/notes.sh`). Commit the result and
    merge it: the `release` job refuses a tag whose version differs from `Chart.yaml`.
 2. On `main` with CI green: `git tag vX.Y.Z && git push origin vX.Y.Z`.
-3. CI (`release` job, on a GitHub-hosted runner, in the `release` environment) has no reviewer to
-   approve it: a tag ruleset limits who can create `v*` tags. It publishes
+3. CI's `binaries` job, which runs on every push and pull request, builds the release archives at
+   the chart's version with `scripts/release/build-binaries.sh` (`make dist` does the same into
+   `dist/`): `dash_X.Y.Z_<os>_<arch>.tar.gz` for linux and darwin on amd64 and arm64, each holding
+   the binary, `LICENSE` and `THIRD_PARTY_NOTICES.md`, and `dash_X.Y.Z_checksums.txt`. They are
+   reproducible (fixed order, modes, owner and mtime, the commit time unless `SOURCE_DATE_EPOCH`
+   says otherwise) and kept as the run's `binaries` artifact. The smoke job runs
+   `scripts/ci/install-smoke.sh`, which installs, upgrades and uninstalls dash with
+   `site/install.sh` on the runner's systemd; `scripts/ci/install-smoke.sh --docker` runs it
+   locally in a throwaway systemd container.
+4. CI (`release` job, on a GitHub-hosted runner, in the `release` environment) has no reviewer to
+   approve it: a tag ruleset limits who can create `v*` tags. It needs the `binaries` job, so no
+   image is pushed for a version whose binaries do not build. It publishes
    `ghcr.io/techdufus/dash:X.Y.Z` for linux/amd64 and linux/arm64 (also `X.Y` and
    `latest`; no `X` tag while dash is 0.x) and the chart `oci://ghcr.io/techdufus/charts/dash` at
    the same version, then signs the image digest with keyless cosign and, once the repository is
    public, adds build-provenance and SPDX SBOM attestations (GitHub offers them to private
-   repositories only on Enterprise). It prints `image: ghcr.io/techdufus/dash:X.Y.Z@sha256:<digest>`
+   repositories only on Enterprise) and a build-provenance attestation of every release archive
+   and the checksums file. It prints `image: ghcr.io/techdufus/dash:X.Y.Z@sha256:<digest>`
    in the log and the job summary. `X.Y.Z` is create-only for the image and the chart: a version
    can never be pushed twice, so a run that fails after the image push needs a new patch version.
-4. Once the `release` job has finished, the `github-release` job creates the GitHub release of
-   the tag from that section of `CHANGELOG.md`: the heading is its title, the text its notes. It
-   is the only job with write access to the repository. The `announce` job then posts the release
-   and its notes to Discord through the webhook in the repository secret
-   `DISCORD_RELEASES_WEBHOOK`; its steps are a shared workflow in the owner's `.github`
-   repository, pinned to a commit. Do not create the release by hand for a run that is going
-   well: a release that exists already is left as it is, with whatever notes it has, and CI does
-   not announce it again.
-5. If the `release` job failed after its pushes and you finished the release by hand, publish the
+5. Once the `release` job has finished, the `github-release` job creates the GitHub release of
+   the tag from that section of `CHANGELOG.md`: the heading is its title, the text its notes, and
+   the archives and checksums of the `binaries` job are its assets (the installer,
+   `site/install.sh`, downloads them from there). It is the only job with write access to the
+   repository. The `announce` job then posts the release and its notes to Discord through the
+   webhook in the repository secret `DISCORD_RELEASES_WEBHOOK`; its steps are a shared workflow in
+   the owner's `.github` repository, pinned to a commit. Do not create the release by hand for a
+   run that is going well: a release that exists already keeps its title and notes, gets the
+   binaries attached (replacing files of the same name), and CI does not announce it again.
+6. If the `release` job failed after its pushes and you finished the release by hand, publish the
    GitHub release by hand too (`scripts/release/notes.sh title` and `body` print what CI would
-   have used): the `release-announce` workflow announces a release that a person publishes.
-   `gh workflow run release-announce.yml -f tag=vX.Y.Z` announces an existing release again.
-6. Deploy that tag and digest wherever dash runs.
+   have used) with the files of the run's `binaries` artifact
+   (`gh run download <run-id> -n binaries`) attached: the `release-announce` workflow announces a
+   release that a person publishes. `gh workflow run release-announce.yml -f tag=vX.Y.Z`
+   announces an existing release again.
+7. Deploy that tag and digest wherever dash runs.

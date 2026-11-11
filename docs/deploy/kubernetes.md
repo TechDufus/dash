@@ -21,6 +21,9 @@ code that is not released yet, build the image from a checkout and push it to a 
 cluster pulls from, then set `image.repository` and `image.tag` (Helm) or an `images:` entry
 (kustomize).
 
+Other ways to run dash: [the binary as a systemd service](binary.md) (one command on a Linux
+server), [Docker and Compose](docker.md) and [other platforms](paas.md).
+
 ## Before either path: the namespace and the secret key
 
 ```sh

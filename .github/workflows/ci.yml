@@ -86,12 +86,12 @@ jobs:
   # examples/compose end to end: the image built from this checkout, the monitoring profile, the
   # setup token, the settings API, the prometheus plugin turning healthy and dash's connection
   # test querying the compose Prometheus. The script removes its project, volume, network and
-  # image on exit.
+  # image on exit. Then site/install.sh on this runner's systemd (scripts/ci/install-smoke.sh).
   smoke:
     needs: check
     if: github.event_name != 'pull_request' || !github.event.repository.private
     runs-on: ${{ github.event.repository.private && fromJSON('["self-hosted","linux","x64","homelab","dash"]') || 'ubuntu-24.04' }}
-    timeout-minutes: 15
+    timeout-minutes: 25
     permissions:
       contents: read
     steps:
@@ -105,6 +105,47 @@ jobs:
         run: scripts/ci/compose-smoke.sh
       - name: Read-only run without a volume
         run: scripts/ci/readonly-smoke.sh
+      - uses: jdx/mise-action@6be3c7ed4c21d4f76b208d351d95aac273ebb76d # v5.2.4
+        if: ${{ !github.event.repository.private }}
+        with:
+          cache: false
+      # The installer as a person runs it: it builds two made-up versions for this runner, serves
+      # them on loopback, installs, upgrades and uninstalls dash.service as root (the script calls
+      # sudo for those steps). Only on a GitHub-hosted runner, a VM thrown away after the job: a
+      # self-hosted runner's machine must never get a system service from a test.
+      - name: Install, upgrade and uninstall with site/install.sh (systemd)
+        if: ${{ !github.event.repository.private }}
+        run: scripts/ci/install-smoke.sh
+  # The release binaries (docs/deploy/binary.md): scripts/release/build-binaries.sh cross-compiles
+  # dash for linux and darwin on amd64 and arm64 into reproducible archives with a checksums file,
+  # at the chart's version (the release job refuses a tag that differs from it). Every run builds
+  # them, so a pull request proves they build, and keeps them as the run's `binaries` artifact; on
+  # a tag the release job attests them and github-release attaches them to the release. Always
+  # GitHub-hosted, like the release job (design H.2): what a tag builds here is what it ships.
+  # Its token only reads; the attestation is made in the release job, which holds that right.
+  binaries:
+    if: github.event_name != 'pull_request' || !github.event.repository.private
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: jdx/mise-action@6be3c7ed4c21d4f76b208d351d95aac273ebb76d # v5.2.4
+        with:
+          cache: false
+      - name: Build the release archives
+        run: |
+          set -euo pipefail
+          version=$(awk '$1 == "version:" { print $2 }' charts/dash/Chart.yaml)
+          scripts/release/build-binaries.sh "$version" "$RUNNER_TEMP/binaries"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: binaries
+          path: ${{ runner.temp }}/binaries/
+          if-no-files-found: error
   # The Helm chart and examples/kubernetes (docs/deploy/kubernetes.md) on the last three
   # Kubernetes minors kind supports (design J.18), each node image pinned by digest from the kind
   # release notes. make check already lints and renders the chart's five value sets and fails
@@ -168,14 +209,16 @@ jobs:
           docker image rm "dash:kind-$DASH_KIND_NAME" || true
   # Tag-only and GitHub-hosted (design H.2): the multi-arch image and the chart go to GHCR, with
   # GitHub attestations (build provenance and an SPDX SBOM, once the repository is public) and a
-  # keyless cosign signature of the image digest. Both pushes come first, so a later step that
-  # fails leaves a complete release to sign or attest by hand rather than half of one; X.Y.Z stays
-  # create-only, so a failed push needs a new patch version. The release environment has no
+  # keyless cosign signature of the image digest; the release binaries the binaries job built get
+  # a build-provenance attestation too. Both pushes come first, so a later step that fails leaves
+  # a complete release to sign or attest by hand rather than half of one; X.Y.Z stays
+  # create-only, so a failed push needs a new patch version. It needs the binaries job, so no
+  # image is pushed for a version whose binaries do not build. The release environment has no
   # required reviewer: a tag ruleset limits who can create `v*` tags, and a pull request never
   # reaches this job.
   release:
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: [check, scan, smoke, kind]
+    needs: [check, scan, smoke, kind, binaries]
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     environment: release
@@ -278,7 +321,7 @@ jobs:
             echo "chart: \`$CHARTS/dash --version $VERSION\`"
           } >> "$GITHUB_STEP_SUMMARY"
       # GitHub's artifact attestations need a public repository on this plan; while it is private
-      # these three steps are skipped and the image carries BuildKit's provenance and SBOM only.
+      # these steps are skipped and the image carries BuildKit's provenance and SBOM only.
       - name: Attest build provenance
         if: ${{ !github.event.repository.private }}
         uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
@@ -303,6 +346,18 @@ jobs:
           subject-digest: ${{ steps.build.outputs.digest }}
           sbom-path: ${{ runner.temp }}/sbom.spdx.json
           push-to-registry: true
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        if: ${{ !github.event.repository.private }}
+        with:
+          name: binaries
+          path: ${{ runner.temp }}/binaries
+      # One attestation for every archive and the checksums file; `gh attestation verify
+      # <archive> --owner …` checks one (docs/deploy/binary.md).
+      - name: Attest the release binaries
+        if: ${{ !github.event.repository.private }}
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-path: ${{ runner.temp }}/binaries/*
       - uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
       - name: Sign the image digest (keyless)
         env:
@@ -311,13 +366,15 @@ jobs:
   # The GitHub release of the tag, made once the image and the chart are published and signed. Its
   # title and notes are the version's section of CHANGELOG.md (scripts/release/notes.sh); the check
   # job has already refused a chart version without one, and the release job a tag that is not the
-  # chart's version. This is the only job that may write to the repository: the release job, which
-  # holds the registry and signing permissions, keeps its read-only token. It leaves an existing
-  # release as it is (a re-run, or one a person published while this run was going) and reports
-  # in `created` whether it made one.
+  # chart's version. Its assets are the binaries job's archives and checksums. This is the only job
+  # that may write to the repository: the release job, which holds the registry and signing
+  # permissions, keeps its read-only token. A release that exists already (a re-run, or one a
+  # person published while this run was going) keeps its title and notes and gets the binaries
+  # attached, replacing files of the same name; `created` reports whether this job made the
+  # release.
   github-release:
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: release
+    needs: [release, binaries]
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:
@@ -328,21 +385,28 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - name: Create the release from CHANGELOG.md
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: binaries
+          path: ${{ runner.temp }}/binaries
+      - name: Create the release from CHANGELOG.md, with the binaries
         id: create
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
+          version=${GITHUB_REF_NAME#v}
+          files=("$RUNNER_TEMP"/binaries/dash_"$version"_*)
+          [[ -e ${files[0]} ]] || { echo "::error::no binaries of $version in the artifact"; exit 1; }
           if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
-            echo "the release $GITHUB_REF_NAME exists already; left as it is"
+            echo "the release $GITHUB_REF_NAME exists already; its notes are left as they are, the binaries attached"
+            gh release upload "$GITHUB_REF_NAME" "${files[@]}" --clobber
             exit 0
           fi
-          version=${GITHUB_REF_NAME#v}
           title=$(scripts/release/notes.sh title "$version")
           scripts/release/notes.sh body "$version" > "$RUNNER_TEMP/notes.md"
-          gh release create "$GITHUB_REF_NAME" --verify-tag --title "$title" --notes-file "$RUNNER_TEMP/notes.md"
+          gh release create "$GITHUB_REF_NAME" --verify-tag --title "$title" --notes-file "$RUNNER_TEMP/notes.md" "${files[@]}"
           echo "created=true" >> "$GITHUB_OUTPUT"
   # The release, with its notes, on Discord. GitHub starts no workflow for a release made with the
   # workflow's own token, so the shared workflow that release-announce.yml uses is called from

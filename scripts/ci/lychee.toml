@@ -19,4 +19,8 @@ exclude = [
   # The icon base the docs suggest for ui.iconBaseURL: dash appends "/<name>.png" to it, and the
   # bare prefix is a directory jsDelivr answers 404 for.
   '^https://cdn\.jsdelivr\.net/gh/homarr-labs/dashboard-icons/png/?$',
+  # The installer and the static demo on the landing site: pages.yml publishes site/ from main
+  # only, so a pull request that adds or moves either links it before it is live. The install
+  # smoke (scripts/ci/install-smoke.sh) tests the installer itself.
+  '^https://dash\.techdufus\.com/(install\.sh|demo/)',
 ]
