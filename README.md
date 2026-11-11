@@ -83,13 +83,13 @@ which in demo mode defaults to the listen address. To browse at `localhost`, sta
 **Docker.** Pull the image `ghcr.io/techdufus/dash` (linux/amd64 and linux/arm64) and run it:
 
 ```sh
-docker pull ghcr.io/techdufus/dash:0.16.0
+docker pull ghcr.io/techdufus/dash:0.16.1
 mkdir -p -m 0700 secrets && openssl rand -base64 32 > secrets/dash_secret_key && chmod 0644 secrets/dash_secret_key
 docker run -d --name dash -p 127.0.0.1:8080:8080 -v dash-data:/data \
   -v "$PWD/secrets/dash_secret_key:/run/secrets/dash_secret_key:ro" \
   -e DASH_SECRET_KEY_FILE=/run/secrets/dash_secret_key \
   -e DASH_SERVER_PUBLIC_URL=http://localhost:8080 \
-  ghcr.io/techdufus/dash:0.16.0
+  ghcr.io/techdufus/dash:0.16.1
 docker logs dash 2>&1 | grep -m1 'setup token'   # open its url to set the password
 ```
 
@@ -110,7 +110,7 @@ dash version it runs):
 ```sh
 kubectl create namespace dash
 openssl rand -base64 32 | kubectl -n dash create secret generic dash-secret-key --from-file=secretKey=/dev/stdin
-helm install dash oci://ghcr.io/techdufus/charts/dash --version 0.16.0 --namespace dash \
+helm install dash oci://ghcr.io/techdufus/charts/dash --version 0.16.1 --namespace dash \
   --set secretKey.existingSecret=dash-secret-key --set config.server.publicURL=https://dash.example.com
 ```
 

@@ -4,7 +4,7 @@ One image runs everywhere: `ghcr.io/techdufus/dash:<version>` (distroless, user 
 linux/amd64 and linux/arm64). It listens on `0.0.0.0:8080` for the web UI and the
 API and on `0.0.0.0:8081` for `/healthz` and `/readyz`, and its `HEALTHCHECK` runs
 `dash healthcheck`. To run code that is not released yet, build it from a checkout under the same
-name: `docker build --build-arg VERSION=0.16.0 -t ghcr.io/techdufus/dash:0.16.0 .` (this
+name: `docker build --build-arg VERSION=0.16.1 -t ghcr.io/techdufus/dash:0.16.1 .` (this
 machine's architecture only).
 
 ## docker run
@@ -21,7 +21,7 @@ docker run -d --name dash --restart unless-stopped \
   -v "$PWD/secrets/dash_secret_key:/run/secrets/dash_secret_key:ro" \
   -e DASH_SECRET_KEY_FILE=/run/secrets/dash_secret_key \
   -e DASH_SERVER_PUBLIC_URL=http://localhost:8080 \
-  ghcr.io/techdufus/dash:0.16.0
+  ghcr.io/techdufus/dash:0.16.1
 
 docker logs dash 2>&1 | grep -m1 'setup token'
 ```
