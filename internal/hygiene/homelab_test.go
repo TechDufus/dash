@@ -113,6 +113,8 @@ var allowlist = []allow{
 		"D4: the copyright holder (J.1)"},
 	{".github/CODEOWNERS", j("tech", "dufus"), regexp.MustCompile(`@` + owner + `\b`),
 		"D4: the code owner"},
+	{".github/workflows/release-announce.yml", j("tech", "dufus"), regexp.MustCompile(`uses: ` + owner + `/\.github/\.github/workflows/release-announce\.yml@[0-9a-f]{40}\b`),
+		"the shared release announcement workflow in the owner's .github repository, pinned to a commit"},
 	{"internal/secret/resolve.go", j("op", "://"), regexp.MustCompile(regexp.QuoteMeta(j(`strings.HasPrefix(raw, "op`, `://")`))),
 		"dash refuses 1Password references by their scheme"},
 	{"internal/secret/resolve.go", j("op", "://"), regexp.MustCompile(regexp.QuoteMeta(j("%s: op", ":// references are not built in"))),
@@ -449,6 +451,10 @@ func TestDenylistScanCatchesEveryTermAndHonoursTheAllowlist(t *testing.T) {
 	tr.write("app.txt", j("io.github.", owner, ".dash\n"))
 	tr.write("LICENSE", j("Copyright (c) 2026 Matthew De", "Garmo (", owner, ")\n"))
 	tr.write(".github/CODEOWNERS", j("* @", owner, "\n"))
+	// The shared workflow is excused only when pinned to a commit: line 2's branch still hits.
+	tr.write(".github/workflows/release-announce.yml", j("    uses: ", owner, "/.github/.github/workflows/release-announce.yml@", strings.Repeat("a", 40), "\n",
+		"    uses: ", owner, "/.github/.github/workflows/release-announce.yml@main\n"))
+	want = append(want, hit{".github/workflows/release-announce.yml", 2, j("tech", "dufus")}.String())
 	tr.write("docs/verify.md", j("gh attestation verify oci://ghcr.io/", owner, "/dash:1.0.0 --owner ", owner, "\n"))
 	// resolve.go: the two pinned strings, then another reference on line 5, which still hits.
 	tr.write("internal/secret/resolve.go", j("package secret\n\nfunc f(raw string) bool { return strings.HasPrefix(raw, \"op", "://\") }\n",

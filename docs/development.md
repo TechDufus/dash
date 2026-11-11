@@ -266,6 +266,6 @@ DASH_SKIP_HOOKS=1 git push
 4. Deploy that tag and digest wherever dash runs.
 5. Publish the GitHub release for the tag with its notes. That starts the `release-announce`
    workflow, which posts the release and its notes to Discord through the webhook in the
-   repository secret `DISCORD_RELEASES_WEBHOOK`; its steps are the shared workflow of
-   `TechDufus/.github`, pinned to a commit. `gh workflow run release-announce.yml -f tag=vX.Y.Z`
+   repository secret `DISCORD_RELEASES_WEBHOOK`; its steps are a shared workflow in the owner's
+   `.github` repository, pinned to a commit. `gh workflow run release-announce.yml -f tag=vX.Y.Z`
    announces a release again.

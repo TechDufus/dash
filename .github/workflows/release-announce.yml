@@ -1,10 +1,10 @@
 name: release-announce
 
-# Posts a published GitHub release, with its notes, to Discord. The steps are the shared workflow
-# of TechDufus/.github, pinned to a commit; the webhook URL is the repository secret
-# DISCORD_RELEASES_WEBHOOK, passed by name. Publishing a release starts it (dash's releases are
-# published by a person, not by a workflow's own token, which would start nothing); a manual run
-# announces an existing release again.
+# Posts a published GitHub release, with its notes, to Discord. The steps are the shared
+# release-announce workflow in the owner's .github repository, pinned to a commit; the webhook URL
+# is the repository secret DISCORD_RELEASES_WEBHOOK, passed by name. Publishing a release starts
+# it (dash's releases are published by a person, not by a workflow's own token, which would start
+# nothing); a manual run announces an existing release again.
 on:
   release:
     types: [published]
