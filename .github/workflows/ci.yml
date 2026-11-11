@@ -312,8 +312,9 @@ jobs:
   # title and notes are the version's section of CHANGELOG.md (scripts/release/notes.sh); the check
   # job has already refused a chart version without one, and the release job a tag that is not the
   # chart's version. This is the only job that may write to the repository: the release job, which
-  # holds the registry and signing permissions, keeps its read-only token. A re-run leaves an
-  # existing release as it is.
+  # holds the registry and signing permissions, keeps its read-only token. It leaves an existing
+  # release as it is (a re-run, or one a person published while this run was going) and reports
+  # in `created` whether it made one.
   github-release:
     if: startsWith(github.ref, 'refs/tags/v')
     needs: release
@@ -321,11 +322,14 @@ jobs:
     timeout-minutes: 5
     permissions:
       contents: write
+    outputs:
+      created: ${{ steps.create.outputs.created }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
       - name: Create the release from CHANGELOG.md
+        id: create
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
@@ -339,11 +343,14 @@ jobs:
           title=$(scripts/release/notes.sh title "$version")
           scripts/release/notes.sh body "$version" > "$RUNNER_TEMP/notes.md"
           gh release create "$GITHUB_REF_NAME" --verify-tag --title "$title" --notes-file "$RUNNER_TEMP/notes.md"
+          echo "created=true" >> "$GITHUB_OUTPUT"
   # The release, with its notes, on Discord. GitHub starts no workflow for a release made with the
   # workflow's own token, so the shared workflow that release-announce.yml uses is called from
-  # here too, pinned to the same commit.
+  # here too, pinned to the same commit. Only a release this run made is announced: one that
+  # existed already was announced when it was published, by release-announce.yml or an earlier
+  # attempt of this run.
   announce:
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: needs.github-release.outputs.created == 'true'
     needs: github-release
     permissions:
       contents: read

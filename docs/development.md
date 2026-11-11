@@ -271,7 +271,9 @@ DASH_SKIP_HOOKS=1 git push
    is the only job with write access to the repository. The `announce` job then posts the release
    and its notes to Discord through the webhook in the repository secret
    `DISCORD_RELEASES_WEBHOOK`; its steps are a shared workflow in the owner's `.github`
-   repository, pinned to a commit.
+   repository, pinned to a commit. Do not create the release by hand for a run that is going
+   well: a release that exists already is left as it is, with whatever notes it has, and CI does
+   not announce it again.
 5. If the `release` job failed after its pushes and you finished the release by hand, publish the
    GitHub release by hand too (`scripts/release/notes.sh title` and `body` print what CI would
    have used): the `release-announce` workflow announces a release that a person publishes.
